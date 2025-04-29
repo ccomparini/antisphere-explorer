@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Live Shader Editor</title>
+  <style>
+    body, html { margin: 0; height: 100%; display: flex; flex-direction: row; }
+    canvas { flex: 1; display: block; height: 100%; }
+    textarea {
+      width: 400px; height: 50%;
+      font-family: monospace; font-size: 12px;
+      background: #111; color: #0f0; padding: 8px;
+      border: none; resize: vertical;
+    }
+    #editor { display: flex; flex-direction: column; width: 400px; }
+  </style>
+</head>
+<body>
+  <canvas id="glCanvas"></canvas>
+  <div id="editor">
+    <textarea id="vertShader"></textarea>
+    <textarea id="fragShader"></textarea>
+  </div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
+
