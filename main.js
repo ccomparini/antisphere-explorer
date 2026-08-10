@@ -1,3 +1,4 @@
+/*
 const canvas = document.getElementById("glCanvas");
 const gl = canvas.getContext("webgl2");
 canvas.width = window.innerWidth - 400;
@@ -5,6 +6,7 @@ canvas.height = window.innerHeight;
 
 const vertEditor = document.getElementById("vertShader");
 const fragEditor = document.getElementById("fragShader");
+ */
 
 // Load initial shaders
 async function loadInitialShaders() {
@@ -42,7 +44,7 @@ function createProgram(vsSrc, fsSrc) {
     return prog;
 }
 
-function setupGeometry() {
+function setUpGeometry() {
     const posBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
@@ -62,7 +64,7 @@ function compileAndDraw() {
     if (newProgram) {
         program = newProgram;
         gl.useProgram(program);
-        setupGeometry();
+        setUpGeometry();
         draw();
     }
 }
@@ -81,8 +83,10 @@ function draw(time = 0) {
     requestAnimationFrame(draw);
 }
 
+/*
 vertEditor.addEventListener("input", compileAndDraw);
 fragEditor.addEventListener("input", compileAndDraw);
 
 loadInitialShaders();
+ */
 

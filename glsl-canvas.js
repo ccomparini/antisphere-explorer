@@ -19,16 +19,40 @@ class GLSLCanvas extends HTMLElement {
       return;
     }
 
-    const vsURL = this.getAttribute("data-vertex-shader");
-    const fsURL = this.getAttribute("data-fragment-shader");
+    const vsURL = this.getAttribute("data-vertex-shader")   || self.defaultVertexShaderURL();
+    const fsURL = this.getAttribute("data-fragment-shader") || self.defaultFragmentShaderURL();
 
     Promise.all([fetch(vsURL), fetch(fsURL)])
       .then(responses => Promise.all(responses.map(r => r.text())))
       .then(([vsSource, fsSource]) => {
+        console.log(`received a result from .. grrr ${vsURL} or ${fsURL}`);
         this.program = this.initShaderProgram(vsSource, fsSource);
         this.initUniformsFromAttributes();
         this.animate();
       });
+  }
+
+  urlifyShaderSource(src) {
+    return `data:text/plain,${encodeURI(src)}`
+  }
+  
+  defaultVertexShaderURL() {
+    // pass-through vertex shader:
+    return self.urlifyShaderSource(`
+        attribute vec4 vPosition;  // vertex attribute
+        void main() {
+            gl_Position = vPosition;
+        }
+    `);
+  }
+
+  defaultFragmentShaderURL() {
+    // extremely ugly plaid-ish pattern
+    return self.urlifyShaderSource(`
+        void main() {
+            gl_FragColor = vec4(0.4, sin(gl_FragCoord.x)/2.0, cos(gl_FragCoord.y)/2.0, 1.0);
+        }
+    `);
   }
 
   initShaderProgram(vsSource, fsSource) {
@@ -78,13 +102,18 @@ class GLSLCanvas extends HTMLElement {
     const loc = gl.getUniformLocation(this.program, name);
     if (!loc) return;
 
+    // so uhh this only supports floats, which is ok for now,
+    // but I think we mgiht want the types to be explicit
     if (typeof value === "number") gl.uniform1f(loc, value);
     else if (value.length === 2) gl.uniform2f(loc, ...value);
     else if (value.length === 3) gl.uniform3f(loc, ...value);
     else if (value.length === 4) gl.uniform4f(loc, ...value);
     else if (value.length === 16) gl.uniformMatrix4fv(loc, false, value);
+    else console.error(`we are unable to guess the type of uniform '${name}`);
   }
 
+// XXX axe this;  don't do uniforms in the tags (unless it's to define what the possible uniforms are,
+// but actually that has to come from the gl code, so just axe this)
   initUniformsFromAttributes() {
     const dataset = this.dataset;
     for (const key in dataset) {
@@ -109,14 +138,16 @@ class GLSLCanvas extends HTMLElement {
     const gl = this.gl;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    gl.useProgram(this.program);
+    gl.useProgram(this.program);  // XXX does this need to be called each time?
 
     // Update uniforms
+    // XXX figure out a way to only update the ones which changed, if that's possible
     for (const name in this.uniforms) {
       this.updateUniform(name, this.uniforms[name]);
     }
 
-    // Draw a fullscreen triangle
+    // creates the "full screen" triangle we'll use as a
+    // rendering surface
     if (!this.fullscreenBuffer) {
       this.fullscreenBuffer = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fullscreenBuffer);
