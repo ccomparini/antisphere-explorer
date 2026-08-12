@@ -1,0 +1,149 @@
+<head>
+  <style>
+    body {
+      font-family: math;
+    }
+    div {
+      margin-top: 1em;
+    }
+    br + math {
+      margin-top: 1em;
+      margin-left: 3em;
+      margin-bottom: 1em;
+    }
+    .m-sca {
+      /* scalar quantity */
+    }
+    .m-vec {
+      /* vector quantity */
+    }
+    .m-agg {
+      /* aggregate (sets etc) */
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+<div>
+<p>A plane comprised of the set of points <span class="m-aggregate">R</span> can be represented in <a href="https://en.wikipedia.org/wiki/Euclidean_planes_in_three-dimensional_space#Point%E2%80%93normal_form_and_general_form_of_the_equation_of_a_plane">point-normal</a> form using 2 vectors - an arbitrary point <span class="m-vec">R</span><sub>0</sub> on that plane, and a vector <span class="m-vec">n</span> normal to that plane using the equation:<br>
+<math>
+  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mo>(</mo> <mi class="m-vec">R</mi> <mo>&minus;</mo> <msub><mi class="m-vec">R</mi><mn>0</mn></msub> <mo>)</mo> <mo>=</mo> <mn>0</mn>
+</math>.
+
+<p>If we constrain the choice of <span class="m-vec">R</span><sub>0</sub> such that it's on the line through the origin in the direction of the normal vector, we can write:<br>
+<math>
+  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mo>(</mo> <mi class="m-vec">R</mi> <mo>&minus;</mo> <mi class="m-sca">a</mi><mi class="m-vec">n</mi> <mo>)</mo> <mo>=</mo> <mn>0</mn>
+</math><br>
+where <span class="m-sca">a</span> is the distance from the origin along the line in the direction of <span class="m-vec">n</span>.
+
+<p>Expanding, we have:<br>
+<math>
+  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mi class="m-agg">R</mi> <mo>&minus;</mo> <mi class="m-sca">a</mi> <mo>(</mo> <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mi class="m-vec">n</mi> <mo>)</mo>
+  <mo>=</mo><mn>0</mn>
+</math>.
+
+<p>Now, if we also constrain <span class="m-vec">n</span> to be a unit vector, then <span class="m-vec">n</span>&sdot;<span class="m-vec">n</span> = 1, and we obtain:<br>
+<math>
+  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mi class="m-agg">R</mi> <mo>=</mo> <mi class="m-sca">a</mi>
+</math>.
+
+<p>Based on this extremely simple and useful formula, points can be said to be in the subspace "inside" the plane if:<br>
+<math>
+  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mi class="m-agg">R</mi> <mo>&lt;</mo> <mi>a</mi>
+</math>.
+
+<p> Thus, planes can be encoded compactly and conveniently in 2 components: { <span class="m-vec">n</span>, <span class="m-sca">a</span> }.
+</div>
+
+<div>
+<p>Enough introduction.  Say we wish to extend this encoding to spheres.
+Points <span class="m-agg">R</span> are within a sphere defined by 2 diametrically opposed points <span class="m-agg">P</span> where <span class="m-agg">P</span>&sube;<span class="m-agg">R</span> iff:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>(</mo>
+  <msub><mi class="m-vec">P</mi><mn>0</mn></msub>
+  <mo>&minus;</mo><mi class="m-vec">R</mi><mo>)</mo>
+  <mo>&sdot;</mo>
+  <mo>(</mo>
+  <msub><mi class="m-vec">P</mi><mn>1</mn></msub>
+  <mo>&minus;</mo><mi class="m-vec">R</mi><mo>)</mo>
+  <mo>&lt;</mo><mn>0</mn>
+</math>,
+
+<div>
+Now, for our representation, let us constrain the points <span class="m-agg">P</span> such that they are colinear with the origin at distances <span class="m-sca">a</span> and <span class="m-sca">b</span>.  Let <span class="m-vec">n</span> be a unit vector pointing toward the origin of the sphere along that line.  So:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtable>
+    <mtr>
+      <mtd> <msub><mi class="m-vec">P</mi><mn>0</mn></msub> </mtd>
+      <mtd> <mo>=</mo> </mtd>
+      <mtd> <mi>a</mi><mi class="m-vec">n</mi> </mtd>
+    </mtr>
+    <mtr>
+      <mtd> <msub><mi class="m-vec">P</mi><mn>1</mn></msub> </mtd>
+      <mtd> <mo>=</mo> </mtd>
+      <mtd> <mi>b</mi><mi class="m-vec">n</mi> </mtd>
+    </mtr>
+  </mtable>
+</math>
+</div>
+
+<br>Substituting, distributing, and expanding gives:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">R</mi>
+  <mo>&minus;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-sca">a</mi><mi class="m-vec">n</mi>
+  <mo>&minus;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-sca">b</mi><mi class="m-vec">n</mi>
+  <mo>&plus;</mo><mi>a</mi><mi>b</mi>
+  <mo>&lt;</mo><mn>0</mn>
+</math>.
+</div>
+
+<div>
+If we divide the separate components by b and take the limit b &rarr; &infin; for each, we obtain:</br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mfrac>
+    <mrow><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">R</mi></mrow>
+    <mi>b</mi>
+  </mfrac>
+  <mo>&#x2192;</mo><mn>0</mn>
+</math><br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mfrac>
+    <mrow><mi class="m-vec">R</mi><mo>&sdot;</mo><mo>(</mo><mi>a</mi><mi class="m-vec">n</mi><mo>)</mo></mrow>
+    <mi>b</mi>
+  </mfrac>
+  <mo>&#x2192;</mo><mn>0</mn>
+</math><br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mfrac>
+    <mrow><mi class="m-vec">R</mi><mo>&sdot;</mo><mo>(</mo><mi>b</mi><mi class="m-vec">n</mi><mo>)</mo></mrow>
+    <mi>b</mi>
+  </mfrac>
+  <mo>&#x2192;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
+</math><br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mfrac><mrow><mi>a</mi><mi>b</mi></mrow><mi>b</mi></mfrac>
+  <mo>&#x2192;</mo><mi>a</mi>
+</math>
+</div>
+
+<div>
+We then observe the limiting result as b goes to infinity is our original plane equation:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>&minus;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
+  <mo>&plus;</mo><mi>a</mi><mo>&lt;</mo><mn>0</mn>
+  <mo>,</mo><mspace width="1em"/>
+  <mtext>i.e.,</mtext><mspace width="0.5em"/>
+  <mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi><mo>&gt;</mo><mi>a</mi>
+</math>
+<i>but with the normal in the wrong direction? grrr</i>
+<p>Now we have a uniform encoding for spheres and planes, wherein planes are just spheres with one of 2 diametric points at an infinite distance along a diametric line throught the origin.
+</div>
+
+<script>
+document.querySelectorAll('.m-vec').forEach(el => {
+   el.textContent += '\u20D7';
+});
+</script>
+
+</body>
