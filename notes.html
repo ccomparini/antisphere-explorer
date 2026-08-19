@@ -58,7 +58,7 @@ where <span class="m-sca">a</span> is the distance from the origin along the lin
 
 <div>
 <p>Enough introduction.  Say we wish to extend this encoding to spheres.
-Points <span class="m-agg">R</span> are within a sphere defined by 2 diametrically opposed points <span class="m-agg">P</span> where <span class="m-agg">P</span>&sube;<span class="m-agg">R</span> iff:<br>
+Points <span class="m-agg">R</span> are within a sphere defined by 2 diametrically opposed points <span class="m-agg">P</span> on the surface of that sphere iff:<br>
 <math xmlns="http://www.w3.org/1998/Math/MathML">
   <mo>(</mo>
   <msub><mi class="m-vec">P</mi><mn>0</mn></msub>
@@ -71,7 +71,7 @@ Points <span class="m-agg">R</span> are within a sphere defined by 2 diametrical
 </math>,
 
 <div>
-Now, for our representation, let us constrain the points <span class="m-agg">P</span> such that they are colinear with the origin at distances <span class="m-sca">a</span> and <span class="m-sca">b</span>.  Let <span class="m-vec">n</span> be a unit vector pointing toward the origin of the sphere along that line.  So:<br>
+Similarly to the plane equation, we constrain the points <span class="m-agg">P</span> such that they are colinear with the origin, and express each as a distance times the unit normal at the point on the surface of the sphere.  Since the points are diametrically opposed on a sphere, the normals are opposite each other, and we can write them both in terms of the normal <span class="m-vec">n</span> at <span class="m-vec">P</span><sub>0</sub>:<br>
 <math xmlns="http://www.w3.org/1998/Math/MathML">
   <mtable>
     <mtr>
@@ -82,7 +82,7 @@ Now, for our representation, let us constrain the points <span class="m-agg">P</
     <mtr>
       <mtd> <msub><mi class="m-vec">P</mi><mn>1</mn></msub> </mtd>
       <mtd> <mo>=</mo> </mtd>
-      <mtd> <mi>b</mi><mi class="m-vec">n</mi> </mtd>
+      <mtd> <mo>-</mo><mi>b</mi><mi class="m-vec">n</mi> </mtd>
     </mtr>
   </mtable>
 </math>
@@ -92,52 +92,51 @@ Now, for our representation, let us constrain the points <span class="m-agg">P</
 <math xmlns="http://www.w3.org/1998/Math/MathML">
   <mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">R</mi>
   <mo>&minus;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-sca">a</mi><mi class="m-vec">n</mi>
-  <mo>&minus;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-sca">b</mi><mi class="m-vec">n</mi>
-  <mo>&plus;</mo><mi>a</mi><mi>b</mi>
+  <mo>&plus;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-sca">b</mi><mi class="m-vec">n</mi>
+  <mo>&minus;</mo><mi>a</mi><mi>b</mi>
   <mo>&lt;</mo><mn>0</mn>
 </math>.
 </div>
 
 <div>
-If we divide the separate components by b and take the limit b &rarr; &infin; for each, we obtain:</br>
+Multiplying both sides by 1/<span class="m-sca">b</span> and taking the limit <span class="m-sca">b</span> &rarr; &infin; for each, we obtain:</br>
 <math xmlns="http://www.w3.org/1998/Math/MathML">
   <mfrac>
     <mrow><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">R</mi></mrow>
     <mi>b</mi>
   </mfrac>
-  <mo>&#x2192;</mo><mn>0</mn>
+  <mo>&rarr;</mo><mn>0</mn>
 </math><br>
 <math xmlns="http://www.w3.org/1998/Math/MathML">
   <mfrac>
     <mrow><mi class="m-vec">R</mi><mo>&sdot;</mo><mo>(</mo><mi>a</mi><mi class="m-vec">n</mi><mo>)</mo></mrow>
     <mi>b</mi>
   </mfrac>
-  <mo>&#x2192;</mo><mn>0</mn>
+  <mo>&rarr;</mo><mn>0</mn>
 </math><br>
 <math xmlns="http://www.w3.org/1998/Math/MathML">
   <mfrac>
     <mrow><mi class="m-vec">R</mi><mo>&sdot;</mo><mo>(</mo><mi>b</mi><mi class="m-vec">n</mi><mo>)</mo></mrow>
     <mi>b</mi>
   </mfrac>
-  <mo>&#x2192;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
+  <mo>&rarr;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
 </math><br>
 <math xmlns="http://www.w3.org/1998/Math/MathML">
-  <mfrac><mrow><mi>a</mi><mi>b</mi></mrow><mi>b</mi></mfrac>
-  <mo>&#x2192;</mo><mi>a</mi>
+  <mfrac><mrow><mo>-</mo><mi>a</mi><mi>b</mi></mrow><mi>b</mi></mfrac>
+  <mo>&rarr;</mo><mo>-</mo><mi>a</mi>
 </math>
 </div>
 
 <div>
 We then observe the limiting result as b goes to infinity is our original plane equation:<br>
 <math xmlns="http://www.w3.org/1998/Math/MathML">
-  <mo>&minus;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
-  <mo>&plus;</mo><mi>a</mi><mo>&lt;</mo><mn>0</mn>
+  <mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
+  <mo>&minus;</mo><mi>a</mi><mo>&lt;</mo><mn>0</mn>
   <mo>,</mo><mspace width="1em"/>
   <mtext>i.e.,</mtext><mspace width="0.5em"/>
-  <mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi><mo>&gt;</mo><mi>a</mi>
+  <mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi><mo>&lt;</mo><mi>a</mi>
 </math>
-<i>but with the normal in the wrong direction? grrr</i>
-<p>Now we have a uniform encoding for spheres and planes, wherein planes are just spheres with one of 2 diametric points at an infinite distance along a diametric line throught the origin.
+<p>Now we have a uniform encoding for spheres and planes, wherein planes are just spheres with one of 2 diametric points at an infinite distance from the origin along its corresponding normal.
 </div>
 
 <script>
