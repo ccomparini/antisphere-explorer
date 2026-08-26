@@ -24,41 +24,251 @@
   </style>
 </head>
 <body>
+
+<div id="plane-equation">
+<p>As we all know, a plane <span class="m-agg">R</span>
+can be expressed as a unit surface normal
+<span class="m-vec">n</span> times the (signed) distance <span class="m-sca">a</span>
+along <span class="m-vec">n</span> from the origin to the plane:<br>
+
+<math>
+  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mi class="m-agg">R</mi> <mo>&equals;</mo> <mi class="m-sca">a</mi>
+</math>.
+
+<p>Points <span class="m-agg">R</span> are "inside" the plane if they satisfy:<br>
+<math>
+  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mi class="m-agg">R</mi> <mo>&lt;</mo> <mi class="m-sca">a</mi>
+</math>.
+</div>
+
 <div>
-<p>A plane comprised of the set of points <span class="m-aggregate">R</span> can be represented in <a href="https://en.wikipedia.org/wiki/Euclidean_planes_in_three-dimensional_space#Point%E2%80%93normal_form_and_general_form_of_the_equation_of_a_plane">point-normal</a> form using 2 vectors - an arbitrary point <span class="m-vec">R</span><sub>0</sub> on that plane, and a vector <span class="m-vec">n</span> normal to that plane using the equation:<br>
-<math>
-  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mo>(</mo> <mi class="m-vec">R</mi> <mo>&minus;</mo> <msub><mi class="m-vec">R</mi><mn>0</mn></msub> <mo>)</mo> <mo>=</mo> <mn>0</mn>
-</math>.
+<p>We're going to expand this to include spheres.  The interior 
+<span class="m-agg">R</span> of a given sphere can be represented by 2
+diametrically opposed surface points <span class="m-agg">P</span>:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mo>(</mo>
+  <msub><mi class="m-vec">P</mi><mn>0</mn></msub>
+  <mo>&minus;</mo><mi class="m-agg">R</mi><mo>)</mo>
+  <mo>&sdot;</mo>
+  <mo>(</mo>
+  <msub><mi class="m-vec">P</mi><mn>1</mn></msub>
+  <mo>&minus;</mo><mi class="m-agg">R</mi><mo>)</mo>
+  <mo>&lt;</mo><mn>0</mn>
+</math>,
 
-<p>If we constrain the choice of <span class="m-vec">R</span><sub>0</sub> such that it's on the line through the origin in the direction of the normal vector, we can write:<br>
-<math>
-  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mo>(</mo> <mi class="m-vec">R</mi> <mo>&minus;</mo> <mi class="m-sca">a</mi><mi class="m-vec">n</mi> <mo>)</mo> <mo>=</mo> <mn>0</mn>
+<div>
+Let's first constrain the points <span class="m-agg">P</span> such that they
+are colinear with the origin.  Then, we can express each point in
+<span class="m-agg">P</span> as the signed distance from the origin times
+the unit surface normal at the corresponding point.  Since the points are
+diametrically opposed on a sphere, the normals are opposite each other, and
+we can write them both in terms
+of the normal <span class="m-vec">n</span> at <span class="m-vec">P</span><sub>0</sub>,
+with distances from the origin <span class="m-sca">a</span> and <span class="m-sca">b</span>:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtable>
+    <mtr>
+      <mtd> <msub><mi class="m-vec">P</mi><mn>0</mn></msub> </mtd>
+      <mtd> <mo>&equals;</mo> </mtd>
+      <mtd> <mi>a</mi><mi class="m-vec">n</mi> </mtd>
+    </mtr>
+    <mtr>
+      <mtd> <msub><mi class="m-vec">P</mi><mn>1</mn></msub> </mtd>
+      <mtd> <mo>&equals;</mo> </mtd>
+      <mtd> <mo>-</mo><mi>b</mi><mi class="m-vec">n</mi> </mtd>
+    </mtr>
+  </mtable>
+</math>
+</div>
+
+<div id="quadratic-vector-sphere-equation">
+Substituting, distributing, and expanding gives:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">R</mi>
+  <mo>&minus;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-sca">a</mi><mi class="m-vec">n</mi>
+  <mo>&plus;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-sca">b</mi><mi class="m-vec">n</mi>
+  <mo>&minus;</mo><mi>a</mi><mi>b</mi>
+  <mo>&lt;</mo><mn>0</mn>
+</math>.
+</div>
+
+<div id="sphere-limits-infinite-b">
+Multiplying both sides by 1/<span class="m-sca">b</span> and taking the limit <span class="m-sca">b</span> &rarr; &infin; for each, we obtain:</br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mfrac>
+    <mrow><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">R</mi></mrow>
+    <mi>b</mi>
+  </mfrac>
+  <mo>&rarr;</mo><mn>0</mn>
 </math><br>
-where <span class="m-sca">a</span> is the distance from the origin along the line in the direction of <span class="m-vec">n</span>.
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mfrac>
+    <mrow><mi class="m-vec">R</mi><mo>&sdot;</mo><mo>(</mo><mi>a</mi><mi class="m-vec">n</mi><mo>)</mo></mrow>
+    <mi>b</mi>
+  </mfrac>
+  <mo>&rarr;</mo><mn>0</mn>
+</math><br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mfrac>
+    <mrow><mi class="m-vec">R</mi><mo>&sdot;</mo><mo>(</mo><mi>b</mi><mi class="m-vec">n</mi><mo>)</mo></mrow>
+    <mi>b</mi>
+  </mfrac>
+  <mo>&rarr;</mo><mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
+</math><br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mfrac><mrow><mo>-</mo><mi>a</mi><mi>b</mi></mrow><mi>b</mi></mfrac>
+  <mo>&rarr;</mo><mo>-</mo><mi>a</mi>
+</math>
+</div>
 
-<p>Expanding, we have:<br>
-<math>
-  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mi class="m-agg">R</mi> <mo>&minus;</mo> <mi class="m-sca">a</mi> <mo>(</mo> <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mi class="m-vec">n</mi> <mo>)</mo>
-  <mo>=</mo><mn>0</mn>
-</math>.
+<div id="infinite-b-as-plane">
+We then observe the limiting result as b goes to infinity:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi class="m-vec">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
+  <mo>&minus;</mo><mi>a</mi><mo>&lt;</mo><mn>0</mn>
+</math>,<br>
+ is our original plane equation:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi class="m-vec">n</mi><mo>&sdot;</mo><mi class="m-agg">R</mi><mo>&lt;</mo><mi>a</mi>
+</math>,<br>
+so we have a uniform way to express spheres and planes.
+However, representing a plane this way requires infinite values for
+<span class="m-sca">b<span>.
+</div>
 
-<p>Now, if we also constrain <span class="m-vec">n</span> to be a unit vector, then <span class="m-vec">n</span>&sdot;<span class="m-vec">n</span> = 1, and we obtain:<br>
-<math>
-  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mi class="m-agg">R</mi> <mo>=</mo> <mi class="m-sca">a</mi>
-</math>.
+<div id="k-definition">
+To avoid the need for infinite values, let's reformulate in terms of curvature
+<span class="m-sca">k</span>:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi class="m-sca">k</mi> <mo>&equals;</mo>
+  <mfrac>
+    <mrow><mn>1</mn></mrow>
+    <mrow>
+      <mo fence=true>|</mo>
+        <mi class="m-sca">a</mi> <mo>&plus;</mo> <mi class="m-sca">b</mi>
+      <mo fence=true>|</mo>
+    </mrow>
+  </mfrac>
+</math><br>
+Note that 
+|<span class="m-sca">a</span> &plus; <span class="m-sca">b</span>|
+is the Euclidean diameter of the sphere.
+</div>
 
-<p>Based on this extremely simple and useful formula, points can be said to be in the subspace "inside" the plane if:<br>
-<math>
-  <mi class="m-vec">n</mi> <mo>&sdot;</mo> <mi class="m-agg">R</mi> <mo>&lt;</mo> <mi>a</mi>
-</math>.
+<div>
+If we rewrite our unifying inequality thus:<br>
 
-<p> Thus, planes can be encoded compactly and conveniently in 2 components: { <span class="m-vec">n</span>, <span class="m-sca">a</span> }.
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi class="m-agg">R</mi><mo>&sdot;</mo><mi class="m-agg">R</mi>
+  <mo>&plus;</mo>
+  <mo fence=true>(</mo>
+    <mi class="m-sca">b</mi><mo>&minus;</mo><mi class="m-sca">a</mi>
+  <mo fence=true>)</mo>
+  <mfence>
+  <mo fence=true>(</mo>
+    <mi class="m-agg">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
+  <mo fence=true>)</mo>
+  <mo>&minus;</mo>
+  <mi class="m-sca">a</mi><mi class="m-sca">b</mi>
+  <mo>&equals;</mo><mn>0</mn>
+</math><br>
+</div>
+
+<div>
+... we can use our definition of curvature k:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi class="m-sca">b</mi>
+  <mo>&equals;</mo>
+  <mfrac>
+    <mrow><mn>1</mn></mrow>
+    <mrow><mi class="m-sca">k</mi></mrow>
+  </mfrac>
+  <mo>&minus;</mo> <mi class="m-sca">a</mi>
+
+  <mspace width="1em"></mspace> <mo>&there4;</mo> <mspace width="1em"></mspace>
+
+  <mi class="m-sca">b</mi> <mo>&minus;</mo><mi class="m-sca">a</mi> 
+  <mo>&equals;</mo>
+  <mfrac>
+    <mrow><mn>1</mn></mrow>
+    <mrow><mi class="m-sca">k</mi></mrow>
+  </mfrac>
+  <mo>&minus;</mo> <mn>2</mn><mi class="m-sca">a</mi> 
+  
+  <mspace width="1em"></mspace> <mtext>and</mtext> <mspace width="1em"></mspace>
+  <mo>&minus;</mo><mi class="m-sca">a</mi><mi class="m-sca">b</mi>
+  <mo>&equals;</mo>
+  <mfrac>
+    <mrow><mo>&minus;</mo><mi class="m-sca">a</mi></mrow>
+    <mrow><mi class"m-sca">k</mi></mrow>
+  </mfrac>
+  <mo>&plus;</mo> <msup><mi class="m-sca">a</mi><mn>2</mn></msup>
+</math><br>
+</div>
+
+<div id="eliminating-b">
+... to eliminate <span class="m-sca">b</span>:<br>
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi class="m-agg">R</mi><mo>&sdot;</mo><mi class="m-agg">R</mi>
+
+  <mo>&plus;</mo>
+  <mo fence=true>(</mo>
+    <mfrac>
+      <mrow><mn>1</mn></mrow>
+      <mrow><mi class="m-sca">k</mi></mrow>
+    </mfrac>
+    <mo>&minus;</mo> <mn>2</mn><mi class="m-sca">a</mi> 
+  <mo fence=true>)</mo>
+  <mo fence=true>(</mo>
+    <mi class="m-agg">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
+  <mo fence=true>)</mo>
+
+  <mo>&minus;</mo>
+  <mfrac>
+    <mrow><mi class="m-sca">a</mi></mrow>
+    <mrow><mi class"m-sca">k</mi></mrow>
+  </mfrac>
+  <mo>&plus;</mo> <msup><mi class="m-sca">a</mi><mn>2</mn></msup>
+
+  <mo>&lt;</mo><mn>0</mn>
+</math>,<br>
+</div>
+
+<div id="final-antisphere-inequality">
+... and because <span class="m-sca">k</span> &ge; 0, we can multiply
+both sides by <span class="m-sca">k</span> and eliminate
+the singularity at <span class="m-sca">k</span> &equals; 0.
+So, our final unifying formula is:<br>
+
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi class="m-sca">k</mi><mi class="m-agg">R</mi><mo>&sdot;</mo><mi class="m-agg">R</mi>
+
+  <mo>&plus;</mo>
+  <mo fence=true>(</mo>
+    <mn>1</mn>
+    <mo>&minus;</mo> <mn>2</mn><mi class="m-sca">a</mi><mi class="m-sca">k</mi> 
+  <mo fence=true>)</mo>
+  <mo fence=true>(</mo>
+    <mi class="m-agg">R</mi><mo>&sdot;</mo><mi class="m-vec">n</mi>
+  <mo fence=true>)</mo>
+
+  <mo>&minus;</mo>
+  <mi class="m-sca">a</mi>
+  <mo>&plus;</mo> <mi class="m-sca">k</mi><msup><mi class="m-sca">a</mi><mn>2</mn></msup>
+
+  <mo>&lt;</mo><mn>0</mn>
+</math><br>
+
+Thus, we have a unifying formula for planes and spheres in <span class="m-vec">n</span>, <span class="m-sca">a</span>, and <span class="m-sca">k</span>.
+<p>Planes are simply spheres with <span class="m-sca">k</span> &equals; 0.
+<p>This works in any dimension.
 </div>
 
 <script>
 document.querySelectorAll('.m-vec').forEach(el => {
-   el.textContent += '\u20D7';
+   el.textContent += '\u20D7'; // add COMBINING RIGHT ARROW ABOVE
 });
 </script>
+
 </body>
 
