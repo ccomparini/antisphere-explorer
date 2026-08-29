@@ -81,19 +81,19 @@ function union(t, other) {
 // ---------------------------------------------------------------------------
 
 // A sphere with a flat top cut off and a spherical bite taken out.
-const bitten = node(sphere([-1.35, 0.25, 0], 1.15),
-  node(plane([0, 1, 0], 0.95),
-    node(sphere([-0.75, 0.85, 0.8], 0.8), 'empty', 'solid'),
+const bitten = node(sphere([-1.35, 0, 0.25], 1.15),
+  node(plane([0, 0, 1], 0.95),
+    node(sphere([-0.75, 0.8, 0.85], 0.8), 'empty', 'solid'),
     'empty'),
   'empty');
 
 // A lens: the intersection of two overlapping spheres.
-const lens = node(sphere([0.95, 0.15, 0], 1.15),
-  node(sphere([1.85, 0.15, 0], 1.15), 'solid', 'empty'),
+const lens = node(sphere([0.95, 0, 0.15], 1.15),
+  node(sphere([1.85, 0, 0.15], 1.15), 'solid', 'empty'),
   'empty');
 
 // Ground half-space, then the two objects above it.
-const scene = node(plane([0, 1, 0], -1.0), 'solid', union(bitten, lens));
+const scene = node(plane([0, 0, 1], -1.0), 'solid', union(bitten, lens));
 
 function flatten(tree) {
   const out = [], memo = new Map();
@@ -269,7 +269,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
 }
 
 fn sky(d : vec3<f32>) -> vec3<f32> {
-  let h = 0.5 * (d.y + 1.0);
+  let h = 0.5 * (d.z + 1.0);
   return mix(vec3<f32>(0.055, 0.062, 0.075), vec3<f32>(0.13, 0.17, 0.24), h);
 }
 
@@ -303,13 +303,13 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
 
       var alb = tint(h.node);
       if (nd.k == 0.0) {
-        let ck = fract((floor(P.x) + floor(P.z)) * 0.5);
-        alb = mix(vec3<f32>(0.30, 0.32, 0.35), vec3<f32>(0.20, 0.22, 0.25), step(0.25, ck));
+        let ck = fract((floor(P.x) + floor(P.y)) * 0.5);
+        alb = mix(vec3<f32>(0.34, 0.36, 0.39), vec3<f32>(0.15, 0.16, 0.19), step(0.25, ck));
       }
 
       let L = normalize(cam.light);
       let diff = max(dot(N, L), 0.0);
-      let amb = 0.10 + 0.08 * max(N.y, 0.0);
+      let amb = 0.10 + 0.08 * max(N.z, 0.0);
       col = alb * (amb + 0.95 * diff);
     }
   }
@@ -423,7 +423,7 @@ if (!navigator.gpu) {
     canvas.addEventListener('pointercancel', () => { dragging = false; });
     canvas.addEventListener('pointermove', (e) => {
       if (!dragging) return;
-      yaw -= (e.clientX - lx) * 0.006;
+      yaw += (e.clientX - lx) * 0.006;
       pitch = Math.max(-1.35, Math.min(1.35, pitch + (e.clientY - ly) * 0.005));
       lx = e.clientX; ly = e.clientY;
     });
@@ -433,20 +433,20 @@ if (!navigator.gpu) {
     }, { passive: false });
 
     const camArr = new Float32Array(20);
-    const target = [0, 0.15, 0];
+    const target = [0, 0, 0.15];
 
     function writeCamera() {
       const cp = Math.cos(pitch), sp = Math.sin(pitch);
       const eye = [
         target[0] + dist * cp * Math.sin(yaw),
-        target[1] + dist * sp,
-        target[2] + dist * cp * Math.cos(yaw),
+        target[1] + dist * cp * Math.cos(yaw),
+        target[2] + dist * sp,
       ];
       let f = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
       const fl = Math.hypot(...f); f = f.map((v) => v / fl);
-      let r = [-f[2], 0, f[0]];                    // cross(fwd, worldUp = +Y)
+      let r = [f[1], -f[0], 0];                    // cross(fwd, worldUp = +Z)
       const rl = Math.hypot(...r) || 1; r = r.map((v) => v / rl);
-      const u = [
+      const u = [                                  // cross(right, fwd)
         r[1] * f[2] - r[2] * f[1],
         r[2] * f[0] - r[0] * f[2],
         r[0] * f[1] - r[1] * f[0],
@@ -455,7 +455,7 @@ if (!navigator.gpu) {
       camArr.set(r, 4);            camArr[7] = tw / th;
       camArr.set(u, 8);            camArr[11] = 0;
       camArr.set(f, 12);           camArr[15] = 0;
-      camArr.set([0.48, 0.78, 0.40], 16); camArr[19] = 0;
+      camArr.set([0.48, 0.40, 0.78], 16); camArr[19] = 0;
       device.queue.writeBuffer(camBuf, 0, camArr);
     }
 
@@ -501,3 +501,4 @@ if (!navigator.gpu) {
 </script>
 </body>
 </html>
+
