@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Antisphere ray caster</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; left: 14px; bottom: 12px;
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #7f8a99; letter-spacing: 0.02em; pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,.8);
+  }
+  #hud b { color: #cbd5e1; font-weight: 500; }
+  #err {
+    position: fixed; inset: 0; display: none; place-content: center;
+    padding: 2rem; text-align: center;
+    font: 14px/1.7 ui-monospace, Menlo, monospace; color: #e2e8f0;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom</div>
+<div id="err"></div>
+
+<script type="module">
+// ---------------------------------------------------------------------------
+// Antisphere representation
+//
+//   A node stores five numbers: (n.xyz, a, k)
+//     n  unit normal at the near diametric point P0
+//     a  signed distance from origin to P0 along n   (P0 = a*n)
+//     k  signed curvature, k = 1/(a+b) = 1/(2r)
+//
+//   Implicit function:
+//     f(R) = k(R.R) + (1 - 2ak)(R.n) - a + k a^2
+//   f(R) < 0 means inside. For k > 0, f = k*(|R-C|^2 - r^2).
+//   For k = 0 it collapses to R.n - a, the plane equation.
+//
+//   center C = (a - 1/(2k)) n,  radius r = 1/(2k)
+//   Negating all five numbers gives the exact complement (f -> -f).
+// ---------------------------------------------------------------------------
+
+const EMPTY = -1, SOLID = -2;
+
+function sphere(c, r) {
+  const d = Math.hypot(c[0], c[1], c[2]);
+  const u = d > 1e-9 ? [c[0]/d, c[1]/d, c[2]/d] : [0, 0, 1];
+  // P0 is the far intersection of the line through the origin; n = u there.
+  return { n: u, a: d + r, k: 1 / (2 * r) };
+}
+
+function plane(n, a) {
+  const L = Math.hypot(n[0], n[1], n[2]);
+  return { n: [n[0]/L, n[1]/L, n[2]/L], a: a / L, k: 0 };
+}
+
+// CSG complement: negate all five stored numbers.
+function complement(p) {
+  return { n: [-p.n[0], -p.n[1], -p.n[2]], a: -p.a, k: -p.k };
+}
+
+// A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
+const node = (prim, inside, outside) => ({ prim, inside, outside });
+
+// Union: everything solid in `t` stays solid; every empty region of `t`
+// is handed to `other`. Correct for any pair, and the shared subtree is
+// deduplicated when the tree is flattened.
+function union(t, other) {
+  if (t === 'empty') return other;
+  if (t === 'solid') return 'solid';
+  return node(t.prim, union(t.inside, other), union(t.outside, other));
+}
+
+// ---------------------------------------------------------------------------
+// Scene
+// ---------------------------------------------------------------------------
+
+// A sphere with a flat top cut off and a spherical bite taken out.
+const bitten = node(sphere([-1.35, 0.25, 0], 1.15),
+  node(plane([0, 1, 0], 0.95),
+    node(sphere([-0.75, 0.85, 0.8], 0.8), 'empty', 'solid'),
+    'empty'),
+  'empty');
+
+// A lens: the intersection of two overlapping spheres.
+const lens = node(sphere([0.95, 0.15, 0], 1.15),
+  node(sphere([1.85, 0.15, 0], 1.15), 'solid', 'empty'),
+  'empty');
+
+// Ground half-space, then the two objects above it.
+const scene = node(plane([0, 1, 0], -1.0), 'solid', union(bitten, lens));
+
+function flatten(tree) {
+  const out = [], memo = new Map();
+  const walk = (t) => {
+    if (t === 'solid') return SOLID;
+    if (t === 'empty') return EMPTY;
+    if (memo.has(t)) return memo.get(t);
+    const idx = out.length;
+    out.push(null);
+    memo.set(t, idx);
+    out[idx] = { prim: t.prim, inside: walk(t.inside), outside: walk(t.outside) };
+    return idx;
+  };
+  walk(tree);
+  return out;
+}
+
+const nodes = flatten(scene);
+
+// 32 bytes per node: vec3 n | f32 a | f32 k | i32 inside | i32 outside | pad
+function packNodes(list) {
+  const buf = new ArrayBuffer(list.length * 32);
+  const f = new Float32Array(buf), i = new Int32Array(buf);
+  list.forEach((nd, j) => {
+    const o = j * 8;
+    f[o + 0] = nd.prim.n[0];
+    f[o + 1] = nd.prim.n[1];
+    f[o + 2] = nd.prim.n[2];
+    f[o + 3] = nd.prim.a;
+    f[o + 4] = nd.prim.k;
+    i[o + 5] = nd.inside;
+    i[o + 6] = nd.outside;
+    f[o + 7] = 0;
+  });
+  return buf;
+}
+
+// ---------------------------------------------------------------------------
+// Shaders
+// ---------------------------------------------------------------------------
+
+const computeWGSL = /* wgsl */`
+const EMPTY : i32 = -1;
+const SOLID : i32 = -2;
+
+struct Node {
+  n       : vec3<f32>,
+  a       : f32,
+  k       : f32,
+  inside  : i32,
+  outside : i32,
+  pad     : f32,
+};
+
+struct Camera {
+  origin  : vec3<f32>,
+  tanHalf : f32,
+  right   : vec3<f32>,
+  aspect  : f32,
+  up      : vec3<f32>,
+  pad1    : f32,
+  fwd     : vec3<f32>,
+  pad2    : f32,
+  light   : vec3<f32>,
+  pad3    : f32,
+};
+
+@group(0) @binding(0) var<uniform> cam : Camera;
+@group(0) @binding(1) var<storage, read> nodes : array<Node>;
+@group(0) @binding(2) var outTex : texture_storage_2d<rgba8unorm, write>;
+
+// f(R) = k(R.R) + (1 - 2ak)(R.n) - a + k a^2
+fn fAt(nd : Node, R : vec3<f32>) -> f32 {
+  return nd.k * dot(R, R)
+       + (1.0 - 2.0 * nd.a * nd.k) * dot(R, nd.n)
+       - nd.a + nd.k * nd.a * nd.a;
+}
+
+// grad f = 2kR + (1 - 2ak)n. Reduces to n exactly when k = 0.
+fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
+  return 2.0 * nd.k * R + (1.0 - 2.0 * nd.a * nd.k) * nd.n;
+}
+
+struct Seg { node : i32, t0 : f32, t1 : f32, entry : i32, };
+struct Hit { hit : bool, t : f32, node : i32, };
+
+fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
+  var hit : Hit;
+  hit.hit = false;
+  hit.t = tMax;
+  hit.node = -1;
+
+  var stack : array<Seg, 32>;
+  stack[0] = Seg(0, tMin, tMax, -1);
+  var sp : i32 = 1;
+
+  var guard : i32 = 0;
+  while (sp > 0) {
+    guard = guard + 1;
+    if (guard > 512) { break; }
+
+    sp = sp - 1;
+    let seg = stack[sp];
+    if (seg.t1 - seg.t0 <= 1e-6) { continue; }
+
+    if (seg.node < 0) {
+      // Front-to-back ordering means the first solid leaf popped is nearest.
+      if (seg.node == SOLID) {
+        hit.hit = true;
+        hit.t = seg.t0;
+        hit.node = seg.entry;
+        break;
+      }
+      continue;
+    }
+
+    let nd = nodes[seg.node];
+
+    // Substituting R = O + tD gives A t^2 + B t + C, with A = k.
+    // A plane is the quadratic degenerating to linear, no special case.
+    let lin = 1.0 - 2.0 * nd.a * nd.k;
+    let A = nd.k;
+    let B = 2.0 * nd.k * dot(O, D) + lin * dot(D, nd.n);
+    let C = fAt(nd, O);
+
+    var r0 = 0.0;
+    var r1 = 0.0;
+    var nr : i32 = 0;
+    if (A == 0.0) {
+      if (abs(B) > 1e-20) {
+        r0 = -C / B;
+        nr = 1;
+      }
+    } else {
+      let disc = B * B - 4.0 * A * C;
+      if (disc >= 0.0) {
+        let s = sqrt(disc);
+        var q = -0.5 * (B + s);
+        if (B < 0.0) { q = -0.5 * (B - s); }
+        let x0 = q / A;
+        var x1 = -B / A - x0;
+        if (abs(q) > 1e-20) { x1 = C / q; }
+        r0 = min(x0, x1);
+        r1 = max(x0, x1);
+        nr = 2;
+      }
+    }
+
+    // Up to two split points carve the segment into up to three subsegments.
+    var b : array<f32, 4>;
+    b[0] = seg.t0;
+    var nb : i32 = 1;
+    if (nr >= 1 && r0 > seg.t0 && r0 < seg.t1) { b[nb] = r0; nb = nb + 1; }
+    if (nr == 2 && r1 > seg.t0 && r1 < seg.t1) { b[nb] = r1; nb = nb + 1; }
+    b[nb] = seg.t1;
+
+    // Push far to near so the nearest subsegment pops first.
+    for (var i : i32 = nb - 1; i >= 0; i = i - 1) {
+      let sa = b[i];
+      let sb = b[i + 1];
+      if (sb - sa <= 1e-6 || sp >= 32) { continue; }
+      // Midpoint sign picks the child. Robust, and avoids reasoning about
+      // which root is an entry and which is an exit.
+      var child = nd.outside;
+      if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) { child = nd.inside; }
+      var ent = seg.entry;
+      if (i > 0) { ent = seg.node; }
+      stack[sp] = Seg(child, sa, sb, ent);
+      sp = sp + 1;
+    }
+  }
+  return hit;
+}
+
+fn sky(d : vec3<f32>) -> vec3<f32> {
+  let h = 0.5 * (d.y + 1.0);
+  return mix(vec3<f32>(0.055, 0.062, 0.075), vec3<f32>(0.13, 0.17, 0.24), h);
+}
+
+fn tint(i : i32) -> vec3<f32> {
+  let f = f32(i) * 1.9;
+  return 0.42 + 0.30 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2));
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let dims = textureDimensions(outTex);
+  if (gid.x >= dims.x || gid.y >= dims.y) { return; }
+
+  let uv = (vec2<f32>(gid.xy) + 0.5) / vec2<f32>(dims);
+  let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+  let dir = normalize(cam.fwd
+    + cam.right * (ndc.x * cam.aspect * cam.tanHalf)
+    + cam.up    * (ndc.y * cam.tanHalf));
+
+  let h = trace(cam.origin, dir, 1e-3, 1e4);
+
+  var col = sky(dir);
+  if (h.hit) {
+    if (h.node < 0) {
+      col = vec3<f32>(0.25, 0.04, 0.05);   // camera started inside solid
+    } else {
+      let nd = nodes[h.node];
+      let P = cam.origin + h.t * dir;
+      var N = normalize(gradAt(nd, P));
+      if (dot(N, dir) > 0.0) { N = -N; }   // face the ray
+
+      var alb = tint(h.node);
+      if (nd.k == 0.0) {
+        let ck = fract((floor(P.x) + floor(P.z)) * 0.5);
+        alb = mix(vec3<f32>(0.30, 0.32, 0.35), vec3<f32>(0.20, 0.22, 0.25), step(0.25, ck));
+      }
+
+      let L = normalize(cam.light);
+      let diff = max(dot(N, L), 0.0);
+      let amb = 0.10 + 0.08 * max(N.y, 0.0);
+      col = alb * (amb + 0.95 * diff);
+    }
+  }
+
+  textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(pow(col, vec3<f32>(1.0 / 2.2)), 1.0));
+}
+`;
+
+const blitWGSL = /* wgsl */`
+@vertex fn vs(@builtin(vertex_index) i : u32) -> @builtin(position) vec4<f32> {
+  var p = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
+  return vec4<f32>(p[i], 0.0, 1.0);
+}
+@group(0) @binding(0) var src : texture_2d<f32>;
+@fragment fn fs(@builtin(position) pos : vec4<f32>) -> @location(0) vec4<f32> {
+  return textureLoad(src, vec2<i32>(pos.xy), 0);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+const canvas = document.getElementById('c');
+const stat = document.getElementById('stat');
+
+function fail(msg) {
+  document.getElementById('err').style.display = 'grid';
+  document.getElementById('err').textContent = msg;
+  canvas.style.display = 'none';
+}
+
+if (!navigator.gpu) {
+  fail('This page needs WebGPU. Try Chrome or Edge 113+, or Safari 18+.');
+} else {
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    fail('No suitable GPU adapter found.');
+  } else {
+    const device = await adapter.requestDevice();
+    device.addEventListener('uncapturederror', (e) => console.error(e.error));
+
+    const ctx = canvas.getContext('webgpu');
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    ctx.configure({ device, format, alphaMode: 'opaque' });
+
+    const nodeData = packNodes(nodes);
+    const nodeBuf = device.createBuffer({
+      size: nodeData.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(nodeBuf, 0, nodeData);
+
+    const camBuf = device.createBuffer({
+      size: 80,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    const computePipe = device.createComputePipeline({
+      layout: 'auto',
+      compute: { module: device.createShaderModule({ code: computeWGSL }), entryPoint: 'main' },
+    });
+
+    const blitMod = device.createShaderModule({ code: blitWGSL });
+    const blitPipe = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: blitMod, entryPoint: 'vs' },
+      fragment: { module: blitMod, entryPoint: 'fs', targets: [{ format }] },
+      primitive: { topology: 'triangle-list' },
+    });
+
+    let tex = null, computeBG = null, blitBG = null, tw = 0, th = 0;
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+      const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      if (w === tw && h === th) return;
+      tw = w; th = h;
+      canvas.width = w; canvas.height = h;
+      if (tex) tex.destroy();
+      tex = device.createTexture({
+        size: [w, h],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      computeBG = device.createBindGroup({
+        layout: computePipe.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: camBuf } },
+          { binding: 1, resource: { buffer: nodeBuf } },
+          { binding: 2, resource: tex.createView() },
+        ],
+      });
+      blitBG = device.createBindGroup({
+        layout: blitPipe.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: tex.createView() }],
+      });
+    }
+    window.addEventListener('resize', resize);
+
+    // Orbit camera
+    let yaw = 0.55, pitch = 0.30, dist = 6.4;
+    let dragging = false, lx = 0, ly = 0;
+    canvas.addEventListener('pointerdown', (e) => {
+      dragging = true; lx = e.clientX; ly = e.clientY;
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointerup', () => { dragging = false; });
+    canvas.addEventListener('pointercancel', () => { dragging = false; });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      yaw -= (e.clientX - lx) * 0.006;
+      pitch = Math.max(-1.35, Math.min(1.35, pitch + (e.clientY - ly) * 0.005));
+      lx = e.clientX; ly = e.clientY;
+    });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      dist = Math.max(2.0, Math.min(30, dist * Math.exp(e.deltaY * 0.001)));
+    }, { passive: false });
+
+    const camArr = new Float32Array(20);
+    const target = [0, 0.15, 0];
+
+    function writeCamera() {
+      const cp = Math.cos(pitch), sp = Math.sin(pitch);
+      const eye = [
+        target[0] + dist * cp * Math.sin(yaw),
+        target[1] + dist * sp,
+        target[2] + dist * cp * Math.cos(yaw),
+      ];
+      let f = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
+      const fl = Math.hypot(...f); f = f.map((v) => v / fl);
+      let r = [-f[2], 0, f[0]];                    // cross(fwd, worldUp = +Y)
+      const rl = Math.hypot(...r) || 1; r = r.map((v) => v / rl);
+      const u = [
+        r[1] * f[2] - r[2] * f[1],
+        r[2] * f[0] - r[0] * f[2],
+        r[0] * f[1] - r[1] * f[0],
+      ];
+      camArr.set(eye, 0);          camArr[3] = Math.tan(0.5 * 0.9);
+      camArr.set(r, 4);            camArr[7] = tw / th;
+      camArr.set(u, 8);            camArr[11] = 0;
+      camArr.set(f, 12);           camArr[15] = 0;
+      camArr.set([0.48, 0.78, 0.40], 16); camArr[19] = 0;
+      device.queue.writeBuffer(camBuf, 0, camArr);
+    }
+
+    let frames = 0, tPrev = performance.now(), fps = 0;
+
+    function frame() {
+      resize();
+      writeCamera();
+
+      const enc = device.createCommandEncoder();
+      const cpass = enc.beginComputePass();
+      cpass.setPipeline(computePipe);
+      cpass.setBindGroup(0, computeBG);
+      cpass.dispatchWorkgroups(Math.ceil(tw / 8), Math.ceil(th / 8));
+      cpass.end();
+
+      const rpass = enc.beginRenderPass({
+        colorAttachments: [{
+          view: ctx.getCurrentTexture().createView(),
+          loadOp: 'clear', storeOp: 'store',
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        }],
+      });
+      rpass.setPipeline(blitPipe);
+      rpass.setBindGroup(0, blitBG);
+      rpass.draw(3);
+      rpass.end();
+
+      device.queue.submit([enc.finish()]);
+
+      frames++;
+      const now = performance.now();
+      if (now - tPrev > 500) {
+        fps = Math.round((frames * 1000) / (now - tPrev));
+        frames = 0; tPrev = now;
+        stat.textContent = `${nodes.length} antisphere nodes · ${tw}x${th} · ${fps} fps`;
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+}
+</script>
+</body>
+</html>
