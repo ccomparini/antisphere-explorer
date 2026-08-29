@@ -24,7 +24,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom</div>
+<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S toggles shadows</div>
 <div id="err"></div>
 
 <script type="module">
@@ -65,7 +65,9 @@ function complement(p) {
 }
 
 // A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
-const node = (prim, inside, outside) => ({ prim, inside, outside });
+function node(prim, inside, outside) {
+  return { prim, inside, outside };
+}
 
 // Union: everything solid in `t` stays solid; every empty region of `t`
 // is handed to `other`. Correct for any pair, and the shared subtree is
@@ -93,7 +95,13 @@ const lens = node(sphere([0.95, 0, 0.15], 1.15),
   'empty');
 
 // Ground half-space, then the two objects above it.
-const scene = node(plane([0, 0, 1], -1.0), 'solid', union(bitten, lens));
+const interior = node(plane([0, 0, 1], -1.0), 'solid', union(bitten, lens));
+
+// Everything sits inside a shell. Complementing the sphere negates all five
+// numbers, so the stored normal points inward and grad f points away from the
+// solid, the same as every other surface in the tree. f < 0 is now the region
+// *outside* the sphere, which is the solid side.
+const scene = node(complement(sphere([0, 0, 0], 25)), 'solid', interior);
 
 function flatten(tree) {
   const out = [], memo = new Map();
@@ -132,6 +140,36 @@ function packNodes(list) {
 }
 
 // ---------------------------------------------------------------------------
+// Lights
+//
+// Each light is a world position and an RGB color whose magnitude is its
+// radiant power. Falloff is inverse square, so these run well above 1.
+// The buffer must hold at least one entry.
+// ---------------------------------------------------------------------------
+
+const lights = [
+  { pos: [-2.2,  2.4,  3.0], color: [26, 17, 10] },   // warm, above and behind
+  { pos: [ 2.6, -2.4,  2.0], color: [ 7, 14, 26] },   // cool, opposite side
+  { pos: [ 0.0, -3.2,  0.5], color: [ 9,  9, 10] },   // low fill toward camera
+];
+
+// 32 bytes per light: vec3 pos | pad | vec3 color | pad
+function packLights(list) {
+  const buf = new ArrayBuffer(list.length * 32);
+  const f = new Float32Array(buf);
+  list.forEach((lt, j) => {
+    const o = j * 8;
+    f[o + 0] = lt.pos[0];
+    f[o + 1] = lt.pos[1];
+    f[o + 2] = lt.pos[2];
+    f[o + 4] = lt.color[0];
+    f[o + 5] = lt.color[1];
+    f[o + 6] = lt.color[2];
+  });
+  return buf;
+}
+
+// ---------------------------------------------------------------------------
 // Shaders
 // ---------------------------------------------------------------------------
 
@@ -154,16 +192,22 @@ struct Camera {
   right   : vec3<f32>,
   aspect  : f32,
   up      : vec3<f32>,
-  pad1    : f32,
+  shadows : f32,
   fwd     : vec3<f32>,
   pad2    : f32,
-  light   : vec3<f32>,
-  pad3    : f32,
+};
+
+struct Light {
+  pos   : vec3<f32>,
+  pad0  : f32,
+  color : vec3<f32>,   // magnitude is radiant power, so values may exceed 1
+  pad1  : f32,
 };
 
 @group(0) @binding(0) var<uniform> cam : Camera;
 @group(0) @binding(1) var<storage, read> nodes : array<Node>;
 @group(0) @binding(2) var outTex : texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(3) var<storage, read> lights : array<Light>;
 
 // f(R) = k(R.R) + (1 - 2ak)(R.n) - a + k a^2
 fn fAt(nd : Node, R : vec3<f32>) -> f32 {
@@ -268,11 +312,6 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
   return hit;
 }
 
-fn sky(d : vec3<f32>) -> vec3<f32> {
-  let h = 0.5 * (d.z + 1.0);
-  return mix(vec3<f32>(0.055, 0.062, 0.075), vec3<f32>(0.13, 0.17, 0.24), h);
-}
-
 fn tint(i : i32) -> vec3<f32> {
   let f = f32(i) * 1.9;
   return 0.42 + 0.30 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2));
@@ -291,7 +330,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
 
   let h = trace(cam.origin, dir, 1e-3, 1e4);
 
-  var col = sky(dir);
+  var col = vec3<f32>(0.0);   // the shell should catch every ray; black means a bug
   if (h.hit) {
     if (h.node < 0) {
       col = vec3<f32>(0.25, 0.04, 0.05);   // camera started inside solid
@@ -307,10 +346,37 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
         alb = mix(vec3<f32>(0.34, 0.36, 0.39), vec3<f32>(0.15, 0.16, 0.19), step(0.25, ck));
       }
 
-      let L = normalize(cam.light);
-      let diff = max(dot(N, L), 0.0);
+      // Bias scales with position so the offset stays meaningful out near
+      // the shell as well as at the origin.
+      let bias = 1e-3 * max(1.0, length(P));
+      let shadowOrigin = P + N * bias;
+
+      var lit = vec3<f32>(0.0);
+      let n = arrayLength(&lights);
+      for (var i : u32 = 0u; i < n; i = i + 1u) {
+        let lt = lights[i];
+        let d = lt.pos - P;
+        let d2 = dot(d, d);
+        let dist = sqrt(max(d2, 1e-8));
+        let L = d / dist;
+
+        let ndl = dot(N, L);
+        if (ndl <= 0.0) { continue; }        // back-facing, no ray needed
+
+        if (cam.shadows > 0.5) {
+          // Any solid between here and the light occludes it. The existing
+          // front-to-back traversal already stops at the first one.
+          let sh = trace(shadowOrigin, L, bias, dist - bias);
+          if (sh.hit) { continue; }
+        }
+
+        // Inverse square, softened near zero so a light sitting on a surface
+        // does not blow out.
+        lit = lit + lt.color * (ndl / (1.0 + d2));
+      }
+
       let amb = 0.10 + 0.08 * max(N.z, 0.0);
-      col = alb * (amb + 0.95 * diff);
+      col = alb * (amb + lit);
     }
   }
 
@@ -364,8 +430,15 @@ if (!navigator.gpu) {
     });
     device.queue.writeBuffer(nodeBuf, 0, nodeData);
 
+    const lightData = packLights(lights);
+    const lightBuf = device.createBuffer({
+      size: lightData.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(lightBuf, 0, lightData);
+
     const camBuf = device.createBuffer({
-      size: 80,
+      size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -403,6 +476,7 @@ if (!navigator.gpu) {
           { binding: 0, resource: { buffer: camBuf } },
           { binding: 1, resource: { buffer: nodeBuf } },
           { binding: 2, resource: tex.createView() },
+          { binding: 3, resource: { buffer: lightBuf } },
         ],
       });
       blitBG = device.createBindGroup({
@@ -414,6 +488,10 @@ if (!navigator.gpu) {
 
     // Orbit camera
     let yaw = 0.55, pitch = 0.30, dist = 6.4;
+    let shadowsOn = false;
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 's' || e.key === 'S') shadowsOn = !shadowsOn;
+    });
     let dragging = false, lx = 0, ly = 0;
     canvas.addEventListener('pointerdown', (e) => {
       dragging = true; lx = e.clientX; ly = e.clientY;
@@ -429,10 +507,10 @@ if (!navigator.gpu) {
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      dist = Math.max(2.0, Math.min(30, dist * Math.exp(e.deltaY * 0.001)));
+      dist = Math.max(2.0, Math.min(20, dist * Math.exp(e.deltaY * 0.001)));
     }, { passive: false });
 
-    const camArr = new Float32Array(20);
+    const camArr = new Float32Array(16);
     const target = [0, 0, 0.15];
 
     function writeCamera() {
@@ -453,9 +531,8 @@ if (!navigator.gpu) {
       ];
       camArr.set(eye, 0);          camArr[3] = Math.tan(0.5 * 0.9);
       camArr.set(r, 4);            camArr[7] = tw / th;
-      camArr.set(u, 8);            camArr[11] = 0;
+      camArr.set(u, 8);            camArr[11] = shadowsOn ? 1 : 0;
       camArr.set(f, 12);           camArr[15] = 0;
-      camArr.set([0.48, 0.40, 0.78], 16); camArr[19] = 0;
       device.queue.writeBuffer(camBuf, 0, camArr);
     }
 
@@ -491,7 +568,7 @@ if (!navigator.gpu) {
       if (now - tPrev > 500) {
         fps = Math.round((frames * 1000) / (now - tPrev));
         frames = 0; tPrev = now;
-        stat.textContent = `${nodes.length} antisphere nodes · ${tw}x${th} · ${fps} fps`;
+        stat.textContent = `${nodes.length} antisphere nodes · ${lights.length} lights · ${tw}x${th} · ${fps} fps`;
       }
       requestAnimationFrame(frame);
     }
@@ -501,4 +578,3 @@ if (!navigator.gpu) {
 </script>
 </body>
 </html>
-
