@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Antisphere ray caster</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; left: 14px; bottom: 12px;
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #7f8a99; letter-spacing: 0.02em; pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,.8);
+  }
+  #hud b { color: #cbd5e1; font-weight: 500; }
+  #err {
+    position: fixed; inset: 0; display: none; place-content: center;
+    padding: 2rem; text-align: center; white-space: pre-wrap; max-width: 46rem;
+    margin: 0 auto;
+    font: 14px/1.7 ui-monospace, Menlo, monospace; color: #e2e8f0;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S toggles shadows</div>
+<div id="err"></div>
+
+<script type="module">
+// ---------------------------------------------------------------------------
+// Antisphere representation
+//
+//   A node stores five numbers: (n.xyz, a, k)
+//     n  unit normal at the near diametric point P0
+//     a  signed distance from origin to P0 along n   (P0 = a*n)
+//     k  signed curvature, k = 1/(a+b) = 1/(2r)
+//
+//   Implicit function:
+//     f(R) = k(R.R) + (1 - 2ak)(R.n) - a + k a^2
+//   f(R) < 0 means inside. For k > 0, f = k*(|R-C|^2 - r^2).
+//   For k = 0 it collapses to R.n - a, the plane equation.
+//
+//   center C = (a - 1/(2k)) n,  radius r = 1/(2k)
+//   Negating all five numbers gives the exact complement (f -> -f).
+// ---------------------------------------------------------------------------
+
+function sphere(c, r) {
+  const d = Math.hypot(c[0], c[1], c[2]);
+  const u = d > 1e-9 ? [c[0]/d, c[1]/d, c[2]/d] : [0, 0, 1];
+  // P0 is the far intersection of the line through the origin; n = u there.
+  return { n: u, a: d + r, k: 1 / (2 * r) };
+}
+
+function plane(n, a) {
+  const L = Math.hypot(n[0], n[1], n[2]);
+  return { n: [n[0]/L, n[1]/L, n[2]/L], a: a / L, k: 0 };
+}
+
+// CSG complement: negate all five stored numbers.
+function complement(p) {
+  return { n: [-p.n[0], -p.n[1], -p.n[2]], a: -p.a, k: -p.k };
+}
+
+// ---------------------------------------------------------------------------
+// Materials
+//
+// One table, indexed from both places:
+//
+//   Leaf substrate   what the region is made of. Index 0 is vacuum, which is
+//                    how an empty leaf is spelled.
+//   Node paint       a material in scope for the whole subtree beneath the
+//                    node, overriding leaf substrate until cleared.
+//
+// Node paint takes three sentinel values:
+//
+//   PARTITION  pure spatial division, never paints. The builder is free to
+//              insert, hoist, or drop these without changing appearance.
+//   INHERIT    authored node that takes whatever material is in scope.
+//              Identical at render time to PARTITION; the distinction is a
+//              promise to the builder about what it may move.
+//   BARE       clears the scope, revealing the leaf substrate underneath.
+//
+// Surface parameterization always comes from the node that was crossed, never
+// from the material, so a node's own (n, a, k) supplies the frame: a tangent
+// basis for planes, a center for spheres.
+// ---------------------------------------------------------------------------
+
+const PARTITION = -1;
+const INHERIT   = -2;
+const BARE      =  0;
+
+const FLAT = 0, CHECKER = 1;
+
+const MATERIALS = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0], pattern: FLAT, scale: 1 }];
+
+function material(def) {
+  MATERIALS.push({
+    albedo: [0.7, 0.7, 0.7], albedo2: [0.3, 0.3, 0.3], pattern: FLAT, scale: 1, ...def,
+  });
+  return MATERIALS.length - 1;
+}
+
+// 32 bytes per material: vec3 albedo | f32 pattern | vec3 albedo2 | f32 scale
+function packMaterials(list) {
+  const buf = new ArrayBuffer(list.length * 32);
+  const f = new Float32Array(buf);
+  list.forEach((m, j) => {
+    const o = j * 8;
+    f[o + 0] = m.albedo[0];  f[o + 1] = m.albedo[1];  f[o + 2] = m.albedo[2];
+    f[o + 3] = m.pattern;
+    f[o + 4] = m.albedo2[0]; f[o + 5] = m.albedo2[1]; f[o + 6] = m.albedo2[2];
+    f[o + 7] = m.scale;
+  });
+  return buf;
+}
+
+// ---------------------------------------------------------------------------
+// Tree
+// ---------------------------------------------------------------------------
+
+// A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
+function node(prim, inside, outside, paint = INHERIT) {
+  return { prim, inside, outside, paint };
+}
+
+const EMPTY = 'empty';
+const solid = (mat) => ({ leaf: mat });
+const isLeaf = (t) => t === EMPTY || t.leaf !== undefined;
+
+// Union: everything solid in `t` stays solid; every empty region of `t`
+// is handed to `other`. Correct for any pair, and the shared subtree is
+// deduplicated when the tree is flattened.
+//
+// Note that this drops `other` *inside* t's material scope, so a substituted
+// object inherits t's paint unless it repaints itself.
+function union(t, other) {
+  if (t === EMPTY) return other;
+  if (isLeaf(t)) return t;
+  return node(t.prim, union(t.inside, other), union(t.outside, other), t.paint);
+}
+
+// ---------------------------------------------------------------------------
+// Scene
+// ---------------------------------------------------------------------------
+
+const SHELL  = material({ albedo: [0.30, 0.31, 0.35] });
+const FLOOR  = material({ albedo: [0.34, 0.36, 0.39], albedo2: [0.15, 0.16, 0.19],
+                          pattern: CHECKER, scale: 1.0 });
+const STONE  = material({ albedo: [0.58, 0.53, 0.46], albedo2: [0.44, 0.40, 0.36],
+                          pattern: CHECKER, scale: 2.4 });
+const CORE   = material({ albedo: [0.74, 0.44, 0.16] });
+const BRASS  = material({ albedo: [0.66, 0.58, 0.22] });
+
+// A stone sphere with a flat top cut off and a spherical bite taken out.
+// The cut plane inherits STONE from the group root; the bite is BARE, so its
+// cavity wall falls back to the substrate the region is actually made of.
+const bitten = node(sphere([-1.35, 0, 0.25], 1.15),
+  node(plane([0, 0, 1], 0.95),
+    node(sphere([-0.75, 0.8, 0.85], 0.8), EMPTY, solid(CORE), BARE),
+    EMPTY),
+  EMPTY, STONE);
+
+// A lens: the intersection of two overlapping spheres. It repaints itself,
+// because union() nests it inside the stone group's scope.
+const lens = node(sphere([0.95, 0, 0.15], 1.15),
+  node(sphere([1.85, 0, 0.15], 1.15), solid(BRASS), EMPTY),
+  EMPTY, BRASS);
+
+// Ground half-space, then the two objects above it. The ground node is a pure
+// partition, so the floor takes its material from the leaf substrate.
+const interior = node(plane([0, 0, 1], -1.0), solid(FLOOR), union(bitten, lens), PARTITION);
+
+// Everything sits inside a shell. Complementing the sphere negates all five
+// numbers, so the stored normal points inward and grad f points away from the
+// solid, the same as every other surface in the tree. f < 0 is now the region
+// *outside* the sphere, which is the solid side.
+const scene = node(complement(sphere([0, 0, 0], 25)), solid(SHELL), interior, PARTITION);
+
+// Leaves are encoded in the child index: child < 0 means a leaf whose
+// substrate is (-1 - child), so EMPTY is -1 and vacuum is material 0.
+function flatten(tree) {
+  const out = [], memo = new Map();
+  const walk = (t) => {
+    if (t === EMPTY) return -1;
+    if (t.leaf !== undefined) return -1 - t.leaf;
+    if (memo.has(t)) return memo.get(t);
+    const idx = out.length;
+    out.push(null);
+    memo.set(t, idx);
+    out[idx] = { prim: t.prim, paint: t.paint,
+                 inside: walk(t.inside), outside: walk(t.outside) };
+    return idx;
+  };
+  walk(tree);
+  return out;
+}
+
+const nodes = flatten(scene);
+
+// 32 bytes per node: vec3 n | f32 a | f32 k | i32 inside | i32 outside | i32 paint
+function packNodes(list) {
+  const buf = new ArrayBuffer(list.length * 32);
+  const f = new Float32Array(buf), i = new Int32Array(buf);
+  list.forEach((nd, j) => {
+    const o = j * 8;
+    f[o + 0] = nd.prim.n[0];
+    f[o + 1] = nd.prim.n[1];
+    f[o + 2] = nd.prim.n[2];
+    f[o + 3] = nd.prim.a;
+    f[o + 4] = nd.prim.k;
+    i[o + 5] = nd.inside;
+    i[o + 6] = nd.outside;
+    i[o + 7] = nd.paint;
+  });
+  return buf;
+}
+
+// ---------------------------------------------------------------------------
+// Lights
+//
+// Each light is a world position and an RGB color whose magnitude is its
+// radiant power. Falloff is inverse square, so these run well above 1.
+// The buffer must hold at least one entry.
+// ---------------------------------------------------------------------------
+
+const lights = [
+  { pos: [-2.2,  2.4,  3.0], color: [26, 17, 10] },   // warm, above and behind
+  { pos: [ 2.6, -2.4,  2.0], color: [ 7, 14, 26] },   // cool, opposite side
+  { pos: [ 0.0, -3.2,  0.5], color: [ 9,  9, 10] },   // low fill toward camera
+];
+
+// 32 bytes per light: vec3 pos | pad | vec3 color | pad
+function packLights(list) {
+  const buf = new ArrayBuffer(list.length * 32);
+  const f = new Float32Array(buf);
+  list.forEach((lt, j) => {
+    const o = j * 8;
+    f[o + 0] = lt.pos[0];
+    f[o + 1] = lt.pos[1];
+    f[o + 2] = lt.pos[2];
+    f[o + 4] = lt.color[0];
+    f[o + 5] = lt.color[1];
+    f[o + 6] = lt.color[2];
+  });
+  return buf;
+}
+
+// ---------------------------------------------------------------------------
+// Shaders
+//
+// Loaded from disk, so this page must be served over http. Opening it from a
+// file:// URL will fail the fetch. From this directory:
+//
+//     python3 -m http.server
+// ---------------------------------------------------------------------------
+
+async function loadShader(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: ${res.status} ${res.statusText}`);
+  return res.text();
+}
+
+
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+const canvas = document.getElementById('c');
+const stat = document.getElementById('stat');
+
+function fail(msg) {
+  document.getElementById('err').style.display = 'grid';
+  document.getElementById('err').textContent = msg;
+  canvas.style.display = 'none';
+}
+
+if (!navigator.gpu) {
+  fail('This page needs WebGPU. Try Chrome or Edge 113+, or Safari 18+.');
+} else {
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    fail('No suitable GPU adapter found.');
+  } else {
+    let computeWGSL, blitWGSL;
+    try {
+      [computeWGSL, blitWGSL] = await Promise.all([
+        loadShader('antisphere-raycast.wgsl'),
+        loadShader('blit.wgsl'),
+      ]);
+    } catch (e) {
+      fail(`Could not load the shaders (${e.message}).\n\n` +
+           'This page reads its WGSL from separate files, so it has to be served ' +
+           'over http rather than opened directly. Run "python3 -m http.server" ' +
+           'in this directory and load it from there.');
+      throw e;
+    }
+
+    const device = await adapter.requestDevice();
+    device.addEventListener('uncapturederror', (e) => console.error(e.error));
+
+    const ctx = canvas.getContext('webgpu');
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    ctx.configure({ device, format, alphaMode: 'opaque' });
+
+    const nodeData = packNodes(nodes);
+    const nodeBuf = device.createBuffer({
+      size: nodeData.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(nodeBuf, 0, nodeData);
+
+    const lightData = packLights(lights);
+    const lightBuf = device.createBuffer({
+      size: lightData.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(lightBuf, 0, lightData);
+
+    const matData = packMaterials(MATERIALS);
+    const matBuf = device.createBuffer({
+      size: matData.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(matBuf, 0, matData);
+
+    const camBuf = device.createBuffer({
+      size: 64,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // A shader that fails to compile leaves the pipeline invalid, and an
+    // invalid pipeline makes dispatch a silent no-op: black frames, no
+    // exception. Report compilation messages rather than guessing.
+    async function checkShader(mod, label) {
+      const info = await mod.getCompilationInfo();
+      let failed = false;
+      for (const msg of info.messages) {
+        const where = `${label} line ${msg.lineNum}:${msg.linePos}`;
+        if (msg.type === 'error') { failed = true; console.error(where, msg.message); }
+        else console.warn(where, msg.message);
+      }
+      if (failed) {
+        fail(`${label} failed to compile. See the console for details.`);
+      }
+      return !failed;
+    }
+
+    const computeMod = device.createShaderModule({ code: computeWGSL });
+    checkShader(computeMod, 'compute shader');
+
+    const computePipe = device.createComputePipeline({
+      layout: 'auto',
+      compute: { module: computeMod, entryPoint: 'main' },
+    });
+
+    const blitMod = device.createShaderModule({ code: blitWGSL });
+    checkShader(blitMod, 'blit shader');
+    const blitPipe = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: blitMod, entryPoint: 'vs' },
+      fragment: { module: blitMod, entryPoint: 'fs', targets: [{ format }] },
+      primitive: { topology: 'triangle-list' },
+    });
+
+    let tex = null, computeBG = null, blitBG = null, tw = 0, th = 0;
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+      const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      if (w === tw && h === th) return;
+      tw = w; th = h;
+      canvas.width = w; canvas.height = h;
+      if (tex) tex.destroy();
+      tex = device.createTexture({
+        size: [w, h],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      computeBG = device.createBindGroup({
+        layout: computePipe.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: camBuf } },
+          { binding: 1, resource: { buffer: nodeBuf } },
+          { binding: 2, resource: tex.createView() },
+          { binding: 3, resource: { buffer: lightBuf } },
+          { binding: 4, resource: { buffer: matBuf } },
+        ],
+      });
+      blitBG = device.createBindGroup({
+        layout: blitPipe.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: tex.createView() }],
+      });
+    }
+    window.addEventListener('resize', resize);
+
+    // Orbit camera
+    let yaw = 0.55, pitch = 0.30, dist = 6.4;
+    let shadowsOn = true;
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 's' || e.key === 'S') shadowsOn = !shadowsOn;
+    });
+    let dragging = false, lx = 0, ly = 0;
+    canvas.addEventListener('pointerdown', (e) => {
+      dragging = true; lx = e.clientX; ly = e.clientY;
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointerup', () => { dragging = false; });
+    canvas.addEventListener('pointercancel', () => { dragging = false; });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      yaw += (e.clientX - lx) * 0.006;
+      pitch = Math.max(-1.35, Math.min(1.35, pitch + (e.clientY - ly) * 0.005));
+      lx = e.clientX; ly = e.clientY;
+    });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      dist = Math.max(2.0, Math.min(20, dist * Math.exp(e.deltaY * 0.001)));
+    }, { passive: false });
+
+    const camArr = new Float32Array(16);
+    const target = [0, 0, 0.15];
+
+    function writeCamera() {
+      const cp = Math.cos(pitch), sp = Math.sin(pitch);
+      const eye = [
+        target[0] + dist * cp * Math.sin(yaw),
+        target[1] + dist * cp * Math.cos(yaw),
+        target[2] + dist * sp,
+      ];
+      let f = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
+      const fl = Math.hypot(...f); f = f.map((v) => v / fl);
+      let r = [f[1], -f[0], 0];                    // cross(fwd, worldUp = +Z)
+      const rl = Math.hypot(...r) || 1; r = r.map((v) => v / rl);
+      const u = [                                  // cross(right, fwd)
+        r[1] * f[2] - r[2] * f[1],
+        r[2] * f[0] - r[0] * f[2],
+        r[0] * f[1] - r[1] * f[0],
+      ];
+      camArr.set(eye, 0);          camArr[3] = Math.tan(0.5 * 0.9);
+      camArr.set(r, 4);            camArr[7] = tw / th;
+      camArr.set(u, 8);            camArr[11] = shadowsOn ? 1 : 0;
+      camArr.set(f, 12);           camArr[15] = 0;
+      device.queue.writeBuffer(camBuf, 0, camArr);
+    }
+
+    let frames = 0, tPrev = performance.now(), fps = 0;
+
+    function frame() {
+      resize();
+      writeCamera();
+
+      const enc = device.createCommandEncoder();
+      const cpass = enc.beginComputePass();
+      cpass.setPipeline(computePipe);
+      cpass.setBindGroup(0, computeBG);
+      cpass.dispatchWorkgroups(Math.ceil(tw / 8), Math.ceil(th / 8));
+      cpass.end();
+
+      const rpass = enc.beginRenderPass({
+        colorAttachments: [{
+          view: ctx.getCurrentTexture().createView(),
+          loadOp: 'clear', storeOp: 'store',
+          clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        }],
+      });
+      rpass.setPipeline(blitPipe);
+      rpass.setBindGroup(0, blitBG);
+      rpass.draw(3);
+      rpass.end();
+
+      device.queue.submit([enc.finish()]);
+
+      frames++;
+      const now = performance.now();
+      if (now - tPrev > 500) {
+        fps = Math.round((frames * 1000) / (now - tPrev));
+        frames = 0; tPrev = now;
+        stat.textContent = `${nodes.length} nodes · ${MATERIALS.length - 1} materials · ${lights.length} lights · ${tw}x${th} · ${fps} fps`;
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+}
+</script>
+</body>
+</html>
