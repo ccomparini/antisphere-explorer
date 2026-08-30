@@ -15,6 +15,7 @@
     text-shadow: 0 1px 2px rgba(0,0,0,.8);
   }
   #hud b { color: #cbd5e1; font-weight: 500; }
+  #note { display: inline-block; min-height: 1.6em; }
   #err {
     position: fixed; inset: 0; display: none; place-content: center;
     padding: 2rem; text-align: center; white-space: pre-wrap; max-width: 46rem;
@@ -25,7 +26,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S toggles shadows</div>
+<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br><span id="note"></span></div>
 <div id="err"></div>
 
 <script type="module">
@@ -91,30 +92,8 @@ const PARTITION = -1;
 const INHERIT   = -2;
 const BARE      =  0;
 
-const FLAT = 0, CHECKER = 1;
-
-const MATERIALS = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0], pattern: FLAT, scale: 1 }];
-
-function material(def) {
-  MATERIALS.push({
-    albedo: [0.7, 0.7, 0.7], albedo2: [0.3, 0.3, 0.3], pattern: FLAT, scale: 1, ...def,
-  });
-  return MATERIALS.length - 1;
-}
-
-// 32 bytes per material: vec3 albedo | f32 pattern | vec3 albedo2 | f32 scale
-function packMaterials(list) {
-  const buf = new ArrayBuffer(list.length * 32);
-  const f = new Float32Array(buf);
-  list.forEach((m, j) => {
-    const o = j * 8;
-    f[o + 0] = m.albedo[0];  f[o + 1] = m.albedo[1];  f[o + 2] = m.albedo[2];
-    f[o + 3] = m.pattern;
-    f[o + 4] = m.albedo2[0]; f[o + 5] = m.albedo2[1]; f[o + 6] = m.albedo2[2];
-    f[o + 7] = m.scale;
-  });
-  return buf;
-}
+const PATTERNS = { flat: 0, checker: 1 };
+const PAINT_WORDS = { partition: PARTITION, inherit: INHERIT, bare: BARE };
 
 // ---------------------------------------------------------------------------
 // Tree
@@ -141,43 +120,6 @@ function union(t, other) {
   return node(t.prim, union(t.inside, other), union(t.outside, other), t.paint);
 }
 
-// ---------------------------------------------------------------------------
-// Scene
-// ---------------------------------------------------------------------------
-
-const SHELL  = material({ albedo: [0.30, 0.31, 0.35] });
-const FLOOR  = material({ albedo: [0.34, 0.36, 0.39], albedo2: [0.15, 0.16, 0.19],
-                          pattern: CHECKER, scale: 1.0 });
-const STONE  = material({ albedo: [0.58, 0.53, 0.46], albedo2: [0.44, 0.40, 0.36],
-                          pattern: CHECKER, scale: 2.4 });
-const CORE   = material({ albedo: [0.74, 0.44, 0.16] });
-const BRASS  = material({ albedo: [0.66, 0.58, 0.22] });
-
-// A stone sphere with a flat top cut off and a spherical bite taken out.
-// The cut plane inherits STONE from the group root; the bite is BARE, so its
-// cavity wall falls back to the substrate the region is actually made of.
-const bitten = node(sphere([-1.35, 0, 0.25], 1.15),
-  node(plane([0, 0, 1], 0.95),
-    node(sphere([-0.75, 0.8, 0.85], 0.8), EMPTY, solid(CORE), BARE),
-    EMPTY),
-  EMPTY, STONE);
-
-// A lens: the intersection of two overlapping spheres. It repaints itself,
-// because union() nests it inside the stone group's scope.
-const lens = node(sphere([0.95, 0, 0.15], 1.15),
-  node(sphere([1.85, 0, 0.15], 1.15), solid(BRASS), EMPTY),
-  EMPTY, BRASS);
-
-// Ground half-space, then the two objects above it. The ground node is a pure
-// partition, so the floor takes its material from the leaf substrate.
-const interior = node(plane([0, 0, 1], -1.0), solid(FLOOR), union(bitten, lens), PARTITION);
-
-// Everything sits inside a shell. Complementing the sphere negates all five
-// numbers, so the stored normal points inward and grad f points away from the
-// solid, the same as every other surface in the tree. f < 0 is now the region
-// *outside* the sphere, which is the solid side.
-const scene = node(complement(sphere([0, 0, 0], 25)), solid(SHELL), interior, PARTITION);
-
 // Leaves are encoded in the child index: child < 0 means a leaf whose
 // substrate is (-1 - child), so EMPTY is -1 and vacuum is material 0.
 function flatten(tree) {
@@ -197,7 +139,119 @@ function flatten(tree) {
   return out;
 }
 
-const nodes = flatten(scene);
+// ---------------------------------------------------------------------------
+// Scene compiler
+//
+// Turns scene.json into flat node, material, and light tables. Named entries
+// under "objects" are built once and shared by reference, so a subtree used
+// in several places collapses to one set of nodes when flattened.
+// ---------------------------------------------------------------------------
+
+function compileScene(spec) {
+  const at = (path, msg) => { throw new Error(`scene.json ${path}: ${msg}`); };
+
+  // Material 0 is vacuum and is never shaded.
+  const table = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0], pattern: 0, scale: 1 }];
+  const matIndex = new Map();
+  for (const [name, def] of Object.entries(spec.materials || {})) {
+    if (PAINT_WORDS[name] !== undefined) at(`materials.${name}`, 'name is reserved');
+    const pattern = PATTERNS[def.pattern ?? 'flat'];
+    if (pattern === undefined) at(`materials.${name}`, `unknown pattern "${def.pattern}"`);
+    table.push({
+      albedo:  def.albedo  ?? [0.7, 0.7, 0.7],
+      albedo2: def.albedo2 ?? [0.3, 0.3, 0.3],
+      scale:   def.scale   ?? 1,
+      pattern,
+    });
+    matIndex.set(name, table.length - 1);
+  }
+
+  const lightList = (spec.lights || []).map((lt, i) => {
+    if (!lt.pos || !lt.color) at(`lights[${i}]`, 'needs pos and color');
+    return { pos: lt.pos, color: lt.color };
+  });
+
+  function substrate(name, path) {
+    const m = matIndex.get(name);
+    if (m === undefined) at(path, `unknown material "${name}"`);
+    return m;
+  }
+
+  function paintOf(def, path) {
+    if (def.paint === undefined) return INHERIT;
+    if (PAINT_WORDS[def.paint] !== undefined) return PAINT_WORDS[def.paint];
+    return substrate(def.paint, `${path}.paint`);
+  }
+
+  function primOf(def, path) {
+    let p;
+    if (def.sphere) {
+      const { center, radius } = def.sphere;
+      if (!center || !(radius > 0)) at(`${path}.sphere`, 'needs center and positive radius');
+      p = sphere(center, radius);
+    } else if (def.plane) {
+      const { normal, offset } = def.plane;
+      if (!normal) at(`${path}.plane`, 'needs normal');
+      p = plane(normal, offset ?? 0);
+    } else {
+      at(path, 'needs a sphere or plane');
+    }
+    return def.complement ? complement(p) : p;
+  }
+
+  // Named objects are memoized so repeated use shares one subtree.
+  const built = new Map();
+  function named(name, path) {
+    if (built.has(name)) return built.get(name);
+    const def = (spec.objects || {})[name];
+    if (!def) at(path, `unknown object "${name}"`);
+    built.set(name, null);                       // cycle guard
+    const t = tree(def, `objects.${name}`);
+    built.set(name, t);
+    return t;
+  }
+
+  function tree(def, path) {
+    if (def === 'empty') return EMPTY;
+    if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
+    if (def.solid !== undefined) return solid(substrate(def.solid, path));
+    if (def.use !== undefined) {
+      const t = named(def.use, path);
+      if (t === null) at(path, `object "${def.use}" refers to itself`);
+      return t;
+    }
+    if (def.union !== undefined) {
+      const parts = def.union.map((d, i) =>
+        typeof d === 'string' ? named(d, `${path}.union[${i}]`) : tree(d, `${path}.union[${i}]`));
+      if (!parts.length) at(path, 'union needs at least one operand');
+      return parts.reduce((acc, p) => union(acc, p));
+    }
+    if (def.inside === undefined || def.outside === undefined) {
+      at(path, 'node needs both inside and outside');
+    }
+    return node(primOf(def, path),
+                tree(def.inside,  `${path}.inside`),
+                tree(def.outside, `${path}.outside`),
+                paintOf(def, path));
+  }
+
+  if (!spec.root) at('root', 'missing');
+  return { nodes: flatten(tree(spec.root, 'root')), materials: table, lights: lightList };
+}
+
+// 32 bytes per material: vec3 albedo | f32 pattern | vec3 albedo2 | f32 scale
+function packMaterials(list) {
+  const buf = new ArrayBuffer(list.length * 32);
+  const f = new Float32Array(buf);
+  list.forEach((m, j) => {
+    const o = j * 8;
+    f[o + 0] = m.albedo[0];  f[o + 1] = m.albedo[1];  f[o + 2] = m.albedo[2];
+    f[o + 3] = m.pattern;
+    f[o + 4] = m.albedo2[0]; f[o + 5] = m.albedo2[1]; f[o + 6] = m.albedo2[2];
+    f[o + 7] = m.scale;
+  });
+  return buf;
+}
 
 // 32 bytes per node: vec3 n | f32 a | f32 k | i32 inside | i32 outside | i32 paint
 function packNodes(list) {
@@ -256,8 +310,8 @@ function packLights(list) {
 //     python3 -m http.server
 // ---------------------------------------------------------------------------
 
-async function loadShader(url) {
-  const res = await fetch(url);
+async function loadText(url) {
+  const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`${url}: ${res.status} ${res.statusText}`);
   return res.text();
 }
@@ -284,17 +338,15 @@ if (!navigator.gpu) {
   if (!adapter) {
     fail('No suitable GPU adapter found.');
   } else {
-    let computeWGSL, blitWGSL;
+    const SOURCES = ['antisphere-raycast.wgsl', 'blit.wgsl', 'scene.json'];
+    let computeWGSL, blitWGSL, sceneText;
     try {
-      [computeWGSL, blitWGSL] = await Promise.all([
-        loadShader('antisphere-raycast.wgsl'),
-        loadShader('blit.wgsl'),
-      ]);
+      [computeWGSL, blitWGSL, sceneText] = await Promise.all(SOURCES.map(loadText));
     } catch (e) {
-      fail(`Could not load the shaders (${e.message}).\n\n` +
-           'This page reads its WGSL from separate files, so it has to be served ' +
-           'over http rather than opened directly. Run "python3 -m http.server" ' +
-           'in this directory and load it from there.');
+      fail(`Could not load the source files (${e.message}).\n\n` +
+           'This page reads its WGSL and its scene from separate files, so it has ' +
+           'to be served over http rather than opened directly. Run ' +
+           '"python3 -m http.server" in this directory and load it from there.');
       throw e;
     }
 
@@ -305,26 +357,30 @@ if (!navigator.gpu) {
     const format = navigator.gpu.getPreferredCanvasFormat();
     ctx.configure({ device, format, alphaMode: 'opaque' });
 
-    const nodeData = packNodes(nodes);
-    const nodeBuf = device.createBuffer({
-      size: nodeData.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(nodeBuf, 0, nodeData);
+    // Scene buffers are replaced wholesale when scene.json changes, since the
+    // node, material, and light counts all move.
+    let nodeBuf = null, lightBuf = null, matBuf = null;
+    let scene = null;
 
-    const lightData = packLights(lights);
-    const lightBuf = device.createBuffer({
-      size: lightData.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(lightBuf, 0, lightData);
+    function upload(data) {
+      const buf = device.createBuffer({
+        size: data.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(buf, 0, data);
+      return buf;
+    }
 
-    const matData = packMaterials(MATERIALS);
-    const matBuf = device.createBuffer({
-      size: matData.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(matBuf, 0, matData);
+    function applyScene(spec) {
+      const built = compileScene(spec);          // throws before anything is touched
+      if (!built.lights.length) throw new Error('scene.json: needs at least one light');
+      for (const b of [nodeBuf, lightBuf, matBuf]) if (b) b.destroy();
+      scene = built;
+      nodeBuf  = upload(packNodes(built.nodes));
+      lightBuf = upload(packLights(built.lights));
+      matBuf   = upload(packMaterials(built.materials));
+      makeBindGroups();
+    }
 
     const camBuf = device.createBuffer({
       size: 64,
@@ -332,7 +388,7 @@ if (!navigator.gpu) {
     });
 
     // A shader that fails to compile leaves the pipeline invalid, and an
-    // invalid pipeline makes dispatch a silent no-op: black frames, no
+    // invalid pipeline makes the whole submit fail: black frames, no
     // exception. Report compilation messages rather than guessing.
     async function checkShader(mod, label) {
       const info = await mod.getCompilationInfo();
@@ -342,44 +398,16 @@ if (!navigator.gpu) {
         if (msg.type === 'error') { failed = true; console.error(where, msg.message); }
         else console.warn(where, msg.message);
       }
-      if (failed) {
-        fail(`${label} failed to compile. See the console for details.`);
-      }
       return !failed;
     }
 
-    const computeMod = device.createShaderModule({ code: computeWGSL });
-    checkShader(computeMod, 'compute shader');
-
-    const computePipe = device.createComputePipeline({
-      layout: 'auto',
-      compute: { module: computeMod, entryPoint: 'main' },
-    });
-
-    const blitMod = device.createShaderModule({ code: blitWGSL });
-    checkShader(blitMod, 'blit shader');
-    const blitPipe = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module: blitMod, entryPoint: 'vs' },
-      fragment: { module: blitMod, entryPoint: 'fs', targets: [{ format }] },
-      primitive: { topology: 'triangle-list' },
-    });
-
+    let computePipe = null, blitPipe = null;
     let tex = null, computeBG = null, blitBG = null, tw = 0, th = 0;
 
-    function resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
-      const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
-      if (w === tw && h === th) return;
-      tw = w; th = h;
-      canvas.width = w; canvas.height = h;
-      if (tex) tex.destroy();
-      tex = device.createTexture({
-        size: [w, h],
-        format: 'rgba8unorm',
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-      });
+    // Bind group layouts come from the pipelines, so both the pipelines and
+    // the output texture invalidate them.
+    function makeBindGroups() {
+      if (!tex || !computePipe || !blitPipe || !nodeBuf) return;
       computeBG = device.createBindGroup({
         layout: computePipe.getBindGroupLayout(0),
         entries: [
@@ -395,13 +423,134 @@ if (!navigator.gpu) {
         entries: [{ binding: 0, resource: tex.createView() }],
       });
     }
+
+    // Builds both pipelines from source and only swaps them in if everything
+    // validates, so a bad edit leaves the previous frame rendering.
+    async function buildPipelines(computeSrc, blitSrc) {
+      const cMod = device.createShaderModule({ code: computeSrc });
+      const bMod = device.createShaderModule({ code: blitSrc });
+      const ok = await Promise.all([
+        checkShader(cMod, 'compute shader'),
+        checkShader(bMod, 'blit shader'),
+      ]);
+      if (!ok.every(Boolean)) return 'shader failed to compile';
+
+      device.pushErrorScope('validation');
+      const cp = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module: cMod, entryPoint: 'main' },
+      });
+      const bp = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: { module: bMod, entryPoint: 'vs' },
+        fragment: { module: bMod, entryPoint: 'fs', targets: [{ format }] },
+        primitive: { topology: 'triangle-list' },
+      });
+      const err = await device.popErrorScope();
+      if (err) { console.error(err.message); return 'pipeline validation failed'; }
+
+      computePipe = cp;
+      blitPipe = bp;
+      makeBindGroups();
+      return null;
+    }
+
+    const firstError = await buildPipelines(computeWGSL, blitWGSL);
+    if (firstError) {
+      fail(`${firstError}. See the console for details.`);
+      throw new Error(firstError);
+    }
+
+    try {
+      applyScene(JSON.parse(sceneText));
+    } catch (e) {
+      fail(e.message);
+      throw e;
+    }
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+      const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      if (w === tw && h === th) return;
+      tw = w; th = h;
+      canvas.width = w; canvas.height = h;
+      if (tex) tex.destroy();
+      tex = device.createTexture({
+        size: [w, h],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      makeBindGroups();
+    }
     window.addEventListener('resize', resize);
+
+    // ---------------------------------------------------------------------
+    // Hot reload
+    //
+    // Refetches both WGSL files and rebuilds. Camera, scene, and buffers are
+    // untouched, so the view does not jump. A failed rebuild is reported and
+    // the previous pipelines keep rendering.
+    // ---------------------------------------------------------------------
+
+    let live = [computeWGSL, blitWGSL, sceneText];
+    let reloading = false;
+    let watching = false;      // polling is opt-in; R reloads on demand
+
+    function note(text, bad) {
+      const el = document.getElementById('note');
+      el.textContent = text;
+      el.style.color = bad ? '#f87171' : '#4ade80';
+      clearTimeout(note.timer);
+      note.timer = setTimeout(() => { el.textContent = ''; }, bad ? 6000 : 1600);
+    }
+
+    async function reload(force) {
+      if (reloading) return;
+      reloading = true;
+      try {
+        const next = await Promise.all(SOURCES.map(loadText));
+        const changed = next.map((t, i) => force || t !== live[i]);
+        if (!changed.some(Boolean)) return;
+        // Record the new text either way, so a broken file is not retried
+        // on every poll.
+        live = next;
+
+        const done = [];
+        if (changed[0] || changed[1]) {
+          const err = await buildPipelines(next[0], next[1]);
+          if (err) { note(`reload: ${err}`, true); return; }
+          done.push('shaders');
+        }
+        if (changed[2]) {
+          try {
+            applyScene(JSON.parse(next[2]));
+            done.push('scene');
+          } catch (e) {
+            note(`reload: ${e.message}`, true);
+            return;
+          }
+        }
+        note(`reloaded ${done.join(' and ')}`);
+      } catch (e) {
+        note(`reload: ${e.message}`, true);
+      } finally {
+        reloading = false;
+      }
+    }
+
+    setInterval(() => { if (watching) reload(false); }, 1500);
 
     // Orbit camera
     let yaw = 0.55, pitch = 0.30, dist = 6.4;
     let shadowsOn = true;
     window.addEventListener('keydown', (e) => {
       if (e.key === 's' || e.key === 'S') shadowsOn = !shadowsOn;
+      if (e.key === 'r' || e.key === 'R') reload(true);
+      if (e.key === 'w' || e.key === 'W') {
+        watching = !watching;
+        note(watching ? 'watching files for changes' : 'watch off');
+      }
     });
     let dragging = false, lx = 0, ly = 0;
     canvas.addEventListener('pointerdown', (e) => {
@@ -451,6 +600,7 @@ if (!navigator.gpu) {
 
     function frame() {
       resize();
+      if (!computeBG || !blitBG) { requestAnimationFrame(frame); return; }
       writeCamera();
 
       const enc = device.createCommandEncoder();
@@ -479,7 +629,7 @@ if (!navigator.gpu) {
       if (now - tPrev > 500) {
         fps = Math.round((frames * 1000) / (now - tPrev));
         frames = 0; tPrev = now;
-        stat.textContent = `${nodes.length} nodes · ${MATERIALS.length - 1} materials · ${lights.length} lights · ${tw}x${th} · ${fps} fps`;
+        stat.textContent = `${scene.nodes.length} nodes · ${scene.materials.length - 1} materials · ${scene.lights.length} lights · ${tw}x${th} · ${fps} fps`;
       }
       requestAnimationFrame(frame);
     }
