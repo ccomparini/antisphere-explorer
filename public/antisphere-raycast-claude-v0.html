@@ -45,8 +45,6 @@
 //   Negating all five numbers gives the exact complement (f -> -f).
 // ---------------------------------------------------------------------------
 
-const EMPTY = -1, SOLID = -2;
-
 function sphere(c, r) {
   const d = Math.hypot(c[0], c[1], c[2]);
   const u = d > 1e-9 ? [c[0]/d, c[1]/d, c[2]/d] : [0, 0, 1];
@@ -64,55 +62,134 @@ function complement(p) {
   return { n: [-p.n[0], -p.n[1], -p.n[2]], a: -p.a, k: -p.k };
 }
 
-// A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
-function node(prim, inside, outside) {
-  return { prim, inside, outside };
+// ---------------------------------------------------------------------------
+// Materials
+//
+// One table, indexed from both places:
+//
+//   Leaf substrate   what the region is made of. Index 0 is vacuum, which is
+//                    how an empty leaf is spelled.
+//   Node paint       a material in scope for the whole subtree beneath the
+//                    node, overriding leaf substrate until cleared.
+//
+// Node paint takes three sentinel values:
+//
+//   PARTITION  pure spatial division, never paints. The builder is free to
+//              insert, hoist, or drop these without changing appearance.
+//   INHERIT    authored node that takes whatever material is in scope.
+//              Identical at render time to PARTITION; the distinction is a
+//              promise to the builder about what it may move.
+//   BARE       clears the scope, revealing the leaf substrate underneath.
+//
+// Surface parameterization always comes from the node that was crossed, never
+// from the material, so a node's own (n, a, k) supplies the frame: a tangent
+// basis for planes, a center for spheres.
+// ---------------------------------------------------------------------------
+
+const PARTITION = -1;
+const INHERIT   = -2;
+const BARE      =  0;
+
+const FLAT = 0, CHECKER = 1;
+
+const MATERIALS = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0], pattern: FLAT, scale: 1 }];
+
+function material(def) {
+  MATERIALS.push({
+    albedo: [0.7, 0.7, 0.7], albedo2: [0.3, 0.3, 0.3], pattern: FLAT, scale: 1, ...def,
+  });
+  return MATERIALS.length - 1;
 }
+
+// 32 bytes per material: vec3 albedo | f32 pattern | vec3 albedo2 | f32 scale
+function packMaterials(list) {
+  const buf = new ArrayBuffer(list.length * 32);
+  const f = new Float32Array(buf);
+  list.forEach((m, j) => {
+    const o = j * 8;
+    f[o + 0] = m.albedo[0];  f[o + 1] = m.albedo[1];  f[o + 2] = m.albedo[2];
+    f[o + 3] = m.pattern;
+    f[o + 4] = m.albedo2[0]; f[o + 5] = m.albedo2[1]; f[o + 6] = m.albedo2[2];
+    f[o + 7] = m.scale;
+  });
+  return buf;
+}
+
+// ---------------------------------------------------------------------------
+// Tree
+// ---------------------------------------------------------------------------
+
+// A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
+function node(prim, inside, outside, paint = INHERIT) {
+  return { prim, inside, outside, paint };
+}
+
+const EMPTY = 'empty';
+const solid = (mat) => ({ leaf: mat });
+const isLeaf = (t) => t === EMPTY || t.leaf !== undefined;
 
 // Union: everything solid in `t` stays solid; every empty region of `t`
 // is handed to `other`. Correct for any pair, and the shared subtree is
 // deduplicated when the tree is flattened.
+//
+// Note that this drops `other` *inside* t's material scope, so a substituted
+// object inherits t's paint unless it repaints itself.
 function union(t, other) {
-  if (t === 'empty') return other;
-  if (t === 'solid') return 'solid';
-  return node(t.prim, union(t.inside, other), union(t.outside, other));
+  if (t === EMPTY) return other;
+  if (isLeaf(t)) return t;
+  return node(t.prim, union(t.inside, other), union(t.outside, other), t.paint);
 }
 
 // ---------------------------------------------------------------------------
 // Scene
 // ---------------------------------------------------------------------------
 
-// A sphere with a flat top cut off and a spherical bite taken out.
+const SHELL  = material({ albedo: [0.30, 0.31, 0.35] });
+const FLOOR  = material({ albedo: [0.34, 0.36, 0.39], albedo2: [0.15, 0.16, 0.19],
+                          pattern: FLAT, scale: 1.0 });
+const STONE  = material({ albedo: [0.58, 0.53, 0.46], albedo2: [0.44, 0.40, 0.36],
+                          pattern: FLAT, scale: 2.4 });
+const CORE   = material({ albedo: [0.74, 0.44, 0.16] });
+const BRASS  = material({ albedo: [0.66, 0.58, 0.22] });
+
+// A stone sphere with a flat top cut off and a spherical bite taken out.
+// The cut plane inherits STONE from the group root; the bite is BARE, so its
+// cavity wall falls back to the substrate the region is actually made of.
 const bitten = node(sphere([-1.35, 0, 0.25], 1.15),
   node(plane([0, 0, 1], 0.95),
-    node(sphere([-0.75, 0.8, 0.85], 0.8), 'empty', 'solid'),
-    'empty'),
-  'empty');
+    node(sphere([-0.75, 0.8, 0.85], 0.8), EMPTY, solid(CORE), BARE),
+    EMPTY),
+  EMPTY, STONE);
 
-// A lens: the intersection of two overlapping spheres.
+// A lens: the intersection of two overlapping spheres. It repaints itself,
+// because union() nests it inside the stone group's scope.
 const lens = node(sphere([0.95, 0, 0.15], 1.15),
-  node(sphere([1.85, 0, 0.15], 1.15), 'solid', 'empty'),
-  'empty');
+  node(sphere([1.85, 0, 0.15], 1.15), solid(BRASS), EMPTY),
+  EMPTY, BRASS);
 
-// Ground half-space, then the two objects above it.
-const interior = node(plane([0, 0, 1], -1.0), 'solid', union(bitten, lens));
+// Ground half-space, then the two objects above it. The ground node is a pure
+// partition, so the floor takes its material from the leaf substrate.
+const interior = node(plane([0, 0, 1], -1.0), solid(FLOOR), union(bitten, lens), PARTITION);
 
 // Everything sits inside a shell. Complementing the sphere negates all five
 // numbers, so the stored normal points inward and grad f points away from the
 // solid, the same as every other surface in the tree. f < 0 is now the region
 // *outside* the sphere, which is the solid side.
-const scene = node(complement(sphere([0, 0, 0], 25)), 'solid', interior);
+const scene = node(complement(sphere([0, 0, 0], 25)), solid(SHELL), interior, PARTITION);
 
+// Leaves are encoded in the child index: child < 0 means a leaf whose
+// substrate is (-1 - child), so EMPTY is -1 and vacuum is material 0.
 function flatten(tree) {
   const out = [], memo = new Map();
   const walk = (t) => {
-    if (t === 'solid') return SOLID;
-    if (t === 'empty') return EMPTY;
+    if (t === EMPTY) return -1;
+    if (t.leaf !== undefined) return -1 - t.leaf;
     if (memo.has(t)) return memo.get(t);
     const idx = out.length;
     out.push(null);
     memo.set(t, idx);
-    out[idx] = { prim: t.prim, inside: walk(t.inside), outside: walk(t.outside) };
+    out[idx] = { prim: t.prim, paint: t.paint,
+                 inside: walk(t.inside), outside: walk(t.outside) };
     return idx;
   };
   walk(tree);
@@ -121,7 +198,7 @@ function flatten(tree) {
 
 const nodes = flatten(scene);
 
-// 32 bytes per node: vec3 n | f32 a | f32 k | i32 inside | i32 outside | pad
+// 32 bytes per node: vec3 n | f32 a | f32 k | i32 inside | i32 outside | i32 paint
 function packNodes(list) {
   const buf = new ArrayBuffer(list.length * 32);
   const f = new Float32Array(buf), i = new Int32Array(buf);
@@ -134,7 +211,7 @@ function packNodes(list) {
     f[o + 4] = nd.prim.k;
     i[o + 5] = nd.inside;
     i[o + 6] = nd.outside;
-    f[o + 7] = 0;
+    i[o + 7] = nd.paint;
   });
   return buf;
 }
@@ -174,16 +251,20 @@ function packLights(list) {
 // ---------------------------------------------------------------------------
 
 const computeWGSL = /* wgsl */`
-const EMPTY : i32 = -1;
-const SOLID : i32 = -2;
-
 struct Node {
   n       : vec3<f32>,
   a       : f32,
   k       : f32,
   inside  : i32,
   outside : i32,
-  pad     : f32,
+  paint   : i32,   // >= 0 sets scope (0 clears it); negative leaves it alone
+};
+
+struct Material {
+  albedo  : vec3<f32>,
+  pattern : f32,
+  albedo2 : vec3<f32>,
+  scale   : f32,
 };
 
 struct Camera {
@@ -208,6 +289,7 @@ struct Light {
 @group(0) @binding(1) var<storage, read> nodes : array<Node>;
 @group(0) @binding(2) var outTex : texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(3) var<storage, read> lights : array<Light>;
+@group(0) @binding(4) var<storage, read> materials : array<Material>;
 
 // f(R) = k(R.R) + (1 - 2ak)(R.n) - a + k a^2
 fn fAt(nd : Node, R : vec3<f32>) -> f32 {
@@ -221,17 +303,18 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
   return 2.0 * nd.k * R + (1.0 - 2.0 * nd.a * nd.k) * nd.n;
 }
 
-struct Seg { node : i32, t0 : f32, t1 : f32, entry : i32, };
-struct Hit { hit : bool, t : f32, node : i32, };
+struct Seg { node : i32, t0 : f32, t1 : f32, entry : i32, scope : i32, };
+struct Hit { hit : bool, t : f32, node : i32, mat : i32, };
 
 fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
   var hit : Hit;
   hit.hit = false;
   hit.t = tMax;
   hit.node = -1;
+  hit.mat = 0;
 
   var stack : array<Seg, 32>;
-  stack[0] = Seg(0, tMin, tMax, -1);
+  stack[0] = Seg(0, tMin, tMax, -1, 0);
   var sp : i32 = 1;
 
   var guard : i32 = 0;
@@ -244,17 +327,24 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     if (seg.t1 - seg.t0 <= 1e-6) { continue; }
 
     if (seg.node < 0) {
+      // Leaf. Its substrate is (-1 - node), and 0 is vacuum.
+      let substrate = -1 - seg.node;
+      if (substrate == 0) { continue; }
       // Front-to-back ordering means the first solid leaf popped is nearest.
-      if (seg.node == SOLID) {
-        hit.hit = true;
-        hit.t = seg.t0;
-        hit.node = seg.entry;
-        break;
-      }
-      continue;
+      // Paint in scope wins over the substrate.
+      hit.hit = true;
+      hit.t = seg.t0;
+      hit.node = seg.entry;
+      hit.mat = select(substrate, seg.scope, seg.scope > 0);
+      break;
     }
 
     let nd = nodes[seg.node];
+
+    // Material scope descends into both children. A negative paint value
+    // (PARTITION or INHERIT) leaves whatever is already in scope.
+    var scope = seg.scope;
+    if (nd.paint >= 0) { scope = nd.paint; }
 
     // Substituting R = O + tD gives A t^2 + B t + C, with A = k.
     // A plane is the quadratic degenerating to linear, no special case.
@@ -305,16 +395,27 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) { child = nd.inside; }
       var ent = seg.entry;
       if (i > 0) { ent = seg.node; }
-      stack[sp] = Seg(child, sa, sb, ent);
+      stack[sp] = Seg(child, sa, sb, ent, scope);
       sp = sp + 1;
     }
   }
   return hit;
 }
 
-fn tint(i : i32) -> vec3<f32> {
-  let f = f32(i) * 1.9;
-  return 0.42 + 0.30 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2));
+// Surface parameterization from the node's own five numbers. A plane gets a
+// tangent basis; a sphere gets longitude and latitude about its center.
+// cmc - no.
+fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
+  if (nd.k == 0.0) {
+    var axis = vec3<f32>(0.0, 0.0, 1.0);
+    if (abs(nd.n.z) > 0.9) { axis = vec3<f32>(1.0, 0.0, 0.0); }
+    let t = normalize(cross(nd.n, axis));
+    let b = cross(nd.n, t);
+    return vec2<f32>(dot(P, t), dot(P, b));
+  }
+  let c = (nd.a - 0.5 / nd.k) * nd.n;
+  let d = normalize(P - c);
+  return vec2<f32>(atan2(d.y, d.x), asin(clamp(d.z, -1.0, 1.0)));
 }
 
 @compute @workgroup_size(8, 8)
@@ -340,10 +441,12 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       var N = normalize(gradAt(nd, P));
       if (dot(N, dir) > 0.0) { N = -N; }   // face the ray
 
-      var alb = tint(h.node);
-      if (nd.k == 0.0) {
-        let ck = fract((floor(P.x) + floor(P.y)) * 0.5);
-        alb = mix(vec3<f32>(0.34, 0.36, 0.39), vec3<f32>(0.15, 0.16, 0.19), step(0.25, ck));
+      let m = materials[h.mat];
+      var alb = m.albedo;
+      if (m.pattern > 0.5) {
+        let st = frame(nd, P) * m.scale;
+        let ck = fract((floor(st.x) + floor(st.y)) * 0.5);
+        alb = mix(m.albedo, m.albedo2, step(0.25, ck));
       }
 
       // Bias scales with position so the offset stays meaningful out near
@@ -437,17 +540,45 @@ if (!navigator.gpu) {
     });
     device.queue.writeBuffer(lightBuf, 0, lightData);
 
+    const matData = packMaterials(MATERIALS);
+    const matBuf = device.createBuffer({
+      size: matData.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(matBuf, 0, matData);
+
     const camBuf = device.createBuffer({
       size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
+    // A shader that fails to compile leaves the pipeline invalid, and an
+    // invalid pipeline makes dispatch a silent no-op: black frames, no
+    // exception. Report compilation messages rather than guessing.
+    async function checkShader(mod, label) {
+      const info = await mod.getCompilationInfo();
+      let failed = false;
+      for (const msg of info.messages) {
+        const where = `${label} line ${msg.lineNum}:${msg.linePos}`;
+        if (msg.type === 'error') { failed = true; console.error(where, msg.message); }
+        else console.warn(where, msg.message);
+      }
+      if (failed) {
+        fail(`${label} failed to compile. See the console for details.`);
+      }
+      return !failed;
+    }
+
+    const computeMod = device.createShaderModule({ code: computeWGSL });
+    checkShader(computeMod, 'compute shader');
+
     const computePipe = device.createComputePipeline({
       layout: 'auto',
-      compute: { module: device.createShaderModule({ code: computeWGSL }), entryPoint: 'main' },
+      compute: { module: computeMod, entryPoint: 'main' },
     });
 
     const blitMod = device.createShaderModule({ code: blitWGSL });
+    checkShader(blitMod, 'blit shader');
     const blitPipe = device.createRenderPipeline({
       layout: 'auto',
       vertex: { module: blitMod, entryPoint: 'vs' },
@@ -477,6 +608,7 @@ if (!navigator.gpu) {
           { binding: 1, resource: { buffer: nodeBuf } },
           { binding: 2, resource: tex.createView() },
           { binding: 3, resource: { buffer: lightBuf } },
+          { binding: 4, resource: { buffer: matBuf } },
         ],
       });
       blitBG = device.createBindGroup({
@@ -488,7 +620,7 @@ if (!navigator.gpu) {
 
     // Orbit camera
     let yaw = 0.55, pitch = 0.30, dist = 6.4;
-    let shadowsOn = false;
+    let shadowsOn = true;
     window.addEventListener('keydown', (e) => {
       if (e.key === 's' || e.key === 'S') shadowsOn = !shadowsOn;
     });
@@ -568,7 +700,7 @@ if (!navigator.gpu) {
       if (now - tPrev > 500) {
         fps = Math.round((frames * 1000) / (now - tPrev));
         frames = 0; tPrev = now;
-        stat.textContent = `${nodes.length} antisphere nodes · ${lights.length} lights · ${tw}x${th} · ${fps} fps`;
+        stat.textContent = `${nodes.length} nodes · ${MATERIALS.length - 1} materials · ${lights.length} lights · ${tw}x${th} · ${fps} fps`;
       }
       requestAnimationFrame(frame);
     }
