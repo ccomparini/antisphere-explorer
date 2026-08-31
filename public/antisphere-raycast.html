@@ -140,6 +140,84 @@ function flatten(tree) {
 }
 
 // ---------------------------------------------------------------------------
+// Bounds
+//
+// The bounding sphere of a subtree's solid region, used by "group" to check
+// the author's disjointness claim and to build the early-out tests. A node's
+// own five numbers already describe a ball whenever that side of it is
+// bounded: the inside for k > 0, the outside for k < 0. A half-space bounds
+// neither side.
+//
+// Returns NO_SOLID, UNBOUNDED, or { c, r }.
+// ---------------------------------------------------------------------------
+
+const NO_SOLID = null;
+const UNBOUNDED = 'unbounded';
+
+const dist3 = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]);
+
+function regionBall(prim, insideSide) {
+  if (prim.k === 0) return null;
+  if (insideSide !== (prim.k > 0)) return null;
+  const r = 0.5 / prim.k;
+  return { c: prim.n.map((v) => v * (prim.a - r)), r: Math.abs(r) };
+}
+
+// Bounding sphere of the intersection of two balls. Exact for containment,
+// and for the lens case takes the ball around the lens's axial extent and
+// widest cross-section.
+function ballMeet(A, B) {
+  const d = dist3(A.c, B.c);
+  if (d >= A.r + B.r) return NO_SOLID;
+  if (d + A.r <= B.r) return A;
+  if (d + B.r <= A.r) return B;
+  const x = (d*d - B.r*B.r + A.r*A.r) / (2*d);       // A.c to the radical plane
+  const rho2 = Math.max(0, A.r*A.r - x*x);           // widest cross-section
+  const lo = Math.max(-A.r, d - B.r), hi = Math.min(A.r, d + B.r);
+  const xm = 0.5 * (lo + hi);
+  const u = A.c.map((v, i) => (B.c[i] - v) / d);
+  return {
+    c: A.c.map((v, i) => v + u[i] * xm),
+    r: Math.max(0.5 * (hi - lo), Math.sqrt(rho2 + (x - xm) ** 2)),
+  };
+}
+
+function ballJoin(A, B) {
+  const d = dist3(A.c, B.c);
+  if (d + A.r <= B.r) return B;
+  if (d + B.r <= A.r) return A;
+  const R = 0.5 * (d + A.r + B.r);
+  const t = (R - A.r) / d;
+  return { c: A.c.map((v, i) => v + (B.c[i] - v) * t), r: R };
+}
+
+function boundOf(t, declared, memo) {
+  if (declared.has(t)) return declared.get(t);
+  if (memo.has(t)) return memo.get(t);
+  let out;
+  if (t === EMPTY) {
+    out = NO_SOLID;
+  } else if (t.leaf !== undefined) {
+    out = t.leaf === 0 ? NO_SOLID : UNBOUNDED;      // a solid leaf is unbounded
+  } else {
+    memo.set(t, UNBOUNDED);                          // conservative cycle guard
+    const clip = (b, ball) => {
+      if (b === NO_SOLID) return NO_SOLID;
+      if (!ball) return b;
+      return b === UNBOUNDED ? ball : ballMeet(b, ball);
+    };
+    const bi = clip(boundOf(t.inside,  declared, memo), regionBall(t.prim, true));
+    const bo = clip(boundOf(t.outside, declared, memo), regionBall(t.prim, false));
+    if (bi === UNBOUNDED || bo === UNBOUNDED) out = UNBOUNDED;
+    else if (bi === NO_SOLID) out = bo;
+    else if (bo === NO_SOLID) out = bi;
+    else out = ballJoin(bi, bo);
+  }
+  memo.set(t, out);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Scene compiler
 //
 // Turns scene.json into flat node, material, and light tables. Named entries
@@ -201,6 +279,9 @@ function compileScene(spec) {
 
   // Named objects are memoized so repeated use shares one subtree.
   const built = new Map();
+  const declared = new Map();     // subtree -> author-declared bounding ball
+  const boundMemo = new Map();
+
   function named(name, path) {
     if (built.has(name)) return built.get(name);
     const def = (spec.objects || {})[name];
@@ -211,16 +292,177 @@ function compileScene(spec) {
     return t;
   }
 
+  function operand(d, path) {
+    if (d === EMPTY) return EMPTY;
+    return typeof d === 'string' ? named(d, path) : tree(d, path);
+  }
+
+  // Split candidates: planes along the axes and the four body diagonals, plus
+  // spheres about the centroid. Each is tried at every gap between members
+  // sorted along that projection.
+  const SPLIT_DIRS = [[1,0,0], [0,1,0], [0,0,1], [1,1,1], [1,1,-1], [1,-1,1], [-1,1,1]]
+    .map((d) => { const L = Math.hypot(...d); return d.map((v) => v / L); });
+
+  // A split that separates every member without cutting any of them. Prefers
+  // the most even one. `pref` is the running max of x+r from the low side,
+  // `suf` the running min of x-r from the high side; a gap is clean when they
+  // do not cross.
+  function cleanSplit(items, project, makePrim) {
+    const n = items.length;
+    const arr = items.map((it, i) => ({ i, x: project(it.ball), r: it.ball.r }))
+                     .sort((a, b) => a.x - b.x);
+    const pref = new Array(n), suf = new Array(n);
+    let m = -Infinity;
+    for (let k = 0; k < n; k++) { m = Math.max(m, arr[k].x + arr[k].r); pref[k] = m; }
+    m = Infinity;
+    for (let k = n - 1; k >= 0; k--) { m = Math.min(m, arr[k].x - arr[k].r); suf[k] = m; }
+
+    let cut = null;
+    for (let k = 1; k < n; k++) {
+      if (pref[k - 1] > suf[k]) continue;            // this gap would cut a member
+      const bal = Math.abs(k - n / 2);
+      if (!cut || bal < cut.bal) cut = { bal, k, t: 0.5 * (pref[k - 1] + suf[k]) };
+    }
+    if (!cut) return null;
+    const prim = makePrim(cut.t);
+    if (!prim) return null;
+    return { prim, bal: cut.bal,
+             inside:  arr.slice(0, cut.k).map((a) => items[a.i]),
+             outside: arr.slice(cut.k).map((a) => items[a.i]) };
+  }
+
+  // Fallback when nothing separates cleanly: split at the median and put any
+  // member the surface crosses into *both* children. Subtree sharing makes
+  // that one extra reference rather than a copy. Requires strict progress on
+  // both sides so the recursion terminates.
+  function looseSplit(items, project, makePrim) {
+    const xs = items.map((it) => project(it.ball)).sort((a, b) => a - b);
+    const t = xs[Math.floor(xs.length / 2)];
+    const prim = makePrim(t);
+    if (!prim) return null;
+    const inside = [], outside = [];
+    for (const it of items) {
+      const x = project(it.ball), r = it.ball.r;
+      if (x + r <= t) inside.push(it);
+      else if (x - r >= t) outside.push(it);
+      else { inside.push(it); outside.push(it); }
+    }
+    if (inside.length >= items.length || outside.length >= items.length) return null;
+    return { prim, inside, outside, cost: Math.max(inside.length, outside.length) };
+  }
+
+  function chooseSplit(items) {
+    const mid = [0, 1, 2].map((ax) =>
+      items.reduce((s, it) => s + it.ball.c[ax], 0) / items.length);
+
+    const tries = SPLIT_DIRS.map((d) => [
+      (b) => b.c[0] * d[0] + b.c[1] * d[1] + b.c[2] * d[2],
+      (t) => plane(d, t),
+    ]);
+    tries.push([(b) => dist3(b.c, mid), (t) => (t > 1e-6 ? sphere(mid, t) : null)]);
+
+    let best = null;
+    for (const [proj, mk] of tries) {
+      const s = cleanSplit(items, proj, mk);
+      if (s && (!best || s.bal < best.bal)) best = s;
+    }
+    if (best) return best;
+    for (const [proj, mk] of tries) {
+      const s = looseSplit(items, proj, mk);
+      if (s && (!best || s.cost < best.cost)) best = s;
+    }
+    return best;
+  }
+
+  // A subtree whose root already confines all of its solid to one ball needs
+  // no separate bounding test: the root node is the test.
+  const selfBounded = (t) =>
+    t !== EMPTY && t.leaf === undefined && t.outside === EMPTY && t.prim.k > 0;
+
+  // Memoized, so a member landing in two children stays one subtree.
+  function wrap(it) {
+    if (!it.wrapped) {
+      it.wrapped = selfBounded(it.tree)
+        ? it.tree
+        : node(sphere(it.ball.c, it.ball.r), it.tree, EMPTY, PARTITION);
+    }
+    return it.wrapped;
+  }
+
+  function partition(items) {
+    if (!items.length) return EMPTY;
+    if (items.length === 1) return wrap(items[0]);
+    const s = chooseSplit(items);
+    if (!s) {                                      // no split makes progress
+      let acc = EMPTY;
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        acc = selfBounded(it.tree)
+          ? node(it.tree.prim, it.tree.inside, acc, it.tree.paint)
+          : node(sphere(it.ball.c, it.ball.r), it.tree, acc, PARTITION);
+      }
+      return acc;
+    }
+    return node(s.prim, partition(s.inside), partition(s.outside), PARTITION);
+  }
+
+  // "group" is a union plus an assertion: the members' bounding spheres are
+  // mutually exterior. That claim is what lets a partition surface separate
+  // them, giving a hierarchy instead of a linear chain. Because one node type
+  // serves as both splitting surface and bounding volume, the result is a BSP
+  // tree and a bounding volume hierarchy at the same time.
+  function buildGroup(def, path) {
+    if (!Array.isArray(def.group)) {
+      at(path, 'group takes an array of subtrees, or names of entries under "objects"');
+    }
+    if (def.inside !== undefined || def.outside !== undefined) {
+      at(path, 'group is a whole subtree, so it takes no inside or outside');
+    }
+
+    const parts = [];
+    def.group.forEach((d, i) => {
+      const p = `${path}.group[${i}]`;
+      const label = typeof d === 'string' ? `"${d}"` : p;
+      const t = operand(d, p);
+      if (t === null) at(p, `object ${label} refers to itself`);
+      const b = boundOf(t, declared, boundMemo);
+      if (b === NO_SOLID) return;                  // contributes nothing
+      if (b === UNBOUNDED) {
+        at(p, `${label} has no bounding sphere, so it cannot be a group member. ` +
+              'Give it "bounds": { "center": [x, y, z], "radius": r }, or use union instead');
+      }
+      // Nudge outward so a surface lying exactly on its own bound is not
+      // split by the test.
+      parts.push({ label, tree: t, ball: { c: b.c, r: b.r * (1 + 1e-4) + 1e-6 } });
+    });
+
+    // A violated claim would silently drop geometry, so check it.
+    for (let i = 0; i < parts.length; i++) {
+      for (let j = i + 1; j < parts.length; j++) {
+        const A = parts[i].ball, B = parts[j].ball;
+        if (dist3(A.c, B.c) < A.r + B.r) {
+          at(path, `${parts[i].label} and ${parts[j].label} are not mutually ` +
+                   'exterior, so they cannot be grouped. Use union instead');
+        }
+      }
+    }
+
+    return partition(parts);
+  }
+
   function tree(def, path) {
     if (def === 'empty') return EMPTY;
     if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
-    if (def.solid !== undefined) return solid(substrate(def.solid, path));
-    if (def.use !== undefined) {
-      const t = named(def.use, path);
-      if (t === null) at(path, `object "${def.use}" refers to itself`);
-      return t;
-    }
-    if (def.union !== undefined) {
+
+    let out;
+    if (def.solid !== undefined) {
+      out = solid(substrate(def.solid, path));
+    } else if (def.use !== undefined) {
+      out = named(def.use, path);
+      if (out === null) at(path, `object "${def.use}" refers to itself`);
+    } else if (def.group !== undefined) {
+      out = buildGroup(def, path);
+    } else if (def.union !== undefined) {
       if (!Array.isArray(def.union)) {
         at(path, 'union takes an array of subtrees, each with its own inside ' +
                  'and outside, or names of entries under "objects"');
@@ -228,18 +470,26 @@ function compileScene(spec) {
       if (def.inside !== undefined || def.outside !== undefined) {
         at(path, 'union is a whole subtree, so it takes no inside or outside');
       }
-      const parts = def.union.map((d, i) =>
-        typeof d === 'string' ? named(d, `${path}.union[${i}]`) : tree(d, `${path}.union[${i}]`));
-      if (!parts.length) at(path, 'union needs at least one operand');
-      return parts.reduce((acc, p) => union(acc, p));
+      if (!def.union.length) at(path, 'union needs at least one operand');
+      out = def.union
+        .map((d, i) => operand(d, `${path}.union[${i}]`))
+        .reduce((acc, p) => union(acc, p));
+    } else {
+      if (def.inside === undefined || def.outside === undefined) {
+        at(path, 'node needs both inside and outside');
+      }
+      out = node(primOf(def, path),
+                 tree(def.inside,  `${path}.inside`),
+                 tree(def.outside, `${path}.outside`),
+                 paintOf(def, path));
     }
-    if (def.inside === undefined || def.outside === undefined) {
-      at(path, 'node needs both inside and outside');
+
+    if (def.bounds) {
+      const { center, radius } = def.bounds;
+      if (!center || !(radius > 0)) at(`${path}.bounds`, 'needs center and positive radius');
+      declared.set(out, { c: center, r: radius });
     }
-    return node(primOf(def, path),
-                tree(def.inside,  `${path}.inside`),
-                tree(def.outside, `${path}.outside`),
-                paintOf(def, path));
+    return out;
   }
 
   if (!spec.root) at('root', 'missing');

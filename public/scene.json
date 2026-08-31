@@ -20,7 +20,7 @@
   "lights": [
     { "pos": [-2.2,  2.4, 3.0], "color": [26, 17, 10] },
     { "pos": [ 2.6, -2.4, 2.0], "color": [ 7, 14, 26] },
-    { "pos": [ 0.0, -3.2, 4.5], "color": [19, 19, 28] }
+    { "pos": [ 0.0, -3.2, 0.5], "color": [ 9,  9, 10] }
   ],
 
   "objects": {
@@ -61,7 +61,7 @@
       "plane": { "normal": [0, 0, 1], "offset": -1.0 },
       "paint": "partition",
       "inside": { "solid": "floor" },
-      "outside": { "union": ["bitten", "lens"] }
+      "outside": { "group": ["bitten", "lens"] }
     }
   }
 }
