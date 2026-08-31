@@ -221,6 +221,13 @@ function compileScene(spec) {
       return t;
     }
     if (def.union !== undefined) {
+      if (!Array.isArray(def.union)) {
+        at(path, 'union takes an array of subtrees, each with its own inside ' +
+                 'and outside, or names of entries under "objects"');
+      }
+      if (def.inside !== undefined || def.outside !== undefined) {
+        at(path, 'union is a whole subtree, so it takes no inside or outside');
+      }
       const parts = def.union.map((d, i) =>
         typeof d === 'string' ? named(d, `${path}.union[${i}]`) : tree(d, `${path}.union[${i}]`));
       if (!parts.length) at(path, 'union needs at least one operand');
