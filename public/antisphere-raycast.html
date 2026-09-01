@@ -28,6 +28,9 @@
   #prof hr { border: 0; border-top: 1px solid #1e2530; margin: 7px 0; }
   #prof .note { color: #6b7686; }
   #spark { display: block; margin-top: 6px; width: 100%; height: 40px; }
+  #lad-bar { display: flex; height: 10px; margin: 6px 0; border-radius: 3px; overflow: hidden; background: #161b22; }
+  #lad-bar span { display: block; height: 100%; }
+  #prof .r i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
   #err {
     position: fixed; inset: 0; display: none; place-content: center;
     padding: 2rem; text-align: center; white-space: pre-wrap; max-width: 46rem;
@@ -38,7 +41,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br>P profiler · D debug view · B blit/direct<br><span id="note"></span></div>
+<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br>P profiler · A ablation (⇧ forces full) · D debug view · B blit/direct<br><span id="note"></span></div>
 <div id="prof">
   <div class="r"><span>frame</span><b id="p-frame">-</b></div>
   <div class="r"><span>cpu encode</span><b id="p-cpu">-</b></div>
@@ -53,6 +56,10 @@
   <div class="r"><span>output</span><b id="p-out">blit</b></div>
   <div class="r"><span>rays/frame</span><b id="p-rays">-</b></div>
   <div class="note" id="p-note"></div>
+  <hr>
+  <div class="r"><span>ablation</span><b id="p-lad">A to run</b></div>
+  <div id="lad-bar"></div>
+  <div id="lad-rows"></div>
 </div>
 <div id="err"></div>
 
@@ -715,7 +722,7 @@ if (!navigator.gpu) {
     }
 
     const camBuf = device.createBuffer({
-      size: 64,
+      size: 80,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -911,6 +918,16 @@ if (!navigator.gpu) {
         profiling = !profiling;
         document.getElementById('prof').style.display = profiling ? 'block' : 'none';
       }
+      if (e.key === 'a' || e.key === 'A') {
+        if (!canTimestamp) {
+          note('ablation needs timestamp-query', true);
+        } else if (ladder) {
+          ladder = null;
+          el('p-lad').textContent = 'cancelled';
+        } else {
+          startLadder(e.shiftKey);
+        }
+      }
       if (e.key === 'b' || e.key === 'B') {
         if (canDirect) {
           directOut = !directOut;
@@ -936,17 +953,18 @@ if (!navigator.gpu) {
     canvas.addEventListener('pointerup', () => { dragging = false; });
     canvas.addEventListener('pointercancel', () => { dragging = false; });
     canvas.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
+      if (!dragging || ladder) return;
       yaw += (e.clientX - lx) * 0.006;
       pitch = Math.max(-1.35, Math.min(1.35, pitch + (e.clientY - ly) * 0.005));
       lx = e.clientX; ly = e.clientY;
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
+      if (ladder) return;
       dist = Math.max(2.0, Math.min(20, dist * Math.exp(e.deltaY * 0.001)));
     }, { passive: false });
 
-    const camArr = new Float32Array(16);
+    const camArr = new Float32Array(20);
     const target = [0, 0, 0.15];
 
     function writeCamera() {
@@ -967,8 +985,10 @@ if (!navigator.gpu) {
       ];
       camArr.set(eye, 0);          camArr[3] = Math.tan(0.5 * 0.9);
       camArr.set(r, 4);            camArr[7] = tw / th;
-      camArr.set(u, 8);            camArr[11] = shadowsOn ? 1 : 0;
-      camArr.set(f, 12);           camArr[15] = debugView;
+      const rung = ladder ? ladder.rungs[ladder.i] : null;
+      camArr.set(u, 8);            camArr[11] = rung ? rung.shadows : (shadowsOn ? 1 : 0);
+      camArr.set(f, 12);           camArr[15] = ladder ? 0 : debugView;
+      camArr[16] = rung ? rung.ablate : 2;   // 2 = full shading path
       device.queue.writeBuffer(camBuf, 0, camArr);
     }
 
@@ -998,6 +1018,64 @@ if (!navigator.gpu) {
     const VIEWS = ['shaded', 'node visits', 'shadow rays', 'stack depth',
                    'material id', 'normals'];
     let profiling = false, debugView = 0, directOut = false;
+
+    // Ablation ladder. Pass timestamps carry a systematic bias in how the
+    // driver stamps pass edges, but that bias cancels when the same
+    // measurement is differenced across configurations, so the gaps between
+    // rungs are trustworthy where the absolute numbers are not.
+    const LADDER = [
+      { name: 'dispatch',    ablate: 0, shadows: 0, color: '#3d4757' },
+      { name: 'traversal',   ablate: 1, shadows: 0, color: '#4b9fd8' },
+      { name: 'shading',     ablate: 2, shadows: 0, color: '#5ec26a' },
+      { name: 'shadow rays', ablate: 2, shadows: 1, color: '#e0b83c' },
+    ];
+    const LADDER_WARMUP = 8;     // frames discarded after switching rungs
+    const LADDER_SAMPLES = 16;   // timestamps collected per rung
+    let ladder = null;
+
+    // A run profiles the configuration currently on screen. With shadows off
+    // the last rung would repeat the one before it, so it is dropped and the
+    // run is labelled accordingly. Shift forces the full pipeline instead,
+    // for when the shadow cost is the thing being asked about.
+    function ladderRungs(force) {
+      return (force || shadowsOn) ? LADDER : LADDER.slice(0, 3);
+    }
+
+    const median = (xs) => {
+      const a = [...xs].sort((x, y) => x - y);
+      return a.length ? a[a.length >> 1] : NaN;
+    };
+
+    function startLadder(force) {
+      const rungs = ladderRungs(force);
+      const shadows = force || shadowsOn ? 'shadows on' : 'shadows off';
+      ladder = {
+        i: 0, frames: 0, rungs,
+        samples: rungs.map(() => []),
+        label: `${shadows} \u00b7 ${directOut ? 'direct' : 'blit'}` +
+               (force && !shadowsOn ? ' (forced)' : ''),
+      };
+      profiling = true;
+      document.getElementById('prof').style.display = 'block';
+    }
+
+    function finishLadder() {
+      const { samples, rungs, label } = ladder;
+      const totals = samples.map(median);
+      ladder = null;
+      // Each stage is the gap between consecutive rungs. Differences can go
+      // slightly negative on noise; report them rather than hide them.
+      const parts = totals.map((t, i) => (i === 0 ? t : t - totals[i - 1]));
+      const total = totals[totals.length - 1];
+      el('p-lad').textContent = `${total.toFixed(2)} ms \u00b7 ${label}`;
+      el('lad-bar').innerHTML = rungs.map((L, i) =>
+        `<span style="width:${Math.max(0, parts[i]) / total * 100}%;background:${L.color}"></span>`
+      ).join('');
+      el('lad-rows').innerHTML = rungs.map((L, i) =>
+        `<div class="r"><span><i style="background:${L.color}"></i>${L.name}</span>` +
+        `<b>${parts[i].toFixed(2)} ms &middot; ${(parts[i] / total * 100).toFixed(0)}%</b></div>`
+      ).join('');
+    }
 
     // Rolling means, so the readout does not flicker.
     const avg = (n) => {
@@ -1065,7 +1143,14 @@ let tsQuantized = false, tsDropped = 0;
       const frameMs = now - tLast;
       tLast = now;
 
-      const timing = canTimestamp && profiling && !tsPending;
+      // Only samples taken after the warmup count toward the current rung.
+      let rungSampled = -1;
+      if (ladder) {
+        ladder.frames++;
+        if (ladder.frames > LADDER_WARMUP) rungSampled = ladder.i;
+      }
+
+      const timing = canTimestamp && (profiling || ladder) && !tsPending;
       const cpuStart = performance.now();
 
       const enc = device.createCommandEncoder();
@@ -1154,11 +1239,28 @@ let tsQuantized = false, tsDropped = 0;
             // spot and worth saying out loud.
             tsQuantized = [computeNs, blitNs, totalNs]
               .every((v) => v === 0 || v % 100000 === 0);
+            // The rung is captured at submit time, since the readback lands
+            // one or more frames later and may arrive after the rung changed.
+            if (ladder && rungSampled >= 0) {
+              ladder.samples[rungSampled].push(computeNs / 1e6);
+            }
           } else {
             tsDropped++;
           }
           tsPending = false;
         }).catch(() => { tsPending = false; });
+      }
+
+      if (ladder && ladder.frames > LADDER_WARMUP &&
+          (ladder.samples[ladder.i].length >= LADDER_SAMPLES ||
+           ladder.frames > 300)) {         // give up on a rung rather than hang
+        ladder.i++;
+        ladder.frames = 0;
+        if (ladder.i >= ladder.rungs.length) finishLadder();
+      }
+      if (ladder) {
+        el('p-lad').textContent =
+          `running ${ladder.i + 1}/${ladder.rungs.length}: ${ladder.rungs[ladder.i].name}`;
       }
 
       if (profiling) updatePanel(frameMs, cpuMs, tw * th);

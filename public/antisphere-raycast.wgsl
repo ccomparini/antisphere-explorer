@@ -57,7 +57,18 @@ struct Camera {
   shadows : f32,
   fwd     : vec3<f32>,
   debug   : f32,   // 0 = shaded, otherwise a DEBUG_ view
+  ablate  : f32,   // ABLATE_ level, for the profiler's ablation ladder
+  pad3    : f32,
+  pad4    : f32,
+  pad5    : f32,
 };
+
+// Rungs of the ablation ladder. Each level adds one stage back, and the
+// differences between consecutive pass times give the stage costs. Shadow
+// rays are the level above this, driven by Camera.shadows.
+const ABLATE_NONE  : f32 = 0.0;   // dispatch and ray setup only
+const ABLATE_TRACE : f32 = 1.0;   // add traversal, no shading
+const ABLATE_SHADE : f32 = 2.0;   // add shading
 
 struct Light {
   pos   : vec3<f32>,
@@ -333,11 +344,25 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     + cam.right * (ndc.x * cam.aspect * cam.tanHalf)
     + cam.up    * (ndc.y * cam.tanHalf));
 
-  let h = trace(cam.origin, dir, 1e-3, 1e4);
+  // Ablation. Each stage's output has to stay live or the compiler will
+  // delete the work being measured, so every level writes something derived
+  // from what it computed.
+  var h : Hit;
+  h.hit = false;
+  h.t = 0.0;
+  h.node = -1;
+  h.mat = 0;
+  if (cam.ablate >= ABLATE_TRACE) {
+    h = trace(cam.origin, dir, 1e-3, 1e4);
+  }
 
   var col = vec3<f32>(0.0);   // the shell should catch every ray; black means a bug
   var N = vec3<f32>(0.0);
-  if (h.hit) {
+  if (cam.ablate < ABLATE_TRACE) {
+    col = abs(dir) * 0.25;
+  } else if (cam.ablate < ABLATE_SHADE) {
+    col = select(vec3<f32>(0.0), vec3<f32>(fract(h.t * 0.05)), h.hit);
+  } else if (h.hit) {
     if (h.node < 0) {
       col = vec3<f32>(0.25, 0.04, 0.05);   // camera started inside solid
     } else {
