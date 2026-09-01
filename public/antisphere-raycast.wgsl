@@ -123,11 +123,18 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       let substrate = -1 - seg.node;
       if (substrate == 0) { continue; }
       // Front-to-back ordering means the first solid leaf popped is nearest.
-      // Paint in scope wins over the substrate.
       hit.hit = true;
       hit.t = seg.t0;
       hit.node = seg.entry;
-      hit.mat = select(substrate, seg.scope, seg.scope > 0);
+      // Paint names the surface a node generates, so the node crossed to
+      // arrive here wins. PARTITION and INHERIT are negative and defer to
+      // whatever is in scope; BARE is 0 and falls through to the substrate.
+      var painted = seg.scope;
+      if (seg.entry >= 0) {
+        let entryPaint = nodes[seg.entry].paint;
+        if (entryPaint >= 0) { painted = entryPaint; }
+      }
+      hit.mat = select(substrate, painted, painted > 0);
       break;
     }
 

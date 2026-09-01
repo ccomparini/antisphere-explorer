@@ -105,10 +105,15 @@ function complement(p) {
 //
 //   Leaf substrate   what the region is made of. Index 0 is vacuum, which is
 //                    how an empty leaf is spelled.
-//   Node paint       a material in scope for the region f < 0, the node's
-//                    inside, overriding leaf substrate until cleared. It does
-//                    not reach the outside child: to scope the far side,
+//   Node paint       the material of the surface that node generates, and the
+//                    material in scope for the region f < 0 beneath it. It
+//                    does not reach the outside child: to scope the far side,
 //                    complement the node, which costs nothing.
+//
+// At a hit the material resolves in this order: the paint of the node whose
+// surface was crossed, then the paint in scope from enclosing nodes, then the
+// leaf substrate. So a carving node can differ from the body it carves, which
+// is the whole point of having both.
 //
 // Node paint takes three sentinel values:
 //
