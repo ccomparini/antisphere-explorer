@@ -41,7 +41,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br>P profiler · A ablation (⇧ forces full) · D debug view · B blit/direct<br><span id="note"></span></div>
+<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br>P profiler · A ablation (⇧ forces full) · D debug view<br>B blit/direct · C reset camera<br><span id="note"></span></div>
 <div id="prof">
   <div class="r"><span>frame</span><b id="p-frame">-</b></div>
   <div class="r"><span>cpu encode</span><b id="p-cpu">-</b></div>
@@ -544,7 +544,12 @@ function compileScene(spec) {
   }
 
   if (!spec.root) at('root', 'missing');
-  return { nodes: flatten(tree(spec.root, 'root')), materials: table, lights: lightList };
+  return {
+    nodes: flatten(tree(spec.root, 'root')),
+    materials: table,
+    lights: lightList,
+    camera: spec.camera || null,
+  };
 }
 
 // 48 bytes per material:
@@ -652,7 +657,10 @@ if (!navigator.gpu) {
   if (!adapter) {
     fail('No suitable GPU adapter found.');
   } else {
-    const SOURCES = ['antisphere-raycast.wgsl', 'blit.wgsl', 'scene.json'];
+    // ?scene=other.json loads a different scene, so a benchmark setup is a
+    // shareable URL rather than an edit.
+    const sceneFile = new URLSearchParams(location.search).get('scene') || 'scene.json';
+    const SOURCES = ['antisphere-raycast.wgsl', 'blit.wgsl', sceneFile];
     let computeWGSL, blitWGSL, sceneText;
     try {
       [computeWGSL, blitWGSL, sceneText] = await Promise.all(SOURCES.map(loadText));
@@ -910,6 +918,19 @@ if (!navigator.gpu) {
 
     // Orbit camera
     let yaw = 0.55, pitch = 0.30, dist = 6.4;
+    let target = [0, 0, 0.15];
+
+    // The scene may name a viewpoint. Applied on first load and on demand,
+    // but not on hot reload, which would yank the view mid-iteration.
+    function applySceneCamera() {
+      const c = scene && scene.camera;
+      if (!c) return;
+      if (c.target) target = c.target.slice();
+      if (c.yaw !== undefined) yaw = c.yaw;
+      if (c.pitch !== undefined) pitch = c.pitch;
+      if (c.distance !== undefined) dist = c.distance;
+    }
+    applySceneCamera();     // after the bindings above exist, not at load time
     let shadowsOn = true;
     window.addEventListener('keydown', (e) => {
       if (e.key === 's' || e.key === 'S') shadowsOn = !shadowsOn;
@@ -927,6 +948,10 @@ if (!navigator.gpu) {
         } else {
           startLadder(e.shiftKey);
         }
+      }
+      if (e.key === 'c' || e.key === 'C') {
+        applySceneCamera();
+        note('camera reset to scene viewpoint');
       }
       if (e.key === 'b' || e.key === 'B') {
         if (canDirect) {
@@ -965,7 +990,6 @@ if (!navigator.gpu) {
     }, { passive: false });
 
     const camArr = new Float32Array(20);
-    const target = [0, 0, 0.15];
 
     function writeCamera() {
       const cp = Math.cos(pitch), sp = Math.sin(pitch);
