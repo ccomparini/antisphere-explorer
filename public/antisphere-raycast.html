@@ -93,6 +93,15 @@ const INHERIT   = -2;
 const BARE      =  0;
 
 const PATTERNS = { flat: 0, checker: 1 };
+
+// Each kind names a shading function in the shader. Adding one means a
+// function and a switch arm there, plus an entry here and its parameters.
+const KINDS = {
+  lambert:  { id: 0, params: () => [0, 0] },
+  glossy:   { id: 1, params: (d) => [d.shininess ?? 32, d.specular ?? 0.6] },
+  emissive: { id: 2, params: (d) => [d.emission ?? 1, 0] },
+  unlit:    { id: 3, params: () => [0, 0] },
+};
 const PAINT_WORDS = { partition: PARTITION, inherit: INHERIT, bare: BARE };
 
 // ---------------------------------------------------------------------------
@@ -229,16 +238,24 @@ function compileScene(spec) {
   const at = (path, msg) => { throw new Error(`scene.json ${path}: ${msg}`); };
 
   // Material 0 is vacuum and is never shaded.
-  const table = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0], pattern: 0, scale: 1 }];
+  const table = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0],
+                   pattern: 0, scale: 1, kind: 0, params: [0, 0] }];
   const matIndex = new Map();
   for (const [name, def] of Object.entries(spec.materials || {})) {
     if (PAINT_WORDS[name] !== undefined) at(`materials.${name}`, 'name is reserved');
     const pattern = PATTERNS[def.pattern ?? 'flat'];
     if (pattern === undefined) at(`materials.${name}`, `unknown pattern "${def.pattern}"`);
+    const kind = KINDS[def.kind ?? 'lambert'];
+    if (!kind) {
+      at(`materials.${name}`, `unknown kind "${def.kind}". Known kinds: ` +
+                              Object.keys(KINDS).join(', '));
+    }
     table.push({
       albedo:  def.albedo  ?? [0.7, 0.7, 0.7],
       albedo2: def.albedo2 ?? [0.3, 0.3, 0.3],
       scale:   def.scale   ?? 1,
+      kind:    kind.id,
+      params:  kind.params(def),
       pattern,
     });
     matIndex.set(name, table.length - 1);
@@ -496,16 +513,22 @@ function compileScene(spec) {
   return { nodes: flatten(tree(spec.root, 'root')), materials: table, lights: lightList };
 }
 
-// 32 bytes per material: vec3 albedo | f32 pattern | vec3 albedo2 | f32 scale
+// 48 bytes per material:
+//   u32 kind | u32 pattern | vec2 params | vec3 albedo | f32 scale | vec3 albedo2 | pad
+// Ordered so the two scalars and the vec2 fill the 16 bytes ahead of the first
+// vec3, which has to start on a 16-byte boundary anyway.
 function packMaterials(list) {
-  const buf = new ArrayBuffer(list.length * 32);
-  const f = new Float32Array(buf);
+  const buf = new ArrayBuffer(list.length * 48);
+  const f = new Float32Array(buf), u = new Uint32Array(buf);
   list.forEach((m, j) => {
-    const o = j * 8;
-    f[o + 0] = m.albedo[0];  f[o + 1] = m.albedo[1];  f[o + 2] = m.albedo[2];
-    f[o + 3] = m.pattern;
-    f[o + 4] = m.albedo2[0]; f[o + 5] = m.albedo2[1]; f[o + 6] = m.albedo2[2];
+    const o = j * 12;
+    u[o + 0] = m.kind;
+    u[o + 1] = m.pattern;
+    f[o + 2] = m.params[0];  f[o + 3]  = m.params[1];
+    f[o + 4] = m.albedo[0];  f[o + 5]  = m.albedo[1];  f[o + 6]  = m.albedo[2];
     f[o + 7] = m.scale;
+    f[o + 8] = m.albedo2[0]; f[o + 9]  = m.albedo2[1]; f[o + 10] = m.albedo2[2];
+    f[o + 11] = 0;
   });
   return buf;
 }

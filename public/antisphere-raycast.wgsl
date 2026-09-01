@@ -19,11 +19,21 @@ struct Node {
 };
 
 struct Material {
+  kind    : u32,       // selects the shading function
+  pattern : u32,       // albedo modulation, independent of kind
+  params  : vec2<f32>, // kind-specific
   albedo  : vec3<f32>,
-  pattern : f32,
-  albedo2 : vec3<f32>,
   scale   : f32,
+  albedo2 : vec3<f32>,
+  pad     : f32,
 };
+
+const KIND_LAMBERT  : u32 = 0u;
+const KIND_GLOSSY   : u32 = 1u;
+const KIND_EMISSIVE : u32 = 2u;
+const KIND_UNLIT    : u32 = 3u;
+
+const PATTERN_CHECKER : u32 = 1u;
 
 struct Camera {
   origin  : vec3<f32>,
@@ -175,6 +185,112 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
   return vec2<f32>(atan2(d.y, d.x), asin(clamp(d.z, -1.0, 1.0)));
 }
 
+// ---------------------------------------------------------------------------
+// Shading
+//
+// One function per material kind, dispatched on Material.kind. Light
+// integration is shared: directLighting() owns the only shadow-ray call site,
+// so adding a kind costs a function and a switch arm, not another traversal.
+//
+// These functions are also the natural split points if this ever becomes a
+// wavefront renderer: each would be the entry point of its own pipeline,
+// running over hits bucketed by material.
+// ---------------------------------------------------------------------------
+
+struct Surf {
+  P  : vec3<f32>,      // hit position
+  N  : vec3<f32>,      // outward normal, already faced toward the ray
+  V  : vec3<f32>,      // toward the viewer
+  st : vec2<f32>,      // node-frame parameterization, scaled
+  m  : Material,
+};
+
+struct Direct { diffuse : vec3<f32>, specular : vec3<f32>, };
+
+fn albedoAt(s : Surf) -> vec3<f32> {
+  if (s.m.pattern == PATTERN_CHECKER) {
+    let ck = fract((floor(s.st.x) + floor(s.st.y)) * 0.5);
+    return mix(s.m.albedo, s.m.albedo2, step(0.25, ck));
+  }
+  return s.m.albedo;
+}
+
+fn ambient(N : vec3<f32>) -> f32 {
+  return 0.10 + 0.08 * max(N.z, 0.0);
+}
+
+// Sums direct light over every source, with one shadow ray each. A shininess
+// of zero skips the specular term entirely.
+fn directLighting(s : Surf, shininess : f32) -> Direct {
+  var out : Direct;
+  out.diffuse = vec3<f32>(0.0);
+  out.specular = vec3<f32>(0.0);
+
+  // Bias scales with position so the offset stays meaningful out near the
+  // shell as well as at the origin.
+  let bias = 1e-3 * max(1.0, length(s.P));
+  let shadowOrigin = s.P + s.N * bias;
+
+  let n = arrayLength(&lights);
+  for (var i : u32 = 0u; i < n; i = i + 1u) {
+    let lt = lights[i];
+    let d = lt.pos - s.P;
+    let d2 = dot(d, d);
+    let dist = sqrt(max(d2, 1e-8));
+    let L = d / dist;
+
+    let ndl = dot(s.N, L);
+    if (ndl <= 0.0) { continue; }          // back-facing, no ray needed
+
+    if (cam.shadows > 0.5) {
+      // Any solid between here and the light occludes it. The front-to-back
+      // traversal already stops at the first one.
+      if (trace(shadowOrigin, L, bias, dist - bias).hit) { continue; }
+    }
+
+    // Inverse square, softened near zero so a light sitting on a surface
+    // does not blow out.
+    let E = lt.color / (1.0 + d2);
+    out.diffuse = out.diffuse + E * ndl;
+    if (shininess > 0.0) {
+      let H = normalize(L + s.V);
+      out.specular = out.specular + E * pow(max(dot(s.N, H), 0.0), shininess);
+    }
+  }
+  return out;
+}
+
+fn shadeLambert(s : Surf) -> vec3<f32> {
+  let d = directLighting(s, 0.0);
+  return albedoAt(s) * (ambient(s.N) + d.diffuse);
+}
+
+// params.x shininess, params.y specular strength
+fn shadeGlossy(s : Surf) -> vec3<f32> {
+  let d = directLighting(s, max(s.m.params.x, 1.0));
+  return albedoAt(s) * (ambient(s.N) + d.diffuse) + d.specular * s.m.params.y;
+}
+
+// params.x emission strength, added on top of ordinary diffuse response
+fn shadeEmissive(s : Surf) -> vec3<f32> {
+  let d = directLighting(s, 0.0);
+  let alb = albedoAt(s);
+  return alb * (ambient(s.N) + d.diffuse) + alb * s.m.params.x;
+}
+
+fn shadeUnlit(s : Surf) -> vec3<f32> {
+  return albedoAt(s);
+}
+
+fn shade(s : Surf) -> vec3<f32> {
+  switch (s.m.kind) {
+    case KIND_GLOSSY:   { return shadeGlossy(s); }
+    case KIND_EMISSIVE: { return shadeEmissive(s); }
+    case KIND_UNLIT:    { return shadeUnlit(s); }
+    default:            { return shadeLambert(s); }
+  }
+}
+
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let dims = textureDimensions(outTex);
@@ -194,49 +310,14 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       col = vec3<f32>(0.25, 0.04, 0.05);   // camera started inside solid
     } else {
       let nd = nodes[h.node];
-      let P = cam.origin + h.t * dir;
-      var N = normalize(gradAt(nd, P));
-      if (dot(N, dir) > 0.0) { N = -N; }   // face the ray
-
-      let m = materials[h.mat];
-      var alb = m.albedo;
-      if (m.pattern > 0.5) {
-        let st = frame(nd, P) * m.scale;
-        let ck = fract((floor(st.x) + floor(st.y)) * 0.5);
-        alb = mix(m.albedo, m.albedo2, step(0.25, ck));
-      }
-
-      // Bias scales with position so the offset stays meaningful out near
-      // the shell as well as at the origin.
-      let bias = 1e-3 * max(1.0, length(P));
-      let shadowOrigin = P + N * bias;
-
-      var lit = vec3<f32>(0.0);
-      let n = arrayLength(&lights);
-      for (var i : u32 = 0u; i < n; i = i + 1u) {
-        let lt = lights[i];
-        let d = lt.pos - P;
-        let d2 = dot(d, d);
-        let dist = sqrt(max(d2, 1e-8));
-        let L = d / dist;
-
-        let ndl = dot(N, L);
-        if (ndl <= 0.0) { continue; }        // back-facing, no ray needed
-
-        if (cam.shadows > 0.5) {
-          // Any solid between here and the light occludes it. The existing
-          // front-to-back traversal already stops at the first one.
-          let sh = trace(shadowOrigin, L, bias, dist - bias);
-          if (sh.hit) { continue; }
-        }
-
-        // Inverse square, softened near zero so a light sitting on a surface
-        // does not blow out.
-        lit = lit + lt.color * (ndl / (1.0 + d2));
-      }
-
-      let amb = 0.10 + 0.08 * max(N.z, 0.0);
-      col = alb * (amb + lit);
+      var s : Surf;
+      s.P = cam.origin + h.t * dir;
+      s.N = normalize(gradAt(nd, s.P));
+      if (dot(s.N, dir) > 0.0) { s.N = -s.N; }   // face the ray
+      s.V = -dir;
+      s.m = materials[h.mat];
+      s.st = frame(nd, s.P) * s.m.scale;
+      col = shade(s);
     }
   }
 
