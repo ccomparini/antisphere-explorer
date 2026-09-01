@@ -16,6 +16,18 @@
   }
   #hud b { color: #cbd5e1; font-weight: 500; }
   #note { display: inline-block; min-height: 1.6em; }
+  #prof {
+    position: fixed; right: 14px; top: 14px; display: none;
+    min-width: 15rem; padding: 10px 12px;
+    background: rgba(10,13,17,.82); border: 1px solid #1e2530; border-radius: 8px;
+    font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; color: #8b95a5;
+    backdrop-filter: blur(6px);
+  }
+  #prof .r { display: flex; justify-content: space-between; gap: 2em; }
+  #prof .r b { color: #cbd5e1; font-weight: 500; font-variant-numeric: tabular-nums; }
+  #prof hr { border: 0; border-top: 1px solid #1e2530; margin: 7px 0; }
+  #prof .note { color: #6b7686; }
+  #spark { display: block; margin-top: 6px; width: 100%; height: 40px; }
   #err {
     position: fixed; inset: 0; display: none; place-content: center;
     padding: 2rem; text-align: center; white-space: pre-wrap; max-width: 46rem;
@@ -26,7 +38,20 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br><span id="note"></span></div>
+<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br>P profiler · D debug view<br><span id="note"></span></div>
+<div id="prof">
+  <div class="r"><span>frame</span><b id="p-frame">-</b></div>
+  <div class="r"><span>cpu encode</span><b id="p-cpu">-</b></div>
+  <div class="r"><span>gpu compute</span><b id="p-gpu">-</b></div>
+  <div class="r"><span>gpu blit</span><b id="p-blit">-</b></div>
+  <div class="r"><span>gpu gap</span><b id="p-gap">-</b></div>
+  <div class="r"><span>gpu total</span><b id="p-total">-</b></div>
+  <canvas id="spark" width="240" height="40"></canvas>
+  <hr>
+  <div class="r"><span>view</span><b id="p-view">shaded</b></div>
+  <div class="r"><span>rays/frame</span><b id="p-rays">-</b></div>
+  <div class="note" id="p-note"></div>
+</div>
 <div id="err"></div>
 
 <script type="module">
@@ -630,7 +655,10 @@ if (!navigator.gpu) {
       throw e;
     }
 
-    const device = await adapter.requestDevice();
+    const canTimestamp = adapter.features.has('timestamp-query');
+    const device = await adapter.requestDevice({
+      requiredFeatures: canTimestamp ? ['timestamp-query'] : [],
+    });
     device.addEventListener('uncapturederror', (e) => console.error(e.error));
 
     const ctx = canvas.getContext('webgpu');
@@ -827,6 +855,14 @@ if (!navigator.gpu) {
     window.addEventListener('keydown', (e) => {
       if (e.key === 's' || e.key === 'S') shadowsOn = !shadowsOn;
       if (e.key === 'r' || e.key === 'R') reload(true);
+      if (e.key === 'p' || e.key === 'P') {
+        profiling = !profiling;
+        document.getElementById('prof').style.display = profiling ? 'block' : 'none';
+      }
+      if (e.key === 'd' || e.key === 'D') {
+        debugView = (debugView + 1) % VIEWS.length;
+        note(`view: ${VIEWS[debugView]}`);
+      }
       if (e.key === 'w' || e.key === 'W') {
         watching = !watching;
         note(watching ? 'watching files for changes' : 'watch off');
@@ -872,19 +908,108 @@ if (!navigator.gpu) {
       camArr.set(eye, 0);          camArr[3] = Math.tan(0.5 * 0.9);
       camArr.set(r, 4);            camArr[7] = tw / th;
       camArr.set(u, 8);            camArr[11] = shadowsOn ? 1 : 0;
-      camArr.set(f, 12);           camArr[15] = 0;
+      camArr.set(f, 12);           camArr[15] = debugView;
       device.queue.writeBuffer(camBuf, 0, camArr);
     }
 
-    let frames = 0, tPrev = performance.now(), fps = 0;
+    // ---------------------------------------------------------------------
+    // Profiling
+    //
+    // GPU timestamps can only be written at pass boundaries, so what is
+    // measured here is compute pass vs blit pass. Anything finer comes from
+    // the shader's per-invocation work counters, surfaced as debug views.
+    // Chrome quantizes timestamp results (100us by default), so treat these
+    // as millisecond-scale figures, not precise ones.
+    // ---------------------------------------------------------------------
+
+    const TS_COUNT = 4;
+    const querySet = canTimestamp
+      ? device.createQuerySet({ type: 'timestamp', count: TS_COUNT }) : null;
+    const tsResolve = canTimestamp ? device.createBuffer({
+      size: TS_COUNT * 8,
+      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+    }) : null;
+    const tsRead = canTimestamp ? device.createBuffer({
+      size: TS_COUNT * 8,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    }) : null;
+    let tsPending = false;
+
+    const VIEWS = ['shaded', 'node visits', 'shadow rays', 'stack depth',
+                   'material id', 'normals'];
+    let profiling = false, debugView = 0;
+
+    // Rolling means, so the readout does not flicker.
+    const avg = (n) => {
+      const buf = [];
+      return (x) => {
+        if (x !== undefined) { buf.push(x); if (buf.length > n) buf.shift(); }
+        return buf.length ? buf.reduce((a, b) => a + b, 0) / buf.length : NaN;
+      };
+    };
+    const avgFrame = avg(30), avgCpu = avg(30), avgGpu = avg(30),
+      avgBlit = avg(30), avgGap = avg(30), avgTotal = avg(30);
+let tsQuantized = false, tsDropped = 0;
+    const history = new Array(120).fill(0);
+
+    const el = (id) => document.getElementById(id);
+    const ms = (x) => (Number.isFinite(x) ? x.toFixed(2) + ' ms' : '-');
+
+    function drawSpark() {
+      const c = el('spark'), g = c.getContext('2d');
+      const w = c.width, h = c.height;
+      g.clearRect(0, 0, w, h);
+      const peak = Math.max(16.7, ...history);
+      g.strokeStyle = '#2a3340';
+      g.beginPath();                                  // 60 fps reference
+      const y60 = h - (16.7 / peak) * h;
+      g.moveTo(0, y60); g.lineTo(w, y60); g.stroke();
+      g.fillStyle = '#4b9fd8';
+      const bw = w / history.length;
+      history.forEach((v, i) => {
+        const bh = Math.max(1, (v / peak) * h);
+        g.fillRect(i * bw, h - bh, Math.max(1, bw - 1), bh);
+      });
+    }
+
+    function updatePanel(frameMs, cpuMs, rays) {
+      history.push(frameMs); history.shift();
+      el('p-frame').textContent = ms(avgFrame(frameMs));
+      el('p-cpu').textContent   = ms(avgCpu(cpuMs));
+      el('p-gpu').textContent   = canTimestamp ? ms(avgGpu()) : 'n/a';
+      el('p-blit').textContent  = canTimestamp ? ms(avgBlit()) : 'n/a';
+      el('p-gap').textContent   = canTimestamp ? ms(avgGap()) : 'n/a';
+      el('p-total').textContent = canTimestamp ? ms(avgTotal()) : 'n/a';
+      el('p-view').textContent  = VIEWS[debugView];
+      el('p-rays').textContent  = (rays / 1e6).toFixed(2) + ' M';
+      let note = '';
+      if (!canTimestamp) note = 'timestamp-query unavailable on this adapter';
+      else if (tsQuantized) note = 'timestamps quantized to 100us; see ' +
+                                   'chrome://flags/#enable-webgpu-developer-features';
+      if (tsDropped) note += `${note ? ' | ' : ''}${tsDropped} bad samples`;
+      el('p-note').textContent = note;
+      drawSpark();
+    }
+
+    let frames = 0, tPrev = performance.now(), fps = 0, tLast = performance.now();
 
     function frame() {
       resize();
       if (!computeBG || !blitBG) { requestAnimationFrame(frame); return; }
       writeCamera();
 
+      const now = performance.now();
+      const frameMs = now - tLast;
+      tLast = now;
+
+      const timing = canTimestamp && profiling && !tsPending;
+      const cpuStart = performance.now();
+
       const enc = device.createCommandEncoder();
-      const cpass = enc.beginComputePass();
+
+      const cpass = enc.beginComputePass(timing ? {
+        timestampWrites: { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
+      } : {});
       cpass.setPipeline(computePipe);
       cpass.setBindGroup(0, computeBG);
       cpass.dispatchWorkgroups(Math.ceil(tw / 8), Math.ceil(th / 8));
@@ -896,21 +1021,63 @@ if (!navigator.gpu) {
           loadOp: 'clear', storeOp: 'store',
           clearValue: { r: 0, g: 0, b: 0, a: 1 },
         }],
+        ...(timing ? {
+          timestampWrites: { querySet, beginningOfPassWriteIndex: 2, endOfPassWriteIndex: 3 },
+        } : {}),
       });
       rpass.setPipeline(blitPipe);
       rpass.setBindGroup(0, blitBG);
       rpass.draw(3);
       rpass.end();
 
+      if (timing) {
+        enc.resolveQuerySet(querySet, 0, TS_COUNT, tsResolve, 0);
+        enc.copyBufferToBuffer(tsResolve, 0, tsRead, 0, TS_COUNT * 8);
+      }
+
       device.queue.submit([enc.finish()]);
+      const cpuMs = performance.now() - cpuStart;
+
+      // One in-flight mapping at a time; frames that arrive while a readback
+      // is pending simply skip their timestamps.
+      if (timing) {
+        tsPending = true;
+        tsRead.mapAsync(GPUMapMode.READ).then(() => {
+          const timestamps = new BigInt64Array(tsRead.getMappedRange().slice(0));
+          tsRead.unmap();
+          const computeNs = Number(timestamps[1] - timestamps[0]);
+          const blitNs    = Number(timestamps[3] - timestamps[2]);
+          const gapNs     = Number(timestamps[2] - timestamps[1]);   // may be negative
+          const totalNs   = Number(timestamps[3] - timestamps[0]);
+
+          // GPUs reset the timestamp counter occasionally, which shows up as
+          // negative or wild deltas. Drop those samples rather than average
+          // them in.
+          if (computeNs >= 0 && blitNs >= 0 && totalNs >= 0 && totalNs < 1e9) {
+            avgGpu(computeNs / 1e6);
+            avgBlit(blitNs / 1e6);
+            avgGap(gapNs / 1e6);
+            avgTotal(totalNs / 1e6);
+            // Quantized values are exact multiples of 100us, which is easy to
+            // spot and worth saying out loud.
+            tsQuantized = [computeNs, blitNs, totalNs]
+              .every((v) => v === 0 || v % 100000 === 0);
+          } else {
+            tsDropped++;
+          }
+          tsPending = false;
+        }).catch(() => { tsPending = false; });
+      }
+
+      if (profiling) updatePanel(frameMs, cpuMs, tw * th);
 
       frames++;
-      const now = performance.now();
       if (now - tPrev > 500) {
         fps = Math.round((frames * 1000) / (now - tPrev));
         frames = 0; tPrev = now;
         stat.textContent = `${scene.nodes.length} nodes · ${scene.materials.length - 1} materials · ${scene.lights.length} lights · ${tw}x${th} · ${fps} fps`;
       }
+
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);

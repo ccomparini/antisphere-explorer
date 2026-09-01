@@ -35,6 +35,19 @@ const KIND_UNLIT    : u32 = 3u;
 
 const PATTERN_CHECKER : u32 = 1u;
 
+// Debug views. Traversal cost is counted per invocation rather than timed,
+// since timestamps can only be written at pass boundaries.
+const DEBUG_OFF      : u32 = 0u;
+const DEBUG_VISITS   : u32 = 1u;   // node visits, primary + shadow rays
+const DEBUG_SHADOW   : u32 = 2u;   // shadow rays actually traced
+const DEBUG_DEPTH    : u32 = 3u;   // peak traversal stack depth
+const DEBUG_MATERIAL : u32 = 4u;
+const DEBUG_NORMAL   : u32 = 5u;
+
+var<private> visits    : u32 = 0u;
+var<private> shadowRays: u32 = 0u;
+var<private> peakDepth : u32 = 0u;
+
 struct Camera {
   origin  : vec3<f32>,
   tanHalf : f32,
@@ -43,7 +56,7 @@ struct Camera {
   up      : vec3<f32>,
   shadows : f32,
   fwd     : vec3<f32>,
-  pad2    : f32,
+  debug   : f32,   // 0 = shaded, otherwise a DEBUG_ view
 };
 
 struct Light {
@@ -108,6 +121,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     }
 
     let nd = nodes[seg.node];
+    visits = visits + 1u;
 
     // Material scope descends into both children. A negative paint value
     // (PARTITION or INHERIT) leaves whatever is already in scope.
@@ -165,6 +179,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       if (i > 0) { ent = seg.node; }
       stack[sp] = Seg(child, sa, sb, ent, scope);
       sp = sp + 1;
+      peakDepth = max(peakDepth, u32(sp));
     }
   }
   return hit;
@@ -245,6 +260,7 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
     if (cam.shadows > 0.5) {
       // Any solid between here and the light occludes it. The front-to-back
       // traversal already stops at the first one.
+      shadowRays = shadowRays + 1u;
       if (trace(shadowOrigin, L, bias, dist - bias).hit) { continue; }
     }
 
@@ -291,8 +307,23 @@ fn shade(s : Surf) -> vec3<f32> {
   }
 }
 
+// Perceptually ordered ramp for the cost views: dark blue through cyan,
+// green, yellow, red, to white for anything off the top of the scale.
+fn ramp(t : f32) -> vec3<f32> {
+  let s = clamp(t, 0.0, 1.0) * 5.0;
+  if (s < 1.0) { return mix(vec3<f32>(0.04, 0.05, 0.22), vec3<f32>(0.10, 0.62, 0.85), s); }
+  if (s < 2.0) { return mix(vec3<f32>(0.10, 0.62, 0.85), vec3<f32>(0.20, 0.82, 0.28), s - 1.0); }
+  if (s < 3.0) { return mix(vec3<f32>(0.20, 0.82, 0.28), vec3<f32>(0.95, 0.85, 0.15), s - 2.0); }
+  if (s < 4.0) { return mix(vec3<f32>(0.95, 0.85, 0.15), vec3<f32>(0.95, 0.24, 0.10), s - 3.0); }
+  return mix(vec3<f32>(0.95, 0.24, 0.10), vec3<f32>(1.0, 1.0, 1.0), s - 4.0);
+}
+
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
+  visits = 0u;
+  shadowRays = 0u;
+  peakDepth = 0u;
+
   let dims = textureDimensions(outTex);
   if (gid.x >= dims.x || gid.y >= dims.y) { return; }
 
@@ -305,6 +336,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let h = trace(cam.origin, dir, 1e-3, 1e4);
 
   var col = vec3<f32>(0.0);   // the shell should catch every ray; black means a bug
+  var N = vec3<f32>(0.0);
   if (h.hit) {
     if (h.node < 0) {
       col = vec3<f32>(0.25, 0.04, 0.05);   // camera started inside solid
@@ -317,9 +349,24 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       s.V = -dir;
       s.m = materials[h.mat];
       s.st = frame(nd, s.P) * s.m.scale;
+      N = s.N;
       col = shade(s);
     }
   }
 
-  textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(pow(col, vec3<f32>(1.0 / 2.2)), 1.0));
+  let mode = u32(cam.debug + 0.5);
+  var outCol = pow(col, vec3<f32>(1.0 / 2.2));
+  switch (mode) {
+    case DEBUG_VISITS:   { outCol = ramp(f32(visits) / 48.0); }
+    case DEBUG_SHADOW:   { outCol = ramp(f32(shadowRays) / max(1.0, f32(arrayLength(&lights)))); }
+    case DEBUG_DEPTH:    { outCol = ramp(f32(peakDepth) / 32.0); }
+    case DEBUG_MATERIAL: {
+      let f = f32(h.mat) * 1.9;
+      outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), h.hit);
+    }
+    case DEBUG_NORMAL:   { outCol = N * 0.5 + 0.5; }
+    default: {}
+  }
+
+  textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
