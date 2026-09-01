@@ -38,7 +38,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br>P profiler · D debug view<br><span id="note"></span></div>
+<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br>P profiler · D debug view · B blit/direct<br><span id="note"></span></div>
 <div id="prof">
   <div class="r"><span>frame</span><b id="p-frame">-</b></div>
   <div class="r"><span>cpu encode</span><b id="p-cpu">-</b></div>
@@ -46,9 +46,11 @@
   <div class="r"><span>gpu blit</span><b id="p-blit">-</b></div>
   <div class="r"><span>gpu gap</span><b id="p-gap">-</b></div>
   <div class="r"><span>gpu total</span><b id="p-total">-</b></div>
+  <div class="r"><span>submit&rarr;done</span><b id="p-done">-</b></div>
   <canvas id="spark" width="240" height="40"></canvas>
   <hr>
   <div class="r"><span>view</span><b id="p-view">shaded</b></div>
+  <div class="r"><span>output</span><b id="p-out">blit</b></div>
   <div class="r"><span>rays/frame</span><b id="p-rays">-</b></div>
   <div class="note" id="p-note"></div>
 </div>
@@ -656,14 +658,36 @@ if (!navigator.gpu) {
     }
 
     const canTimestamp = adapter.features.has('timestamp-query');
+    const canBgraStorage = adapter.features.has('bgra8unorm-storage');
     const device = await adapter.requestDevice({
-      requiredFeatures: canTimestamp ? ['timestamp-query'] : [],
+      requiredFeatures: [
+        ...(canTimestamp ? ['timestamp-query'] : []),
+        ...(canBgraStorage ? ['bgra8unorm-storage'] : []),
+      ],
     });
     device.addEventListener('uncapturederror', (e) => console.error(e.error));
 
     const ctx = canvas.getContext('webgpu');
-    const format = navigator.gpu.getPreferredCanvasFormat();
-    ctx.configure({ device, format, alphaMode: 'opaque' });
+
+    // Writing straight to the swap chain needs a storage-capable canvas
+    // format. bgra8unorm is preferred on Windows and macOS but only supports
+    // storage behind an optional feature, so fall back to rgba8unorm, which
+    // always does.
+    const preferred = navigator.gpu.getPreferredCanvasFormat();
+    const format = (preferred === 'bgra8unorm' && !canBgraStorage)
+      ? 'rgba8unorm' : preferred;
+
+    let canDirect = true;
+    try {
+      ctx.configure({
+        device, format, alphaMode: 'opaque',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING,
+      });
+    } catch (e) {
+      canDirect = false;
+      console.warn('canvas storage binding unavailable, blit only:', e.message);
+      ctx.configure({ device, format, alphaMode: 'opaque' });
+    }
 
     // Scene buffers are replaced wholesale when scene.json changes, since the
     // node, material, and light counts all move.
@@ -709,8 +733,23 @@ if (!navigator.gpu) {
       return !failed;
     }
 
-    let computePipe = null, blitPipe = null;
+    let computePipe = null, computeDirectPipe = null, blitPipe = null;
     let tex = null, computeBG = null, blitBG = null, tw = 0, th = 0;
+
+    // The swap chain hands back a different texture every frame, so the
+    // direct path cannot cache its bind group.
+    function directBindGroup(view) {
+      return device.createBindGroup({
+        layout: computeDirectPipe.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: camBuf } },
+          { binding: 1, resource: { buffer: nodeBuf } },
+          { binding: 2, resource: view },
+          { binding: 3, resource: { buffer: lightBuf } },
+          { binding: 4, resource: { buffer: matBuf } },
+        ],
+      });
+    }
 
     // Bind group layouts come from the pipelines, so both the pipelines and
     // the output texture invalidate them.
@@ -735,10 +774,18 @@ if (!navigator.gpu) {
     // Builds both pipelines from source and only swaps them in if everything
     // validates, so a bad edit leaves the previous frame rendering.
     async function buildPipelines(computeSrc, blitSrc) {
+      // The storage format is a literal in the WGSL type, so the direct-to-
+      // canvas variant needs its own module when the canvas is not rgba8unorm.
+      const directSrc = computeSrc.replace('texture_storage_2d<rgba8unorm',
+                                           `texture_storage_2d<${format}`);
+      const sameSrc = directSrc === computeSrc;
+
       const cMod = device.createShaderModule({ code: computeSrc });
+      const dMod = sameSrc ? cMod : device.createShaderModule({ code: directSrc });
       const bMod = device.createShaderModule({ code: blitSrc });
       const ok = await Promise.all([
         checkShader(cMod, 'compute shader'),
+        sameSrc ? true : checkShader(dMod, 'compute shader (direct)'),
         checkShader(bMod, 'blit shader'),
       ]);
       if (!ok.every(Boolean)) return 'shader failed to compile';
@@ -747,6 +794,10 @@ if (!navigator.gpu) {
       const cp = device.createComputePipeline({
         layout: 'auto',
         compute: { module: cMod, entryPoint: 'main' },
+      });
+      const dp = sameSrc ? cp : device.createComputePipeline({
+        layout: 'auto',
+        compute: { module: dMod, entryPoint: 'main' },
       });
       const bp = device.createRenderPipeline({
         layout: 'auto',
@@ -758,6 +809,7 @@ if (!navigator.gpu) {
       if (err) { console.error(err.message); return 'pipeline validation failed'; }
 
       computePipe = cp;
+      computeDirectPipe = dp;
       blitPipe = bp;
       makeBindGroups();
       return null;
@@ -859,6 +911,14 @@ if (!navigator.gpu) {
         profiling = !profiling;
         document.getElementById('prof').style.display = profiling ? 'block' : 'none';
       }
+      if (e.key === 'b' || e.key === 'B') {
+        if (canDirect) {
+          directOut = !directOut;
+          note(directOut ? 'output: direct to swap chain' : 'output: blit');
+        } else {
+          note('direct output unavailable on this adapter', true);
+        }
+      }
       if (e.key === 'd' || e.key === 'D') {
         debugView = (debugView + 1) % VIEWS.length;
         note(`view: ${VIEWS[debugView]}`);
@@ -937,7 +997,7 @@ if (!navigator.gpu) {
 
     const VIEWS = ['shaded', 'node visits', 'shadow rays', 'stack depth',
                    'material id', 'normals'];
-    let profiling = false, debugView = 0;
+    let profiling = false, debugView = 0, directOut = false;
 
     // Rolling means, so the readout does not flicker.
     const avg = (n) => {
@@ -948,7 +1008,7 @@ if (!navigator.gpu) {
       };
     };
     const avgFrame = avg(30), avgCpu = avg(30), avgGpu = avg(30),
-      avgBlit = avg(30), avgGap = avg(30), avgTotal = avg(30);
+      avgBlit = avg(30), avgGap = avg(30), avgTotal = avg(30), avgDone = avg(30);
 let tsQuantized = false, tsDropped = 0;
     const history = new Array(120).fill(0);
 
@@ -977,9 +1037,12 @@ let tsQuantized = false, tsDropped = 0;
       el('p-frame').textContent = ms(avgFrame(frameMs));
       el('p-cpu').textContent   = ms(avgCpu(cpuMs));
       el('p-gpu').textContent   = canTimestamp ? ms(avgGpu()) : 'n/a';
-      el('p-blit').textContent  = canTimestamp ? ms(avgBlit()) : 'n/a';
+      el('p-blit').textContent  = !canTimestamp ? 'n/a'
+                                : directOut ? 'none' : ms(avgBlit());
       el('p-gap').textContent   = canTimestamp ? ms(avgGap()) : 'n/a';
       el('p-total').textContent = canTimestamp ? ms(avgTotal()) : 'n/a';
+      el('p-done').textContent  = ms(avgDone());
+      el('p-out').textContent   = directOut ? 'direct' : 'blit';
       el('p-view').textContent  = VIEWS[debugView];
       el('p-rays').textContent  = (rays / 1e6).toFixed(2) + ' M';
       let note = '';
@@ -1007,36 +1070,64 @@ let tsQuantized = false, tsDropped = 0;
 
       const enc = device.createCommandEncoder();
 
-      const cpass = enc.beginComputePass(timing ? {
-        timestampWrites: { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
-      } : {});
-      cpass.setPipeline(computePipe);
-      cpass.setBindGroup(0, computeBG);
-      cpass.dispatchWorkgroups(Math.ceil(tw / 8), Math.ceil(th / 8));
-      cpass.end();
+      if (directOut) {
+        // Compute writes the swap chain texture itself. No render pass, so
+        // slots 2 and 3 of the query set go unused.
+        const view = ctx.getCurrentTexture().createView();
+        const cpass = enc.beginComputePass(timing ? {
+          timestampWrites: { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
+        } : {});
+        cpass.setPipeline(computeDirectPipe);
+        cpass.setBindGroup(0, directBindGroup(view));
+        cpass.dispatchWorkgroups(Math.ceil(tw / 8), Math.ceil(th / 8));
+        cpass.end();
+        if (timing) {
+          enc.resolveQuerySet(querySet, 0, 2, tsResolve, 0);
+          enc.copyBufferToBuffer(tsResolve, 0, tsRead, 0, 2 * 8);
+        }
+      } else {
+        const cpass = enc.beginComputePass(timing ? {
+          timestampWrites: { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
+        } : {});
+        cpass.setPipeline(computePipe);
+        cpass.setBindGroup(0, computeBG);
+        cpass.dispatchWorkgroups(Math.ceil(tw / 8), Math.ceil(th / 8));
+        cpass.end();
 
-      const rpass = enc.beginRenderPass({
-        colorAttachments: [{
-          view: ctx.getCurrentTexture().createView(),
-          loadOp: 'clear', storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 1 },
-        }],
-        ...(timing ? {
-          timestampWrites: { querySet, beginningOfPassWriteIndex: 2, endOfPassWriteIndex: 3 },
-        } : {}),
-      });
-      rpass.setPipeline(blitPipe);
-      rpass.setBindGroup(0, blitBG);
-      rpass.draw(3);
-      rpass.end();
+        const rpass = enc.beginRenderPass({
+          colorAttachments: [{
+            view: ctx.getCurrentTexture().createView(),
+            loadOp: 'clear', storeOp: 'store',
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          }],
+          ...(timing ? {
+            timestampWrites: { querySet, beginningOfPassWriteIndex: 2, endOfPassWriteIndex: 3 },
+          } : {}),
+        });
+        rpass.setPipeline(blitPipe);
+        rpass.setBindGroup(0, blitBG);
+        rpass.draw(3);
+        rpass.end();
 
-      if (timing) {
-        enc.resolveQuerySet(querySet, 0, TS_COUNT, tsResolve, 0);
-        enc.copyBufferToBuffer(tsResolve, 0, tsRead, 0, TS_COUNT * 8);
+        if (timing) {
+          enc.resolveQuerySet(querySet, 0, TS_COUNT, tsResolve, 0);
+          enc.copyBufferToBuffer(tsResolve, 0, tsRead, 0, TS_COUNT * 8);
+        }
       }
 
       device.queue.submit([enc.finish()]);
       const cpuMs = performance.now() - cpuStart;
+
+      // Independent of the timestamps: how long until the queue reports the
+      // whole submission finished. Includes queue wait and event-loop latency,
+      // so it is an upper bound rather than a GPU-time measurement. Never
+      // awaited, since awaiting it would remove the pipelining being measured.
+      if (profiling) {
+        const submittedAt = performance.now();
+        device.queue.onSubmittedWorkDone().then(() => {
+          avgDone(performance.now() - submittedAt);
+        });
+      }
 
       // One in-flight mapping at a time; frames that arrive while a readback
       // is pending simply skip their timestamps.
@@ -1046,9 +1137,10 @@ let tsQuantized = false, tsDropped = 0;
           const timestamps = new BigInt64Array(tsRead.getMappedRange().slice(0));
           tsRead.unmap();
           const computeNs = Number(timestamps[1] - timestamps[0]);
-          const blitNs    = Number(timestamps[3] - timestamps[2]);
-          const gapNs     = Number(timestamps[2] - timestamps[1]);   // may be negative
-          const totalNs   = Number(timestamps[3] - timestamps[0]);
+          const blitNs    = directOut ? 0 : Number(timestamps[3] - timestamps[2]);
+          const gapNs     = directOut ? 0 : Number(timestamps[2] - timestamps[1]);
+          const totalNs   = directOut ? computeNs
+                                      : Number(timestamps[3] - timestamps[0]);
 
           // GPUs reset the timestamp counter occasionally, which shows up as
           // negative or wild deltas. Drop those samples rather than average
