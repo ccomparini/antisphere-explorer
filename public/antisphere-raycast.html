@@ -105,8 +105,10 @@ function complement(p) {
 //
 //   Leaf substrate   what the region is made of. Index 0 is vacuum, which is
 //                    how an empty leaf is spelled.
-//   Node paint       a material in scope for the whole subtree beneath the
-//                    node, overriding leaf substrate until cleared.
+//   Node paint       a material in scope for the region f < 0, the node's
+//                    inside, overriding leaf substrate until cleared. It does
+//                    not reach the outside child: to scope the far side,
+//                    complement the node, which costs nothing.
 //
 // Node paint takes three sentinel values:
 //

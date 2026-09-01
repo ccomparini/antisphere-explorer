@@ -134,11 +134,6 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     let nd = nodes[seg.node];
     visits = visits + 1u;
 
-    // Material scope descends into both children. A negative paint value
-    // (PARTITION or INHERIT) leaves whatever is already in scope.
-    var scope = seg.scope;
-    if (nd.paint >= 0) { scope = nd.paint; }
-
     // Substituting R = O + tD gives A t^2 + B t + C, with A = k.
     // A plane is the quadratic degenerating to linear, no special case.
     let lin = 1.0 - 2.0 * nd.a * nd.k;
@@ -185,10 +180,17 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       // Midpoint sign picks the child. Robust, and avoids reasoning about
       // which root is an entry and which is an exit.
       var child = nd.outside;
-      if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) { child = nd.inside; }
+      var childScope = seg.scope;
+      if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) {
+        child = nd.inside;
+        // Paint scopes the region f < 0 and nothing else. To scope the far
+        // side instead, flip the node: negating all five numbers is free, so
+        // the representation pays for this rule rather than the traversal.
+        if (nd.paint >= 0) { childScope = nd.paint; }
+      }
       var ent = seg.entry;
       if (i > 0) { ent = seg.node; }
-      stack[sp] = Seg(child, sa, sb, ent, scope);
+      stack[sp] = Seg(child, sa, sb, ent, childScope);
       sp = sp + 1;
       peakDepth = max(peakDepth, u32(sp));
     }
