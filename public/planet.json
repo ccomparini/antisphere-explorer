@@ -1,0 +1,104 @@
+{
+  "materials": {
+    "shell": { "albedo": [0.30, 0.31, 0.35] },
+    "floor": {
+      "albedo": [0.34, 0.36, 0.39],
+      "albedo2": [0.15, 0.16, 0.19],
+      "pattern": "checker",
+      "scale": 1.0
+    },
+    "stone": {
+      "albedo": [0.58, 0.53, 0.46],
+      "albedo2": [0.44, 0.40, 0.36],
+      "pattern": "checker",
+      "scale": 2.4
+    },
+    "core": {
+      "kind": "emissive",
+      "albedo": [0.74, 0.44, 0.16],
+      "emission": 0.55
+    },
+    "brass": {
+      "kind": "glossy",
+      "albedo": [0.66, 0.58, 0.22],
+      "shininess": 70,
+      "specular": 1.1
+    },
+    "chalk": { "kind": "unlit", "albedo": [0.80, 0.78, 0.72] },
+    "jade": {
+      "kind": "glossy",
+      "albedo": [0.22, 0.52, 0.40],
+      "shininess": 160,
+      "specular": 1.6
+    }
+  },
+
+  "lights": [
+    { "pos": [-2.2,  2.4, 3.0], "color": [26, 17, 10] }
+  ],
+
+  "objects": {
+    "bitten": {
+      "sphere": { "center": [-1.35, 0, 0.25], "radius": 1.15 },
+      "paint": "stone",
+      "inside": {
+        "plane": { "normal": [0, 0, 1], "offset": 0.95 },
+        "inside": {
+          "sphere": { "center": [-0.75, 0.8, 0.85], "radius": 0.8 },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": { "solid": "core" }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+
+    "lens": {
+      "sphere": { "center": [0.95, 0, 0.15], "radius": 1.15 },
+      "paint": "brass",
+      "inside": {
+        "sphere": { "center": [1.85, 0, 0.15], "radius": 1.15 },
+        "inside": { "solid": "brass" },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+
+    "marbles": {
+      "group": [
+        {
+          "sphere": { "center": [-0.4, -2.6, -0.0], "radius": 0.38 },
+          "paint": "core",
+          "inside": { "solid": "core" },
+          "outside": "empty"
+        },
+        {
+          "sphere": { "center": [0.6, -2.9, -0.0], "radius": 0.38 },
+          "paint": "brass",
+          "inside": { "solid": "brass" },
+          "outside": "empty"
+        },
+        {
+          "sphere": { "center": [1.55, -2.5, -0.0], "radius": 0.38 },
+          "paint": "jade",
+          "inside": { "solid": "jade" },
+          "outside": "empty"
+        },
+        {
+          "sphere": { "center": [0.55, -1.75, 0.0], "radius": 0.38 },
+          "paint": "chalk",
+          "inside": { "solid": "chalk" },
+          "outside": "empty"
+        }
+      ]
+    }
+  },
+
+  "root": {
+    "sphere": { "center": [0, 0, -500], "radius": 500 },
+    "paint": "partition",
+    "inside": { "solid": "shell" },
+    "outside": { "group": ["bitten", "lens", "marbles"] }
+  }
+}
