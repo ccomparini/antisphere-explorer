@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Geodesic Descent Texel Mapping — WebGPU Benchmark</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 16px; background: #0d0f14; color: #e6e6e6;
+    font-family: -apple-system, "Segoe UI", sans-serif; font-size: 14px;
+  }
+  h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px 0; }
+  .sub { color: #8a8f9a; margin-bottom: 16px; }
+  .layout { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  canvas { background: #000; border-radius: 6px; display: block; }
+  .panel {
+    background: #161922; border: 1px solid #262b38; border-radius: 8px;
+    padding: 14px 16px; min-width: 280px;
+  }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: #8a8f9a; margin: 0 0 10px 0; }
+  .row { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; gap: 10px; }
+  .row label { color: #b7bcc7; }
+  select, button {
+    background: #1f2430; color: #e6e6e6; border: 1px solid #333a4a;
+    border-radius: 5px; padding: 5px 8px; font-size: 13px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: #4d5670; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .metric { font-variant-numeric: tabular-nums; font-weight: 600; color: #6fd3ff; }
+  .metric.warn { color: #ffb56f; }
+  hr { border: none; border-top: 1px solid #262b38; margin: 12px 0; }
+  #benchLog { font-size: 12px; color: #b7bcc7; max-height: 180px; overflow-y: auto; }
+  #benchLog div { padding: 3px 0; border-bottom: 1px dashed #262b38; }
+  #status { color: #ff8080; font-weight: 600; }
+  code { background: #1f2430; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Geodesic Descent Texel Mapping</h1>
+<div class="sub">Fully-unrolled icosahedral subdivision descent, planar barycentric interpolation, per-vertex texel lookup — WebGPU raycast + compute benchmark.</div>
+
+<div class="layout">
+  <canvas id="gpuCanvas" width="800" height="600"></canvas>
+
+  <div class="panel">
+    <h2>Mesh / Descent</h2>
+    <div class="row">
+      <label for="levelSelect">Subdivision level</label>
+      <select id="levelSelect">
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4" selected>4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+        <option value="9">9</option>
+      </select>
+    </div>
+    <div class="row"><label>Vertices</label><span class="metric" id="vertCount">–</span></div>
+    <div class="row"><label>Leaf triangles</label><span class="metric" id="leafCount">–</span></div>
+    <div class="row">
+      <label for="rotateChk">Auto-rotate camera</label>
+      <input type="checkbox" id="rotateChk" checked>
+    </div>
+    <hr>
+    <h2>Render (per-pixel descent)</h2>
+    <div class="row"><label>GPU frame time</label><span class="metric" id="frameTime">–</span></div>
+    <div class="row"><label>Timing source</label><span id="timingSource">–</span></div>
+    <hr>
+    <h2>Compute-only benchmark</h2>
+    <div class="row">
+      <label for="threadSelect">Random directions</label>
+      <select id="threadSelect">
+        <option value="18">262,144 (2^18)</option>
+        <option value="20" selected>1,048,576 (2^20)</option>
+        <option value="22">4,194,304 (2^22)</option>
+        <option value="24">16,777,216 (2^24)</option>
+      </select>
+    </div>
+    <div class="row">
+      <button id="benchBtn">Run benchmark</button>
+    </div>
+    <div id="benchLog"></div>
+    <div id="status"></div>
+  </div>
+</div>
+
+<script type="module">
+
+// =====================================================================
+// 1. CPU-side icosahedron + DFS subdivision (mirrors the GPU descent's
+//    child ordering exactly, so leaf indices computed on the GPU line
+//    up with rows in leafTable / vColors built here).
+// =====================================================================
+
+function norm3(v) {
+  const l = Math.hypot(v[0], v[1], v[2]);
+  return [v[0]/l, v[1]/l, v[2]/l];
+}
+function add3(a,b){ return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]; }
+function mid3(a,b){ return norm3([ (a[0]+b[0])*0.5, (a[1]+b[1])*0.5, (a[2]+b[2])*0.5 ]); }
+
+const T = (1 + Math.sqrt(5)) / 2;
+const BASE_VERTS_RAW = [
+  [-1, T, 0], [1, T, 0], [-1, -T, 0], [1, -T, 0],
+  [0, -1, T], [0, 1, T], [0, -1, -T], [0, 1, -T],
+  [T, 0, -1], [T, 0, 1], [-T, 0, -1], [-T, 0, 1],
+];
+const BASE_VERTS = BASE_VERTS_RAW.map(norm3);
+const BASE_FACES = [
+  [0,11,5], [0,5,1], [0,1,7], [0,7,10], [0,10,11],
+  [1,5,9], [5,11,4], [11,10,2], [10,7,6], [7,1,8],
+  [3,9,4], [3,4,2], [3,2,6], [3,6,8], [3,8,9],
+  [4,9,5], [2,4,11], [6,2,10], [8,6,7], [9,8,1],
+];
+
+// Simple integer hash -> HSL -> RGB, used to color vertices distinctly
+// so triangle boundaries / seams are visually obvious if something's wrong.
+function hashToColor(i) {
+  let h = (i * 2654435761) >>> 0;
+  h ^= h >>> 16; h = Math.imul(h, 2246822519) >>> 0;
+  h ^= h >>> 13; h = Math.imul(h, 3266489917) >>> 0;
+  h ^= h >>> 16;
+  const hue = (h % 360) / 360;
+  const sat = 0.60, light = 0.55;
+  const c = (1 - Math.abs(2*light - 1)) * sat;
+  const x = c * (1 - Math.abs(((hue*6) % 2) - 1));
+  const m = light - c/2;
+  let r,g,b;
+  const hp = hue*6;
+  if (hp < 1) [r,g,b] = [c,x,0];
+  else if (hp < 2) [r,g,b] = [x,c,0];
+  else if (hp < 3) [r,g,b] = [0,c,x];
+  else if (hp < 4) [r,g,b] = [0,x,c];
+  else if (hp < 5) [r,g,b] = [x,0,c];
+  else [r,g,b] = [c,0,x];
+  return [r+m, g+m, b+m];
+}
+
+// Builds vertex positions + a leaf table (3 vertex indices per leaf
+// triangle) in DFS pre-order, which is exactly the order the GPU's
+// code = code*4 + childIndex accumulation produces. Child ordering
+// per level: 0 = corner A, 1 = corner B, 2 = corner C, 3 = center.
+function buildIcosphere(level) {
+  const vertices = BASE_VERTS.map(v => v.slice());
+  const midpointCache = new Map();
+
+  function getMidpoint(i0, i1) {
+    const key = i0 < i1 ? `${i0}_${i1}` : `${i1}_${i0}`;
+    let idx = midpointCache.get(key);
+    if (idx !== undefined) return idx;
+    idx = vertices.length;
+    vertices.push(mid3(vertices[i0], vertices[i1]));
+    midpointCache.set(key, idx);
+    return idx;
+  }
+
+  const leaves = [];
+  function recurse(iA, iB, iC, depth) {
+    if (depth === level) { leaves.push([iA, iB, iC]); return; }
+    const iAB = getMidpoint(iA, iB);
+    const iBC = getMidpoint(iB, iC);
+    const iCA = getMidpoint(iC, iA);
+    recurse(iA, iAB, iCA, depth+1);   // child 0: corner A
+    recurse(iB, iBC, iAB, depth+1);   // child 1: corner B
+    recurse(iC, iCA, iBC, depth+1);   // child 2: corner C
+    recurse(iAB, iBC, iCA, depth+1);  // child 3: center
+  }
+  for (const f of BASE_FACES) recurse(f[0], f[1], f[2], 0);
+
+  const colors = vertices.map((_, i) => hashToColor(i));
+  return { vertices, leaves, colors };
+}
+
+// =====================================================================
+// 2. WGSL codegen: base icosahedron constants + fully-unrolled descent.
+// =====================================================================
+
+function fmtF(x) { return x.toFixed(10); }
+function fmtVec3F(v) { return `vec3<f32>(${fmtF(v[0])}, ${fmtF(v[1])}, ${fmtF(v[2])})`; }
+
+function genCommonWGSL(level) {
+  const vertsLit = BASE_VERTS.map(fmtVec3F).join(',\n    ');
+  const facesLit = BASE_FACES.map(f => `vec3<u32>(${f[0]}u, ${f[1]}u, ${f[2]}u)`).join(',\n    ');
+  const leavesPerBase = Math.pow(4, level);
+
+  let descentSteps = '';
+  for (let i = 0; i < level; i++) {
+    descentSteps += `
+  {
+    let oldA = A; let oldB = B; let oldC = C;
+    let mAB = normalize((oldA + oldB) * 0.5);
+    let mBC = normalize((oldB + oldC) * 0.5);
+    let mCA = normalize((oldC + oldA) * 0.5);
+    let s0 = min3(dot(dirIn, cross(oldA, mAB)), dot(dirIn, cross(mAB, mCA)), dot(dirIn, cross(mCA, oldA)));
+    let s1 = min3(dot(dirIn, cross(oldB, mBC)), dot(dirIn, cross(mBC, mAB)), dot(dirIn, cross(mAB, oldB)));
+    let s2 = min3(dot(dirIn, cross(oldC, mCA)), dot(dirIn, cross(mCA, mBC)), dot(dirIn, cross(mBC, oldC)));
+    let s3 = min3(dot(dirIn, cross(mAB, mBC)), dot(dirIn, cross(mBC, mCA)), dot(dirIn, cross(mCA, mAB)));
+    var childIdx: u32 = 0u;
+    var best = s0;
+    if (s1 > best) { best = s1; childIdx = 1u; }
+    if (s2 > best) { best = s2; childIdx = 2u; }
+    if (s3 > best) { best = s3; childIdx = 3u; }
+    code = code * 4u + childIdx;
+    if (childIdx == 0u) { A = oldA; B = mAB; C = mCA; }
+    else if (childIdx == 1u) { A = oldB; B = mBC; C = mAB; }
+    else if (childIdx == 2u) { A = oldC; B = mCA; C = mBC; }
+    else { A = mAB; B = mBC; C = mCA; }
+  }`;
+  }
+
+  return `
+// ---- Base icosahedron (compile-time constants) ----
+const ICO_VERTS: array<vec3<f32>, 12> = array<vec3<f32>, 12>(
+    ${vertsLit}
+);
+const ICO_FACES: array<vec3<u32>, 20> = array<vec3<u32>, 20>(
+    ${facesLit}
+);
+
+fn min3(a: f32, b: f32, c: f32) -> f32 { return min(a, min(b, c)); }
+
+struct LocateResult {
+  leaf: u32,
+  A: vec3<f32>,
+  B: vec3<f32>,
+  C: vec3<f32>,
+};
+
+// Fully unrolled: base-face selection (20-way argmax) followed by
+// ${level} literal copies of the 4-way great-circle-side-test descent.
+// No dynamic loop, no recursion, no transcendentals anywhere.
+fn locateLeaf(dirIn: vec3<f32>) -> LocateResult {
+  var bestScore: f32 = -1e30;
+  var bestBase: u32 = 0u;
+  for (var i: u32 = 0u; i < 20u; i = i + 1u) {
+    let idx = ICO_FACES[i];
+    let a = ICO_VERTS[idx.x];
+    let b = ICO_VERTS[idx.y];
+    let c = ICO_VERTS[idx.z];
+    let sc = min3(dot(dirIn, cross(a, b)), dot(dirIn, cross(b, c)), dot(dirIn, cross(c, a)));
+    if (sc > bestScore) { bestScore = sc; bestBase = i; }
+  }
+  let baseIdx = ICO_FACES[bestBase];
+  var A = ICO_VERTS[baseIdx.x];
+  var B = ICO_VERTS[baseIdx.y];
+  var C = ICO_VERTS[baseIdx.z];
+  var code: u32 = 0u;
+${descentSteps}
+  var res: LocateResult;
+  res.leaf = bestBase * ${leavesPerBase}u + code;
+  res.A = A; res.B = B; res.C = C;
+  return res;
+}
+
+// Planar barycentric coordinates of dirIn against the leaf's flat
+// chord triangle (A,B,C), via ray/plane intersection from the origin.
+fn barycentric(dirIn: vec3<f32>, A: vec3<f32>, B: vec3<f32>, C: vec3<f32>) -> vec3<f32> {
+  let n = cross(B - A, C - A);
+  let tPlane = dot(n, A) / dot(n, dirIn);
+  let P = dirIn * tPlane;
+  let v0 = B - A; let v1 = C - A; let v2 = P - A;
+  let d00 = dot(v0, v0); let d01 = dot(v0, v1); let d11 = dot(v1, v1);
+  let d20 = dot(v2, v0); let d21 = dot(v2, v1);
+  let denom = d00 * d11 - d01 * d01;
+  let v = (d11 * d20 - d01 * d21) / denom;
+  let w = (d00 * d21 - d01 * d20) / denom;
+  let u = 1.0 - v - w;
+  return vec3<f32>(u, v, w);
+}
+`;
+}
+
+const RENDER_WGSL_TAIL = `
+struct Camera {
+  posFov: vec4<f32>,   // xyz = camera pos, w = tan(fov/2)
+  right:  vec4<f32>,   // xyz = right,      w = aspect
+  up:     vec4<f32>,   // xyz = up
+  fwd:    vec4<f32>,   // xyz = forward
+};
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> leafTable: array<u32>;
+@group(0) @binding(2) var<storage, read> vColors: array<vec4<f32>>;
+
+struct VOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
+  var p = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0)
+  );
+  var o: VOut;
+  o.pos = vec4<f32>(p[vi], 0.0, 1.0);
+  o.uv = p[vi];
+  return o;
+}
+
+@fragment
+fn fs_main(inp: VOut) -> @location(0) vec4<f32> {
+  let camPos = camera.posFov.xyz;
+  let tanHalfFov = camera.posFov.w;
+  let camRight = camera.right.xyz;
+  let aspect = camera.right.w;
+  let camUp = camera.up.xyz;
+  let camFwd = camera.fwd.xyz;
+
+  let dir = normalize(camFwd + inp.uv.x * aspect * tanHalfFov * camRight
+                              + inp.uv.y * tanHalfFov * camUp);
+
+  let ro = camPos;
+  let bq = dot(ro, dir);
+  let cq = dot(ro, ro) - 1.0;
+  let disc = bq * bq - cq;
+  if (disc < 0.0) { return vec4<f32>(0.04, 0.05, 0.09, 1.0); }
+  let sq = sqrt(disc);
+  var t = -bq - sq;
+  if (t < 0.0) { t = -bq + sq; }
+  if (t < 0.0) { return vec4<f32>(0.04, 0.05, 0.09, 1.0); }
+
+  let hit = ro + dir * t;
+  let s = normalize(hit);
+
+  let res = locateLeaf(s);
+  let bary = barycentric(s, res.A, res.B, res.C);
+
+  let iA = leafTable[res.leaf * 3u + 0u];
+  let iB = leafTable[res.leaf * 3u + 1u];
+  let iC = leafTable[res.leaf * 3u + 2u];
+
+  let baseColor = vColors[iA].rgb * bary.x + vColors[iB].rgb * bary.y + vColors[iC].rgb * bary.z;
+
+  let lightDir = normalize(vec3<f32>(0.5, 0.8, 0.3));
+  let diffuse = max(dot(s, lightDir), 0.0);
+  let lighting = 0.28 + 0.72 * diffuse;
+
+  return vec4<f32>(baseColor * lighting, 1.0);
+}
+`;
+
+const COMPUTE_WGSL_TAIL = `
+@group(0) @binding(0) var<storage, read_write> outBuf: array<u32>;
+
+fn wangHash(seedIn: u32) -> u32 {
+  var x = seedIn;
+  x = (x ^ 61u) ^ (x >> 16u);
+  x = x * 9u;
+  x = x ^ (x >> 4u);
+  x = x * 0x27d4eb2du;
+  x = x ^ (x >> 15u);
+  return x;
+}
+fn randFloat(seed: u32) -> f32 {
+  return f32(wangHash(seed)) * (1.0 / 4294967295.0);
+}
+
+// Uniformly-distributed random test directions on the sphere, so the
+// benchmark exercises the descent across the whole surface rather
+// than one neighborhood (would be unfairly cache/branch-friendly).
+@compute @workgroup_size(64)
+fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let idx = gid.x;
+  let u = randFloat(idx * 2u + 1u);
+  let v = randFloat(idx * 2u + 7919u);
+  let z = 1.0 - 2.0 * u;
+  let r = sqrt(max(0.0, 1.0 - z * z));
+  let phi = 6.28318530718 * v;
+  let dir = normalize(vec3<f32>(r * cos(phi), r * sin(phi), z));
+  let res = locateLeaf(dir);
+  outBuf[idx] = res.leaf;
+}
+`;
+
+// =====================================================================
+// 3. WebGPU setup
+// =====================================================================
+
+const statusEl = document.getElementById('status');
+const canvas = document.getElementById('gpuCanvas');
+
+if (!navigator.gpu) {
+  statusEl.textContent = 'WebGPU is not available in this browser.';
+  throw new Error('no webgpu');
+}
+
+const adapter = await navigator.gpu.requestAdapter();
+if (!adapter) {
+  statusEl.textContent = 'No WebGPU adapter found.';
+  throw new Error('no adapter');
+}
+const hasTimestamp = adapter.features.has('timestamp-query');
+const device = await adapter.requestDevice({
+  requiredFeatures: hasTimestamp ? ['timestamp-query'] : [],
+});
+document.getElementById('timingSource').textContent =
+  hasTimestamp ? 'GPU timestamp query' : 'wall-clock (fallback)';
+if (!hasTimestamp) {
+  document.getElementById('timingSource').classList.add('warn');
+}
+
+const context = canvas.getContext('webgpu');
+const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+context.configure({ device, format: presentationFormat, alphaMode: 'opaque' });
+
+// ---- Persistent GPU state, rebuilt whenever subdivision level changes ----
+let state = null;
+
+function destroyState(s) {
+  if (!s) return;
+  s.leafTableBuf?.destroy();
+  s.colorsBuf?.destroy();
+  s.cameraBuf?.destroy();
+}
+
+async function rebuild(level) {
+  destroyState(state);
+
+  const { vertices, leaves, colors } = buildIcosphere(level);
+  document.getElementById('vertCount').textContent = vertices.length.toLocaleString();
+  document.getElementById('leafCount').textContent = leaves.length.toLocaleString();
+
+  const commonWGSL = genCommonWGSL(level);
+  const renderModule = device.createShaderModule({ code: commonWGSL + RENDER_WGSL_TAIL });
+  const computeModule = device.createShaderModule({ code: commonWGSL + COMPUTE_WGSL_TAIL });
+
+  const renderPipeline = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module: renderModule, entryPoint: 'vs_main' },
+    fragment: { module: renderModule, entryPoint: 'fs_main', targets: [{ format: presentationFormat }] },
+    primitive: { topology: 'triangle-list' },
+  });
+
+  const computePipeline = device.createComputePipeline({
+    layout: 'auto',
+    compute: { module: computeModule, entryPoint: 'cs_main' },
+  });
+
+  // Flatten leaf table (3 u32 indices per leaf).
+  const leafTableData = new Uint32Array(leaves.length * 3);
+  for (let i = 0; i < leaves.length; i++) {
+    leafTableData[i*3+0] = leaves[i][0];
+    leafTableData[i*3+1] = leaves[i][1];
+    leafTableData[i*3+2] = leaves[i][2];
+  }
+  const leafTableBuf = device.createBuffer({
+    size: leafTableData.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(leafTableBuf, 0, leafTableData);
+
+  const colorsData = new Float32Array(colors.length * 4);
+  for (let i = 0; i < colors.length; i++) {
+    colorsData[i*4+0] = colors[i][0];
+    colorsData[i*4+1] = colors[i][1];
+    colorsData[i*4+2] = colors[i][2];
+    colorsData[i*4+3] = 1.0;
+  }
+  const colorsBuf = device.createBuffer({
+    size: colorsData.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(colorsBuf, 0, colorsData);
+
+  const cameraBuf = device.createBuffer({
+    size: 64,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  const renderBindGroup = device.createBindGroup({
+    layout: renderPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: cameraBuf } },
+      { binding: 1, resource: { buffer: leafTableBuf } },
+      { binding: 2, resource: { buffer: colorsBuf } },
+    ],
+  });
+
+  // Timestamp query resources for the render pass.
+  let renderQuerySet = null, renderResolveBuf = null, renderResultBuf = null;
+  if (hasTimestamp) {
+    renderQuerySet = device.createQuerySet({ type: 'timestamp', count: 2 });
+    renderResolveBuf = device.createBuffer({
+      size: 16, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+    });
+    renderResultBuf = device.createBuffer({
+      size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+  }
+
+  state = {
+    level, leaves, vertices, computeModule, computePipeline,
+    renderPipeline, renderBindGroup, cameraBuf, leafTableBuf, colorsBuf,
+    renderQuerySet, renderResolveBuf, renderResultBuf,
+  };
+}
+
+// =====================================================================
+// 4. Render loop
+// =====================================================================
+
+let angle = 0;
+let measuring = false;
+let frameTimeEMA = null;
+
+function render(dtSeconds) {
+  const s = state;
+  const rotate = document.getElementById('rotateChk').checked;
+  if (rotate) angle += dtSeconds * 0.25;
+
+  const dist = 3.0;
+  const camPos = [Math.cos(angle) * dist, 1.0, Math.sin(angle) * dist];
+  const target = [0, 0, 0];
+  const upHint = [0, 1, 0];
+  let fwd = norm3([target[0]-camPos[0], target[1]-camPos[1], target[2]-camPos[2]]);
+  function cross3(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+  let right = norm3(cross3(fwd, upHint));
+  let up = cross3(right, fwd);
+
+  const aspect = canvas.width / canvas.height;
+  const tanHalfFov = Math.tan((50 * Math.PI/180) / 2);
+
+  const camData = new Float32Array([
+    camPos[0], camPos[1], camPos[2], tanHalfFov,
+    right[0], right[1], right[2], aspect,
+    up[0], up[1], up[2], 0,
+    fwd[0], fwd[1], fwd[2], 0,
+  ]);
+  device.queue.writeBuffer(s.cameraBuf, 0, camData);
+
+  const encoder = device.createCommandEncoder();
+  const textureView = context.getCurrentTexture().createView();
+  const passDesc = {
+    colorAttachments: [{
+      view: textureView,
+      clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      loadOp: 'clear',
+      storeOp: 'store',
+    }],
+  };
+  if (hasTimestamp) {
+    passDesc.timestampWrites = {
+      querySet: s.renderQuerySet,
+      beginningOfPassWriteIndex: 0,
+      endOfPassWriteIndex: 1,
+    };
+  }
+
+  const t0 = performance.now();
+  const pass = encoder.beginRenderPass(passDesc);
+  pass.setPipeline(s.renderPipeline);
+  pass.setBindGroup(0, s.renderBindGroup);
+  pass.draw(3);
+  pass.end();
+
+  if (hasTimestamp) {
+    encoder.resolveQuerySet(s.renderQuerySet, 0, 2, s.renderResolveBuf, 0);
+    encoder.copyBufferToBuffer(s.renderResolveBuf, 0, s.renderResultBuf, 0, 16);
+  }
+
+  device.queue.submit([encoder.finish()]);
+
+  if (hasTimestamp) {
+    if (!measuring) {
+      measuring = true;
+      s.renderResultBuf.mapAsync(GPUMapMode.READ).then(() => {
+        const arr = new BigInt64Array(s.renderResultBuf.getMappedRange());
+        const ns = Number(arr[1] - arr[0]);
+        s.renderResultBuf.unmap();
+        measuring = false;
+        const ms = ns / 1e6;
+        frameTimeEMA = frameTimeEMA === null ? ms : frameTimeEMA * 0.9 + ms * 0.1;
+        document.getElementById('frameTime').textContent = frameTimeEMA.toFixed(3) + ' ms';
+      }).catch(() => { measuring = false; });
+    }
+  } else {
+    device.queue.onSubmittedWorkDone().then(() => {
+      const ms = performance.now() - t0;
+      frameTimeEMA = frameTimeEMA === null ? ms : frameTimeEMA * 0.9 + ms * 0.1;
+      document.getElementById('frameTime').textContent = '~' + frameTimeEMA.toFixed(3) + ' ms';
+    });
+  }
+}
+
+let lastT = performance.now();
+function frame() {
+  const now = performance.now();
+  const dt = (now - lastT) / 1000;
+  lastT = now;
+  if (state) render(dt);
+  requestAnimationFrame(frame);
+}
+
+// =====================================================================
+// 5. Compute-only benchmark
+// =====================================================================
+
+async function runBenchmark(log2Count) {
+  const s = state;
+  const numThreads = Math.pow(2, log2Count);
+  const workgroups = Math.ceil(numThreads / 64);
+
+  const outBuf = device.createBuffer({
+    size: numThreads * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+  });
+  const bindGroup = device.createBindGroup({
+    layout: s.computePipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: outBuf } }],
+  });
+
+  let querySet = null, resolveBuf = null, resultBuf = null;
+  if (hasTimestamp) {
+    querySet = device.createQuerySet({ type: 'timestamp', count: 2 });
+    resolveBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+    resultBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  }
+
+  const encoder = device.createCommandEncoder();
+  const passDesc = {};
+  if (hasTimestamp) {
+    passDesc.timestampWrites = { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 };
+  }
+  const t0 = performance.now();
+  const pass = encoder.beginComputePass(passDesc);
+  pass.setPipeline(s.computePipeline);
+  pass.setBindGroup(0, bindGroup);
+  pass.dispatchWorkgroups(workgroups);
+  pass.end();
+  if (hasTimestamp) {
+    encoder.resolveQuerySet(querySet, 0, 2, resolveBuf, 0);
+    encoder.copyBufferToBuffer(resolveBuf, 0, resultBuf, 0, 16);
+  }
+  device.queue.submit([encoder.finish()]);
+  await device.queue.onSubmittedWorkDone();
+  const wallMs = performance.now() - t0;
+
+  let gpuMs = null;
+  if (hasTimestamp) {
+    await resultBuf.mapAsync(GPUMapMode.READ);
+    const arr = new BigInt64Array(resultBuf.getMappedRange());
+    gpuMs = Number(arr[1] - arr[0]) / 1e6;
+    resultBuf.unmap();
+  }
+
+  outBuf.destroy();
+  resolveBuf?.destroy();
+  resultBuf?.destroy();
+
+  const usedMs = gpuMs !== null ? gpuMs : wallMs;
+  const nsPerLookup = (usedMs * 1e6) / numThreads;
+
+  const logEl = document.getElementById('benchLog');
+  const entry = document.createElement('div');
+  entry.innerHTML = `level <b>${s.level}</b>, n=<b>${numThreads.toLocaleString()}</b>: ` +
+    `${usedMs.toFixed(3)} ms total (${gpuMs !== null ? 'GPU' : 'wall'}) — ` +
+    `<span class="metric">${nsPerLookup.toFixed(2)} ns/lookup</span>`;
+  logEl.prepend(entry);
+}
+
+// =====================================================================
+// 6. Wire up UI
+// =====================================================================
+
+document.getElementById('levelSelect').addEventListener('change', async (e) => {
+  const btn = document.getElementById('benchBtn');
+  btn.disabled = true;
+  await rebuild(parseInt(e.target.value, 10));
+  btn.disabled = false;
+});
+
+document.getElementById('benchBtn').addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  const log2Count = parseInt(document.getElementById('threadSelect').value, 10);
+  await runBenchmark(log2Count);
+  e.target.disabled = false;
+});
+
+await rebuild(parseInt(document.getElementById('levelSelect').value, 10));
+requestAnimationFrame(frame);
+
+</script>
+</body>
+</html>
