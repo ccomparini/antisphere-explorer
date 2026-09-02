@@ -102,9 +102,9 @@
     "air_warm": {
       "kind": "ambient",
       "albedo": [
-        0.3,
-        0.2,
-        0.11
+        0.9,
+        0.4,
+        0.2
       ]
     },
     "air_cool": {
@@ -112,22 +112,22 @@
       "albedo": [
         0.09,
         0.14,
-        0.26
+        0.98
       ]
     },
     "air_smoke": {
       "kind": "ambient",
       "albedo": [
-        0.19,
-        0.19,
-        0.2
+        0.55,
+        0.55,
+        0.55
       ]
     },
     "air_green": {
       "kind": "ambient",
       "albedo": [
         0.1,
-        0.22,
+        0.99,
         0.14
       ]
     },
@@ -151,42 +151,6 @@
         120,
         82,
         48
-      ]
-    },
-    {
-      "pos": [
-        5.5,
-        -2.0,
-        3.4
-      ],
-      "color": [
-        34,
-        58,
-        100
-      ]
-    },
-    {
-      "pos": [
-        0.0,
-        -12.0,
-        1.8
-      ],
-      "color": [
-        56,
-        52,
-        46
-      ]
-    },
-    {
-      "pos": [
-        3.4,
-        2.6,
-        0.35
-      ],
-      "color": [
-        16,
-        8,
-        2
       ]
     }
   ],
@@ -2971,6 +2935,23 @@
         "hollow",
         "pedestal"
       ]
+    },
+    "world": {
+      "plane": {
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "offset": -1.0
+      },
+      "paint": "partition",
+      "inside": {
+        "solid": "floor"
+      },
+      "outside": {
+        "use": "contents"
+      }
     }
   },
   "root": {
@@ -2988,86 +2969,72 @@
       "solid": "shell"
     },
     "outside": {
-      "plane": {
-        "normal": [
-          0,
-          0,
-          1
+      "sphere": {
+        "center": [
+          -4.2,
+          2.6,
+          0.9
         ],
-        "offset": -1.0
+        "radius": 4.2
       },
-      "paint": "partition",
+      "paint": "air_warm",
       "inside": {
-        "solid": "floor"
+        "use": "world"
       },
       "outside": {
         "sphere": {
           "center": [
-            -4.2,
+            3.4,
             2.6,
-            0.9
+            0.4
           ],
-          "radius": 4.2
+          "radius": 3.6
         },
-        "paint": "air_warm",
+        "paint": "air_cool",
         "inside": {
-          "use": "contents"
+          "use": "world"
         },
         "outside": {
           "sphere": {
             "center": [
-              3.4,
-              2.6,
-              0.4
+              0.0,
+              -6.0,
+              0.6
             ],
-            "radius": 3.6
+            "radius": 5.2
           },
-          "paint": "air_cool",
+          "paint": "air_smoke",
           "inside": {
-            "use": "contents"
+            "use": "world"
           },
           "outside": {
             "sphere": {
               "center": [
-                0.0,
-                -6.0,
-                0.6
+                -3.0,
+                -9.0,
+                0.2
               ],
-              "radius": 5.2
+              "radius": 3.4
             },
-            "paint": "air_smoke",
+            "paint": "air_green",
             "inside": {
-              "use": "contents"
+              "use": "world"
             },
             "outside": {
               "sphere": {
                 "center": [
-                  -3.0,
-                  -9.0,
+                  4.0,
+                  -9.5,
                   0.2
                 ],
-                "radius": 3.4
+                "radius": 3.0
               },
-              "paint": "air_green",
+              "paint": "air_dim",
               "inside": {
-                "use": "contents"
+                "use": "world"
               },
               "outside": {
-                "sphere": {
-                  "center": [
-                    4.0,
-                    -9.5,
-                    0.2
-                  ],
-                  "radius": 3.0
-                },
-                "paint": "air_dim",
-                "inside": {
-                  "use": "contents"
-                },
-                "outside": {
-                  "use": "contents"
-                }
+                "use": "world"
               }
             }
           }

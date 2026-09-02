@@ -15,7 +15,10 @@ struct Node {
   k       : f32,
   inside  : i32,
   outside : i32,
-  paint   : i32,   // >= 0 sets scope (0 clears it); negative leaves it alone
+  // Two 16-bit halves, so scoped state costs no extra node bytes. Low half is
+  // the surface paint: >= 0 sets scope, 0 clears it, negative leaves it alone.
+  // High half is an environment index, 0 meaning inherit.
+  paint   : i32,
 };
 
 struct Material {
@@ -32,6 +35,10 @@ const KIND_LAMBERT  : u32 = 0u;
 const KIND_GLOSSY   : u32 = 1u;
 const KIND_EMISSIVE : u32 = 2u;
 const KIND_UNLIT    : u32 = 3u;
+// An ambient container never shades. The compiler moves it into a node's
+// environment half and leaves the paint half as PARTITION, so the node is
+// spatial division that happens to set the ambient level beneath it.
+const KIND_AMBIENT  : u32 = 4u;
 
 const PATTERN_CHECKER : u32 = 1u;
 
@@ -95,8 +102,8 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
   return 2.0 * nd.k * R + (1.0 - 2.0 * nd.a * nd.k) * nd.n;
 }
 
-struct Seg { node : i32, t0 : f32, t1 : f32, entry : i32, scope : i32, };
-struct Hit { hit : bool, t : f32, node : i32, mat : i32, };
+struct Seg { node : i32, t0 : f32, t1 : f32, entry : i32, scope : i32, env : i32, };
+struct Hit { hit : bool, t : f32, node : i32, mat : i32, env : i32, };
 
 fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
   var hit : Hit;
@@ -104,9 +111,10 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
   hit.t = tMax;
   hit.node = -1;
   hit.mat = 0;
+  hit.env = 0;
 
   var stack : array<Seg, 32>;
-  stack[0] = Seg(0, tMin, tMax, -1, 0);
+  stack[0] = Seg(0, tMin, tMax, -1, 0, 0);
   var sp : i32 = 1;
 
   var guard : i32 = 0;
@@ -131,10 +139,11 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       // whatever is in scope; BARE is 0 and falls through to the substrate.
       var painted = seg.scope;
       if (seg.entry >= 0) {
-        let entryPaint = nodes[seg.entry].paint;
+        let entryPaint = (nodes[seg.entry].paint << 16) >> 16;
         if (entryPaint >= 0) { painted = entryPaint; }
       }
       hit.mat = select(substrate, painted, painted > 0);
+      hit.env = seg.env;
       break;
     }
 
@@ -188,16 +197,21 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       // which root is an entry and which is an exit.
       var child = nd.outside;
       var childScope = seg.scope;
+      var childEnv = seg.env;
       if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) {
         child = nd.inside;
-        // Paint scopes the region f < 0 and nothing else. To scope the far
-        // side instead, flip the node: negating all five numbers is free, so
-        // the representation pays for this rule rather than the traversal.
-        if (nd.paint >= 0) { childScope = nd.paint; }
+        // Paint and environment both scope the region f < 0 and nothing else.
+        // To scope the far side instead, flip the node: negating all five
+        // numbers is free, so the representation pays for this rule rather
+        // than the traversal.
+        let paint = (nd.paint << 16) >> 16;   // low half, sign extended
+        let env = nd.paint >> 16;             // high half, 0 means inherit
+        if (paint >= 0) { childScope = paint; }
+        if (env != 0) { childEnv = env; }
       }
       var ent = seg.entry;
       if (i > 0) { ent = seg.node; }
-      stack[sp] = Seg(child, sa, sb, ent, childScope);
+      stack[sp] = Seg(child, sa, sb, ent, childScope, childEnv);
       sp = sp + 1;
       peakDepth = max(peakDepth, u32(sp));
     }
@@ -233,6 +247,7 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
 // ---------------------------------------------------------------------------
 
 struct Surf {
+  env : i32,           // environment in scope where the ray hit
   P  : vec3<f32>,      // hit position
   N  : vec3<f32>,      // outward normal, already faced toward the ray
   V  : vec3<f32>,      // toward the viewer
@@ -250,8 +265,12 @@ fn albedoAt(s : Surf) -> vec3<f32> {
   return s.m.albedo;
 }
 
-fn ambient(N : vec3<f32>) -> f32 {
-  return 0.10 + 0.08 * max(N.z, 0.0);
+// Ambient is whatever environment is in scope at the hit, shaped by a crude
+// hemisphere term. Environment 0 is the default.
+fn ambient(env : i32, N : vec3<f32>) -> vec3<f32> {
+  var base = vec3<f32>(0.13, 0.13, 0.14);
+  if (env > 0) { base = materials[env].albedo; }
+  return base * (0.77 + 0.23 * max(N.z, 0.0));
 }
 
 // Sums direct light over every source, with one shadow ray each. A shininess
@@ -298,20 +317,20 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
 
 fn shadeLambert(s : Surf) -> vec3<f32> {
   let d = directLighting(s, 0.0);
-  return albedoAt(s) * (ambient(s.N) + d.diffuse);
+  return albedoAt(s) * (ambient(s.env, s.N) + d.diffuse);
 }
 
 // params.x shininess, params.y specular strength
 fn shadeGlossy(s : Surf) -> vec3<f32> {
   let d = directLighting(s, max(s.m.params.x, 1.0));
-  return albedoAt(s) * (ambient(s.N) + d.diffuse) + d.specular * s.m.params.y;
+  return albedoAt(s) * (ambient(s.env, s.N) + d.diffuse) + d.specular * s.m.params.y;
 }
 
 // params.x emission strength, added on top of ordinary diffuse response
 fn shadeEmissive(s : Surf) -> vec3<f32> {
   let d = directLighting(s, 0.0);
   let alb = albedoAt(s);
-  return alb * (ambient(s.N) + d.diffuse) + alb * s.m.params.x;
+  return alb * (ambient(s.env, s.N) + d.diffuse) + alb * s.m.params.x;
 }
 
 fn shadeUnlit(s : Surf) -> vec3<f32> {
@@ -383,6 +402,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       s.V = -dir;
       s.m = materials[h.mat];
       s.st = frame(nd, s.P) * s.m.scale;
+      s.env = h.env;
       N = s.N;
       col = shade(s);
     }

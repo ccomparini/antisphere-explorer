@@ -142,7 +142,12 @@ const KINDS = {
   glossy:   { id: 1, params: (d) => [d.shininess ?? 32, d.specular ?? 0.6] },
   emissive: { id: 2, params: (d) => [d.emission ?? 1, 0] },
   unlit:    { id: 3, params: () => [0, 0] },
+  // An ambient container never shades. Naming one as a node's paint turns
+  // that node into a pure partition whose albedo becomes the ambient level
+  // for everything in its inside subtree.
+  ambient:  { id: 4, params: () => [0, 0] },
 };
+const KIND_AMBIENT = 4;
 const PAINT_WORDS = { partition: PARTITION, inherit: INHERIT, bare: BARE };
 
 // ---------------------------------------------------------------------------
@@ -150,8 +155,8 @@ const PAINT_WORDS = { partition: PARTITION, inherit: INHERIT, bare: BARE };
 // ---------------------------------------------------------------------------
 
 // A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
-function node(prim, inside, outside, paint = INHERIT) {
-  return { prim, inside, outside, paint };
+function node(prim, inside, outside, paint = INHERIT, env = 0) {
+  return { prim, inside, outside, paint, env };
 }
 
 const EMPTY = 'empty';
@@ -167,7 +172,7 @@ const isLeaf = (t) => t === EMPTY || t.leaf !== undefined;
 function union(t, other) {
   if (t === EMPTY) return other;
   if (isLeaf(t)) return t;
-  return node(t.prim, union(t.inside, other), union(t.outside, other), t.paint);
+  return node(t.prim, union(t.inside, other), union(t.outside, other), t.paint, t.env);
 }
 
 // Leaves are encoded in the child index: child < 0 means a leaf whose
@@ -181,7 +186,7 @@ function flatten(tree) {
     const idx = out.length;
     out.push(null);
     memo.set(t, idx);
-    out[idx] = { prim: t.prim, paint: t.paint,
+    out[idx] = { prim: t.prim, paint: t.paint, env: t.env ?? 0,
                  inside: walk(t.inside), outside: walk(t.outside) };
     return idx;
   };
@@ -313,10 +318,16 @@ function compileScene(spec) {
     return m;
   }
 
+  // Returns { paint, env }. An ambient material moves into the environment
+  // slot and leaves the node a pure partition.
   function paintOf(def, path) {
-    if (def.paint === undefined) return INHERIT;
-    if (PAINT_WORDS[def.paint] !== undefined) return PAINT_WORDS[def.paint];
-    return substrate(def.paint, `${path}.paint`);
+    if (def.paint === undefined) return { paint: INHERIT, env: 0 };
+    if (PAINT_WORDS[def.paint] !== undefined) {
+      return { paint: PAINT_WORDS[def.paint], env: 0 };
+    }
+    const m = substrate(def.paint, `${path}.paint`);
+    if (table[m].kind === KIND_AMBIENT) return { paint: PARTITION, env: m };
+    return { paint: m, env: 0 };
   }
 
   function primOf(def, path) {
@@ -456,7 +467,7 @@ function compileScene(spec) {
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i];
         acc = selfBounded(it.tree)
-          ? node(it.tree.prim, it.tree.inside, acc, it.tree.paint)
+          ? node(it.tree.prim, it.tree.inside, acc, it.tree.paint, it.tree.env)
           : node(sphere(it.ball.c, it.ball.r), it.tree, acc, PARTITION);
       }
       return acc;
@@ -536,10 +547,11 @@ function compileScene(spec) {
       if (def.inside === undefined || def.outside === undefined) {
         at(path, 'node needs both inside and outside');
       }
+      const { paint, env } = paintOf(def, path);
       out = node(primOf(def, path),
                  tree(def.inside,  `${path}.inside`),
                  tree(def.outside, `${path}.outside`),
-                 paintOf(def, path));
+                 paint, env);
     }
 
     if (def.bounds) {
@@ -579,7 +591,8 @@ function packMaterials(list) {
   return buf;
 }
 
-// 32 bytes per node: vec3 n | f32 a | f32 k | i32 inside | i32 outside | i32 paint
+// 32 bytes per node: vec3 n | f32 a | f32 k | i32 inside | i32 outside |
+//                    i32 (env << 16 | paint)
 function packNodes(list) {
   const buf = new ArrayBuffer(list.length * 32);
   const f = new Float32Array(buf), i = new Int32Array(buf);
@@ -592,7 +605,9 @@ function packNodes(list) {
     f[o + 4] = nd.prim.k;
     i[o + 5] = nd.inside;
     i[o + 6] = nd.outside;
-    i[o + 7] = nd.paint;
+    // Low half surface paint, high half environment index. Keeps a node at
+    // 32 bytes, which matters more than the two shifts it costs the shader.
+    i[o + 7] = ((nd.env & 0xFFFF) << 16) | (nd.paint & 0xFFFF);
   });
   return buf;
 }
