@@ -1,0 +1,3078 @@
+{
+  "camera": {
+    "target": [
+      0,
+      -2.6,
+      0.2
+    ],
+    "yaw": 0.4,
+    "pitch": 0.38,
+    "distance": 17.0
+  },
+  "materials": {
+    "shell": {
+      "albedo": [
+        0.26,
+        0.27,
+        0.32
+      ]
+    },
+    "floor": {
+      "albedo": [
+        0.33,
+        0.35,
+        0.38
+      ],
+      "albedo2": [
+        0.14,
+        0.15,
+        0.18
+      ],
+      "pattern": "checker",
+      "scale": 1.0
+    },
+    "stone": {
+      "albedo": [
+        0.55,
+        0.51,
+        0.45
+      ],
+      "albedo2": [
+        0.42,
+        0.39,
+        0.35
+      ],
+      "pattern": "checker",
+      "scale": 2.6
+    },
+    "core": {
+      "kind": "emissive",
+      "albedo": [
+        0.85,
+        0.42,
+        0.14
+      ],
+      "emission": 0.7
+    },
+    "brass": {
+      "kind": "glossy",
+      "albedo": [
+        0.64,
+        0.55,
+        0.21
+      ],
+      "shininess": 70,
+      "specular": 1.1
+    },
+    "jade": {
+      "kind": "glossy",
+      "albedo": [
+        0.2,
+        0.5,
+        0.39
+      ],
+      "shininess": 160,
+      "specular": 1.6
+    },
+    "slate": {
+      "kind": "glossy",
+      "albedo": [
+        0.28,
+        0.31,
+        0.36
+      ],
+      "shininess": 24,
+      "specular": 0.5
+    },
+    "chalk": {
+      "kind": "unlit",
+      "albedo": [
+        0.78,
+        0.76,
+        0.7
+      ]
+    },
+    "rose": {
+      "albedo": [
+        0.62,
+        0.34,
+        0.36
+      ]
+    },
+    "air_warm": {
+      "kind": "ambient",
+      "albedo": [
+        0.3,
+        0.2,
+        0.11
+      ]
+    },
+    "air_cool": {
+      "kind": "ambient",
+      "albedo": [
+        0.09,
+        0.14,
+        0.26
+      ]
+    },
+    "air_smoke": {
+      "kind": "ambient",
+      "albedo": [
+        0.19,
+        0.19,
+        0.2
+      ]
+    },
+    "air_green": {
+      "kind": "ambient",
+      "albedo": [
+        0.1,
+        0.22,
+        0.14
+      ]
+    },
+    "air_dim": {
+      "kind": "ambient",
+      "albedo": [
+        0.04,
+        0.04,
+        0.05
+      ]
+    }
+  },
+  "lights": [
+    {
+      "pos": [
+        -5.0,
+        5.0,
+        5.5
+      ],
+      "color": [
+        120,
+        82,
+        48
+      ]
+    },
+    {
+      "pos": [
+        5.5,
+        -2.0,
+        3.4
+      ],
+      "color": [
+        34,
+        58,
+        100
+      ]
+    },
+    {
+      "pos": [
+        0.0,
+        -12.0,
+        1.8
+      ],
+      "color": [
+        56,
+        52,
+        46
+      ]
+    },
+    {
+      "pos": [
+        3.4,
+        2.6,
+        0.35
+      ],
+      "color": [
+        16,
+        8,
+        2
+      ]
+    }
+  ],
+  "objects": {
+    "bead00": {
+      "sphere": {
+        "center": [
+          -5.425,
+          -11.425,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -4.949,
+              -11.425,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead10": {
+      "sphere": {
+        "center": [
+          -3.875,
+          -11.425,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -3.4279,
+              -11.2617,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead20": {
+      "sphere": {
+        "center": [
+          -2.325,
+          -11.425,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -1.961,
+              -11.1182,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead30": {
+      "sphere": {
+        "center": [
+          -0.775,
+          -11.425,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -0.5383,
+              -11.012,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead40": {
+      "sphere": {
+        "center": [
+          0.775,
+          -11.425,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              0.8556,
+              -10.9559,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead50": {
+      "sphere": {
+        "center": [
+          2.325,
+          -11.425,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              2.2398,
+              -10.9567,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead60": {
+      "sphere": {
+        "center": [
+          3.875,
+          -11.425,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              3.6343,
+              -11.0143,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead70": {
+      "sphere": {
+        "center": [
+          5.425,
+          -11.425,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              5.0581,
+              -11.1218,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead01": {
+      "sphere": {
+        "center": [
+          -5.425,
+          -9.875,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -5.776,
+              -9.5535,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead11": {
+      "sphere": {
+        "center": [
+          -3.875,
+          -9.875,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -4.315,
+              -9.6934,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead21": {
+      "sphere": {
+        "center": [
+          -2.325,
+          -9.875,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -2.8006,
+              -9.8553,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead31": {
+      "sphere": {
+        "center": [
+          -0.775,
+          -9.875,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -1.2285,
+              -10.0197,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead41": {
+      "sphere": {
+        "center": [
+          0.775,
+          -9.875,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              0.3987,
+              -10.1665,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead51": {
+      "sphere": {
+        "center": [
+          2.325,
+          -9.875,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              2.0715,
+              -10.2779,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead61": {
+      "sphere": {
+        "center": [
+          3.875,
+          -9.875,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              3.7751,
+              -10.3404,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead71": {
+      "sphere": {
+        "center": [
+          5.425,
+          -9.875,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              5.4908,
+              -10.3464,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead02": {
+      "sphere": {
+        "center": [
+          -5.425,
+          -8.325,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -5.3834,
+              -8.7992,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead12": {
+      "sphere": {
+        "center": [
+          -3.875,
+          -8.325,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -3.6733,
+              -8.7561,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead22": {
+      "sphere": {
+        "center": [
+          -2.325,
+          -8.325,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -1.9876,
+              -8.6608,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead32": {
+      "sphere": {
+        "center": [
+          -0.775,
+          -8.325,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -0.3429,
+              -8.5246,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead42": {
+      "sphere": {
+        "center": [
+          0.775,
+          -8.325,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              1.2494,
+              -8.3643,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead52": {
+      "sphere": {
+        "center": [
+          2.325,
+          -8.325,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              2.7841,
+              -8.1992,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead62": {
+      "sphere": {
+        "center": [
+          3.875,
+          -8.325,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              4.2631,
+              -8.0493,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead72": {
+      "sphere": {
+        "center": [
+          5.425,
+          -8.325,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              5.695,
+              -7.933,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead03": {
+      "sphere": {
+        "center": [
+          -5.425,
+          -6.775,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -5.1354,
+              -6.3972,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead13": {
+      "sphere": {
+        "center": [
+          -3.875,
+          -6.775,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -3.7325,
+              -6.3208,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead23": {
+      "sphere": {
+        "center": [
+          -2.325,
+          -6.775,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -2.347,
+              -6.2995,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead33": {
+      "sphere": {
+        "center": [
+          -0.775,
+          -6.775,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -0.9588,
+              -6.3359,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead43": {
+      "sphere": {
+        "center": [
+          0.775,
+          -6.775,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              0.4518,
+              -6.4256,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead53": {
+      "sphere": {
+        "center": [
+          2.325,
+          -6.775,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              1.9015,
+              -6.5577,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead63": {
+      "sphere": {
+        "center": [
+          3.875,
+          -6.775,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              3.4027,
+              -6.7161,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead73": {
+      "sphere": {
+        "center": [
+          5.425,
+          -6.775,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              4.9611,
+              -6.8817,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead04": {
+      "sphere": {
+        "center": [
+          -5.425,
+          -5.225,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -5.8937,
+              -5.3079,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead14": {
+      "sphere": {
+        "center": [
+          -3.875,
+          -5.225,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -4.2868,
+              -5.4637,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead24": {
+      "sphere": {
+        "center": [
+          -2.325,
+          -5.225,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -2.63,
+              -5.5905,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead34": {
+      "sphere": {
+        "center": [
+          -0.775,
+          -5.225,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -0.9361,
+              -5.6729,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead44": {
+      "sphere": {
+        "center": [
+          0.775,
+          -5.225,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              0.7773,
+              -5.701,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead54": {
+      "sphere": {
+        "center": [
+          2.325,
+          -5.225,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              2.4905,
+              -5.6713,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead64": {
+      "sphere": {
+        "center": [
+          3.875,
+          -5.225,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              4.1835,
+              -5.5875,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead74": {
+      "sphere": {
+        "center": [
+          5.425,
+          -5.225,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              5.8391,
+              -5.4596,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead05": {
+      "sphere": {
+        "center": [
+          -5.425,
+          -3.675,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -5.0234,
+              -3.9305,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead15": {
+      "sphere": {
+        "center": [
+          -3.875,
+          -3.675,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -3.4101,
+              -3.7772,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead25": {
+      "sphere": {
+        "center": [
+          -2.325,
+          -3.675,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -1.8533,
+              -3.6115,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead35": {
+      "sphere": {
+        "center": [
+          -0.775,
+          -3.675,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -0.3536,
+              -3.4536,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead45": {
+      "sphere": {
+        "center": [
+          0.775,
+          -3.675,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              1.0948,
+              -3.3225,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead55": {
+      "sphere": {
+        "center": [
+          2.325,
+          -3.675,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              2.5045,
+              -3.2341,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead65": {
+      "sphere": {
+        "center": [
+          3.875,
+          -3.675,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              3.8924,
+              -3.1993,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead75": {
+      "sphere": {
+        "center": [
+          5.425,
+          -3.675,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              5.2781,
+              -3.2222,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead06": {
+      "sphere": {
+        "center": [
+          -5.425,
+          -2.125,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -5.5486,
+              -1.6653,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead16": {
+      "sphere": {
+        "center": [
+          -3.875,
+          -2.125,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -4.1488,
+              -1.7356,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead26": {
+      "sphere": {
+        "center": [
+          -2.325,
+          -2.125,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -2.7157,
+              -1.8531,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead36": {
+      "sphere": {
+        "center": [
+          -0.775,
+          -2.125,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -1.2353,
+              -2.0037,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead46": {
+      "sphere": {
+        "center": [
+          0.775,
+          -2.125,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              0.301,
+              -2.1689,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead56": {
+      "sphere": {
+        "center": [
+          2.325,
+          -2.125,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              1.8949,
+              -2.3288,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead66": {
+      "sphere": {
+        "center": [
+          3.875,
+          -2.125,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              3.5409,
+              -2.464,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead76": {
+      "sphere": {
+        "center": [
+          5.425,
+          -2.125,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              5.2275,
+              -2.5581,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead07": {
+      "sphere": {
+        "center": [
+          -5.425,
+          -0.575,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -5.6444,
+              -0.9974,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead17": {
+      "sphere": {
+        "center": [
+          -3.875,
+          -0.575,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -3.9362,
+              -1.0471,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead27": {
+      "sphere": {
+        "center": [
+          -2.325,
+          -0.575,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -2.2205,
+              -1.0394,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead37": {
+      "sphere": {
+        "center": [
+          -0.775,
+          -0.575,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "stone",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              -0.5176,
+              -0.9754,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead47": {
+      "sphere": {
+        "center": [
+          0.775,
+          -0.575,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "brass",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              1.1542,
+              -0.8628,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead57": {
+      "sphere": {
+        "center": [
+          2.325,
+          -0.575,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "jade",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              2.7799,
+              -0.7152,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead67": {
+      "sphere": {
+        "center": [
+          3.875,
+          -0.575,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "rose",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              4.3504,
+              -0.5507,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "bead77": {
+      "sphere": {
+        "center": [
+          5.425,
+          -0.575,
+          -0.44
+        ],
+        "radius": 0.56
+      },
+      "paint": "slate",
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": -0.0928
+        },
+        "inside": {
+          "sphere": {
+            "center": [
+              5.8632,
+              -0.3891,
+              -0.272
+            ],
+            "radius": 0.308
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        },
+        "outside": "empty"
+      },
+      "outside": "empty"
+    },
+    "tower": {
+      "union": [
+        {
+          "sphere": {
+            "center": [
+              -4.2,
+              2.6,
+              -0.55
+            ],
+            "radius": 0.72
+          },
+          "paint": "brass",
+          "inside": {
+            "solid": "stone"
+          },
+          "outside": "empty"
+        },
+        {
+          "sphere": {
+            "center": [
+              -4.2,
+              2.6,
+              0.23
+            ],
+            "radius": 0.63
+          },
+          "paint": "stone",
+          "inside": {
+            "solid": "stone"
+          },
+          "outside": "empty"
+        },
+        {
+          "sphere": {
+            "center": [
+              -4.2,
+              2.6,
+              1.01
+            ],
+            "radius": 0.54
+          },
+          "paint": "brass",
+          "inside": {
+            "solid": "stone"
+          },
+          "outside": "empty"
+        },
+        {
+          "sphere": {
+            "center": [
+              -4.2,
+              2.6,
+              1.79
+            ],
+            "radius": 0.45
+          },
+          "paint": "stone",
+          "inside": {
+            "solid": "stone"
+          },
+          "outside": "empty"
+        },
+        {
+          "sphere": {
+            "center": [
+              -4.2,
+              2.6,
+              2.57
+            ],
+            "radius": 0.36
+          },
+          "paint": "core",
+          "inside": {
+            "solid": "stone"
+          },
+          "outside": "empty"
+        }
+      ],
+      "bounds": {
+        "center": [
+          -4.2,
+          2.6,
+          0.9
+        ],
+        "radius": 2.4
+      }
+    },
+    "hollow": {
+      "sphere": {
+        "center": [
+          3.4,
+          2.6,
+          0.35
+        ],
+        "radius": 1.5
+      },
+      "paint": "jade",
+      "inside": {
+        "sphere": {
+          "center": [
+            3.4,
+            2.6,
+            0.35
+          ],
+          "radius": 1.12
+        },
+        "paint": "bare",
+        "inside": "empty",
+        "outside": {
+          "sphere": {
+            "center": [
+              2.5,
+              1.6,
+              0.9
+            ],
+            "radius": 0.95
+          },
+          "paint": "bare",
+          "inside": "empty",
+          "outside": {
+            "solid": "core"
+          }
+        }
+      },
+      "outside": "empty"
+    },
+    "pedestal": {
+      "union": [
+        {
+          "plane": {
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "offset": 0.9
+          },
+          "inside": {
+            "plane": {
+              "normal": [
+                -1,
+                0,
+                0
+              ],
+              "offset": 0.9
+            },
+            "inside": {
+              "plane": {
+                "normal": [
+                  0,
+                  1,
+                  0
+                ],
+                "offset": 3.2
+              },
+              "inside": {
+                "plane": {
+                  "normal": [
+                    0,
+                    -1,
+                    0
+                  ],
+                  "offset": -2.0
+                },
+                "inside": {
+                  "plane": {
+                    "normal": [
+                      0,
+                      0,
+                      1
+                    ],
+                    "offset": -0.35
+                  },
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        0,
+                        0,
+                        -1
+                      ],
+                      "offset": 1.0
+                    },
+                    "inside": {
+                      "solid": "slate"
+                    },
+                    "outside": "empty"
+                  },
+                  "outside": "empty"
+                },
+                "outside": "empty"
+              },
+              "outside": "empty"
+            },
+            "outside": "empty"
+          },
+          "outside": "empty",
+          "paint": "slate"
+        },
+        {
+          "plane": {
+            "normal": [
+              1,
+              0,
+              0
+            ],
+            "offset": 0.55
+          },
+          "inside": {
+            "plane": {
+              "normal": [
+                -1,
+                0,
+                0
+              ],
+              "offset": 0.55
+            },
+            "inside": {
+              "plane": {
+                "normal": [
+                  0,
+                  1,
+                  0
+                ],
+                "offset": 2.85
+              },
+              "inside": {
+                "plane": {
+                  "normal": [
+                    0,
+                    -1,
+                    0
+                  ],
+                  "offset": -2.35
+                },
+                "inside": {
+                  "plane": {
+                    "normal": [
+                      0,
+                      0,
+                      1
+                    ],
+                    "offset": 0.5
+                  },
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        0,
+                        0,
+                        -1
+                      ],
+                      "offset": 0.35
+                    },
+                    "inside": {
+                      "solid": "chalk"
+                    },
+                    "outside": "empty"
+                  },
+                  "outside": "empty"
+                },
+                "outside": "empty"
+              },
+              "outside": "empty"
+            },
+            "outside": "empty"
+          },
+          "outside": "empty",
+          "paint": "chalk"
+        }
+      ],
+      "bounds": {
+        "center": [
+          0,
+          2.6,
+          -0.25
+        ],
+        "radius": 1.35
+      }
+    },
+    "contents": {
+      "group": [
+        "bead00",
+        "bead10",
+        "bead20",
+        "bead30",
+        "bead40",
+        "bead50",
+        "bead60",
+        "bead70",
+        "bead01",
+        "bead11",
+        "bead21",
+        "bead31",
+        "bead41",
+        "bead51",
+        "bead61",
+        "bead71",
+        "bead02",
+        "bead12",
+        "bead22",
+        "bead32",
+        "bead42",
+        "bead52",
+        "bead62",
+        "bead72",
+        "bead03",
+        "bead13",
+        "bead23",
+        "bead33",
+        "bead43",
+        "bead53",
+        "bead63",
+        "bead73",
+        "bead04",
+        "bead14",
+        "bead24",
+        "bead34",
+        "bead44",
+        "bead54",
+        "bead64",
+        "bead74",
+        "bead05",
+        "bead15",
+        "bead25",
+        "bead35",
+        "bead45",
+        "bead55",
+        "bead65",
+        "bead75",
+        "bead06",
+        "bead16",
+        "bead26",
+        "bead36",
+        "bead46",
+        "bead56",
+        "bead66",
+        "bead76",
+        "bead07",
+        "bead17",
+        "bead27",
+        "bead37",
+        "bead47",
+        "bead57",
+        "bead67",
+        "bead77",
+        "tower",
+        "hollow",
+        "pedestal"
+      ]
+    }
+  },
+  "root": {
+    "sphere": {
+      "center": [
+        0,
+        0,
+        0
+      ],
+      "radius": 25
+    },
+    "complement": true,
+    "paint": "partition",
+    "inside": {
+      "solid": "shell"
+    },
+    "outside": {
+      "plane": {
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "offset": -1.0
+      },
+      "paint": "partition",
+      "inside": {
+        "solid": "floor"
+      },
+      "outside": {
+        "sphere": {
+          "center": [
+            -4.2,
+            2.6,
+            0.9
+          ],
+          "radius": 4.2
+        },
+        "paint": "air_warm",
+        "inside": {
+          "use": "contents"
+        },
+        "outside": {
+          "sphere": {
+            "center": [
+              3.4,
+              2.6,
+              0.4
+            ],
+            "radius": 3.6
+          },
+          "paint": "air_cool",
+          "inside": {
+            "use": "contents"
+          },
+          "outside": {
+            "sphere": {
+              "center": [
+                0.0,
+                -6.0,
+                0.6
+              ],
+              "radius": 5.2
+            },
+            "paint": "air_smoke",
+            "inside": {
+              "use": "contents"
+            },
+            "outside": {
+              "sphere": {
+                "center": [
+                  -3.0,
+                  -9.0,
+                  0.2
+                ],
+                "radius": 3.4
+              },
+              "paint": "air_green",
+              "inside": {
+                "use": "contents"
+              },
+              "outside": {
+                "sphere": {
+                  "center": [
+                    4.0,
+                    -9.5,
+                    0.2
+                  ],
+                  "radius": 3.0
+                },
+                "paint": "air_dim",
+                "inside": {
+                  "use": "contents"
+                },
+                "outside": {
+                  "use": "contents"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
