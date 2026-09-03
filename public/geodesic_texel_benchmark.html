@@ -60,7 +60,7 @@
     <div class="row"><label>Vertices</label><span class="metric" id="vertCount">–</span></div>
     <div class="row"><label>Leaf triangles</label><span class="metric" id="leafCount">–</span></div>
     <div class="row">
-      <label for="rotateChk">Auto-rotate camera</label>
+      <label for="rotateChk">Auto-rotate sphere</label>
       <input type="checkbox" id="rotateChk" checked>
     </div>
     <hr>
@@ -276,8 +276,8 @@ const RENDER_WGSL_TAIL = `
 struct Camera {
   posFov: vec4<f32>,   // xyz = camera pos, w = tan(fov/2)
   right:  vec4<f32>,   // xyz = right,      w = aspect
-  up:     vec4<f32>,   // xyz = up
-  fwd:    vec4<f32>,   // xyz = forward
+  up:     vec4<f32>,   // xyz = up,         w = cos(sphereSpinAngle)
+  fwd:    vec4<f32>,   // xyz = forward,    w = sin(sphereSpinAngle)
 };
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<storage, read> leafTable: array<u32>;
@@ -324,8 +324,16 @@ fn fs_main(inp: VOut) -> @location(0) vec4<f32> {
   let hit = ro + dir * t;
   let s = normalize(hit);
 
-  let res = locateLeaf(s);
-  let bary = barycentric(s, res.A, res.B, res.C);
+  // The camera/lighting stay in world space (s), but the sphere itself
+  // spins about +Z, so the texture lookup direction is s rotated by the
+  // inverse of that spin — i.e. transformed back into the sphere's own
+  // rotating reference frame.
+  let cosA = camera.up.w;
+  let sinA = camera.fwd.w;
+  let sLocal = vec3<f32>(s.x * cosA + s.y * sinA, -s.x * sinA + s.y * cosA, s.z);
+
+  let res = locateLeaf(sLocal);
+  let bary = barycentric(sLocal, res.A, res.B, res.C);
 
   let iA = leafTable[res.leaf * 3u + 0u];
   let iB = leafTable[res.leaf * 3u + 1u];
@@ -507,13 +515,12 @@ let frameTimeEMA = null;
 
 function render(dtSeconds) {
   const s = state;
+  // Z-up convention. Camera is fixed; the sphere spins about +Z instead
+  // (rotation is applied to the texture-lookup direction in the shader).
   const rotate = document.getElementById('rotateChk').checked;
   if (rotate) angle += dtSeconds * 0.25;
 
-  // Z-up convention: orbit in the XY plane, camera lifted along Z,
-  // world up-hint is +Z.
-  const dist = 3.0;
-  const camPos = [Math.cos(angle) * dist, Math.sin(angle) * dist, 1.0];
+  const camPos = [2.6, -1.6, 1.1];
   const target = [0, 0, 0];
   const upHint = [0, 0, 1];
   let fwd = norm3([target[0]-camPos[0], target[1]-camPos[1], target[2]-camPos[2]]);
@@ -523,12 +530,13 @@ function render(dtSeconds) {
 
   const aspect = canvas.width / canvas.height;
   const tanHalfFov = Math.tan((50 * Math.PI/180) / 2);
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
 
   const camData = new Float32Array([
     camPos[0], camPos[1], camPos[2], tanHalfFov,
     right[0], right[1], right[2], aspect,
-    up[0], up[1], up[2], 0,
-    fwd[0], fwd[1], fwd[2], 0,
+    up[0], up[1], up[2], cosA,
+    fwd[0], fwd[1], fwd[2], sinA,
   ]);
   device.queue.writeBuffer(s.cameraBuf, 0, camData);
 
