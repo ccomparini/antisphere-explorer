@@ -55,8 +55,6 @@
         <option value="5">5</option>
         <option value="6">6</option>
         <option value="7">7</option>
-        <option value="8">8</option>
-        <option value="9">9</option>
       </select>
     </div>
     <div class="row"><label>Vertices</label><span class="metric" id="vertCount">–</span></div>
@@ -557,27 +555,34 @@ function render(dtSeconds) {
   pass.draw(3);
   pass.end();
 
-  if (hasTimestamp) {
+  // Only touch renderResultBuf via the encoder when it isn't currently
+  // mapped — submitting a copy into a mapped buffer is invalid and is
+  // exactly the "used in submit while mapped" error. Skipping the
+  // resolve/copy on those frames just means the displayed timing
+  // updates a little less often; it doesn't affect correctness.
+  const canSampleThisFrame = hasTimestamp && !measuring;
+  if (canSampleThisFrame) {
     encoder.resolveQuerySet(s.renderQuerySet, 0, 2, s.renderResolveBuf, 0);
     encoder.copyBufferToBuffer(s.renderResolveBuf, 0, s.renderResultBuf, 0, 16);
   }
 
   device.queue.submit([encoder.finish()]);
 
-  if (hasTimestamp) {
-    if (!measuring) {
-      measuring = true;
-      s.renderResultBuf.mapAsync(GPUMapMode.READ).then(() => {
-        const arr = new BigInt64Array(s.renderResultBuf.getMappedRange());
-        const ns = Number(arr[1] - arr[0]);
-        s.renderResultBuf.unmap();
-        measuring = false;
-        const ms = ns / 1e6;
-        frameTimeEMA = frameTimeEMA === null ? ms : frameTimeEMA * 0.9 + ms * 0.1;
-        document.getElementById('frameTime').textContent = frameTimeEMA.toFixed(3) + ' ms';
-      }).catch(() => { measuring = false; });
-    }
-  } else {
+  if (canSampleThisFrame) {
+    measuring = true;
+    s.renderResultBuf.mapAsync(GPUMapMode.READ).then(() => {
+      const arr = new BigInt64Array(s.renderResultBuf.getMappedRange());
+      const ns = Number(arr[1] - arr[0]);
+      s.renderResultBuf.unmap();
+      measuring = false;
+      const ms = ns / 1e6;
+      frameTimeEMA = frameTimeEMA === null ? ms : frameTimeEMA * 0.9 + ms * 0.1;
+      document.getElementById('frameTime').textContent = frameTimeEMA.toFixed(3) + ' ms';
+    }).catch(() => { measuring = false; });
+  } else if (!hasTimestamp) {
+    // Wall-clock fallback path only — a canSampleThisFrame == false
+    // caused by a pending map (rather than missing timestamp support)
+    // should just skip this frame's sample, not fall back to wall-clock.
     device.queue.onSubmittedWorkDone().then(() => {
       const ms = performance.now() - t0;
       frameTimeEMA = frameTimeEMA === null ? ms : frameTimeEMA * 0.9 + ms * 0.1;
