@@ -510,10 +510,12 @@ function render(dtSeconds) {
   const rotate = document.getElementById('rotateChk').checked;
   if (rotate) angle += dtSeconds * 0.25;
 
+  // Z-up convention: orbit in the XY plane, camera lifted along Z,
+  // world up-hint is +Z.
   const dist = 3.0;
-  const camPos = [Math.cos(angle) * dist, 1.0, Math.sin(angle) * dist];
+  const camPos = [Math.cos(angle) * dist, Math.sin(angle) * dist, 1.0];
   const target = [0, 0, 0];
-  const upHint = [0, 1, 0];
+  const upHint = [0, 0, 1];
   let fwd = norm3([target[0]-camPos[0], target[1]-camPos[1], target[2]-camPos[2]]);
   function cross3(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
   let right = norm3(cross3(fwd, upHint));
