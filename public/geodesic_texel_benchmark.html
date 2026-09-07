@@ -60,8 +60,14 @@
     <div class="row"><label>Vertices</label><span class="metric" id="vertCount">–</span></div>
     <div class="row"><label>Leaf triangles</label><span class="metric" id="leafCount">–</span></div>
     <div class="row">
-      <label for="rotateChk">Auto-rotate sphere</label>
-      <input type="checkbox" id="rotateChk" checked>
+      <label for="rotModeSelect">Rotation mode</label>
+      <select id="rotModeSelect">
+        <option value="auto" selected>Auto</option>
+        <option value="manual">Manual (arrow keys)</option>
+      </select>
+    </div>
+    <div class="row" id="manualHint" style="display:none; font-size:12px; color:#8a8f9a;">
+      ← → yaw, ↑ ↓ pitch
     </div>
     <hr>
     <h2>Render (per-pixel descent)</h2>
@@ -276,8 +282,11 @@ const RENDER_WGSL_TAIL = `
 struct Camera {
   posFov: vec4<f32>,   // xyz = camera pos, w = tan(fov/2)
   right:  vec4<f32>,   // xyz = right,      w = aspect
-  up:     vec4<f32>,   // xyz = up,         w = cos(sphereSpinAngle)
-  fwd:    vec4<f32>,   // xyz = forward,    w = sin(sphereSpinAngle)
+  up:     vec4<f32>,   // xyz = up
+  fwd:    vec4<f32>,   // xyz = forward
+  invRot0: vec4<f32>,  // row 0 of the sphere's inverse rotation matrix
+  invRot1: vec4<f32>,  // row 1
+  invRot2: vec4<f32>,  // row 2
 };
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<storage, read> leafTable: array<u32>;
@@ -325,12 +334,14 @@ fn fs_main(inp: VOut) -> @location(0) vec4<f32> {
   let s = normalize(hit);
 
   // The camera/lighting stay in world space (s), but the sphere itself
-  // spins about +Z, so the texture lookup direction is s rotated by the
-  // inverse of that spin — i.e. transformed back into the sphere's own
-  // rotating reference frame.
-  let cosA = camera.up.w;
-  let sinA = camera.fwd.w;
-  let sLocal = vec3<f32>(s.x * cosA + s.y * sinA, -s.x * sinA + s.y * cosA, s.z);
+  // rotates (yaw + pitch, set via invRot0/1/2), so the texture lookup
+  // direction is s transformed back into the sphere's own rotating
+  // reference frame via the inverse rotation matrix.
+  let sLocal = vec3<f32>(
+    dot(camera.invRot0.xyz, s),
+    dot(camera.invRot1.xyz, s),
+    dot(camera.invRot2.xyz, s)
+  );
 
   let res = locateLeaf(sLocal);
   let bary = barycentric(sLocal, res.A, res.B, res.C);
@@ -473,7 +484,7 @@ async function rebuild(level) {
   device.queue.writeBuffer(colorsBuf, 0, colorsData);
 
   const cameraBuf = device.createBuffer({
-    size: 64,
+    size: 112,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -509,16 +520,55 @@ async function rebuild(level) {
 // 4. Render loop
 // =====================================================================
 
-let angle = 0;
+let yaw = 0, pitch = 0;
 let measuring = false;
 let frameTimeEMA = null;
 
+// ---- Small 3x3 matrix helpers, purely for composing the sphere's
+// yaw/pitch rotation and its inverse (= transpose, since it's orthonormal). ----
+function matMul3(A, B) {
+  const R = [[0,0,0],[0,0,0],[0,0,0]];
+  for (let i = 0; i < 3; i++)
+    for (let j = 0; j < 3; j++) {
+      let sum = 0;
+      for (let k = 0; k < 3; k++) sum += A[i][k] * B[k][j];
+      R[i][j] = sum;
+    }
+  return R;
+}
+function rotZ3(a) { const c = Math.cos(a), s = Math.sin(a); return [[c,-s,0],[s,c,0],[0,0,1]]; }
+function rotX3(a) { const c = Math.cos(a), s = Math.sin(a); return [[1,0,0],[0,c,-s],[0,s,c]]; }
+function transpose3(A) { return [[A[0][0],A[1][0],A[2][0]],[A[0][1],A[1][1],A[2][1]],[A[0][2],A[1][2],A[2][2]]]; }
+
+// ---- Manual rotation via arrow keys ----
+const keysDown = new Set();
+const ARROW_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+window.addEventListener('keydown', (e) => {
+  if (ARROW_KEYS.includes(e.key)) { e.preventDefault(); keysDown.add(e.key); }
+});
+window.addEventListener('keyup', (e) => {
+  if (ARROW_KEYS.includes(e.key)) keysDown.delete(e.key);
+});
+document.getElementById('rotModeSelect').addEventListener('change', (e) => {
+  document.getElementById('manualHint').style.display =
+    e.target.value === 'manual' ? 'flex' : 'none';
+});
+
 function render(dtSeconds) {
   const s = state;
-  // Z-up convention. Camera is fixed; the sphere spins about +Z instead
-  // (rotation is applied to the texture-lookup direction in the shader).
-  const rotate = document.getElementById('rotateChk').checked;
-  if (rotate) angle += dtSeconds * 0.25;
+  // Z-up convention. Camera is fixed; the sphere itself rotates (either
+  // auto-spinning about +Z, or under manual arrow-key yaw/pitch control).
+  const rotMode = document.getElementById('rotModeSelect').value;
+  if (rotMode === 'auto') {
+    yaw += dtSeconds * 0.25;
+  } else {
+    const rate = 1.0; // rad/sec while a key is held
+    if (keysDown.has('ArrowLeft')) yaw -= dtSeconds * rate;
+    if (keysDown.has('ArrowRight')) yaw += dtSeconds * rate;
+    if (keysDown.has('ArrowUp')) pitch -= dtSeconds * rate;
+    if (keysDown.has('ArrowDown')) pitch += dtSeconds * rate;
+    pitch = Math.max(-1.5, Math.min(1.5, pitch)); // avoid flipping through the pole
+  }
 
   const camPos = [2.6, -1.6, 1.1];
   const target = [0, 0, 0];
@@ -530,13 +580,20 @@ function render(dtSeconds) {
 
   const aspect = canvas.width / canvas.height;
   const tanHalfFov = Math.tan((50 * Math.PI/180) / 2);
-  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+
+  // Sphere's rotation = yaw (about world Z) composed with pitch (about
+  // the resulting local X). Inverse = transpose, since it's a rotation.
+  const R = matMul3(rotZ3(yaw), rotX3(pitch));
+  const invR = transpose3(R);
 
   const camData = new Float32Array([
     camPos[0], camPos[1], camPos[2], tanHalfFov,
     right[0], right[1], right[2], aspect,
-    up[0], up[1], up[2], cosA,
-    fwd[0], fwd[1], fwd[2], sinA,
+    up[0], up[1], up[2], 0,
+    fwd[0], fwd[1], fwd[2], 0,
+    invR[0][0], invR[0][1], invR[0][2], 0,
+    invR[1][0], invR[1][1], invR[1][2], 0,
+    invR[2][0], invR[2][1], invR[2][2], 0,
   ]);
   device.queue.writeBuffer(s.cameraBuf, 0, camData);
 
