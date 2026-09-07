@@ -102,78 +102,30 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
   return 2.0 * nd.k * R + (1.0 - 2.0 * nd.a * nd.k) * nd.n;
 }
 
-struct Seg { node : i32, t0 : f32, t1 : f32, entry : i32, scope : i32, env : i32, };
+// A stack entry is a piece of work not yet done: an interval of the ray and
+// the subtree that interval still has to be tested against. Four words rather
+// than six, because the array is per-invocation and its width costs occupancy
+// more than the packing costs ALU.
+//
+//   ne  low half  the subtree still to visit, negative for a leaf
+//       high half the node whose surface bounds t0, biased by one so that
+//                 "none" is 0
+//   se  low half  material scope inherited from enclosing nodes
+//       high half environment scope, 0 meaning inherit
+struct Seg { ne : u32, t0 : f32, t1 : f32, se : u32, };
 struct Hit { hit : bool, t : f32, node : i32, mat : i32, env : i32, };
 
-/*
-  Alternate method:
+fn packNE(node : i32, entry : i32) -> u32 {
+  return (u32(entry + 1) << 16u) | (u32(node) & 0xFFFFu);
+}
+fn segNode(w : u32) -> i32 { return i32(w << 16u) >> 16u; }
+fn segEntry(w : u32) -> i32 { return i32(w >> 16u) - 1; }
 
-    Material ids are bitfields with:
-     - Top 4 bits are index of refraction, encoded as:
-       0 0:  n = 0.0 (space, close enough to air, etc)
-       0 1:  n = 1.333 (water)
-       1 0:  n = 1.5 (glass, plexiglass, or close enough)
-       1 1:  n = i;  Considered solid
-     - Next 12 bits reserved
-     - Bottom 16 bits are index in materials table.
-    Index of refraction/transparency is encoded in the ID
-    because in usage it has to do with the interaction
-    -between- materials; it has no application without
-    a transition from one material to another.
-    The material id == 0i is the default material and
-    is space, void, or nothingness.
-
-    Make nodes use this instead of the paint field.
-
-    Seg is (node, t0, t1, outer_material_id) // node here is the node the segment is inside
-
-  Tracing algorithm:
-
-    // helper function; (actually inline this because it needs to see O and D)
-    clip_push(vs_node, t0, t1, outer_material):
-      - clip segment (O, D, t0, t1) against node vs_node as before,
-        such that we get between 1 and 3 resulting segments, each of
-        which might be inside or outside vs_node.
-      - For each resulting segment, in order from farthest to closest to O:
-        - if resulting_segment is inside:
-          - if vs_node.material:  // i.e. vs_node has some material inside
-            - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, vs_node.material)
-          - else: // same but inherit the material
-            - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, outer_material)
-        - else // it's  outside
-          - push (vs_node.outside,  resulting_segment.t0, resulting_segment.t1, outer_material)
-
-    trace(O, D, t0, t1):
-      - clip_push(root, t0, t1, void_material)
-      - while there's something on the seg stack
-        - cur_seg = pop from seg stack
-        - if cur_seg.node
-          - clip_push(cur_seg.node, cur_seg.t0, cur_seg.t1, cur_seg.material)
-        - else we've hit a leaf, and the relevant material is cur_seg.material.
-
-  Notes on the above:
-   - the node's material refers to what's inside it.  Outside, the material
-     is that of the "outer" node.
-   - I believe this formulation might require alterations to the current way
-     we do intersections and unions.
-     - To intersect 2 spheres (say), make one of the the parent and make
-       it empty; add the other as an inner child and give it the material
-       you want the resulting object to have
-     - To subtract, the thing being subtracted from is the parent: give
-       it the material for the resulting object, then add the subtrahend
-       with a void material as the inside child.
-     - Unions and groups of solids:  Just add as outside children.
-   - is there too much branching here?  if so, how can we reduce branching?
-   - what's the right thing for segments which are tangent to a given sphere?
-     possibly set behaviour per material? (more branching! :)
-   - for this, we consider nodes are solid or not according to material.
-     the default outer material is empty space.
-
-YOU WERE TELLING CLAUDE:
-Before we go on to the flipped sphere trick, let me propose that we have a way to tell in the trace if a given material "passes" the ray or not - eg, solids would not "pass" a light ray.  So then say we have sphere #1 is a solid and sphere #2 is reversed, solid, overlaps sphere #1, and is added only as an inside child of #2.  Now we do the trace.  Say the ray hits #1.  We check the inside  segment vs #2.  If  .........
-ACTUALLY REALLY I THINK THE TRICK IS if it's solid, you descend just checking if t0 falls into a non-solid space, and only continue the ray cast from there if it does!
-     
-*/
+fn packSE(scope : i32, env : i32) -> u32 {
+  return (u32(env) << 16u) | (u32(scope) & 0xFFFFu);
+}
+fn segScope(w : u32) -> i32 { return i32(w & 0xFFFFu); }
+fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
 
 fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
   var hit : Hit;
@@ -183,8 +135,16 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
   hit.mat = 0;
   hit.env = 0;
 
+  // The region the ray is currently passing through. Leaves tile the ray and
+  // pop in non-decreasing t, so the last void leaf popped before a solid is
+  // the region touching that surface. That makes the medium a running
+  // variable rather than a stack field, and it is also the more useful
+  // answer: a body sitting in a region gets that region's light even when the
+  // region is not one of its ancestors.
+  var medium : i32 = 0;
+
   var stack : array<Seg, 32>;
-  stack[0] = Seg(0, tMin, tMax, -1, 0, 0);
+  stack[0] = Seg(packNE(0, -1), tMin, tMax, packSE(0, 0));
   var sp : i32 = 1;
 
   var guard : i32 = 0;
@@ -196,28 +156,36 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     let seg = stack[sp];
     if (seg.t1 - seg.t0 <= 1e-6) { continue; }
 
-    if (seg.node < 0) {
+    let node = segNode(seg.ne);
+    let scope = segScope(seg.se);
+    let env = segEnv(seg.se);
+
+    if (node < 0) {
       // Leaf. Its substrate is (-1 - node), and 0 is vacuum.
-      let substrate = -1 - seg.node;
-      if (substrate == 0) { continue; }
+      let substrate = -1 - node;
+      if (substrate == 0) {
+        medium = env;
+        continue;
+      }
       // Front-to-back ordering means the first solid leaf popped is nearest.
+      let entry = segEntry(seg.ne);
       hit.hit = true;
       hit.t = seg.t0;
-      hit.node = seg.entry;
+      hit.node = entry;
       // Paint names the surface a node generates, so the node crossed to
       // arrive here wins. PARTITION and INHERIT are negative and defer to
       // whatever is in scope; BARE is 0 and falls through to the substrate.
-      var painted = seg.scope;
-      if (seg.entry >= 0) {
-        let entryPaint = (nodes[seg.entry].paint << 16) >> 16;
+      var painted = scope;
+      if (entry >= 0) {
+        let entryPaint = (nodes[entry].paint << 16) >> 16;
         if (entryPaint >= 0) { painted = entryPaint; }
       }
       hit.mat = select(substrate, painted, painted > 0);
-      hit.env = seg.env;
+      hit.env = medium;
       break;
     }
 
-    let nd = nodes[seg.node];
+    let nd = nodes[node];
     visits = visits + 1u;
 
     // Substituting R = O + tD gives A t^2 + B t + C, with A = k.
@@ -238,9 +206,9 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     } else {
       let disc = B * B - 4.0 * A * C;
       if (disc >= 0.0) {
-        let s = sqrt(disc);
-        var q = -0.5 * (B + s);
-        if (B < 0.0) { q = -0.5 * (B - s); }
+        let sq = sqrt(disc);
+        var q = -0.5 * (B + sq);
+        if (B < 0.0) { q = -0.5 * (B - sq); }
         let x0 = q / A;
         var x1 = -B / A - x0;
         if (abs(q) > 1e-20) { x1 = C / q; }
@@ -258,6 +226,8 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     if (nr == 2 && r1 > seg.t0 && r1 < seg.t1) { b[nb] = r1; nb = nb + 1; }
     b[nb] = seg.t1;
 
+    let inherited = segEntry(seg.ne);
+
     // Push far to near so the nearest subsegment pops first.
     for (var i : i32 = nb - 1; i >= 0; i = i - 1) {
       let sa = b[i];
@@ -266,8 +236,8 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       // Midpoint sign picks the child. Robust, and avoids reasoning about
       // which root is an entry and which is an exit.
       var child = nd.outside;
-      var childScope = seg.scope;
-      var childEnv = seg.env;
+      var childScope = scope;
+      var childEnv = env;
       if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) {
         child = nd.inside;
         // Paint and environment both scope the region f < 0 and nothing else.
@@ -275,13 +245,13 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
         // numbers is free, so the representation pays for this rule rather
         // than the traversal.
         let paint = (nd.paint << 16) >> 16;   // low half, sign extended
-        let env = nd.paint >> 16;             // high half, 0 means inherit
+        let nodeEnv = nd.paint >> 16;         // high half, 0 means inherit
         if (paint >= 0) { childScope = paint; }
-        if (env != 0) { childEnv = env; }
+        if (nodeEnv != 0) { childEnv = nodeEnv; }
       }
-      var ent = seg.entry;
-      if (i > 0) { ent = seg.node; }
-      stack[sp] = Seg(child, sa, sb, ent, childScope, childEnv);
+      var ent = inherited;
+      if (i > 0) { ent = node; }
+      stack[sp] = Seg(packNE(child, ent), sa, sb, packSE(childScope, childEnv));
       sp = sp + 1;
       peakDepth = max(peakDepth, u32(sp));
     }
