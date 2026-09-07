@@ -105,6 +105,76 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 struct Seg { node : i32, t0 : f32, t1 : f32, entry : i32, scope : i32, env : i32, };
 struct Hit { hit : bool, t : f32, node : i32, mat : i32, env : i32, };
 
+/*
+  Alternate method:
+
+    Material ids are bitfields with:
+     - Top 4 bits are index of refraction, encoded as:
+       0 0:  n = 0.0 (space, close enough to air, etc)
+       0 1:  n = 1.333 (water)
+       1 0:  n = 1.5 (glass, plexiglass, or close enough)
+       1 1:  n = i;  Considered solid
+     - Next 12 bits reserved
+     - Bottom 16 bits are index in materials table.
+    Index of refraction/transparency is encoded in the ID
+    because in usage it has to do with the interaction
+    -between- materials; it has no application without
+    a transition from one material to another.
+    The material id == 0i is the default material and
+    is space, void, or nothingness.
+
+    Make nodes use this instead of the paint field.
+
+    Seg is (node, t0, t1, outer_material_id) // node here is the node the segment is inside
+
+  Tracing algorithm:
+
+    // helper function; (actually inline this because it needs to see O and D)
+    clip_push(vs_node, t0, t1, outer_material):
+      - clip segment (O, D, t0, t1) against node vs_node as before,
+        such that we get between 1 and 3 resulting segments, each of
+        which might be inside or outside vs_node.
+      - For each resulting segment, in order from farthest to closest to O:
+        - if resulting_segment is inside:
+          - if vs_node.material:  // i.e. vs_node has some material inside
+            - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, vs_node.material)
+          - else: // same but inherit the material
+            - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, outer_material)
+        - else // it's  outside
+          - push (vs_node.outside,  resulting_segment.t0, resulting_segment.t1, outer_material)
+
+    trace(O, D, t0, t1):
+      - clip_push(root, t0, t1, void_material)
+      - while there's something on the seg stack
+        - cur_seg = pop from seg stack
+        - if cur_seg.node
+          - clip_push(cur_seg.node, cur_seg.t0, cur_seg.t1, cur_seg.material)
+        - else we've hit a leaf, and the relevant material is cur_seg.material.
+
+  Notes on the above:
+   - the node's material refers to what's inside it.  Outside, the material
+     is that of the "outer" node.
+   - I believe this formulation might require alterations to the current way
+     we do intersections and unions.
+     - To intersect 2 spheres (say), make one of the the parent and make
+       it empty; add the other as an inner child and give it the material
+       you want the resulting object to have
+     - To subtract, the thing being subtracted from is the parent: give
+       it the material for the resulting object, then add the subtrahend
+       with a void material as the inside child.
+     - Unions and groups of solids:  Just add as outside children.
+   - is there too much branching here?  if so, how can we reduce branching?
+   - what's the right thing for segments which are tangent to a given sphere?
+     possibly set behaviour per material? (more branching! :)
+   - for this, we consider nodes are solid or not according to material.
+     the default outer material is empty space.
+
+YOU WERE TELLING CLAUDE:
+Before we go on to the flipped sphere trick, let me propose that we have a way to tell in the trace if a given material "passes" the ray or not - eg, solids would not "pass" a light ray.  So then say we have sphere #1 is a solid and sphere #2 is reversed, solid, overlaps sphere #1, and is added only as an inside child of #2.  Now we do the trace.  Say the ray hits #1.  We check the inside  segment vs #2.  If  .........
+ACTUALLY REALLY I THINK THE TRICK IS if it's solid, you descend just checking if t0 falls into a non-solid space, and only continue the ray cast from there if it does!
+     
+*/
+
 fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
   var hit : Hit;
   hit.hit = false;
