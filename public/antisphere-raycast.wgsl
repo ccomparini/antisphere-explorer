@@ -10,15 +10,15 @@
 // lights, materials.
 
 struct Node {
-  n       : vec3<f32>,
-  a       : f32,
-  k       : f32,
-  inside  : i32,
-  outside : i32,
+  surface_normal : vec3<f32>,   // outward unit normal at P0
+  p0_dist        : f32,         // signed distance from the origin to P0
+  curvature      : f32,         // signed, 1/(2r); zero is a plane
+  inside         : i32,
+  outside        : i32,
   // Two 16-bit halves, so scoped state costs no extra node bytes. Low half is
   // the surface paint: >= 0 sets scope, 0 clears it, negative leaves it alone.
   // High half is an environment index, 0 meaning inherit.
-  paint   : i32,
+  paint          : i32,
 };
 
 struct Material {
@@ -92,14 +92,14 @@ struct Light {
 
 // f(R) = k(R.R) + (1 - 2ak)(R.n) - a + k a^2
 fn fAt(nd : Node, R : vec3<f32>) -> f32 {
-  return nd.k * dot(R, R)
-       + (1.0 - 2.0 * nd.a * nd.k) * dot(R, nd.n)
-       - nd.a + nd.k * nd.a * nd.a;
+  return nd.curvature * dot(R, R)
+       + (1.0 - 2.0 * nd.p0_dist * nd.curvature) * dot(R, nd.surface_normal)
+       - nd.p0_dist + nd.curvature * nd.p0_dist * nd.p0_dist;
 }
 
 // grad f = 2kR + (1 - 2ak)n. Reduces to n exactly when k = 0.
 fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
-  return 2.0 * nd.k * R + (1.0 - 2.0 * nd.a * nd.k) * nd.n;
+  return 2.0 * nd.curvature * R + (1.0 - 2.0 * nd.p0_dist * nd.curvature) * nd.surface_normal;
 }
 
 // A stack entry is a piece of work not yet done: an interval of the ray and
@@ -190,9 +190,9 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
 
     // Substituting R = O + tD gives A t^2 + B t + C, with A = k.
     // A plane is the quadratic degenerating to linear, no special case.
-    let lin = 1.0 - 2.0 * nd.a * nd.k;
-    let A = nd.k;
-    let B = 2.0 * nd.k * dot(O, D) + lin * dot(D, nd.n);
+    let lin = 1.0 - 2.0 * nd.p0_dist * nd.curvature;
+    let A = nd.curvature;
+    let B = 2.0 * nd.curvature * dot(O, D) + lin * dot(D, nd.surface_normal);
     let C = fAt(nd, O);
 
     var r0 = 0.0;
@@ -262,14 +262,14 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
 // Surface parameterization from the node's own five numbers. A plane gets a
 // tangent basis; a sphere gets longitude and latitude about its center.
 fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
-  if (nd.k == 0.0) {
+  if (nd.curvature == 0.0) {
     var axis = vec3<f32>(0.0, 0.0, 1.0);
-    if (abs(nd.n.z) > 0.9) { axis = vec3<f32>(1.0, 0.0, 0.0); }
-    let t = normalize(cross(nd.n, axis));
-    let b = cross(nd.n, t);
+    if (abs(nd.surface_normal.z) > 0.9) { axis = vec3<f32>(1.0, 0.0, 0.0); }
+    let t = normalize(cross(nd.surface_normal, axis));
+    let b = cross(nd.surface_normal, t);
     return vec2<f32>(dot(P, t), dot(P, b));
   }
-  let c = (nd.a - 0.5 / nd.k) * nd.n;
+  let c = (nd.p0_dist - 0.5 / nd.curvature) * nd.surface_normal;
   let d = normalize(P - c);
   return vec2<f32>(atan2(d.y, d.x), asin(clamp(d.z, -1.0, 1.0)));
 }

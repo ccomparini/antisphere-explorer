@@ -81,21 +81,35 @@
 //   Negating all five numbers gives the exact complement (f -> -f).
 // ---------------------------------------------------------------------------
 
-function sphere(c, r) {
-  const d = Math.hypot(c[0], c[1], c[2]);
-  const u = d > 1e-9 ? [c[0]/d, c[1]/d, c[2]/d] : [0, 0, 1];
-  // P0 is the far intersection of the line through the origin; n = u there.
-  return { n: u, a: d + r, k: 1 / (2 * r) };
+function sphere(center, radius) {
+  const originDist = Math.hypot(center[0], center[1], center[2]);
+  const unit = originDist > 1e-9
+    ? center.map((v) => v / originDist) : [0, 0, 1];
+  // P0 is the far intersection of the line through the origin, where the
+  // outward normal is `unit`.
+  return {
+    surface_normal: unit,
+    p0_dist: originDist + radius,
+    curvature: 1 / (2 * radius),
+  };
 }
 
-function plane(n, a) {
-  const L = Math.hypot(n[0], n[1], n[2]);
-  return { n: [n[0]/L, n[1]/L, n[2]/L], a: a / L, k: 0 };
+function plane(normal, offset) {
+  const len = Math.hypot(normal[0], normal[1], normal[2]);
+  return {
+    surface_normal: normal.map((v) => v / len),
+    p0_dist: offset / len,
+    curvature: 0,
+  };
 }
 
 // CSG complement: negate all five stored numbers.
-function complement(p) {
-  return { n: [-p.n[0], -p.n[1], -p.n[2]], a: -p.a, k: -p.k };
+function complement(prim) {
+  return {
+    surface_normal: prim.surface_normal.map((v) => -v),
+    p0_dist: -prim.p0_dist,
+    curvature: -prim.curvature,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -212,10 +226,10 @@ const UNBOUNDED = 'unbounded';
 const dist3 = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]);
 
 function regionBall(prim, insideSide) {
-  if (prim.k === 0) return null;
-  if (insideSide !== (prim.k > 0)) return null;
-  const r = 0.5 / prim.k;
-  return { c: prim.n.map((v) => v * (prim.a - r)), r: Math.abs(r) };
+  if (prim.curvature === 0) return null;
+  if (insideSide !== (prim.curvature > 0)) return null;
+  const r = 0.5 / prim.curvature;
+  return { c: prim.surface_normal.map((v) => v * (prim.p0_dist - r)), r: Math.abs(r) };
 }
 
 // Bounding sphere of the intersection of two balls. Exact for containment,
@@ -446,7 +460,7 @@ function compileScene(spec) {
   // A subtree whose root already confines all of its solid to one ball needs
   // no separate bounding test: the root node is the test.
   const selfBounded = (t) =>
-    t !== EMPTY && t.leaf === undefined && t.outside === EMPTY && t.prim.k > 0;
+    t !== EMPTY && t.leaf === undefined && t.outside === EMPTY && t.prim.curvature > 0;
 
   // Memoized, so a member landing in two children stays one subtree.
   function wrap(it) {
@@ -598,11 +612,11 @@ function packNodes(list) {
   const f = new Float32Array(buf), i = new Int32Array(buf);
   list.forEach((nd, j) => {
     const o = j * 8;
-    f[o + 0] = nd.prim.n[0];
-    f[o + 1] = nd.prim.n[1];
-    f[o + 2] = nd.prim.n[2];
-    f[o + 3] = nd.prim.a;
-    f[o + 4] = nd.prim.k;
+    f[o + 0] = nd.prim.surface_normal[0];
+    f[o + 1] = nd.prim.surface_normal[1];
+    f[o + 2] = nd.prim.surface_normal[2];
+    f[o + 3] = nd.prim.p0_dist;
+    f[o + 4] = nd.prim.curvature;
     i[o + 5] = nd.inside;
     i[o + 6] = nd.outside;
     // Low half surface paint, high half environment index. Keeps a node at
