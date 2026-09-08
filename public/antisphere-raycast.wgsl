@@ -13,11 +13,13 @@ struct Node {
   surface_normal : vec3<f32>,   // outward unit normal at P0
   p0_dist        : f32,         // signed distance from the origin to P0
   curvature      : f32,         // signed, 1/(2r); zero is a plane
-  inside         : i32,
-  outside        : i32,
+  inside         : i32,         // inside child
+  outside        : i32,         // outside child
+
   // Two 16-bit halves, so scoped state costs no extra node bytes. Low half is
   // the surface paint: >= 0 sets scope, 0 clears it, negative leaves it alone.
   // High half is an environment index, 0 meaning inherit.
+  // TODO replace this with a material ID
   paint          : i32,
 };
 
@@ -112,8 +114,26 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 //                 "none" is 0
 //   se  low half  material scope inherited from enclosing nodes
 //       high half environment scope, 0 meaning inherit
-struct Seg { ne : u32, t0 : f32, t1 : f32, se : u32, };
-struct Hit { hit : bool, t : f32, node : i32, mat : i32, env : i32, };
+struct Seg {
+  // what we have:
+  ne : u32,
+  t0 : f32,
+  t1 : f32,
+  se : u32,
+  // I think we need/want:
+  //  node: u32 node which contains the segment from t0 to t1
+  //  t0, t1: along with O and D, represents the segment within node
+  //  outer_material: the "material" (possibly empty, transparent, etc) outside the node.
+  // Because materials can represent lit regions, 
+};
+
+struct Hit {
+  hit  : bool,  // TODO get rid of this if we can make there be some sort of "none" node
+  t    : f32,   // where the hit took place.  TODO replace with calculated position and/or normal?
+  node : i32,   // which node was hit
+  mat  : i32,   // TODO change this to be the outer material
+  env  : i32,   // TODO kill this; env will come from mat
+};
 
 fn packNE(node : i32, entry : i32) -> u32 {
   return (u32(entry + 1) << 16u) | (u32(node) & 0xFFFFu);
@@ -126,6 +146,80 @@ fn packSE(scope : i32, env : i32) -> u32 {
 }
 fn segScope(w : u32) -> i32 { return i32(w & 0xFFFFu); }
 fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
+
+/*
+  Alternate trace algorithm:
+
+    Material ids are bitfields with:
+     - Top 2 bits are index of refraction, encoded as:
+       0 0:  n = 0.0 (space, close enough to air, etc)
+       0 1:  n = 1.333 (water)
+       1 0:  n = 1.5 (glass, plexiglass, or close enough)
+       1 1:  n = i;  Considered solid
+     - Next 14 bits reserved
+     - Bottom 16 bits are index in materials table.
+    Index of refraction/transparency is encoded in the ID
+    because in usage it has to do with the interaction
+    -between- materials; it has no application without
+    a transition from one material to another.
+    The material id == 0i is the default material and
+    is space, void, or nothingness.
+
+    FOR THE MOMENT we won't actually apply index of refraction here, because
+    then we would have to deal with changing O and D.  
+
+    Reserve the 0th node as a "void" node.
+
+  New tracing algorithm:
+
+    // helper function; (actually inline this somehow because it needs to see O, D and
+    // the result node, or put O, D and the result node in some shared memory location
+    // as appropriate)
+    clip_push(vs_node, t0, t1, outer_material):
+      - clip segment (O, D, t0, t1) against node vs_node as before,
+        such that we get between 1 and 3 resulting segments, each of
+        which might be inside or outside vs_node.
+      - For each resulting segment, in order from farthest to closest to O:
+        - if resulting_segment is inside vs_node:
+          - if vs_node.material is solid: // (top bits both set - ignoring index of refraction for the moment)
+            - set the Hit material to vs_node.material and hit position to t0
+            - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, outer_material)
+          - else: // same but inherit the material
+            - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, vs_node.material)
+        - else // it's  outside
+          - push (vs_node.outside,  resulting_segment.t0, resulting_segment.t1, outer_material)
+
+    trace(O, D, t0, t1):
+      - initialize the result Hit to the void node and void material (0 and 0)
+        void node indicates nothing was hit.
+      - clip_push(root, t0, t1, void_material)
+      - while there's something on the seg stack
+        - cur_seg = pop from seg stack
+        - if cur_seg.node
+          - clip_push(cur_seg.node, cur_seg.t0, cur_seg.t1, cur_seg.material)
+        - else we've hit a leaf:
+          - return the Hit with outer_material set to the Seg outer material.
+
+  Notes on the above:
+   - the node's material refers to what's inside it.  Outside, the material
+     is set by some ancestor node.  This allows us to scope lights (and maybe
+     shadows and other effects TBD)
+   - I believe this formulation might require alterations to the current way
+     we do intersections and unions.
+     - To intersect 2 spheres (say), make one of the the parent and make
+       it empty; add the other as an inner child and give it the material
+       you want the resulting object to have
+     - To subtract, the thing being subtracted from is the parent: give
+       it the material for the resulting object, then add the subtrahend
+       with a void material as the inside child.
+     - Unions and groups of solids:  Just add as outside children.
+   - is there too much branching here?  if so, how can we reduce branching?
+   - what's the right thing for segments which are tangent to a given sphere?
+     possibly set behaviour per material? (more branching! :)
+   - for this, we consider nodes are solid or not according to material.
+     the default outer material is empty space.
+
+*/
 
 fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
   var hit : Hit;
