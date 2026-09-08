@@ -61,21 +61,21 @@ struct Camera {
   right   : vec3<f32>,
   aspect  : f32,
   up      : vec3<f32>,
-  shadows : f32,
+  shadows : u32,   // 0 or 1; bool is not host-shareable, so it crosses as u32
   fwd     : vec3<f32>,
-  debug   : f32,   // 0 = shaded, otherwise a DEBUG_ view
-  ablate  : f32,   // ABLATE_ level, for the profiler's ablation ladder
-  pad3    : f32,
-  pad4    : f32,
-  pad5    : f32,
+  debug   : u32,   // DEBUG_ view, 0 = shaded
+  ablate  : u32,   // ABLATE_ level, for the profiler's ablation ladder
+  pad3    : u32,
+  pad4    : u32,
+  pad5    : u32,
 };
 
 // Rungs of the ablation ladder. Each level adds one stage back, and the
 // differences between consecutive pass times give the stage costs. Shadow
 // rays are the level above this, driven by Camera.shadows.
-const ABLATE_NONE  : f32 = 0.0;   // dispatch and ray setup only
-const ABLATE_TRACE : f32 = 1.0;   // add traversal, no shading
-const ABLATE_SHADE : f32 = 2.0;   // add shading
+const ABLATE_NONE  : u32 = 0u;   // dispatch and ray setup only
+const ABLATE_TRACE : u32 = 1u;   // add traversal, no shading
+const ABLATE_SHADE : u32 = 2u;   // add shading
 
 struct Light {
   pos   : vec3<f32>,
@@ -336,7 +336,7 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
     let ndl = dot(s.N, L);
     if (ndl <= 0.0) { continue; }          // back-facing, no ray needed
 
-    if (cam.shadows > 0.5) {
+    if (cam.shadows != 0u) {
       // Any solid between here and the light occludes it. The front-to-back
       // traversal already stops at the first one.
       shadowRays = shadowRays + 1u;
@@ -448,9 +448,8 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     }
   }
 
-  let mode = u32(cam.debug + 0.5);
   var outCol = pow(col, vec3<f32>(1.0 / 2.2));
-  switch (mode) {
+  switch (cam.debug) {
     case DEBUG_VISITS:   { outCol = ramp(f32(visits) / 48.0); }
     case DEBUG_SHADOW:   { outCol = ramp(f32(shadowRays) / max(1.0, f32(arrayLength(&lights)))); }
     case DEBUG_DEPTH:    { outCol = ramp(f32(peakDepth) / 32.0); }

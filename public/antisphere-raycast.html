@@ -1025,7 +1025,12 @@ if (!navigator.gpu) {
       dist = Math.max(2.0, Math.min(20, dist * Math.exp(e.deltaY * 0.001)));
     }, { passive: false });
 
-    const camArr = new Float32Array(20);
+    // One buffer, two views: the camera basis is float, the mode selectors
+    // are integers. Writing an enum through a float and rounding it back was
+    // asking for a silent off-by-one.
+    const camBytes = new ArrayBuffer(80);
+    const camArr = new Float32Array(camBytes);
+    const camEnum = new Uint32Array(camBytes);
 
     function writeCamera() {
       const cp = Math.cos(pitch), sp = Math.sin(pitch);
@@ -1046,10 +1051,10 @@ if (!navigator.gpu) {
       camArr.set(eye, 0);          camArr[3] = Math.tan(0.5 * 0.9);
       camArr.set(r, 4);            camArr[7] = tw / th;
       const rung = ladder ? ladder.rungs[ladder.i] : null;
-      camArr.set(u, 8);            camArr[11] = rung ? rung.shadows : (shadowsOn ? 1 : 0);
-      camArr.set(f, 12);           camArr[15] = ladder ? 0 : debugView;
-      camArr[16] = rung ? rung.ablate : 2;   // 2 = full shading path
-      device.queue.writeBuffer(camBuf, 0, camArr);
+      camArr.set(u, 8);            camEnum[11] = rung ? rung.shadows : (shadowsOn ? 1 : 0);
+      camArr.set(f, 12);           camEnum[15] = ladder ? 0 : debugView;
+      camEnum[16] = rung ? rung.ablate : 2;   // 2 = full shading path
+      device.queue.writeBuffer(camBuf, 0, camBytes);
     }
 
     // ---------------------------------------------------------------------
