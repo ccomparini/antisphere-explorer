@@ -452,7 +452,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     h = trace(cam.origin, dir, 1e-3, 1e4);
   }
 
-  var col = vec3<f32>(0.0);   // the shell should catch every ray; black means a bug
+  var col = vec3<f32>(0.0);
   var N = vec3<f32>(0.0);
   if (cam.ablate < ABLATE_TRACE) {
     col = abs(dir) * 0.25;
