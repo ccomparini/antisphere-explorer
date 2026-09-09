@@ -173,12 +173,12 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       hit.t = seg.t0;
       hit.node = entry;
       // Paint names the surface a node generates, so the node crossed to
-      // arrive here wins. PARTITION and INHERIT are negative and defer to
-      // whatever is in scope; BARE is 0 and falls through to the substrate.
+      // arrive here wins. INHERIT is 0 and defers to whatever is in scope;
+      // BARE (-1) and any explicit material both override it outright.
       var painted = scope;
       if (entry >= 0) {
         let entryPaint = (nodes[entry].paint << 16) >> 16;
-        if (entryPaint >= 0) { painted = entryPaint; }
+        if (entryPaint != 0) { painted = entryPaint; }
       }
       hit.mat = select(substrate, painted, painted > 0);
       hit.env = medium;
@@ -239,7 +239,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
         // than the traversal.
         let paint = (nd.paint << 16) >> 16;   // low half, sign extended
         let nodeEnv = nd.paint >> 16;         // high half, 0 means inherit
-        if (paint >= 0) { childScope = paint; }
+        if (paint != 0) { childScope = paint; }   // 0 is INHERIT; BARE (-1) and materials both win
         if (nodeEnv != 0) { childEnv = nodeEnv; }
       }
       var ent = inherited;
