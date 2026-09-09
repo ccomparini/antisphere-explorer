@@ -63,23 +63,32 @@ function complement(prim) {
 // leaf substrate. So a carving node can differ from the body it carves, which
 // is the whole point of having both.
 //
-// Node paint takes three sentinel values:
+// Node paint takes two sentinel values, plus any real material index:
 //
-//   PARTITION  pure spatial division, never paints. The builder is free to
-//              insert, hoist, or drop these without changing appearance.
-//   INHERIT    authored node that takes whatever material is in scope.
-//              Identical at render time to PARTITION; the distinction is a
-//              promise to the builder about what it may move.
-//   BARE       clears the scope, revealing the leaf substrate underneath.
+//   INHERIT    takes whatever material is in scope. Mirrors how Node.env's
+//              0 already means "inherit": no material of its own, so
+//              nothing here overrides it. The builder is free to insert,
+//              hoist, or drop INHERIT nodes without changing appearance,
+//              which is also what PARTITION used to name; the two were
+//              always identical at render time, so there is now just one.
+//   BARE       clears the scope, revealing the leaf substrate underneath,
+//              regardless of what an ancestor painted. Kept distinct from
+//              INHERIT because scenes lean on it heavily (a carving node
+//              painted BARE exposes its own substrate on either side, e.g.
+//              scene.json's "bitten" object), and nothing else reproduces
+//              that effect: INHERIT-style scope-threading only ever runs on
+//              a node's inside, never its outside.
 //
 // Surface parameterization always comes from the node that was crossed, never
 // from the material, so a node's own (n, a, k) supplies the frame: a tangent
 // basis for planes, a center for spheres.
 // ---------------------------------------------------------------------------
 
-const PARTITION = -1;
-const INHERIT   = -2;
-const BARE      =  0;
+const INHERIT   =  0;
+// Same value as INHERIT; kept as a separate name where it documents builder
+// intent (a synthesized spatial split, not an authored material choice).
+const PARTITION = INHERIT;
+const BARE      = -1;
 
 const PATTERNS = { flat: 0, checker: 1 };
 
