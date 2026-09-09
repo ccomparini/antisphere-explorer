@@ -421,8 +421,10 @@ if (!navigator.gpu) {
 
     // Rounded to a step boundary so repeated presses land on clean values
     // (0.7, not 0.6999999999999998) instead of drifting with float error.
+    // Capped at 1: the blit is a single bilinear tap, not a box filter, so
+    // upscaling the source past the canvas buys no quality, just cost.
     function setRenderScale(v) {
-      renderScale = Math.max(0.25, Math.min(2, Math.round(v * 10) / 10));
+      renderScale = Math.max(0.25, Math.min(1, Math.round(v * 10) / 10));
       updateRenderSize();
       note(`render scale ${renderScale.toFixed(2)} (${rw}x${rh})`);
     }
