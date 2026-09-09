@@ -200,6 +200,25 @@ if (!navigator.gpu) {
     // from the canvas: the blit shader samples it scaled to fit.
     const blitSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 
+    // Buffers for traceFrom(), the compute shader's batch ray-query entry
+    // point (antisphere-raycast.wgsl). Sized for a handful of rays; today
+    // only walk mode's single ground probe uses it, but the point of doing
+    // this on the GPU rather than in JS is that a second caller (collision
+    // probes, say) costs no new shader code, just more rays in the batch.
+    const MAX_TRACE_RAYS = 16;
+    const traceRayBuf = device.createBuffer({
+      size: MAX_TRACE_RAYS * 32,   // RayQuery: vec3 o, f32 tMin, vec3 d, f32 tMax
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const traceResultBuf = device.createBuffer({
+      size: MAX_TRACE_RAYS * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const traceReadBuf = device.createBuffer({
+      size: MAX_TRACE_RAYS * 4,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+
     // A shader that fails to compile leaves the pipeline invalid, and an
     // invalid pipeline makes the whole submit fail: black frames, no
     // exception. Report compilation messages rather than guessing.
@@ -214,8 +233,8 @@ if (!navigator.gpu) {
       return !failed;
     }
 
-    let computePipe = null, computeDirectPipe = null, blitPipe = null;
-    let tex = null, computeBG = null, blitBG = null, tw = 0, th = 0;
+    let computePipe = null, computeDirectPipe = null, blitPipe = null, traceFromPipe = null;
+    let tex = null, computeBG = null, blitBG = null, traceFromBG = null, tw = 0, th = 0;
 
     // The render target (rw x rh) can be smaller than the canvas (tw x th);
     // the blit shader scales it up to fit. Direct output has no blit step,
@@ -258,6 +277,16 @@ if (!navigator.gpu) {
           { binding: 1, resource: blitSampler },
         ],
       });
+      if (traceFromPipe) {
+        traceFromBG = device.createBindGroup({
+          layout: traceFromPipe.getBindGroupLayout(0),
+          entries: [
+            { binding: 1, resource: { buffer: nodeBuf } },
+            { binding: 5, resource: { buffer: traceRayBuf } },
+            { binding: 6, resource: { buffer: traceResultBuf } },
+          ],
+        });
+      }
     }
 
     // Builds both pipelines from source and only swaps them in if everything
@@ -294,12 +323,19 @@ if (!navigator.gpu) {
         fragment: { module: bMod, entryPoint: 'fs', targets: [{ format }] },
         primitive: { topology: 'triangle-list' },
       });
+      // Same module as the render pipeline: traceFrom() is just another
+      // entry point in antisphere-raycast.wgsl, sharing trace() with main().
+      const tfp = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module: cMod, entryPoint: 'traceFrom' },
+      });
       const err = await device.popErrorScope();
       if (err) { console.error(err.message); return 'pipeline validation failed'; }
 
       computePipe = cp;
       computeDirectPipe = dp;
       blitPipe = bp;
+      traceFromPipe = tfp;
       makeBindGroups();
       return null;
     }
@@ -482,73 +518,35 @@ if (!navigator.gpu) {
     const EYE_HEIGHT = 1.6;  // walk mode's minimum height above the ground
     let fallVelocity = 0;    // walk mode's current downward speed
 
-    // f(R) for one node, mirroring fAt() in antisphere-raycast.wgsl.
-    function fAtNode(nd, R) {
-      const p = nd.prim, n = p.surface_normal;
-      const dot = R[0] * n[0] + R[1] * n[1] + R[2] * n[2];
-      return p.curvature * (R[0] * R[0] + R[1] * R[1] + R[2] * R[2])
-        + (1 - 2 * p.p0_dist * p.curvature) * dot - p.p0_dist + p.curvature * p.p0_dist * p.p0_dist;
-    }
+    // Ground height under walk mode, from the GPU via traceFrom() (see
+    // antisphere-raycast.wgsl). One query is always in flight at a time;
+    // groundZ holds whichever answer arrived most recently, which lags the
+    // camera's current position by a frame or so (a mapAsync round trip
+    // isn't instantaneous) rather than blocking the render loop on it.
+    let groundZ = -Infinity, groundQueryEye = null, groundQueryPending = false;
 
-    // Host-side twin of trace() in antisphere-raycast.wgsl: the same BSP walk
-    // over scene.nodes (the pre-pack JS tree, not the GPU buffer), but only
-    // cares whether/where the ray first goes solid. Used for walk mode's
-    // ground query, where waiting on a GPU readback would add a frame or
-    // more of latency to something that needs to react every frame.
-    function traceSceneRay(O, D, tMin, tMax) {
-      const nodes = scene.nodes;
-      const stack = [{ node: 0, t0: tMin, t1: tMax }];
-      let guard = 0;
-      while (stack.length) {
-        if (++guard > 4096) break;
-        const seg = stack.pop();
-        if (seg.t1 - seg.t0 <= 1e-6) continue;
-        if (seg.node < 0) {
-          if (-1 - seg.node === 0) continue;          // vacuum leaf: keep going
-          return { hit: true, t: seg.t0 };             // solid leaf: nearest, by construction
-        }
-        const nd = nodes[seg.node], p = nd.prim, n = p.surface_normal;
-        const A = p.curvature;
-        const lin = 1 - 2 * p.p0_dist * A;
-        const B = 2 * A * (O[0] * D[0] + O[1] * D[1] + O[2] * D[2])
-          + lin * (D[0] * n[0] + D[1] * n[1] + D[2] * n[2]);
-        const C = fAtNode(nd, O);
+    function requestGroundQuery(eye) {
+      if (groundQueryPending || !traceFromBG) return;
+      groundQueryPending = true;
+      groundQueryEye = eye.slice();
+      device.queue.writeBuffer(traceRayBuf, 0,
+        new Float32Array([eye[0], eye[1], eye[2], 1e-3, 0, 0, -1, 1000]));
 
-        let r0 = 0, r1 = 0, nr = 0;
-        if (A === 0) {
-          if (Math.abs(B) > 1e-20) { r0 = -C / B; nr = 1; }
-        } else {
-          const disc = B * B - 4 * A * C;
-          if (disc >= 0) {
-            const sq = Math.sqrt(disc);
-            const q = B < 0 ? -0.5 * (B - sq) : -0.5 * (B + sq);
-            const x0 = q / A;
-            const x1 = Math.abs(q) > 1e-20 ? C / q : -B / A - x0;
-            r0 = Math.min(x0, x1); r1 = Math.max(x0, x1); nr = 2;
-          }
-        }
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginComputePass();
+      pass.setPipeline(traceFromPipe);
+      pass.setBindGroup(0, traceFromBG);
+      pass.dispatchWorkgroups(1);
+      pass.end();
+      enc.copyBufferToBuffer(traceResultBuf, 0, traceReadBuf, 0, 4);
+      device.queue.submit([enc.finish()]);
 
-        const b = [seg.t0];
-        if (nr >= 1 && r0 > seg.t0 && r0 < seg.t1) b.push(r0);
-        if (nr === 2 && r1 > seg.t0 && r1 < seg.t1) b.push(r1);
-        b.push(seg.t1);
-
-        for (let i = b.length - 2; i >= 0; i--) {
-          const sa = b[i], sb = b[i + 1];
-          if (sb - sa <= 1e-6) continue;
-          const mid = 0.5 * (sa + sb);
-          const R = [O[0] + mid * D[0], O[1] + mid * D[1], O[2] + mid * D[2]];
-          stack.push({ node: fAtNode(nd, R) < 0 ? nd.inside : nd.outside, t0: sa, t1: sb });
-        }
-      }
-      return { hit: false, t: tMax };
-    }
-
-    // Height of the nearest solid strictly below a point, or -Infinity if
-    // there isn't one (an edge to fall off, rather than a floor).
-    function groundZBelow(eye) {
-      const hit = traceSceneRay(eye, [0, 0, -1], 1e-3, 1000);
-      return hit.hit ? eye[2] - hit.t : -Infinity;
+      traceReadBuf.mapAsync(GPUMapMode.READ, 0, 4).then(() => {
+        const t = new Float32Array(traceReadBuf.getMappedRange(0, 4).slice(0))[0];
+        traceReadBuf.unmap();
+        groundZ = t >= 0 ? groundQueryEye[2] - t : -Infinity;
+        groundQueryPending = false;
+      }).catch(() => { groundQueryPending = false; });
     }
 
     // Walk mode's horizontal heading: the look direction with its z dropped
@@ -563,7 +561,8 @@ if (!navigator.gpu) {
     // Ground-clamped fall: above the minimum height, gravity accelerates the
     // descent; at or below it, stand exactly on the ground with no velocity.
     function updateWalkPhysics(dt) {
-      const minZ = groundZBelow(freeEye) + EYE_HEIGHT;   // -Infinity stays -Infinity
+      requestGroundQuery(freeEye);   // kicks off the next reading; groundZ is the latest one so far
+      const minZ = groundZ + EYE_HEIGHT;   // -Infinity stays -Infinity
       if (freeEye[2] > minZ) {
         fallVelocity += GRAVITY * dt;
         freeEye[2] -= fallVelocity * dt;

@@ -7,7 +7,7 @@
 //
 // Traversal is a solid BSP walk where each node splits the ray at up to two
 // points instead of one. Bindings, in order: camera, nodes, output image,
-// lights, materials.
+// lights, materials, then (traceFrom only) ray queries and ray results.
 
 struct Node {
   surface_normal : vec3<f32>,   // outward unit normal at P0
@@ -250,6 +250,41 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     }
   }
   return hit;
+}
+
+// ---------------------------------------------------------------------------
+// Host-side ray queries
+//
+// A batch entry point for anything that needs to ask the scene a geometric
+// question without also rendering a frame: walk mode's ground probe today,
+// collision or other physics later. Reuses trace() itself, so any change to
+// how the scene is walked (including the material/solidity rework still in
+// progress) automatically applies here too, rather than needing a second,
+// separately-maintained implementation kept in sync by hand.
+//
+// Results come back through a GPU buffer, so the caller reads them via a
+// mapAsync a frame or so after submitting, the same latency shape as the
+// profiler's timestamp queries elsewhere in this file. Miss is t < 0, since
+// a real t is never negative for tMin >= 0.
+// ---------------------------------------------------------------------------
+
+struct RayQuery {
+  o    : vec3<f32>,
+  tMin : f32,
+  d    : vec3<f32>,
+  tMax : f32,
+};
+
+@group(0) @binding(5) var<storage, read> rayQueries : array<RayQuery>;
+@group(0) @binding(6) var<storage, read_write> rayResults : array<f32>;
+
+@compute @workgroup_size(64)
+fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= arrayLength(&rayQueries)) { return; }
+  let q = rayQueries[i];
+  let hit = trace(q.o, q.d, q.tMin, q.tMax);
+  rayResults[i] = select(-1.0, hit.t, hit.hit);
 }
 
 // Surface parameterization from the node's own five numbers. A plane gets a
