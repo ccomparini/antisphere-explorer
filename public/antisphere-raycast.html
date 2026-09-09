@@ -41,7 +41,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br>P profiler · A ablation (⇧ forces full) · D debug view<br>B blit/direct · C reset camera<br><span id="note"></span></div>
+<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br>P profiler · A ablation (⇧ forces full) · D debug view<br>B blit/direct · C reset camera · [ ] render scale<br><span id="note"></span></div>
 <div id="prof">
   <div class="r"><span>frame</span><b id="p-frame">-</b></div>
   <div class="r"><span>cpu encode</span><b id="p-cpu">-</b></div>
@@ -196,6 +196,10 @@ if (!navigator.gpu) {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
+    // Linear filtering lets the render target be a different resolution
+    // from the canvas: the blit shader samples it scaled to fit.
+    const blitSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+
     // A shader that fails to compile leaves the pipeline invalid, and an
     // invalid pipeline makes the whole submit fail: black frames, no
     // exception. Report compilation messages rather than guessing.
@@ -212,6 +216,11 @@ if (!navigator.gpu) {
 
     let computePipe = null, computeDirectPipe = null, blitPipe = null;
     let tex = null, computeBG = null, blitBG = null, tw = 0, th = 0;
+
+    // The render target (rw x rh) can be smaller than the canvas (tw x th);
+    // the blit shader scales it up to fit. Direct output has no blit step,
+    // so it always renders at full canvas resolution regardless of scale.
+    let rw = 0, rh = 0, renderScale = 1;
 
     // The swap chain hands back a different texture every frame, so the
     // direct path cannot cache its bind group.
@@ -244,7 +253,10 @@ if (!navigator.gpu) {
       });
       blitBG = device.createBindGroup({
         layout: blitPipe.getBindGroupLayout(0),
-        entries: [{ binding: 0, resource: tex.createView() }],
+        entries: [
+          { binding: 0, resource: tex.createView() },
+          { binding: 1, resource: blitSampler },
+        ],
       });
     }
 
@@ -305,20 +317,32 @@ if (!navigator.gpu) {
       throw e;
     }
 
-    function resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
-      const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
-      if (w === tw && h === th) return;
-      tw = w; th = h;
-      canvas.width = w; canvas.height = h;
+    // Recreates the render target at tw/th scaled by renderScale, only if
+    // that actually changes its size. Called both on canvas resize and
+    // whenever renderScale itself changes.
+    function updateRenderSize() {
+      const w = Math.max(1, Math.round(tw * renderScale));
+      const h = Math.max(1, Math.round(th * renderScale));
+      if (w === rw && h === rh) return;
+      rw = w; rh = h;
       if (tex) tex.destroy();
       tex = device.createTexture({
-        size: [w, h],
+        size: [rw, rh],
         format: 'rgba8unorm',
         usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
       });
       makeBindGroups();
+    }
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+      const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      if (w !== tw || h !== th) {
+        tw = w; th = h;
+        canvas.width = w; canvas.height = h;
+      }
+      updateRenderSize();
     }
     window.addEventListener('resize', resize);
 
@@ -394,6 +418,15 @@ if (!navigator.gpu) {
     }
     applySceneCamera();     // after the bindings above exist, not at load time
     let shadowsOn = true;
+
+    // Rounded to a step boundary so repeated presses land on clean values
+    // (0.7, not 0.6999999999999998) instead of drifting with float error.
+    function setRenderScale(v) {
+      renderScale = Math.max(0.25, Math.min(2, Math.round(v * 10) / 10));
+      updateRenderSize();
+      note(`render scale ${renderScale.toFixed(2)} (${rw}x${rh})`);
+    }
+
     window.addEventListener('keydown', (e) => {
       if (e.key === 's' || e.key === 'S') shadowsOn = !shadowsOn;
       if (e.key === 'r' || e.key === 'R') reload(true);
@@ -418,10 +451,16 @@ if (!navigator.gpu) {
       if (e.key === 'b' || e.key === 'B') {
         if (canDirect) {
           directOut = !directOut;
-          note(directOut ? 'output: direct to swap chain' : 'output: blit');
+          note(directOut
+            ? `output: direct to swap chain${renderScale !== 1 ? ' (ignores render scale)' : ''}`
+            : 'output: blit');
         } else {
           note('direct output unavailable on this adapter', true);
         }
+      }
+      if (e.key === '[' || e.key === ']') {
+        const step = e.key === ']' ? 0.1 : -0.1;
+        setRenderScale(renderScale + step);
       }
       if (e.key === 'd' || e.key === 'D') {
         debugView = (debugView + 1) % VIEWS.length;
@@ -475,7 +514,7 @@ if (!navigator.gpu) {
         r[0] * f[1] - r[1] * f[0],
       ];
       camArr.set(eye, 0);          camArr[3] = Math.tan(0.5 * 0.9);
-      camArr.set(r, 4);            camArr[7] = tw / th;
+      camArr.set(r, 4);            camArr[7] = rw / rh;
       const rung = ladder ? ladder.rungs[ladder.i] : null;
       camArr.set(u, 8);            camEnum[11] = rung ? rung.shadows : (shadowsOn ? 1 : 0);
       camArr.set(f, 12);           camEnum[15] = ladder ? 0 : debugView;
@@ -667,7 +706,7 @@ let tsQuantized = false, tsDropped = 0;
         } : {});
         cpass.setPipeline(computePipe);
         cpass.setBindGroup(0, computeBG);
-        cpass.dispatchWorkgroups(Math.ceil(tw / 8), Math.ceil(th / 8));
+        cpass.dispatchWorkgroups(Math.ceil(rw / 8), Math.ceil(rh / 8));
         cpass.end();
 
         const rpass = enc.beginRenderPass({
@@ -754,13 +793,16 @@ let tsQuantized = false, tsDropped = 0;
           `running ${ladder.i + 1}/${ladder.rungs.length}: ${ladder.rungs[ladder.i].name}`;
       }
 
-      if (profiling) updatePanel(frameMs, cpuMs, tw * th);
+      // Direct output has no render-scale step, so it always dispatches at
+      // full canvas resolution regardless of rw/rh.
+      if (profiling) updatePanel(frameMs, cpuMs, directOut ? tw * th : rw * rh);
 
       frames++;
       if (now - tPrev > 500) {
         fps = Math.round((frames * 1000) / (now - tPrev));
         frames = 0; tPrev = now;
-        stat.textContent = `${scene.nodes.length} nodes · ${scene.materials.length - 1} materials · ${scene.lights.length} lights · ${tw}x${th} · ${fps} fps`;
+        const res = (rw === tw && rh === th) ? `${tw}x${th}` : `${tw}x${th} (render ${rw}x${rh})`;
+        stat.textContent = `${scene.nodes.length} nodes · ${scene.materials.length - 1} materials · ${scene.lights.length} lights · ${res} · ${fps} fps`;
       }
 
       requestAnimationFrame(frame);
