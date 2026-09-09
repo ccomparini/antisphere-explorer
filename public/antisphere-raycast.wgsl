@@ -198,24 +198,17 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     var r0 = 0.0;
     var r1 = 0.0;
     var nr : i32 = 0;
-    if (A == 0.0) {
-      if (abs(B) > 1e-20) {
-        r0 = -C / B;
-        nr = 1;
-      }
-    } else {
-      let disc = B * B - 4.0 * A * C;
-      if (disc >= 0.0) {
-        let sq = sqrt(disc);
-        var q = -0.5 * (B + sq);
-        if (B < 0.0) { q = -0.5 * (B - sq); }
-        let x0 = q / A;
-        var x1 = -B / A - x0;
-        if (abs(q) > 1e-20) { x1 = C / q; }
-        r0 = min(x0, x1);
-        r1 = max(x0, x1);
-        nr = 2;
-      }
+    let disc = B * B - 4.0 * A * C;
+    if (disc >= 0.0) {
+      let sq = sqrt(disc);
+      var q = -0.5 * (B + sq);
+      if (B < 0.0) { q = -0.5 * (B - sq); }
+      let x0 = q / A;
+      var x1 = -B / A - x0;
+      if (abs(q) > 1e-20) { x1 = C / q; }
+      r0 = min(x0, x1);
+      r1 = max(x0, x1);
+      nr = 2;
     }
 
     // Up to two split points carve the segment into up to three subsegments.
