@@ -123,10 +123,9 @@ struct Light {
 @group(0) @binding(3) var<storage, read> lights : array<Light>;
 @group(0) @binding(4) var<storage, read> materials : array<Material>;
 
-// The implicit function at an arbitrary point. trace() no longer calls this:
-// along a ray it works with the A/B/C coefficients of the same polynomial
-// instead, which is cheaper. Kept because it is the definition everything
-// else is derived from, and for callers that have a point rather than a ray.
+// f(R) = k(R.R) + (1 - 2ak)(R.n) - a + k a^2
+// https://fbmstudios.net/chris/antisphere-explorer/notes.html
+// R is "inside" if this is < 0
 fn fAt(nd : Node, R : vec3<f32>) -> f32 {
   return dot(nd.lift_linear, R) + nd.curvature * dot(R, R) + nd.lift_const;
 }
@@ -184,51 +183,46 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
   Alternate trace algorithm:
 
     Material ids are bitfields with:
-     - Top 2 bits are index of refraction, encoded as:
-       0 0:  n = 0.0 (space, close enough to air, etc)
-       0 1:  n = 1.333 (water)
-       1 0:  n = 1.5 (glass, plexiglass, or close enough)
-       1 1:  n = i;  Considered solid
-     - Next 14 bits reserved
+     - Top bit indicates "solidity" with respect to tracing
+       rays:
+       0: ray continues on interior leaf
+       1: ray is stopped by an interior leaf 
+     - Next 15 bits reserved
      - Bottom 16 bits are index in materials table.
-    Index of refraction/transparency is encoded in the ID
-    because in usage it has to do with the interaction
-    -between- materials; it has no application without
-    a transition from one material to another.
+
+    Reserved bits are expected be used in the future for 
+    encoding things which have to do with the interaction
+    -between- materials (such as index of refraction) or
+    for expanding the material table index.
     The material id == 0i is the default material and
     is space, void, or nothingness.
 
-    FOR THE MOMENT we won't actually apply index of refraction here, because
-    then we would have to deal with changing O and D.  
-
-    Reserve the 0th node as a "void" node.
+    Node ids are 
+XXX iirc I needed these to "know" their parents in certain cases - inside children?
 
   New tracing algorithm:
 
-    // helper function; (actually inline this somehow because it needs to see O, D and
-    // the result node, or put O, D and the result node in some shared memory location
-    // as appropriate)
+    // helper function; (actually inline this somehow because it needs to
+    // see O and D, or put O, and D in some shared memory location as
+    // appropriate)
     clip_push(vs_node, t0, t1, outer_material):
       - clip segment (O, D, t0, t1) against node vs_node as before,
         such that we get between 1 and 3 resulting segments, each of
         which might be inside or outside vs_node.
       - For each resulting segment, in order from farthest to closest to O:
-        - if resulting_segment is inside vs_node:
-          - if vs_node.material is solid: // (top bits both set - ignoring index of refraction for the moment)
-            - set the Hit material to vs_node.material and hit position to t0
-            - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, outer_material)
-          - else: // same but inherit the material
-            - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, vs_node.material)
-        - else // it's  outside
+        - if resulting_segment is inside vs_node and vs_node.material is not solid:
+          - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, vs_node.material)
+        - else // it's solid or outside
           - push (vs_node.outside,  resulting_segment.t0, resulting_segment.t1, outer_material)
 
     trace(O, D, t0, t1):
-      - initialize the result Hit to the void node and void material (0 and 0)
-        void node indicates nothing was hit.
+      - initialize the result Hit to the root node and void material
       - clip_push(root, t0, t1, void_material)
       - while there's something on the seg stack
         - cur_seg = pop from seg stack
         - if cur_seg.node
+          - if cur_seg.node.material is solid:
+            - hit gets 
           - clip_push(cur_seg.node, cur_seg.t0, cur_seg.t1, cur_seg.material)
         - else we've hit a leaf:
           - if the Hit's material is solid:
@@ -236,6 +230,10 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
           // else just continue on
 
   Notes on the above:
+   - (to self - cmc) clip_push is the -descent down the space partitioning tree-
+     and thus must handle things scoped to the bsp tree (eg environment "materials").
+     the loop in trace follows the beam;  hence the loop trace is the right place
+     to track things interrupting the beam.
    - the node's material refers to what's inside it.  Outside, the material
      is set by some ancestor node.  This allows us to scope lights (and maybe
      shadows and other effects TBD)
@@ -252,9 +250,10 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
        If you don't want that, just set the material to 0 and it will
        inherit from the more recent containing solid.
      - Unions and groups of solids:  Just add as outside children.
-   - is there too much branching here?  if so, how can we reduce branching?
+   - even small reductions in branching have measurable impact, so let's keep
+     that in mind.  however, optimize later.
    - what's the right thing for segments which are tangent to a given sphere?
-     possibly set behaviour per material? (more branching! :)
+     we -should- add tangential "hits" to the Seg stack.  
    - for this, we consider nodes are solid or not according to material.
      the default outer material is empty space.
 
