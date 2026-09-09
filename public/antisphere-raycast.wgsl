@@ -231,7 +231,9 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
         - if cur_seg.node
           - clip_push(cur_seg.node, cur_seg.t0, cur_seg.t1, cur_seg.material)
         - else we've hit a leaf:
-          - return the Hit with outer_material set to the Seg outer material.
+          - if the Hit's material is solid:
+            - return the Hit with outer_material set to the Seg outer material.
+          // else just continue on
 
   Notes on the above:
    - the node's material refers to what's inside it.  Outside, the material
