@@ -124,7 +124,7 @@ fn segEntry(w : u32) -> i32 { return i32(w >> 16u) - 1; }
 fn packSE(scope : i32, env : i32) -> u32 {
   return (u32(env) << 16u) | (u32(scope) & 0xFFFFu);
 }
-fn segScope(w : u32) -> i32 { return i32(w & 0xFFFFu); }
+fn segScope(w : u32) -> i32 { return i32(w << 16u) >> 16u; }
 fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
 
 fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
