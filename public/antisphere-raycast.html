@@ -41,7 +41,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><b id="stat">starting…</b><br>drag to orbit/look · wheel to zoom · &uarr;&darr; move (fly) · M camera mode<br>S shadows · R reload · W watch · P profiler<br>A ablation (⇧ forces full) · D debug view · B blit/direct<br>C reset camera · [ ] render scale<br><span id="note"></span></div>
+<div id="hud"><b id="stat">starting…</b><br>orbit: drag to look · wheel to zoom<br>free/walk: mouse looks, click to grab it · &uarr;&darr; move<br>M camera mode · C reset camera · S shadows<br>R reload · W watch · P profiler · A ablation (⇧ forces full)<br>D debug view · B blit/direct · [ ] render scale<br><span id="note"></span></div>
 <div id="prof">
   <div class="r"><span>frame</span><b id="p-frame">-</b></div>
   <div class="r"><span>cpu encode</span><b id="p-cpu">-</b></div>
@@ -406,14 +406,15 @@ if (!navigator.gpu) {
     let yaw = 0.55, pitch = 0.30, dist = 6.4;
     let target = [0, 0, 0.15];
 
-    // Free camera: rotates about its own eye instead of a target, and moves
-    // along its own forward vector. Starts wherever orbit last was (see
-    // setCameraMode), so switching modes never jumps the view.
+    // Free-look camera state, shared by both the 'free' and 'walk' modes
+    // (they differ only in how arrow keys move it). Starts wherever orbit
+    // last was (see setCameraMode), so switching modes never jumps the view.
     let freeEye = [0, 0, 0], freeYaw = yaw, freePitch = pitch;
-    let cameraMode = 'orbit';   // 'orbit' | 'free'
+    const CAMERA_MODES = ['orbit', 'free', 'walk'];
+    let cameraMode = 'orbit';
 
-    // The unit look direction for a yaw/pitch pair, shared by both camera
-    // modes so dragging rotates the view the same way in either one.
+    // The unit look direction for a yaw/pitch pair, shared by every camera
+    // mode so dragging/mouselook rotates the view the same way in each.
     function lookDir(yw, pt) {
       const cp = Math.cos(pt), sp = Math.sin(pt);
       return [-cp * Math.sin(yw), -cp * Math.cos(yw), -sp];
@@ -421,23 +422,44 @@ if (!navigator.gpu) {
 
     // Eye position and look direction for whichever mode is active.
     function cameraBasis() {
-      if (cameraMode === 'free') return { eye: freeEye, f: lookDir(freeYaw, freePitch) };
+      if (cameraMode !== 'orbit') return { eye: freeEye, f: lookDir(freeYaw, freePitch) };
       const f = lookDir(yaw, pitch);
       const eye = [target[0] - dist * f[0], target[1] - dist * f[1], target[2] - dist * f[2]];
       return { eye, f };
     }
 
+    // Free-look modes rotate via mouselook (movement deltas while the
+    // pointer is locked to the canvas) rather than click-drag, so entering
+    // or leaving them also grabs or releases the pointer.
+    function requestLook() {
+      try {
+        const p = canvas.requestPointerLock();
+        if (p && p.catch) p.catch(() => note('click the canvas to enable mouselook', true));
+      } catch {
+        note('click the canvas to enable mouselook', true);
+      }
+    }
+    function releaseLook() {
+      if (document.pointerLockElement === canvas) document.exitPointerLock();
+    }
+
     // Carries eye position and orientation across a mode switch instead of
-    // jumping to the other mode's last remembered state.
+    // jumping to the other mode's last remembered state. Switching directly
+    // between 'free' and 'walk' needs no sync: they share the same state.
     function setCameraMode(mode) {
       if (mode === cameraMode) return;
-      const { eye, f } = cameraBasis();
-      if (mode === 'free') {
+      const wasLook = cameraMode !== 'orbit', willLook = mode !== 'orbit';
+      if (willLook && !wasLook) {
+        const { eye } = cameraBasis();               // orbit -> free/walk
         freeEye = eye; freeYaw = yaw; freePitch = pitch;
-      } else {
+        requestLook();
+      } else if (!willLook && wasLook) {
+        const { eye, f } = cameraBasis();             // free/walk -> orbit
         yaw = freeYaw; pitch = freePitch;
         target = [eye[0] + dist * f[0], eye[1] + dist * f[1], eye[2] + dist * f[2]];
+        releaseLook();
       }
+      if (mode === 'walk') fallVelocity = 0;
       cameraMode = mode;
       note(`camera: ${mode}`);
     }
@@ -455,7 +477,102 @@ if (!navigator.gpu) {
     applySceneCamera();     // after the bindings above exist, not at load time
     let shadowsOn = true;
     let moveFwd = false, moveBack = false;
-    const MOVE_SPEED = 4;   // world units/sec in free-fly mode
+    const MOVE_SPEED = 4;    // world units/sec in free/walk mode
+    const GRAVITY = 9.8;     // world units/sec^2, walk mode only
+    const EYE_HEIGHT = 1.6;  // walk mode's minimum height above the ground
+    let fallVelocity = 0;    // walk mode's current downward speed
+
+    // f(R) for one node, mirroring fAt() in antisphere-raycast.wgsl.
+    function fAtNode(nd, R) {
+      const p = nd.prim, n = p.surface_normal;
+      const dot = R[0] * n[0] + R[1] * n[1] + R[2] * n[2];
+      return p.curvature * (R[0] * R[0] + R[1] * R[1] + R[2] * R[2])
+        + (1 - 2 * p.p0_dist * p.curvature) * dot - p.p0_dist + p.curvature * p.p0_dist * p.p0_dist;
+    }
+
+    // Host-side twin of trace() in antisphere-raycast.wgsl: the same BSP walk
+    // over scene.nodes (the pre-pack JS tree, not the GPU buffer), but only
+    // cares whether/where the ray first goes solid. Used for walk mode's
+    // ground query, where waiting on a GPU readback would add a frame or
+    // more of latency to something that needs to react every frame.
+    function traceSceneRay(O, D, tMin, tMax) {
+      const nodes = scene.nodes;
+      const stack = [{ node: 0, t0: tMin, t1: tMax }];
+      let guard = 0;
+      while (stack.length) {
+        if (++guard > 4096) break;
+        const seg = stack.pop();
+        if (seg.t1 - seg.t0 <= 1e-6) continue;
+        if (seg.node < 0) {
+          if (-1 - seg.node === 0) continue;          // vacuum leaf: keep going
+          return { hit: true, t: seg.t0 };             // solid leaf: nearest, by construction
+        }
+        const nd = nodes[seg.node], p = nd.prim, n = p.surface_normal;
+        const A = p.curvature;
+        const lin = 1 - 2 * p.p0_dist * A;
+        const B = 2 * A * (O[0] * D[0] + O[1] * D[1] + O[2] * D[2])
+          + lin * (D[0] * n[0] + D[1] * n[1] + D[2] * n[2]);
+        const C = fAtNode(nd, O);
+
+        let r0 = 0, r1 = 0, nr = 0;
+        if (A === 0) {
+          if (Math.abs(B) > 1e-20) { r0 = -C / B; nr = 1; }
+        } else {
+          const disc = B * B - 4 * A * C;
+          if (disc >= 0) {
+            const sq = Math.sqrt(disc);
+            const q = B < 0 ? -0.5 * (B - sq) : -0.5 * (B + sq);
+            const x0 = q / A;
+            const x1 = Math.abs(q) > 1e-20 ? C / q : -B / A - x0;
+            r0 = Math.min(x0, x1); r1 = Math.max(x0, x1); nr = 2;
+          }
+        }
+
+        const b = [seg.t0];
+        if (nr >= 1 && r0 > seg.t0 && r0 < seg.t1) b.push(r0);
+        if (nr === 2 && r1 > seg.t0 && r1 < seg.t1) b.push(r1);
+        b.push(seg.t1);
+
+        for (let i = b.length - 2; i >= 0; i--) {
+          const sa = b[i], sb = b[i + 1];
+          if (sb - sa <= 1e-6) continue;
+          const mid = 0.5 * (sa + sb);
+          const R = [O[0] + mid * D[0], O[1] + mid * D[1], O[2] + mid * D[2]];
+          stack.push({ node: fAtNode(nd, R) < 0 ? nd.inside : nd.outside, t0: sa, t1: sb });
+        }
+      }
+      return { hit: false, t: tMax };
+    }
+
+    // Height of the nearest solid strictly below a point, or -Infinity if
+    // there isn't one (an edge to fall off, rather than a floor).
+    function groundZBelow(eye) {
+      const hit = traceSceneRay(eye, [0, 0, -1], 1e-3, 1000);
+      return hit.hit ? eye[2] - hit.t : -Infinity;
+    }
+
+    // Walk mode's horizontal heading: the look direction with its z dropped
+    // and the rest renormalized, so looking up/down doesn't change how fast
+    // (or which way) arrow keys move you across the ground.
+    function walkForwardXY(yw, pt) {
+      const f = lookDir(yw, pt);
+      const len = Math.hypot(f[0], f[1]) || 1;   // looking ~straight up/down: len -> 0 anyway
+      return [f[0] / len, f[1] / len, 0];
+    }
+
+    // Ground-clamped fall: above the minimum height, gravity accelerates the
+    // descent; at or below it, stand exactly on the ground with no velocity.
+    function updateWalkPhysics(dt) {
+      const minZ = groundZBelow(freeEye) + EYE_HEIGHT;   // -Infinity stays -Infinity
+      if (freeEye[2] > minZ) {
+        fallVelocity += GRAVITY * dt;
+        freeEye[2] -= fallVelocity * dt;
+        if (freeEye[2] < minZ) { freeEye[2] = minZ; fallVelocity = 0; }
+      } else {
+        freeEye[2] = minZ;
+        fallVelocity = 0;
+      }
+    }
 
     // Rounded to a step boundary so repeated presses land on clean values
     // (0.7, not 0.6999999999999998) instead of drifting with float error.
@@ -486,11 +603,13 @@ if (!navigator.gpu) {
       }
       if (e.key === 'c' || e.key === 'C') {
         applySceneCamera();
+        if (cameraMode !== 'orbit') releaseLook();
         cameraMode = 'orbit';
         note('camera reset to scene viewpoint');
       }
       if (e.key === 'm' || e.key === 'M') {
-        setCameraMode(cameraMode === 'orbit' ? 'free' : 'orbit');
+        const i = CAMERA_MODES.indexOf(cameraMode);
+        setCameraMode(CAMERA_MODES[(i + 1) % CAMERA_MODES.length]);
       }
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
@@ -531,22 +650,43 @@ if (!navigator.gpu) {
     canvas.addEventListener('pointerup', () => { dragging = false; });
     canvas.addEventListener('pointercancel', () => { dragging = false; });
     canvas.addEventListener('pointermove', (e) => {
-      if (!dragging || ladder) return;
-      const dx = (e.clientX - lx) * 0.006, dy = (e.clientY - ly) * 0.005;
-      if (cameraMode === 'free') {
-        freeYaw += dx;
-        freePitch = Math.max(-1.35, Math.min(1.35, freePitch + dy));
-      } else {
-        yaw += dx;
-        pitch = Math.max(-1.35, Math.min(1.35, pitch + dy));
-      }
+      if (!dragging || ladder || cameraMode !== 'orbit') return;
+      yaw += (e.clientX - lx) * 0.006;
+      pitch = Math.max(-1.35, Math.min(1.35, pitch + (e.clientY - ly) * 0.005));
       lx = e.clientX; ly = e.clientY;
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      if (ladder || cameraMode !== 'orbit') return;   // free mode zooms via arrow keys instead
+      if (ladder || cameraMode !== 'orbit') return;   // free/walk zoom via arrow keys instead
       dist = Math.max(2.0, Math.min(20, dist * Math.exp(e.deltaY * 0.001)));
     }, { passive: false });
+
+    // Free/walk mouselook: like Minecraft, the mouse rotates the view without
+    // a button held, once the pointer is locked to the canvas (see
+    // requestLook/releaseLook). movementX/Y are only meaningful while locked.
+    window.addEventListener('mousemove', (e) => {
+      if (cameraMode === 'orbit' || document.pointerLockElement !== canvas || ladder) return;
+      freeYaw += e.movementX * 0.006;
+      freePitch = Math.max(-1.35, Math.min(1.35, freePitch + e.movementY * 0.005));
+    });
+    // Pointer lock needs a user gesture; a keydown grants it (see
+    // requestLook), but if that's ever refused, a click on the canvas
+    // recovers it without forcing the player back to orbit mode.
+    canvas.addEventListener('click', () => {
+      if (cameraMode !== 'orbit' && document.pointerLockElement !== canvas) requestLook();
+    });
+    document.addEventListener('pointerlockerror', () => {
+      note('pointer lock failed — click the canvas', true);
+    });
+    // Browsers force-release the lock on Escape (and possibly other times);
+    // treat that the same as the player asking to leave the look mode,
+    // unless we're the ones who just released it via setCameraMode/'C'.
+    document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement !== canvas && cameraMode !== 'orbit') {
+        cameraMode = 'orbit';
+        note('mouselook released — back to orbit');
+      }
+    });
 
     // One buffer, two views: the camera basis is float, the mode selectors
     // are integers. Writing an enum through a float and rounding it back was
@@ -723,13 +863,17 @@ let tsQuantized = false, tsDropped = 0;
       const frameMs = now - tLast;
       tLast = now;
 
-      // Held while flying, not a discrete step, so speed is frame-rate
-      // independent. Locked during the ablation ladder like the pointer
-      // and wheel, so it doesn't disturb the view mid-measurement.
-      if (cameraMode === 'free' && !ladder && (moveFwd || moveBack)) {
-        const f = lookDir(freeYaw, freePitch);
-        const d = ((moveFwd ? 1 : 0) - (moveBack ? 1 : 0)) * MOVE_SPEED * (frameMs / 1000);
-        freeEye = [freeEye[0] + f[0] * d, freeEye[1] + f[1] * d, freeEye[2] + f[2] * d];
+      // Held while flying/walking, not a discrete step, so speed is
+      // frame-rate independent. Locked during the ablation ladder like the
+      // pointer and wheel, so it doesn't disturb the view mid-measurement.
+      if (cameraMode !== 'orbit' && !ladder) {
+        const dt = frameMs / 1000;
+        if (moveFwd || moveBack) {
+          const dir = cameraMode === 'walk' ? walkForwardXY(freeYaw, freePitch) : lookDir(freeYaw, freePitch);
+          const d = ((moveFwd ? 1 : 0) - (moveBack ? 1 : 0)) * MOVE_SPEED * dt;
+          freeEye[0] += dir[0] * d; freeEye[1] += dir[1] * d; freeEye[2] += dir[2] * d;
+        }
+        if (cameraMode === 'walk') updateWalkPhysics(dt);
       }
       writeCamera();
 
