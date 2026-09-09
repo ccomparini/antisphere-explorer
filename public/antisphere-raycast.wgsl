@@ -210,8 +210,12 @@ fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
        it empty; add the other as an inner child and give it the material
        you want the resulting object to have
      - To subtract, the thing being subtracted from is the parent: give
-       it the material for the resulting object, then add the subtrahend
-       with a void material as the inside child.
+       it the material for the resulting object, then invert the subtrahend
+       and add the subtrahend as the inside child.  Note that using this
+       method you can give the cutout a different material from the
+       outer object simply by giving the subtrahend the desired material.
+       If you don't want that, just set the material to 0 and it will
+       inherit from the more recent containing solid.
      - Unions and groups of solids:  Just add as outside children.
    - is there too much branching here?  if so, how can we reduce branching?
    - what's the right thing for segments which are tangent to a given sphere?
