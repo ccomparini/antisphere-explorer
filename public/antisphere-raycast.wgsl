@@ -127,6 +127,9 @@ struct Seg {
   // Because materials can represent lit regions, 
 };
 
+// actually I think we don't need a separate Hit structure; just use the Seg.
+// the t1 point will be useful for refraction and possibly other effects,
+// and Seg is already smaller than Hit so it's not like we're saving.
 struct Hit {
   hit  : bool,  // TODO get rid of this if we can make there be some sort of "none" node
   t    : f32,   // where the hit took place.  TODO replace with calculated position and/or normal?
@@ -172,9 +175,9 @@ fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
 
   New tracing algorithm:
 
-    // helper function; (actually inline this somehow because it needs to see O, D and
-    // the result node, or put O, D and the result node in some shared memory location
-    // as appropriate)
+    // helper function; (actually inline this somehow because it needs to
+    // see O and D, or put O, and D in some shared memory location as
+    // appropriate)
     clip_push(vs_node, t0, t1, outer_material):
       - clip segment (O, D, t0, t1) against node vs_node as before,
         such that we get between 1 and 3 resulting segments, each of
@@ -182,7 +185,6 @@ fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
       - For each resulting segment, in order from farthest to closest to O:
         - if resulting_segment is inside vs_node:
           - if vs_node.material is solid: // (top bits both set - ignoring index of refraction for the moment)
-            - set the Hit material to vs_node.material and hit position to t0
             - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, outer_material)
           - else: // same but inherit the material
             - push (vs_node.inside, resulting_segment.t0, resulting_segment.t1, vs_node.material)
@@ -190,8 +192,7 @@ fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
           - push (vs_node.outside,  resulting_segment.t0, resulting_segment.t1, outer_material)
 
     trace(O, D, t0, t1):
-      - initialize the result Hit to the void node and void material (0 and 0)
-        void node indicates nothing was hit.
+      - initialize the result Hit to the root node and void material
       - clip_push(root, t0, t1, void_material)
       - while there's something on the seg stack
         - cur_seg = pop from seg stack
@@ -203,6 +204,10 @@ fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
           // else just continue on
 
   Notes on the above:
+   - (to self - cmc) clip_push is the -descent- and must handle things scoped
+     to the bsp tree.  the loop in trace follows the beam;  hence the loop
+     trace is the right place to track environmental materials or other things
+     interrupting the beam.
    - the node's material refers to what's inside it.  Outside, the material
      is set by some ancestor node.  This allows us to scope lights (and maybe
      shadows and other effects TBD)
@@ -219,9 +224,9 @@ fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
        If you don't want that, just set the material to 0 and it will
        inherit from the more recent containing solid.
      - Unions and groups of solids:  Just add as outside children.
-   - is there too much branching here?  if so, how can we reduce branching?
+   - branching can and shall be reduced from this.  optimize later.
    - what's the right thing for segments which are tangent to a given sphere?
-     possibly set behaviour per material? (more branching! :)
+     we -should- add tangential "hits" to the Seg stack.  
    - for this, we consider nodes are solid or not according to material.
      the default outer material is empty space.
 
