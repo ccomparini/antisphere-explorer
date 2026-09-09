@@ -41,7 +41,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><b id="stat">starting…</b><br>drag to orbit · wheel to zoom · S shadows · R reload · W watch<br>P profiler · A ablation (⇧ forces full) · D debug view<br>B blit/direct · C reset camera · [ ] render scale<br><span id="note"></span></div>
+<div id="hud"><b id="stat">starting…</b><br>drag to orbit/look · wheel to zoom · &uarr;&darr; move (fly) · M camera mode<br>S shadows · R reload · W watch · P profiler<br>A ablation (⇧ forces full) · D debug view · B blit/direct<br>C reset camera · [ ] render scale<br><span id="note"></span></div>
 <div id="prof">
   <div class="r"><span>frame</span><b id="p-frame">-</b></div>
   <div class="r"><span>cpu encode</span><b id="p-cpu">-</b></div>
@@ -406,6 +406,42 @@ if (!navigator.gpu) {
     let yaw = 0.55, pitch = 0.30, dist = 6.4;
     let target = [0, 0, 0.15];
 
+    // Free camera: rotates about its own eye instead of a target, and moves
+    // along its own forward vector. Starts wherever orbit last was (see
+    // setCameraMode), so switching modes never jumps the view.
+    let freeEye = [0, 0, 0], freeYaw = yaw, freePitch = pitch;
+    let cameraMode = 'orbit';   // 'orbit' | 'free'
+
+    // The unit look direction for a yaw/pitch pair, shared by both camera
+    // modes so dragging rotates the view the same way in either one.
+    function lookDir(yw, pt) {
+      const cp = Math.cos(pt), sp = Math.sin(pt);
+      return [-cp * Math.sin(yw), -cp * Math.cos(yw), -sp];
+    }
+
+    // Eye position and look direction for whichever mode is active.
+    function cameraBasis() {
+      if (cameraMode === 'free') return { eye: freeEye, f: lookDir(freeYaw, freePitch) };
+      const f = lookDir(yaw, pitch);
+      const eye = [target[0] - dist * f[0], target[1] - dist * f[1], target[2] - dist * f[2]];
+      return { eye, f };
+    }
+
+    // Carries eye position and orientation across a mode switch instead of
+    // jumping to the other mode's last remembered state.
+    function setCameraMode(mode) {
+      if (mode === cameraMode) return;
+      const { eye, f } = cameraBasis();
+      if (mode === 'free') {
+        freeEye = eye; freeYaw = yaw; freePitch = pitch;
+      } else {
+        yaw = freeYaw; pitch = freePitch;
+        target = [eye[0] + dist * f[0], eye[1] + dist * f[1], eye[2] + dist * f[2]];
+      }
+      cameraMode = mode;
+      note(`camera: ${mode}`);
+    }
+
     // The scene may name a viewpoint. Applied on first load and on demand,
     // but not on hot reload, which would yank the view mid-iteration.
     function applySceneCamera() {
@@ -418,6 +454,8 @@ if (!navigator.gpu) {
     }
     applySceneCamera();     // after the bindings above exist, not at load time
     let shadowsOn = true;
+    let moveFwd = false, moveBack = false;
+    const MOVE_SPEED = 4;   // world units/sec in free-fly mode
 
     // Rounded to a step boundary so repeated presses land on clean values
     // (0.7, not 0.6999999999999998) instead of drifting with float error.
@@ -448,7 +486,15 @@ if (!navigator.gpu) {
       }
       if (e.key === 'c' || e.key === 'C') {
         applySceneCamera();
+        cameraMode = 'orbit';
         note('camera reset to scene viewpoint');
+      }
+      if (e.key === 'm' || e.key === 'M') {
+        setCameraMode(cameraMode === 'orbit' ? 'free' : 'orbit');
+      }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (e.key === 'ArrowUp') moveFwd = true; else moveBack = true;
       }
       if (e.key === 'b' || e.key === 'B') {
         if (canDirect) {
@@ -473,6 +519,10 @@ if (!navigator.gpu) {
         note(watching ? 'watching files for changes' : 'watch off');
       }
     });
+    window.addEventListener('keyup', (e) => {
+      if (e.key === 'ArrowUp') moveFwd = false;
+      if (e.key === 'ArrowDown') moveBack = false;
+    });
     let dragging = false, lx = 0, ly = 0;
     canvas.addEventListener('pointerdown', (e) => {
       dragging = true; lx = e.clientX; ly = e.clientY;
@@ -482,13 +532,19 @@ if (!navigator.gpu) {
     canvas.addEventListener('pointercancel', () => { dragging = false; });
     canvas.addEventListener('pointermove', (e) => {
       if (!dragging || ladder) return;
-      yaw += (e.clientX - lx) * 0.006;
-      pitch = Math.max(-1.35, Math.min(1.35, pitch + (e.clientY - ly) * 0.005));
+      const dx = (e.clientX - lx) * 0.006, dy = (e.clientY - ly) * 0.005;
+      if (cameraMode === 'free') {
+        freeYaw += dx;
+        freePitch = Math.max(-1.35, Math.min(1.35, freePitch + dy));
+      } else {
+        yaw += dx;
+        pitch = Math.max(-1.35, Math.min(1.35, pitch + dy));
+      }
       lx = e.clientX; ly = e.clientY;
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      if (ladder) return;
+      if (ladder || cameraMode !== 'orbit') return;   // free mode zooms via arrow keys instead
       dist = Math.max(2.0, Math.min(20, dist * Math.exp(e.deltaY * 0.001)));
     }, { passive: false });
 
@@ -500,14 +556,7 @@ if (!navigator.gpu) {
     const camEnum = new Uint32Array(camBytes);
 
     function writeCamera() {
-      const cp = Math.cos(pitch), sp = Math.sin(pitch);
-      const eye = [
-        target[0] + dist * cp * Math.sin(yaw),
-        target[1] + dist * cp * Math.cos(yaw),
-        target[2] + dist * sp,
-      ];
-      let f = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
-      const fl = Math.hypot(...f); f = f.map((v) => v / fl);
+      const { eye, f } = cameraBasis();
       let r = [f[1], -f[0], 0];                    // cross(fwd, worldUp = +Z)
       const rl = Math.hypot(...r) || 1; r = r.map((v) => v / rl);
       const u = [                                  // cross(right, fwd)
@@ -669,11 +718,20 @@ let tsQuantized = false, tsDropped = 0;
     function frame() {
       resize();
       if (!computeBG || !blitBG) { requestAnimationFrame(frame); return; }
-      writeCamera();
 
       const now = performance.now();
       const frameMs = now - tLast;
       tLast = now;
+
+      // Held while flying, not a discrete step, so speed is frame-rate
+      // independent. Locked during the ablation ladder like the pointer
+      // and wheel, so it doesn't disturb the view mid-measurement.
+      if (cameraMode === 'free' && !ladder && (moveFwd || moveBack)) {
+        const f = lookDir(freeYaw, freePitch);
+        const d = ((moveFwd ? 1 : 0) - (moveBack ? 1 : 0)) * MOVE_SPEED * (frameMs / 1000);
+        freeEye = [freeEye[0] + f[0] * d, freeEye[1] + f[1] * d, freeEye[2] + f[2] * d];
+      }
+      writeCamera();
 
       // Only samples taken after the warmup count toward the current rung.
       let rungSampled = -1;
