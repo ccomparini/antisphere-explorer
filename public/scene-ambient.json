@@ -61,7 +61,7 @@
         0.55,
         0.21
       ],
-      "shininess": 70,
+      "shininess": 90,
       "specular": 1.1
     },
     "jade": {
@@ -83,6 +83,9 @@
       ],
       "shininess": 24,
       "specular": 0.5
+    },
+    "alabaster": {
+      "albedo": [0.98, 0.90, 0.87]
     },
     "chalk": {
       "kind": "unlit",
@@ -160,27 +163,22 @@
         "center": [ 0.0, 0.0, 0.0 ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [ 0, 0, 1 ],
           "offset": 0.3472
         },
-        "paint": "jade",
+        "material": "brass",
         "inside": {
           "sphere": {
-            "center": [ 0.476, 0.0, 0.168 ],
+            "center": [ -0.476, 0.0, 0.168],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "jade"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "complement": true,
+          "material": "alabaster"
+        }
+      }
     },
     "tower": {
       "union": [
@@ -193,11 +191,7 @@
             ],
             "radius": 0.72
           },
-          "paint": "brass",
-          "inside": {
-            "solid": "stone"
-          },
-          "outside": "empty"
+          "material": "brass"
         },
         {
           "sphere": {
@@ -208,11 +202,7 @@
             ],
             "radius": 0.63
           },
-          "paint": "stone",
-          "inside": {
-            "solid": "stone"
-          },
-          "outside": "empty"
+          "material": "stone"
         },
         {
           "sphere": {
@@ -223,11 +213,7 @@
             ],
             "radius": 0.54
           },
-          "paint": "brass",
-          "inside": {
-            "solid": "stone"
-          },
-          "outside": "empty"
+          "material": "brass"
         },
         {
           "sphere": {
@@ -238,11 +224,7 @@
             ],
             "radius": 0.45
           },
-          "paint": "stone",
-          "inside": {
-            "solid": "stone"
-          },
-          "outside": "empty"
+          "material": "stone"
         },
         {
           "sphere": {
@@ -253,11 +235,7 @@
             ],
             "radius": 0.36
           },
-          "paint": "core",
-          "inside": {
-            "solid": "stone"
-          },
-          "outside": "empty"
+          "material": "core"
         }
       ],
       "bounds": {
@@ -278,7 +256,7 @@
         ],
         "radius": 1.5
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "sphere": {
           "center": [
@@ -305,8 +283,7 @@
             "solid": "core"
           }
         }
-      },
-      "outside": "empty"
+      }
     },
     "pedestal": {
       "union": [
@@ -363,22 +340,13 @@
                         -1
                       ],
                       "offset": 1.0
-                    },
-                    "inside": {
-                      "solid": "slate"
-                    },
-                    "outside": "empty"
-                  },
-                  "outside": "empty"
-                },
-                "outside": "empty"
-              },
-              "outside": "empty"
-            },
-            "outside": "empty"
+                    }
+                  }
+                }
+              }
+            }
           },
-          "outside": "empty",
-          "paint": "slate"
+          "material": "slate"
         },
         {
           "plane": {
@@ -433,22 +401,13 @@
                         -1
                       ],
                       "offset": 0.35
-                    },
-                    "inside": {
-                      "solid": "chalk"
-                    },
-                    "outside": "empty"
-                  },
-                  "outside": "empty"
-                },
-                "outside": "empty"
-              },
-              "outside": "empty"
-            },
-            "outside": "empty"
+                    }
+                  }
+                }
+              }
+            }
           },
-          "outside": "empty",
-          "paint": "chalk"
+          "material": "chalk"
         }
       ],
       "bounds": {
@@ -540,10 +499,7 @@
         ],
         "offset": -1.0
       },
-      "paint": "partition",
-      "inside": {
-        "solid": "floor"
-      },
+      "material": "floor",
       "outside": {
         "use": "contents"
       }
@@ -560,9 +516,6 @@
     },
     "complement": true,
     "paint": "partition",
-    "inside": {
-      "solid": "shell"
-    },
     "outside": {
       "sphere": {
         "center": [
