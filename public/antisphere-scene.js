@@ -403,6 +403,22 @@ export function compileScene(spec) {
     return substrate(def.material, `${path}.material`);
   }
 
+  // A node that omits "inside" defaults to solid, in this placeholder
+  // material - added to the table (and reused) lazily, only if some node
+  // actually needs it, so scenes that always specify "inside" explicitly
+  // don't carry an unused entry. Once material (rather than a node's own
+  // leaf substrate) governs the look, which of these an author never
+  // bothered to name won't matter anyway.
+  let defaultSolid = null;
+  function defaultSolidMaterial() {
+    if (defaultSolid === null) {
+      defaultSolid = table.length;
+      table.push({ albedo: [0.7, 0.7, 0.7], albedo2: [0.3, 0.3, 0.3],
+                   scale: 1, kind: 0, params: [0, 0], solid: true });
+    }
+    return defaultSolid;
+  }
+
   function primOf(def, path) {
     let p;
     if (def.sphere) {
@@ -617,15 +633,15 @@ export function compileScene(spec) {
         .map((d, i) => operand(d, `${path}.union[${i}]`))
         .reduce((acc, p) => union(acc, p));
     } else {
-      if (def.inside === undefined || def.outside === undefined) {
-        at(path, 'node needs both inside and outside');
-      }
+      // "inside" defaults to a plain solid, "outside" to empty: a bare
+      // primitive with neither is just a simple solid shape.
+      const insideTree = def.inside !== undefined
+        ? tree(def.inside, `${path}.inside`)
+        : solid(defaultSolidMaterial());
+      const outsideTree = tree(def.outside !== undefined ? def.outside : 'empty', `${path}.outside`);
       const { paint, env } = paintOf(def, path);
       const material = materialOf(def, path) ?? paint;
-      out = node(primOf(def, path),
-                 tree(def.inside,  `${path}.inside`),
-                 tree(def.outside, `${path}.outside`),
-                 paint, env, material);
+      out = node(primOf(def, path), insideTree, outsideTree, paint, env, material);
     }
 
     // Positions a subtree in world space by translating every primitive in
