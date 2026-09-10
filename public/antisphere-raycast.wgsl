@@ -108,6 +108,15 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // occupancy, but a packing bug (segScope forgetting to sign-extend) is what
 // just spent an afternoon painting cavity interiors as garbage material
 // indices, so for now clarity wins over the four words this could be.
+//
+// trace() also returns a Seg, reusing it as the hit result rather than
+// having a separate Hit type: t0 < 0 means no hit (the same "miss is
+// negative" convention traceFrom() already hands back to its callers),
+// entry is the node whose surface was hit, scope holds the resolved
+// material, and env holds the medium at the hit. node keeps the leaf's raw
+// substrate encoding and t1 the far bound of the hit region, neither used
+// yet, but there for transparency/refraction to reach for later without
+// another struct change.
 struct Seg {
   node  : i32,   // the subtree still to visit, negative for a leaf
   entry : i32,   // the node whose surface bounds t0, or -1 for none
@@ -116,16 +125,8 @@ struct Seg {
   scope : i32,   // material scope inherited from enclosing nodes
   env   : i32,   // environment scope, 0 meaning inherit
 };
-struct Hit { hit : bool, t : f32, node : i32, mat : i32, env : i32, };
 
-fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
-  var hit : Hit;
-  hit.hit = false;
-  hit.t = tMax;
-  hit.node = -1;
-  hit.mat = 0;
-  hit.env = 0;
-
+fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
   // The region the ray is currently passing through. Leaves tile the ray and
   // pop in non-decreasing t, so the last void leaf popped before a solid is
   // the region touching that surface. That makes the medium a running
@@ -160,9 +161,6 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       }
       // Front-to-back ordering means the first solid leaf popped is nearest.
       let entry = seg.entry;
-      hit.hit = true;
-      hit.t = seg.t0;
-      hit.node = entry;
       // Paint names the surface a node generates, so the node crossed to
       // arrive here wins. INHERIT is 0 and defers to whatever is in scope;
       // BARE (-1) and any explicit material both override it outright.
@@ -171,9 +169,8 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
         let entryPaint = (nodes[entry].paint << 16) >> 16;
         if (entryPaint != 0) { painted = entryPaint; }
       }
-      hit.mat = select(substrate, painted, painted > 0);
-      hit.env = medium;
-      break;
+      let mat = select(substrate, painted, painted > 0);
+      return Seg(node, entry, seg.t0, seg.t1, mat, medium);
     }
 
     let nd = nodes[node];
@@ -240,7 +237,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       peakDepth = max(peakDepth, u32(sp));
     }
   }
-  return hit;
+  return Seg(0, -1, -1.0, tMax, 0, medium);   // t0 < 0: no hit
 }
 
 // ---------------------------------------------------------------------------
@@ -274,8 +271,9 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  let hit = trace(q.o, q.d, q.tMin, q.tMax);
-  rayResults[i] = select(-1.0, hit.t, hit.hit);
+  // trace()'s own miss convention (t0 < 0) already matches this buffer's,
+  // so the result needs no translation.
+  rayResults[i] = trace(q.o, q.d, q.tMin, q.tMax).t0;
 }
 
 // Surface parameterization from the node's own five numbers. A plane gets a
@@ -359,7 +357,7 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
       // Any solid between here and the light occludes it. The front-to-back
       // traversal already stops at the first one.
       shadowRays = shadowRays + 1u;
-      if (trace(shadowOrigin, L, bias, dist - bias).hit) { continue; }
+      if (trace(shadowOrigin, L, bias, dist - bias).t0 >= 0.0) { continue; }
     }
 
     // Inverse square, softened near zero so a light sitting on a surface
@@ -434,11 +432,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // Ablation. Each stage's output has to stay live or the compiler will
   // delete the work being measured, so every level writes something derived
   // from what it computed.
-  var h : Hit;
-  h.hit = false;
-  h.t = 0.0;
-  h.node = -1;
-  h.mat = 0;
+  var h = Seg(0, -1, -1.0, 0.0, 0, 0);   // t0 < 0: no hit
   if (cam.ablate >= ABLATE_TRACE) {
     h = trace(cam.origin, dir, 1e-3, 1e4);
   }
@@ -448,18 +442,18 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (cam.ablate < ABLATE_TRACE) {
     col = abs(dir) * 0.25;
   } else if (cam.ablate < ABLATE_SHADE) {
-    col = select(vec3<f32>(0.0), vec3<f32>(fract(h.t * 0.05)), h.hit);
-  } else if (h.hit) {
-    if (h.node < 0) {
+    col = select(vec3<f32>(0.0), vec3<f32>(fract(h.t0 * 0.05)), h.t0 >= 0.0);
+  } else if (h.t0 >= 0.0) {
+    if (h.entry < 0) {
       col = vec3<f32>(0.25, 0.04, 0.05);   // camera started inside solid
     } else {
-      let nd = nodes[h.node];
+      let nd = nodes[h.entry];
       var s : Surf;
-      s.P = cam.origin + h.t * dir;
+      s.P = cam.origin + h.t0 * dir;
       s.N = normalize(gradAt(nd, s.P));
       if (dot(s.N, dir) > 0.0) { s.N = -s.N; }   // face the ray
       s.V = -dir;
-      s.m = materials[h.mat];
+      s.m = materials[h.scope];
       s.st = frame(nd, s.P) * s.m.scale;
       s.env = h.env;
       N = s.N;
@@ -473,8 +467,8 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     case DEBUG_SHADOW:   { outCol = ramp(f32(shadowRays) / max(1.0, f32(arrayLength(&lights)))); }
     case DEBUG_DEPTH:    { outCol = ramp(f32(peakDepth) / 32.0); }
     case DEBUG_MATERIAL: {
-      let f = f32(h.mat) * 1.9;
-      outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), h.hit);
+      let f = f32(h.scope) * 1.9;
+      outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), h.t0 >= 0.0);
     }
     case DEBUG_NORMAL:   { outCol = N * 0.5 + 0.5; }
     default: {}
