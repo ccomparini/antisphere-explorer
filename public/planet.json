@@ -40,56 +40,48 @@
   "objects": {
     "bitten": {
       "sphere": { "center": [-1.35, 0, 0.25], "radius": 1.15 },
-      "paint": "stone",
+      "material": "core",
       "inside": {
         "plane": { "normal": [0, 0, 1], "offset": 0.95 },
+        "material": "shell",
         "inside": {
           "sphere": { "center": [-0.75, 0.8, 0.85], "radius": 0.8 },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": { "solid": "core" }
-        },
-        "outside": "empty"
+          "complement": true,
+          "material": "core"
+        }
       },
-      "outside": "empty"
+      "outside": {
+        "sphere": { "center": [-1.35, 0, 0.80], "radius": 0.65 },
+        "material": "shell"
+      }
     },
 
     "lens": {
       "sphere": { "center": [0.95, 0, 0.15], "radius": 1.15 },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "sphere": { "center": [1.85, 0, 0.15], "radius": 1.15 },
-        "inside": { "solid": "brass" },
-        "outside": "empty"
-      },
-      "outside": "empty"
+        "material": "brass"
+      }
     },
 
     "marbles": {
       "group": [
         {
           "sphere": { "center": [-0.4, -2.6, -0.0], "radius": 0.38 },
-          "paint": "core",
-          "inside": { "solid": "core" },
-          "outside": "empty"
+          "material": "core"
         },
         {
           "sphere": { "center": [0.6, -2.9, -0.0], "radius": 0.38 },
-          "paint": "brass",
-          "inside": { "solid": "brass" },
-          "outside": "empty"
+          "material": "brass"
         },
         {
           "sphere": { "center": [1.55, -2.5, -0.0], "radius": 0.38 },
-          "paint": "jade",
-          "inside": { "solid": "jade" },
-          "outside": "empty"
+          "material": "jade"
         },
         {
           "sphere": { "center": [0.55, -1.75, 0.0], "radius": 0.38 },
-          "paint": "chalk",
-          "inside": { "solid": "chalk" },
-          "outside": "empty"
+          "material": "chalk"
         }
       ]
     }
@@ -97,8 +89,7 @@
 
   "root": {
     "sphere": { "center": [0, 0, -500], "radius": 500 },
-    "paint": "partition",
-    "inside": { "solid": "shell" },
+    "material": "shell",
     "outside": { "group": ["bitten", "lens", "marbles"] }
   }
 }

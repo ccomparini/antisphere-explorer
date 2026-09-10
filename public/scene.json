@@ -2885,10 +2885,7 @@
         ],
         "offset": -1.0
       },
-      "paint": "partition",
-      "inside": {
-        "solid": "floor"
-      },
+      "material": "floor",
       "outside": {
         "group": [
           "bead00",
