@@ -171,6 +171,56 @@ function translateTree(t, offset) {
               t.paint, t.env);
 }
 
+// Resolves paint inheritance once, here, instead of once per ray in
+// antisphere-raycast.wgsl's trace(). Walks the authored tree with the same
+// two rules trace() currently applies at runtime:
+//
+//   - Descending into a node's *inside* threads its own paint forward as
+//     the scope for whatever's below it, unless that paint is INHERIT (in
+//     which case the incoming scope keeps threading through unchanged).
+//   - A leaf directly under a node - on *either* side, inside or outside -
+//     resolves against that node's own paint first (BARE or a material
+//     wins outright; INHERIT falls back to the threaded scope), matching
+//     the "entry" override trace() applies regardless of which side. This
+//     is the mechanism BARE actually depends on: ordinary scope-threading
+//     alone only ever updates on the inside, so BARE's carving effect on a
+//     node's outside leaf (e.g. scene.json's "bitten" object) would be
+//     lost without it.
+//
+// Memoized by (subtree, scope) so a named object reused under the same
+// scope still collapses to one baked subtree - only reuse under genuinely
+// different scopes duplicates it, which is required for correctness: the
+// same subtree can resolve to different materials in different contexts.
+function resolveInheritance(tree, rootScope) {
+  const memo = new Map();   // scope -> (subtree -> baked), keyed outer-first
+
+  // A leaf's baked material: `entryPaint` is already fully resolved by the
+  // time it gets here (it's either a node's own paint, or - when that
+  // paint is INHERIT - whatever scope was already threaded in, per `here`
+  // below), so it alone decides: a real material wins outright, otherwise
+  // the leaf keeps its own substrate. Vacuum is never painted either way.
+  const bakeLeaf = (leaf, entryPaint) => (leaf === 0 ? leaf : (entryPaint > 0 ? entryPaint : leaf));
+
+  const resolve = (t, scope) => {
+    if (t === EMPTY) return EMPTY;
+    let byScope = memo.get(scope);
+    if (!byScope) { byScope = new Map(); memo.set(scope, byScope); }
+    if (byScope.has(t)) return byScope.get(t);
+    let out;
+    if (t.leaf !== undefined) {
+      out = solid(bakeLeaf(t.leaf, INHERIT));   // a bare leaf has no owning node: pure inherit
+    } else {
+      const here = t.paint !== INHERIT ? t.paint : scope;
+      const child = (c, childScope) =>
+        (c !== EMPTY && c.leaf !== undefined) ? solid(bakeLeaf(c.leaf, here)) : resolve(c, childScope);
+      out = node(t.prim, child(t.inside, here), child(t.outside, scope), INHERIT, t.env);
+    }
+    byScope.set(t, out);
+    return out;
+  };
+  return resolve(tree, rootScope);
+}
+
 // Leaves are encoded in the child index: child < 0 means a leaf whose
 // substrate is (-1 - child), so EMPTY is -1 and vacuum is material 0.
 function flatten(tree) {
@@ -574,7 +624,7 @@ export function compileScene(spec) {
 
   if (!spec.root) at('root', 'missing');
   return {
-    nodes: flatten(tree(spec.root, 'root')),
+    nodes: flatten(resolveInheritance(tree(spec.root, 'root'), INHERIT)),
     materials: table,
     lights: lightList,
     camera: spec.camera || null,

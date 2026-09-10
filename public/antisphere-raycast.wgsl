@@ -15,9 +15,11 @@ struct Node {
   curvature      : f32,         // signed, 1/(2r); zero is a plane
   inside         : i32,
   outside        : i32,
-  // Two 16-bit halves, so scoped state costs no extra node bytes. Low half is
-  // the surface paint: >= 0 sets scope, 0 clears it, negative leaves it alone.
-  // High half is an environment index, 0 meaning inherit.
+  // Two 16-bit halves, so scoped state costs no extra node bytes. High half
+  // is an environment index, 0 meaning inherit. Low half is dead weight:
+  // it used to be the surface paint, but antisphere-scene.js's
+  // resolveInheritance() now bakes that inheritance into each leaf's
+  // substrate once, at compile time, so trace() never reads it.
   paint          : i32,
 };
 
@@ -109,20 +111,24 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // just spent an afternoon painting cavity interiors as garbage material
 // indices, so for now clarity wins over the four words this could be.
 //
+// No material-scope field anymore: antisphere-scene.js's resolveInheritance()
+// now bakes paint inheritance into each leaf's substrate once, at compile
+// time, rather than trace() resolving it once per ray. A leaf's substrate
+// (-1 - node) is already the final material.
+//
 // trace() also returns a Seg, reusing it as the hit result rather than
 // having a separate Hit type: t0 < 0 means no hit (the same "miss is
 // negative" convention traceFrom() already hands back to its callers),
-// entry is the node whose surface was hit, scope holds the resolved
-// material, and env holds the medium at the hit. node keeps the leaf's raw
-// substrate encoding and t1 the far bound of the hit region, neither used
-// yet, but there for transparency/refraction to reach for later without
-// another struct change.
+// entry is the node whose surface was hit, and env holds the medium at the
+// hit. node keeps the leaf's raw substrate encoding (the resolved material
+// is -1 - node) and t1 the far bound of the hit region, neither read by
+// anything yet, but there for transparency/refraction to reach for later
+// without another struct change.
 struct Seg {
   node  : i32,   // the subtree still to visit, negative for a leaf
   entry : i32,   // the node whose surface bounds t0, or -1 for none
   t0    : f32,
   t1    : f32,
-  scope : i32,   // material scope inherited from enclosing nodes
   env   : i32,   // environment scope, 0 meaning inherit
 };
 
@@ -136,7 +142,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
   var medium : i32 = 0;
 
   var stack : array<Seg, 32>;
-  stack[0] = Seg(0, -1, tMin, tMax, 0, 0);
+  stack[0] = Seg(0, -1, tMin, tMax, 0);
   var sp : i32 = 1;
 
   var guard : i32 = 0;
@@ -149,28 +155,19 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
     if (seg.t1 - seg.t0 <= 1e-6) { continue; }
 
     let node = seg.node;
-    let scope = seg.scope;
     let env = seg.env;
 
     if (node < 0) {
-      // Leaf. Its substrate is (-1 - node), and 0 is vacuum.
-      let substrate = -1 - node;
-      if (substrate == 0) {
+      // Leaf. Its substrate (-1 - node) is already the fully resolved
+      // material - antisphere-scene.js's resolveInheritance() bakes paint
+      // inheritance in once, at compile time, so there's nothing left to
+      // resolve here. 0 is vacuum.
+      if (node == -1) {
         medium = env;
         continue;
       }
       // Front-to-back ordering means the first solid leaf popped is nearest.
-      let entry = seg.entry;
-      // Paint names the surface a node generates, so the node crossed to
-      // arrive here wins. INHERIT is 0 and defers to whatever is in scope;
-      // BARE (-1) and any explicit material both override it outright.
-      var painted = scope;
-      if (entry >= 0) {
-        let entryPaint = (nodes[entry].paint << 16) >> 16;
-        if (entryPaint != 0) { painted = entryPaint; }
-      }
-      let mat = select(substrate, painted, painted > 0);
-      return Seg(node, entry, seg.t0, seg.t1, mat, medium);
+      return Seg(node, seg.entry, seg.t0, seg.t1, medium);
     }
 
     let nd = nodes[node];
@@ -217,27 +214,25 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       // Midpoint sign picks the child. Robust, and avoids reasoning about
       // which root is an entry and which is an exit.
       var child = nd.outside;
-      var childScope = scope;
       var childEnv = env;
       if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) {
         child = nd.inside;
-        // Paint and environment both scope the region f < 0 and nothing else.
-        // To scope the far side instead, flip the node: negating all five
-        // numbers is free, so the representation pays for this rule rather
-        // than the traversal.
-        let paint = (nd.paint << 16) >> 16;   // low half, sign extended
-        let nodeEnv = nd.paint >> 16;         // high half, 0 means inherit
-        if (paint != 0) { childScope = paint; }   // 0 is INHERIT; BARE (-1) and materials both win
+        // Environment scopes the region f < 0 and nothing else. To scope
+        // the far side instead, flip the node: negating all five numbers
+        // is free, so the representation pays for this rule rather than
+        // the traversal. (Paint's low half, once read here too, is dead
+        // weight post-bake: resolveInheritance() already resolved it.)
+        let nodeEnv = nd.paint >> 16;   // high half, 0 means inherit
         if (nodeEnv != 0) { childEnv = nodeEnv; }
       }
       var ent = inherited;
       if (i > 0) { ent = node; }
-      stack[sp] = Seg(child, ent, sa, sb, childScope, childEnv);
+      stack[sp] = Seg(child, ent, sa, sb, childEnv);
       sp = sp + 1;
       peakDepth = max(peakDepth, u32(sp));
     }
   }
-  return Seg(0, -1, -1.0, tMax, 0, medium);   // t0 < 0: no hit
+  return Seg(0, -1, -1.0, tMax, medium);   // t0 < 0: no hit
 }
 
 // ---------------------------------------------------------------------------
@@ -432,7 +427,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // Ablation. Each stage's output has to stay live or the compiler will
   // delete the work being measured, so every level writes something derived
   // from what it computed.
-  var h = Seg(0, -1, -1.0, 0.0, 0, 0);   // t0 < 0: no hit
+  var h = Seg(0, -1, -1.0, 0.0, 0);   // t0 < 0: no hit
   if (cam.ablate >= ABLATE_TRACE) {
     h = trace(cam.origin, dir, 1e-3, 1e4);
   }
@@ -453,7 +448,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       s.N = normalize(gradAt(nd, s.P));
       if (dot(s.N, dir) > 0.0) { s.N = -s.N; }   // face the ray
       s.V = -dir;
-      s.m = materials[h.scope];
+      s.m = materials[-1 - h.node];   // h.node is the hit leaf's raw encoding; substrate is already the final material
       s.st = frame(nd, s.P) * s.m.scale;
       s.env = h.env;
       N = s.N;
@@ -467,7 +462,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     case DEBUG_SHADOW:   { outCol = ramp(f32(shadowRays) / max(1.0, f32(arrayLength(&lights)))); }
     case DEBUG_DEPTH:    { outCol = ramp(f32(peakDepth) / 32.0); }
     case DEBUG_MATERIAL: {
-      let f = f32(h.scope) * 1.9;
+      let f = f32(-1 - h.node) * 1.9;
       outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), h.t0 >= 0.0);
     }
     case DEBUG_NORMAL:   { outCol = N * 0.5 + 0.5; }
