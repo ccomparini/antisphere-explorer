@@ -123,6 +123,45 @@ function union(t, other) {
   return node(t.prim, union(t.inside, other), union(t.outside, other), t.paint, t.env);
 }
 
+// Rigid translation of a primitive by a world-space offset. n and a are
+// defined relative to the global origin (see the module comment up top),
+// so translating anything - not just a sphere's center - changes both:
+// recover the center implied by (n, a, k), move it, then re-derive (n, a)
+// from the new center, keeping the same sign of (a - r) so a small move
+// can't flip which side of the primitive counts as "inside". Curvature -
+// the sphere's size, sign included - never changes under a translation.
+function translatePrim(prim, t) {
+  const { surface_normal: n, p0_dist: a, curvature: k } = prim;
+  if (k === 0) {
+    // A plane's normal doesn't move; only its offset does, by however far
+    // along that normal the translation goes.
+    const shift = n[0] * t[0] + n[1] * t[1] + n[2] * t[2];
+    return { surface_normal: n, p0_dist: a + shift, curvature: k };
+  }
+  const r = 1 / (2 * k);
+  const sign = (a - r) < 0 ? -1 : 1;
+  const c = n.map((v) => v * (a - r));
+  const c2 = c.map((v, i) => v + t[i]);
+  const mag = Math.hypot(c2[0], c2[1], c2[2]);
+  const n2 = mag > 1e-9 ? c2.map((v) => sign * v / mag) : n;
+  return { surface_normal: n2, p0_dist: sign * mag + r, curvature: k };
+}
+
+// Rigid translation of a whole subtree: every node's own primitive moves,
+// recursively, since each one's (n, a, k) is in the same global frame (see
+// translatePrim). This is what "translate" (see tree()) rides on to place
+// an object authored once under "objects" wherever it's needed, instead
+// of copying and hand-editing every number in it per instance. A
+// translated copy is genuinely different geometry from the original, so
+// unlike a plain "use" it can't share nodes with it once flattened.
+function translateTree(t, offset) {
+  if (isLeaf(t)) return t;
+  return node(translatePrim(t.prim, offset),
+              translateTree(t.inside, offset),
+              translateTree(t.outside, offset),
+              t.paint, t.env);
+}
+
 // Leaves are encoded in the child index: child < 0 means a leaf whose
 // substrate is (-1 - child), so EMPTY is -1 and vacuum is material 0.
 function flatten(tree) {
@@ -225,7 +264,9 @@ function boundOf(t, declared, memo) {
 //
 // Turns scene.json into flat node, material, and light tables. Named entries
 // under "objects" are built once and shared by reference, so a subtree used
-// in several places collapses to one set of nodes when flattened.
+// in several places collapses to one set of nodes when flattened - unless
+// it's placed with "translate", which moves it (see translateTree) and so
+// can no longer share nodes with the original or with other instances.
 // ---------------------------------------------------------------------------
 
 export function compileScene(spec) {
@@ -500,6 +541,18 @@ export function compileScene(spec) {
                  tree(def.inside,  `${path}.inside`),
                  tree(def.outside, `${path}.outside`),
                  paint, env);
+    }
+
+    // Positions a subtree in world space by translating every primitive in
+    // it - see translateTree(). Works on any of the branches above, so an
+    // object built once under "objects" can be dropped wherever it's
+    // needed via { "use": "name", "translate": [x, y, z] }, instead of
+    // being copied and hand-edited per instance.
+    if (def.translate !== undefined) {
+      if (!Array.isArray(def.translate) || def.translate.length !== 3) {
+        at(`${path}.translate`, 'needs a [x, y, z] offset');
+      }
+      out = translateTree(out, def.translate);
     }
 
     if (def.bounds) {
