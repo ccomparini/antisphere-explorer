@@ -321,22 +321,21 @@ export function compileScene(spec) {
 
   // "paint" is deprecated in favor of naming a material directly: a
   // node's own material is read straight off it at render time now,
-  // rather than resolved from ancestor scope, so paint's PARTITION/
-  // INHERIT sentinels collapse into simply not specifying a material at
-  // all (NO_MATERIAL). BARE has no equivalent: it used to reveal a leaf's
-  // own substrate regardless of scope, but there is no more scope to
-  // override, and no more separate leaf substrate consulted for
-  // rendering either - name the desired material directly on whichever
-  // node used to rely on "bare" instead.
+  // rather than resolved from ancestor scope, so all three of paint's old
+  // sentinels - PARTITION, INHERIT, and BARE - collapse into simply not
+  // specifying a material at all (NO_MATERIAL). BARE used to reveal a
+  // leaf's own substrate regardless of scope; there is no more scope to
+  // override and no more separate leaf substrate consulted for rendering,
+  // so a node that relied on it will misrender (show whatever NO_MATERIAL
+  // resolves to) rather than what its author intended - name the desired
+  // material directly on that node to fix it.
   function materialAndEnvOf(def, path) {
     if (def.material !== undefined) return resolveMaterialName(def.material, `${path}.material`);
     if (def.paint === undefined) return { material: NO_MATERIAL, env: 0 };
     console.warn(`scene.json ${path}.paint: "paint" is deprecated - use "material" instead.`);
-    if (def.paint === 'bare') {
-      at(`${path}.paint`, '"bare" is no longer supported - name this node\'s ' +
-                          'own "material" directly instead');
+    if (def.paint === 'partition' || def.paint === 'inherit' || def.paint === 'bare') {
+      return { material: NO_MATERIAL, env: 0 };
     }
-    if (def.paint === 'partition' || def.paint === 'inherit') return { material: NO_MATERIAL, env: 0 };
     return resolveMaterialName(def.paint, `${path}.paint`);
   }
 
