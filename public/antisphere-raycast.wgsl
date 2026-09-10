@@ -20,12 +20,13 @@ struct Node {
   // it used to be the surface paint, but antisphere-scene.js's
   // resolveInheritance() now bakes that inheritance into each leaf's
   // substrate once, at compile time, so trace() never reads it.
-  paint          : i32,
-  // Not read by anything yet - antisphere-scene.js populates it (see
-  // Node.material there) ahead of the eventual rework that replaces paint
-  // with this outright. Adding it bumped the struct past 32 bytes, so its
-  // storage-array stride jumped to the next 16-byte multiple, 48, not 36 -
-  // see packNodes()'s comment in antisphere-scene.js for the exact layout.
+  paint          : i32,  // Deprecated - will be removed.
+
+  // "material" describes what's inside the node.  It may be solid,
+  // or some modifier to how a region is rendered (including light
+  // effects or things like haze), or even just empty space, which
+  // is useful if you want to use nodes to subdivide space for scoping
+  // other things (say, collisions).
   material       : i32,
 };
 
@@ -454,7 +455,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       s.N = normalize(gradAt(nd, s.P));
       if (dot(s.N, dir) > 0.0) { s.N = -s.N; }   // face the ray
       s.V = -dir;
-      s.m = materials[-1 - h.node];   // h.node is the hit leaf's raw encoding; substrate is already the final material
+      s.m = materials[nd.material];
       s.st = frame(nd, s.P) * s.m.scale;
       s.env = h.env;
       N = s.N;
