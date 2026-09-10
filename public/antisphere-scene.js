@@ -331,9 +331,13 @@ function boundOf(t, declared, memo) {
 export function compileScene(spec) {
   const at = (path, msg) => { throw new Error(`scene.json ${path}: ${msg}`); };
 
-  // Material 0 is vacuum and is never shaded.
+  // Material 0 is vacuum: never shaded, and - unlike every authored
+  // material - not solid. Nothing reads a material's own solidity yet
+  // (trace() still decides solid-or-not from which leaf you land on, per
+  // antisphere-raycast.wgsl), but this is the concept the eventual
+  // material/solidity rework hangs the rest of it on.
   const table = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0],
-                   pattern: 0, scale: 1, kind: 0, params: [0, 0] }];
+                   pattern: 0, scale: 1, kind: 0, params: [0, 0], solid: false }];
   const matIndex = new Map();
   for (const [name, def] of Object.entries(spec.materials || {})) {
     if (PAINT_WORDS[name] !== undefined) at(`materials.${name}`, 'name is reserved');
@@ -351,6 +355,7 @@ export function compileScene(spec) {
       kind:    kind.id,
       params:  kind.params(def),
       pattern,
+      solid:   def.solid ?? true,   // e.g. water/glass will want solid: false later
     });
     matIndex.set(name, table.length - 1);
   }
