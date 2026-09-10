@@ -677,13 +677,21 @@ export function packMaterials(list) {
   return buf;
 }
 
-// 32 bytes per node: vec3 n | f32 a | f32 k | i32 inside | i32 outside |
-//                    i32 (env << 16 | paint)
+// 48 bytes per node: vec3 n | f32 a | f32 k | i32 inside | i32 outside |
+//                    i32 (env << 16 | paint) | i32 material | 12 bytes pad.
+//
+// The 9 real words above are only 36 bytes, but WGSL's storage-array
+// stride for a struct rounds up to a multiple of the struct's own
+// alignment - 16, inherited from the leading vec3 - so adding `material`
+// (word 8) pushed the per-node stride from 32 to 48, not 36. Getting this
+// wrong silently corrupts every node after the first, so if another field
+// ever gets added here, recompute the stride the same way: lay out real
+// words in order, then round the total up to the next multiple of 16.
 export function packNodes(list) {
-  const buf = new ArrayBuffer(list.length * 32);
+  const buf = new ArrayBuffer(list.length * 48);
   const f = new Float32Array(buf), i = new Int32Array(buf);
   list.forEach((nd, j) => {
-    const o = j * 8;
+    const o = j * 12;
     f[o + 0] = nd.prim.surface_normal[0];
     f[o + 1] = nd.prim.surface_normal[1];
     f[o + 2] = nd.prim.surface_normal[2];
@@ -691,9 +699,10 @@ export function packNodes(list) {
     f[o + 4] = nd.prim.curvature;
     i[o + 5] = nd.inside;
     i[o + 6] = nd.outside;
-    // Low half surface paint, high half environment index. Keeps a node at
-    // 32 bytes, which matters more than the two shifts it costs the shader.
+    // Low half surface paint, high half environment index.
     i[o + 7] = ((nd.env & 0xFFFF) << 16) | (nd.paint & 0xFFFF);
+    i[o + 8] = nd.material;
+    // o+9..o+11 are the 12 bytes of trailing pad; left zeroed.
   });
   return buf;
 }

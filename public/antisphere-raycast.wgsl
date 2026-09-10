@@ -21,6 +21,12 @@ struct Node {
   // resolveInheritance() now bakes that inheritance into each leaf's
   // substrate once, at compile time, so trace() never reads it.
   paint          : i32,
+  // Not read by anything yet - antisphere-scene.js populates it (see
+  // Node.material there) ahead of the eventual rework that replaces paint
+  // with this outright. Adding it bumped the struct past 32 bytes, so its
+  // storage-array stride jumped to the next 16-byte multiple, 48, not 36 -
+  // see packNodes()'s comment in antisphere-scene.js for the exact layout.
+  material       : i32,
 };
 
 struct Material {
