@@ -108,6 +108,15 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // occupancy, but a packing bug (segScope forgetting to sign-extend) is what
 // just spent an afternoon painting cavity interiors as garbage material
 // indices, so for now clarity wins over the four words this could be.
+//
+// trace() also returns a Seg, reusing it as the hit result rather than
+// having a separate Hit type: t0 < 0 means no hit (the same "miss is
+// negative" convention traceFrom() already hands back to its callers),
+// entry is the node whose surface was hit, scope holds the resolved
+// material, and env holds the medium at the hit. node keeps the leaf's raw
+// substrate encoding and t1 the far bound of the hit region, neither used
+// yet, but there for transparency/refraction to reach for later without
+// another struct change.
 struct Seg {
   node  : i32,   // the subtree still to visit, negative for a leaf
   entry : i32,   // the node whose surface bounds t0, or -1 for none
@@ -117,20 +126,7 @@ struct Seg {
   env   : i32,   // environment scope, 0 meaning inherit
 };
 
-// trace()'s result: just the fields its callers actually read today. Having
-// trace() return a Seg directly (dropping this type) measured 30-40% slower
-// GPU time despite Seg being only ~50% bigger than this, consistent with the
-// dynamically-indexed array<Seg,32> traversal stack crossing an occupancy
-// cliff rather than costing proportionally to size. This experiment keeps
-// that stack as-is and only shrinks what trace() hands back, to see whether
-// the return value's size was the actual cost.
-//
-// t0 < 0 means no hit (the same "miss is negative" convention traceFrom()
-// already hands back to its callers), entry is the node whose surface was
-// hit, scope holds the resolved material, env holds the medium at the hit.
-struct Hit { t0 : f32, entry : i32, scope : i32, env : i32, };
-
-fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
+fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
   // The region the ray is currently passing through. Leaves tile the ray and
   // pop in non-decreasing t, so the last void leaf popped before a solid is
   // the region touching that surface. That makes the medium a running
@@ -174,7 +170,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
         if (entryPaint != 0) { painted = entryPaint; }
       }
       let mat = select(substrate, painted, painted > 0);
-      return Hit(seg.t0, entry, mat, medium);
+      return Seg(node, entry, seg.t0, seg.t1, mat, medium);
     }
 
     let nd = nodes[node];
@@ -241,7 +237,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       peakDepth = max(peakDepth, u32(sp));
     }
   }
-  return Hit(-1.0, -1, 0, medium);   // t0 < 0: no hit
+  return Seg(0, -1, -1.0, tMax, 0, medium);   // t0 < 0: no hit
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +432,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // Ablation. Each stage's output has to stay live or the compiler will
   // delete the work being measured, so every level writes something derived
   // from what it computed.
-  var h = Hit(-1.0, -1, 0, 0);   // t0 < 0: no hit
+  var h = Seg(0, -1, -1.0, 0.0, 0, 0);   // t0 < 0: no hit
   if (cam.ablate >= ABLATE_TRACE) {
     h = trace(cam.origin, dir, 1e-3, 1e4);
   }
