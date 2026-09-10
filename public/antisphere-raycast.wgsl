@@ -15,19 +15,17 @@ struct Node {
   curvature      : f32,         // signed, 1/(2r); zero is a plane
   inside         : i32,
   outside        : i32,
-  // Two 16-bit halves, so scoped state costs no extra node bytes. High half
-  // is an environment index, 0 meaning inherit. Low half is dead weight:
-  // it used to be the surface paint, but antisphere-scene.js's
-  // resolveInheritance() now bakes that inheritance into each leaf's
-  // substrate once, at compile time, so trace() never reads it.
-  paint          : i32,  // Deprecated - will be removed.
 
-  // "material" describes what's inside the node.  It may be solid,
-  // or some modifier to how a region is rendered (including light
-  // effects or things like haze), or even just empty space, which
-  // is useful if you want to use nodes to subdivide space for scoping
-  // other things (say, collisions).
+  // "material" describes what's inside the node: an index into the
+  // materials table (0 is vacuum), read directly wherever this node is
+  // the surface a ray actually crossed - there is no ancestor-scope
+  // fallback anymore, so a node that wants to be visible names its own
+  // material. It may be solid, or some modifier to how a region is
+  // rendered (including light effects or things like haze), or even just
+  // empty space, which is useful if you want to use nodes to subdivide
+  // space for scoping other things (say, collisions).
   material       : i32,
+  env            : i32,   // environment index, 0 meaning inherit
 };
 
 struct Material {
@@ -45,7 +43,7 @@ const KIND_GLOSSY   : u32 = 1u;
 const KIND_EMISSIVE : u32 = 2u;
 const KIND_UNLIT    : u32 = 3u;
 // An ambient container never shades. The compiler moves it into a node's
-// environment half and leaves the paint half as PARTITION, so the node is
+// env field and leaves its material as vacuum (0), so the node is a pure
 // spatial division that happens to set the ambient level beneath it.
 const KIND_AMBIENT  : u32 = 4u;
 
@@ -115,22 +113,23 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // the subtree that interval still has to be tested against. Plain fields
 // rather than packed words: the array is per-invocation, so this costs more
 // occupancy, but a packing bug (segScope forgetting to sign-extend) is what
-// just spent an afternoon painting cavity interiors as garbage material
+// once spent an afternoon painting cavity interiors as garbage material
 // indices, so for now clarity wins over the four words this could be.
 //
-// No material-scope field anymore: antisphere-scene.js's resolveInheritance()
-// now bakes paint inheritance into each leaf's substrate once, at compile
-// time, rather than trace() resolving it once per ray. A leaf's substrate
-// (-1 - node) is already the final material.
+// No material-scope field: a hit's rendered material comes from
+// nodes[entry].material directly (main() reads it that way), not from the
+// leaf's own substrate - the leaf only ever decides solid-or-not (node ==
+// -1 is vacuum, anything else negative is solid) - so there is nothing
+// left for trace() to resolve about material at all.
 //
 // trace() also returns a Seg, reusing it as the hit result rather than
 // having a separate Hit type: t0 < 0 means no hit (the same "miss is
 // negative" convention traceFrom() already hands back to its callers),
-// entry is the node whose surface was hit, and env holds the medium at the
-// hit. node keeps the leaf's raw substrate encoding (the resolved material
-// is -1 - node) and t1 the far bound of the hit region, neither read by
-// anything yet, but there for transparency/refraction to reach for later
-// without another struct change.
+// entry is the node whose surface was hit (and whose .material to read),
+// and env holds the medium at the hit. node keeps the leaf's raw
+// substrate encoding and t1 the far bound of the hit region, neither read
+// by anything yet, but there for transparency/refraction to reach for
+// later without another struct change.
 struct Seg {
   node  : i32,   // the subtree still to visit, negative for a leaf
   entry : i32,   // the node whose surface bounds t0, or -1 for none
@@ -165,10 +164,9 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
     let env = seg.env;
 
     if (node < 0) {
-      // Leaf. Its substrate (-1 - node) is already the fully resolved
-      // material - antisphere-scene.js's resolveInheritance() bakes paint
-      // inheritance in once, at compile time, so there's nothing left to
-      // resolve here. 0 is vacuum.
+      // Leaf: -1 is vacuum, anything else negative is solid. That's all a
+      // leaf ever decides - its material (via -1 - node) doesn't matter
+      // to rendering, which reads nodes[entry].material instead.
       if (node == -1) {
         medium = env;
         continue;
@@ -227,10 +225,8 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
         // Environment scopes the region f < 0 and nothing else. To scope
         // the far side instead, flip the node: negating all five numbers
         // is free, so the representation pays for this rule rather than
-        // the traversal. (Paint's low half, once read here too, is dead
-        // weight post-bake: resolveInheritance() already resolved it.)
-        let nodeEnv = nd.paint >> 16;   // high half, 0 means inherit
-        if (nodeEnv != 0) { childEnv = nodeEnv; }
+        // the traversal.
+        if (nd.env != 0) { childEnv = nd.env; }
       }
       var ent = inherited;
       if (i > 0) { ent = node; }
@@ -469,8 +465,13 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     case DEBUG_SHADOW:   { outCol = ramp(f32(shadowRays) / max(1.0, f32(arrayLength(&lights)))); }
     case DEBUG_DEPTH:    { outCol = ramp(f32(peakDepth) / 32.0); }
     case DEBUG_MATERIAL: {
-      let f = f32(-1 - h.node) * 1.9;
-      outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), h.t0 >= 0.0);
+      // Same source main's shading uses (nodes[h.entry].material), not the
+      // hit leaf's substrate: they can differ now that a node's own
+      // material is what actually gets drawn. Guard h.entry, which is -1
+      // both on a miss and when the camera started inside solid.
+      let shown = h.t0 >= 0.0 && h.entry >= 0;
+      let f = f32(select(0, nodes[max(h.entry, 0)].material, shown)) * 1.9;
+      outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), shown);
     }
     case DEBUG_NORMAL:   { outCol = N * 0.5 + 0.5; }
     default: {}
