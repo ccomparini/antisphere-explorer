@@ -103,29 +103,20 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 }
 
 // A stack entry is a piece of work not yet done: an interval of the ray and
-// the subtree that interval still has to be tested against. Four words rather
-// than six, because the array is per-invocation and its width costs occupancy
-// more than the packing costs ALU.
-//
-//   ne  low half  the subtree still to visit, negative for a leaf
-//       high half the node whose surface bounds t0, biased by one so that
-//                 "none" is 0
-//   se  low half  material scope inherited from enclosing nodes
-//       high half environment scope, 0 meaning inherit
-struct Seg { ne : u32, t0 : f32, t1 : f32, se : u32, };
+// the subtree that interval still has to be tested against. Plain fields
+// rather than packed words: the array is per-invocation, so this costs more
+// occupancy, but a packing bug (segScope forgetting to sign-extend) is what
+// just spent an afternoon painting cavity interiors as garbage material
+// indices, so for now clarity wins over the four words this could be.
+struct Seg {
+  node  : i32,   // the subtree still to visit, negative for a leaf
+  entry : i32,   // the node whose surface bounds t0, or -1 for none
+  t0    : f32,
+  t1    : f32,
+  scope : i32,   // material scope inherited from enclosing nodes
+  env   : i32,   // environment scope, 0 meaning inherit
+};
 struct Hit { hit : bool, t : f32, node : i32, mat : i32, env : i32, };
-
-fn packNE(node : i32, entry : i32) -> u32 {
-  return (u32(entry + 1) << 16u) | (u32(node) & 0xFFFFu);
-}
-fn segNode(w : u32) -> i32 { return i32(w << 16u) >> 16u; }
-fn segEntry(w : u32) -> i32 { return i32(w >> 16u) - 1; }
-
-fn packSE(scope : i32, env : i32) -> u32 {
-  return (u32(env) << 16u) | (u32(scope) & 0xFFFFu);
-}
-fn segScope(w : u32) -> i32 { return i32(w << 16u) >> 16u; }
-fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
 
 fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
   var hit : Hit;
@@ -144,7 +135,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
   var medium : i32 = 0;
 
   var stack : array<Seg, 32>;
-  stack[0] = Seg(packNE(0, -1), tMin, tMax, packSE(0, 0));
+  stack[0] = Seg(0, -1, tMin, tMax, 0, 0);
   var sp : i32 = 1;
 
   var guard : i32 = 0;
@@ -156,9 +147,9 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     let seg = stack[sp];
     if (seg.t1 - seg.t0 <= 1e-6) { continue; }
 
-    let node = segNode(seg.ne);
-    let scope = segScope(seg.se);
-    let env = segEnv(seg.se);
+    let node = seg.node;
+    let scope = seg.scope;
+    let env = seg.env;
 
     if (node < 0) {
       // Leaf. Its substrate is (-1 - node), and 0 is vacuum.
@@ -168,7 +159,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
         continue;
       }
       // Front-to-back ordering means the first solid leaf popped is nearest.
-      let entry = segEntry(seg.ne);
+      let entry = seg.entry;
       hit.hit = true;
       hit.t = seg.t0;
       hit.node = entry;
@@ -219,7 +210,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     if (nr == 2 && r1 > seg.t0 && r1 < seg.t1) { b[nb] = r1; nb = nb + 1; }
     b[nb] = seg.t1;
 
-    let inherited = segEntry(seg.ne);
+    let inherited = seg.entry;
 
     // Push far to near so the nearest subsegment pops first.
     for (var i : i32 = nb - 1; i >= 0; i = i - 1) {
@@ -244,7 +235,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       }
       var ent = inherited;
       if (i > 0) { ent = node; }
-      stack[sp] = Seg(packNE(child, ent), sa, sb, packSE(childScope, childEnv));
+      stack[sp] = Seg(child, ent, sa, sb, childScope, childEnv);
       sp = sp + 1;
       peakDepth = max(peakDepth, u32(sp));
     }
