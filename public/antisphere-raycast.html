@@ -185,10 +185,25 @@ if (!navigator.gpu) {
       if (!built.lights.length) throw new Error('scene.json: needs at least one light');
       for (const b of [nodeBuf, lightBuf, matBuf]) if (b) b.destroy();
       scene = built;
-      nodeBuf  = upload(packNodes(built.nodes));
-      lightBuf = upload(packLights(built.lights));
-      matBuf   = upload(packMaterials(built.materials));
+      const nodeData = packNodes(built.nodes);
+      const lightData = packLights(built.lights);
+      const matData = packMaterials(built.materials);
+      nodeBuf  = upload(nodeData);
+      lightBuf = upload(lightData);
+      matBuf   = upload(matData);
       makeBindGroups();
+
+      // Instrumentation: compiled scene size, in nodes/materials/lights and
+      // packed bytes, for comparing tree-shape and encoding changes across
+      // branches. Byte counts matter alongside node counts because a
+      // node's own packed size isn't guaranteed constant across branches.
+      const total = nodeData.byteLength + lightData.byteLength + matData.byteLength;
+      console.log(
+        `scene size: ${built.nodes.length} nodes (${nodeData.byteLength} B) · ` +
+        `${built.materials.length} materials (${matData.byteLength} B) · ` +
+        `${built.lights.length} lights (${lightData.byteLength} B) · ` +
+        `total ${total} B`
+      );
     }
 
     const camBuf = device.createBuffer({
