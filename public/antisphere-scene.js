@@ -49,46 +49,33 @@ function complement(prim) {
 // ---------------------------------------------------------------------------
 // Materials
 //
-// One table, indexed from both places:
+// One table. A node names its own material directly - an index into this
+// table, 0 being vacuum - read at render time from whichever node's
+// surface a ray actually crossed (antisphere-raycast.wgsl's main() does
+// `materials[nodes[entry].material]`). There is no ancestor-scope fallback:
+// a node that wants to be visible names its own material, which is what
+// lets one CSG object show several materials on its different surfaces.
 //
-//   Leaf substrate   what the region is made of. Index 0 is vacuum, which is
-//                    how an empty leaf is spelled.
-//   Node paint       the material of the surface that node generates, and the
-//                    material in scope for the region f < 0 beneath it. It
-//                    does not reach the outside child: to scope the far side,
-//                    complement the node, which costs nothing.
+// Surface parameterization always comes from the node that was crossed,
+// never from the material, so a node's own (n, a, k) supplies the frame: a
+// tangent basis for planes, a center for spheres.
 //
-// At a hit the material resolves in this order: the paint of the node whose
-// surface was crossed, then the paint in scope from enclosing nodes, then the
-// leaf substrate. So a carving node can differ from the body it carves, which
-// is the whole point of having both.
-//
-// Node paint takes two sentinel values, plus any real material index:
-//
-//   INHERIT    takes whatever material is in scope. Mirrors how Node.env's
-//              0 already means "inherit": no material of its own, so
-//              nothing here overrides it. The builder is free to insert,
-//              hoist, or drop INHERIT nodes without changing appearance,
-//              which is also what PARTITION used to name; the two were
-//              always identical at render time, so there is now just one.
-//   BARE       clears the scope, revealing the leaf substrate underneath,
-//              regardless of what an ancestor painted. Kept distinct from
-//              INHERIT because scenes lean on it heavily (a carving node
-//              painted BARE exposes its own substrate on either side, e.g.
-//              scene.json's "bitten" object), and nothing else reproduces
-//              that effect: INHERIT-style scope-threading only ever runs on
-//              a node's inside, never its outside.
-//
-// Surface parameterization always comes from the node that was crossed, never
-// from the material, so a node's own (n, a, k) supplies the frame: a tangent
-// basis for planes, a center for spheres.
+// "paint" was the old name for this, resolved from ancestor scope at
+// render time instead of named directly on each node; materialAndEnvOf()
+// still accepts it, deprecated, for scenes not yet migrated.
 // ---------------------------------------------------------------------------
 
-const INHERIT   =  0;
-// Same value as INHERIT; kept as a separate name where it documents builder
-// intent (a synthesized spatial split, not an authored material choice).
-const PARTITION = INHERIT;
-const BARE      = -1;
+// Material 0 is reserved as vacuum (see compileScene()'s table), which
+// doubles as "this node has no material of its own" - a node's own
+// material is read directly, with no ancestor-scope fallback, so there is
+// nothing left for a node to "inherit" from at render time.
+const NO_MATERIAL = 0;
+
+// Recognized only via the deprecated "paint" field (see
+// materialAndEnvOf()), for scenes not yet migrated to naming a material
+// directly. Reserved as material names even so, to avoid a materials.foo
+// entry silently shadowing what used to be special syntax.
+const LEGACY_PAINT_WORDS = ['partition', 'inherit', 'bare'];
 
 const PATTERNS = { flat: 0, checker: 1 };
 
@@ -99,29 +86,20 @@ const KINDS = {
   glossy:   { id: 1, params: (d) => [d.shininess ?? 32, d.specular ?? 0.6] },
   emissive: { id: 2, params: (d) => [d.emission ?? 1, 0] },
   unlit:    { id: 3, params: () => [0, 0] },
-  // An ambient container never shades. Naming one as a node's paint turns
-  // that node into a pure partition whose albedo becomes the ambient level
-  // for everything in its inside subtree.
+  // An ambient container never shades. Naming one as a node's material
+  // moves it into env instead, leaving that node a pure spatial split
+  // whose albedo becomes the ambient level for everything inside it.
   ambient:  { id: 4, params: () => [0, 0] },
 };
 const KIND_AMBIENT = 4;
-const PAINT_WORDS = { partition: PARTITION, inherit: INHERIT, bare: BARE };
 
 // ---------------------------------------------------------------------------
 // Tree
 // ---------------------------------------------------------------------------
 
 // A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
-//
-// `material` is the first step of an eventual replacement for `paint`:
-// for now it just rides alongside it, defaulting to whatever `paint`
-// resolved to when a node doesn't set its own. Callers that copy an
-// existing node (rather than authoring a fresh one) should pass its
-// `.material` through explicitly, the same way they already do for
-// `.paint`/`.env` - otherwise a node with a `material` genuinely
-// different from its `paint` would silently lose that on the copy.
-function node(prim, inside, outside, paint = INHERIT, env = 0, material = paint) {
-  return { prim, inside, outside, paint, env, material };
+function node(prim, inside, outside, material = NO_MATERIAL, env = 0) {
+  return { prim, inside, outside, material, env };
 }
 
 const EMPTY = 'empty';
@@ -132,12 +110,12 @@ const isLeaf = (t) => t === EMPTY || t.leaf !== undefined;
 // is handed to `other`. Correct for any pair, and the shared subtree is
 // deduplicated when the tree is flattened.
 //
-// Note that this drops `other` *inside* t's material scope, so a substituted
-// object inherits t's paint unless it repaints itself.
+// Note that this drops `other` *inside* t's own material: a substituted
+// object shows through as t's material unless it names its own.
 function union(t, other) {
   if (t === EMPTY) return other;
   if (isLeaf(t)) return t;
-  return node(t.prim, union(t.inside, other), union(t.outside, other), t.paint, t.env, t.material);
+  return node(t.prim, union(t.inside, other), union(t.outside, other), t.material, t.env);
 }
 
 // Rigid translation of a primitive by a world-space offset. n and a are
@@ -176,61 +154,14 @@ function translateTree(t, offset) {
   return node(translatePrim(t.prim, offset),
               translateTree(t.inside, offset),
               translateTree(t.outside, offset),
-              t.paint, t.env);
-}
-
-// Resolves paint inheritance once, here, instead of once per ray in
-// antisphere-raycast.wgsl's trace(). Walks the authored tree with the same
-// two rules trace() currently applies at runtime:
-//
-//   - Descending into a node's *inside* threads its own paint forward as
-//     the scope for whatever's below it, unless that paint is INHERIT (in
-//     which case the incoming scope keeps threading through unchanged).
-//   - A leaf directly under a node - on *either* side, inside or outside -
-//     resolves against that node's own paint first (BARE or a material
-//     wins outright; INHERIT falls back to the threaded scope), matching
-//     the "entry" override trace() applies regardless of which side. This
-//     is the mechanism BARE actually depends on: ordinary scope-threading
-//     alone only ever updates on the inside, so BARE's carving effect on a
-//     node's outside leaf (e.g. scene.json's "bitten" object) would be
-//     lost without it.
-//
-// Memoized by (subtree, scope) so a named object reused under the same
-// scope still collapses to one baked subtree - only reuse under genuinely
-// different scopes duplicates it, which is required for correctness: the
-// same subtree can resolve to different materials in different contexts.
-function resolveInheritance(tree, rootScope) {
-  const memo = new Map();   // scope -> (subtree -> baked), keyed outer-first
-
-  // A leaf's baked material: `entryPaint` is already fully resolved by the
-  // time it gets here (it's either a node's own paint, or - when that
-  // paint is INHERIT - whatever scope was already threaded in, per `here`
-  // below), so it alone decides: a real material wins outright, otherwise
-  // the leaf keeps its own substrate. Vacuum is never painted either way.
-  const bakeLeaf = (leaf, entryPaint) => (leaf === 0 ? leaf : (entryPaint > 0 ? entryPaint : leaf));
-
-  const resolve = (t, scope) => {
-    if (t === EMPTY) return EMPTY;
-    let byScope = memo.get(scope);
-    if (!byScope) { byScope = new Map(); memo.set(scope, byScope); }
-    if (byScope.has(t)) return byScope.get(t);
-    let out;
-    if (t.leaf !== undefined) {
-      out = solid(bakeLeaf(t.leaf, INHERIT));   // a bare leaf has no owning node: pure inherit
-    } else {
-      const here = t.paint !== INHERIT ? t.paint : scope;
-      const child = (c, childScope) =>
-        (c !== EMPTY && c.leaf !== undefined) ? solid(bakeLeaf(c.leaf, here)) : resolve(c, childScope);
-      out = node(t.prim, child(t.inside, here), child(t.outside, scope), INHERIT, t.env, t.material);
-    }
-    byScope.set(t, out);
-    return out;
-  };
-  return resolve(tree, rootScope);
+              t.material, t.env);
 }
 
 // Leaves are encoded in the child index: child < 0 means a leaf whose
-// substrate is (-1 - child), so EMPTY is -1 and vacuum is material 0.
+// substrate is (-1 - child), so EMPTY is -1 and vacuum is material 0. A
+// leaf's substrate only ever decides solid-or-not now (0 vs anything
+// else); it plays no part in what gets rendered, so which nonzero value a
+// solid leaf carries is otherwise arbitrary (see defaultSolidMaterial()).
 function flatten(tree) {
   const out = [], memo = new Map();
   const walk = (t) => {
@@ -240,7 +171,7 @@ function flatten(tree) {
     const idx = out.length;
     out.push(null);
     memo.set(t, idx);
-    out[idx] = { prim: t.prim, paint: t.paint, env: t.env ?? 0, material: t.material ?? t.paint,
+    out[idx] = { prim: t.prim, material: t.material, env: t.env ?? 0,
                  inside: walk(t.inside), outside: walk(t.outside) };
     return idx;
   };
@@ -348,7 +279,7 @@ export function compileScene(spec) {
                    pattern: 0, scale: 1, kind: 0, params: [0, 0], solid: false }];
   const matIndex = new Map();
   for (const [name, def] of Object.entries(spec.materials || {})) {
-    if (PAINT_WORDS[name] !== undefined) at(`materials.${name}`, 'name is reserved');
+    if (LEGACY_PAINT_WORDS.includes(name)) at(`materials.${name}`, 'name is reserved');
     const pattern = PATTERNS[def.pattern ?? 'flat'];
     if (pattern === undefined) at(`materials.${name}`, `unknown pattern "${def.pattern}"`);
     const kind = KINDS[def.kind ?? 'lambert'];
@@ -379,28 +310,34 @@ export function compileScene(spec) {
     return m;
   }
 
-  // Returns { paint, env }. An ambient material moves into the environment
-  // slot and leaves the node a pure partition.
-  function paintOf(def, path) {
-    if (def.paint === undefined) return { paint: INHERIT, env: 0 };
-    if (PAINT_WORDS[def.paint] !== undefined) {
-      return { paint: PAINT_WORDS[def.paint], env: 0 };
-    }
-    const m = substrate(def.paint, `${path}.paint`);
-    if (table[m].kind === KIND_AMBIENT) return { paint: PARTITION, env: m };
-    return { paint: m, env: 0 };
+  // Returns { material, env }. An ambient-kind material moves into env
+  // and leaves the node with no material of its own (NO_MATERIAL): an
+  // ambient container is a pure spatial split, not a substance.
+  function resolveMaterialName(name, path) {
+    const m = substrate(name, path);
+    if (table[m].kind === KIND_AMBIENT) return { material: NO_MATERIAL, env: m };
+    return { material: m, env: 0 };
   }
 
-  // def.material uses the same vocabulary as def.paint (the PAINT_WORDS
-  // sentinels, or a material name), since material is meant to eventually
-  // take over paint's role - but unlike paintOf(), it never shunts an
-  // ambient-kind material into env: that's an env/ambient-scope concern,
-  // not a substance one. Returns null when unset, so the caller can fall
-  // back to whatever paint already resolved to.
-  function materialOf(def, path) {
-    if (def.material === undefined) return null;
-    if (PAINT_WORDS[def.material] !== undefined) return PAINT_WORDS[def.material];
-    return substrate(def.material, `${path}.material`);
+  // "paint" is deprecated in favor of naming a material directly: a
+  // node's own material is read straight off it at render time now,
+  // rather than resolved from ancestor scope, so paint's PARTITION/
+  // INHERIT sentinels collapse into simply not specifying a material at
+  // all (NO_MATERIAL). BARE has no equivalent: it used to reveal a leaf's
+  // own substrate regardless of scope, but there is no more scope to
+  // override, and no more separate leaf substrate consulted for
+  // rendering either - name the desired material directly on whichever
+  // node used to rely on "bare" instead.
+  function materialAndEnvOf(def, path) {
+    if (def.material !== undefined) return resolveMaterialName(def.material, `${path}.material`);
+    if (def.paint === undefined) return { material: NO_MATERIAL, env: 0 };
+    console.warn(`scene.json ${path}.paint: "paint" is deprecated - use "material" instead.`);
+    if (def.paint === 'bare') {
+      at(`${path}.paint`, '"bare" is no longer supported - name this node\'s ' +
+                          'own "material" directly instead');
+    }
+    if (def.paint === 'partition' || def.paint === 'inherit') return { material: NO_MATERIAL, env: 0 };
+    return resolveMaterialName(def.paint, `${path}.paint`);
   }
 
   // A node that omits "inside" defaults to solid, in this placeholder
@@ -537,12 +474,16 @@ export function compileScene(spec) {
   const selfBounded = (t) =>
     t !== EMPTY && t.leaf === undefined && t.outside === EMPTY && t.prim.curvature > 0;
 
-  // Memoized, so a member landing in two children stays one subtree.
+  // Memoized, so a member landing in two children stays one subtree. The
+  // bounding sphere itself is never meant to be individually visible, so
+  // NO_MATERIAL (vacuum) for it is correct, not just a placeholder: it.tree
+  // supplies the real material wherever it actually gets hit, and the gap
+  // between the two shows through as empty space either way.
   function wrap(it) {
     if (!it.wrapped) {
       it.wrapped = selfBounded(it.tree)
         ? it.tree
-        : node(sphere(it.ball.c, it.ball.r), it.tree, EMPTY, PARTITION);
+        : node(sphere(it.ball.c, it.ball.r), it.tree, EMPTY);
     }
     return it.wrapped;
   }
@@ -556,12 +497,12 @@ export function compileScene(spec) {
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i];
         acc = selfBounded(it.tree)
-          ? node(it.tree.prim, it.tree.inside, acc, it.tree.paint, it.tree.env, it.tree.material)
-          : node(sphere(it.ball.c, it.ball.r), it.tree, acc, PARTITION);
+          ? node(it.tree.prim, it.tree.inside, acc, it.tree.material, it.tree.env)
+          : node(sphere(it.ball.c, it.ball.r), it.tree, acc);
       }
       return acc;
     }
-    return node(s.prim, partition(s.inside), partition(s.outside), PARTITION);
+    return node(s.prim, partition(s.inside), partition(s.outside));
   }
 
   // "group" is a union plus an assertion: the members' bounding spheres are
@@ -639,9 +580,8 @@ export function compileScene(spec) {
         ? tree(def.inside, `${path}.inside`)
         : solid(defaultSolidMaterial());
       const outsideTree = tree(def.outside !== undefined ? def.outside : 'empty', `${path}.outside`);
-      const { paint, env } = paintOf(def, path);
-      const material = materialOf(def, path) ?? paint;
-      out = node(primOf(def, path), insideTree, outsideTree, paint, env, material);
+      const { material, env } = materialAndEnvOf(def, path);
+      out = node(primOf(def, path), insideTree, outsideTree, material, env);
     }
 
     // Positions a subtree in world space by translating every primitive in
@@ -666,7 +606,7 @@ export function compileScene(spec) {
 
   if (!spec.root) at('root', 'missing');
   return {
-    nodes: flatten(resolveInheritance(tree(spec.root, 'root'), INHERIT)),
+    nodes: flatten(tree(spec.root, 'root')),
     materials: table,
     lights: lightList,
     camera: spec.camera || null,
@@ -694,15 +634,15 @@ export function packMaterials(list) {
 }
 
 // 48 bytes per node: vec3 n | f32 a | f32 k | i32 inside | i32 outside |
-//                    i32 (env << 16 | paint) | i32 material | 12 bytes pad.
+//                    i32 material | i32 env | 12 bytes pad.
 //
 // The 9 real words above are only 36 bytes, but WGSL's storage-array
 // stride for a struct rounds up to a multiple of the struct's own
-// alignment - 16, inherited from the leading vec3 - so adding `material`
-// (word 8) pushed the per-node stride from 32 to 48, not 36. Getting this
-// wrong silently corrupts every node after the first, so if another field
-// ever gets added here, recompute the stride the same way: lay out real
-// words in order, then round the total up to the next multiple of 16.
+// alignment - 16, inherited from the leading vec3 - so the per-node
+// stride is 48, not 36. Getting this wrong silently corrupts every node
+// after the first, so if another field ever gets added here, recompute
+// the stride the same way: lay out real words in order, then round the
+// total up to the next multiple of 16.
 export function packNodes(list) {
   const buf = new ArrayBuffer(list.length * 48);
   const f = new Float32Array(buf), i = new Int32Array(buf);
@@ -715,9 +655,8 @@ export function packNodes(list) {
     f[o + 4] = nd.prim.curvature;
     i[o + 5] = nd.inside;
     i[o + 6] = nd.outside;
-    // Low half surface paint, high half environment index.
-    i[o + 7] = ((nd.env & 0xFFFF) << 16) | (nd.paint & 0xFFFF);
-    i[o + 8] = nd.material;
+    i[o + 7] = nd.material;
+    i[o + 8] = nd.env;
     // o+9..o+11 are the 12 bytes of trailing pad; left zeroed.
   });
   return buf;
