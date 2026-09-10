@@ -157,6 +157,42 @@ function translateTree(t, offset) {
               t.material, t.env);
 }
 
+// Resolves ambient-env inheritance once, here, instead of once per ray in
+// antisphere-raycast.wgsl's trace(). Threads the same rule trace() used to
+// apply at runtime - descending into a node's *inside* adopts its own env
+// as the scope for everything below it, unless that env is 0 (inherit),
+// in which case the incoming scope keeps threading through unchanged; the
+// *outside* always keeps the incoming scope, never the node's own env -
+// and bakes the resolved value onto every node's own env field. That's
+// what lets a hit's ambient level be read directly off nodes[entry].env
+// (main() does exactly that) with no runtime threading left at all.
+//
+// Correct as long as the tree is static: nothing here moves a node
+// between ambient regions after this bakes it in, so if scenes ever need
+// runtime-mutable ambient regions, this bake would need to move to (or be
+// redone for) whatever does that mutating.
+//
+// Memoized by (subtree, scope), matching the old material-inheritance
+// bake: a subtree shared under one scope (by "use", "group", or "union")
+// still collapses to one baked copy; only reuse under a genuinely
+// different scope forces a separate one, which is required for
+// correctness - the same subtree can resolve to different ambient levels
+// in different contexts.
+function bakeEnv(tree) {
+  const memo = new Map();   // scope -> (subtree -> baked)
+  const resolve = (t, scope) => {
+    if (isLeaf(t)) return t;
+    let byScope = memo.get(scope);
+    if (!byScope) { byScope = new Map(); memo.set(scope, byScope); }
+    if (byScope.has(t)) return byScope.get(t);
+    const here = t.env !== 0 ? t.env : scope;
+    const out = node(t.prim, resolve(t.inside, here), resolve(t.outside, scope), t.material, here);
+    byScope.set(t, out);
+    return out;
+  };
+  return resolve(tree, 0);
+}
+
 // Leaves are encoded in the child index: child < 0 means a leaf whose
 // substrate is (-1 - child), so EMPTY is -1 and vacuum is material 0. A
 // leaf's substrate only ever decides solid-or-not now (0 vs anything
@@ -605,7 +641,7 @@ export function compileScene(spec) {
 
   if (!spec.root) at('root', 'missing');
   return {
-    nodes: flatten(tree(spec.root, 'root')),
+    nodes: flatten(bakeEnv(tree(spec.root, 'root'))),
     materials: table,
     lights: lightList,
     camera: spec.camera || null,

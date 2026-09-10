@@ -25,7 +25,15 @@ struct Node {
   // empty space, which is useful if you want to use nodes to subdivide
   // space for scoping other things (say, collisions).
   material       : i32,
-  env            : i32,   // environment index, 0 meaning inherit
+
+  // Ambient environment in force at this node: an index into the
+  // materials table (0 is the default ambient), read directly wherever
+  // this node is the surface a ray actually crossed. Already fully
+  // resolved by antisphere-scene.js's bakeEnv() at compile time - baked
+  // ancestor-scope inheritance, the same way material has no ancestor-
+  // scope fallback of its own - so there is nothing left for trace() to
+  // thread through the traversal at render time.
+  env            : i32,
 };
 
 struct Material {
@@ -43,8 +51,10 @@ const KIND_GLOSSY   : u32 = 1u;
 const KIND_EMISSIVE : u32 = 2u;
 const KIND_UNLIT    : u32 = 3u;
 // An ambient container never shades. The compiler moves it into a node's
-// env field and leaves its material as vacuum (0), so the node is a pure
-// spatial division that happens to set the ambient level beneath it.
+// env field (and bakes that value onto every node beneath it - see
+// bakeEnv() in antisphere-scene.js) and leaves its material as vacuum
+// (0), so the node is a pure spatial division that sets the ambient
+// level beneath it.
 const KIND_AMBIENT  : u32 = 4u;
 
 const PATTERN_CHECKER : u32 = 1u;
@@ -120,35 +130,30 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // nodes[entry].material directly (main() reads it that way), not from the
 // leaf's own substrate - the leaf only ever decides solid-or-not (node ==
 // -1 is vacuum, anything else negative is solid) - so there is nothing
-// left for trace() to resolve about material at all.
+// left for trace() to resolve about material at all. Same story for
+// ambient env now too: antisphere-scene.js's bakeEnv() bakes the resolved
+// environment onto every node at compile time, so main() reads a hit's
+// ambient level as nodes[entry].env directly, and trace() has no scope to
+// thread through the traversal at all anymore.
 //
 // trace() also returns a Seg, reusing it as the hit result rather than
 // having a separate Hit type: t0 < 0 means no hit (the same "miss is
 // negative" convention traceFrom() already hands back to its callers),
-// entry is the node whose surface was hit (and whose .material to read),
-// and env holds the medium at the hit. node keeps the leaf's raw
-// substrate encoding and t1 the far bound of the hit region, neither read
-// by anything yet, but there for transparency/refraction to reach for
-// later without another struct change.
+// entry is the node whose surface was hit (and whose .material/.env to
+// read). node keeps the leaf's raw substrate encoding and t1 the far
+// bound of the hit region, neither read by anything yet, but there for
+// transparency/refraction to reach for later without another struct
+// change.
 struct Seg {
   node  : i32,   // the subtree still to visit, negative for a leaf
   entry : i32,   // the node whose surface bounds t0, or -1 for none
   t0    : f32,
   t1    : f32,
-  env   : i32,   // environment scope, 0 meaning inherit
 };
 
 fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
-  // The region the ray is currently passing through. Leaves tile the ray and
-  // pop in non-decreasing t, so the last void leaf popped before a solid is
-  // the region touching that surface. That makes the medium a running
-  // variable rather than a stack field, and it is also the more useful
-  // answer: a body sitting in a region gets that region's light even when the
-  // region is not one of its ancestors.
-  var medium : i32 = 0;
-
   var stack : array<Seg, 32>;
-  stack[0] = Seg(0, -1, tMin, tMax, 0);
+  stack[0] = Seg(0, -1, tMin, tMax);
   var sp : i32 = 1;
 
   var guard : i32 = 0;
@@ -161,18 +166,17 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
     if (seg.t1 - seg.t0 <= 1e-6) { continue; }
 
     let node = seg.node;
-    let env = seg.env;
 
     if (node < 0) {
       // Leaf: -1 is vacuum, anything else negative is solid. That's all a
-      // leaf ever decides - its material (via -1 - node) doesn't matter
-      // to rendering, which reads nodes[entry].material instead.
+      // leaf ever decides - its material and env (via -1 - node) don't
+      // matter to rendering, which reads nodes[entry].material/.env
+      // instead.
       if (node == -1) {
-        medium = env;
         continue;
       }
       // Front-to-back ordering means the first solid leaf popped is nearest.
-      return Seg(node, seg.entry, seg.t0, seg.t1, medium);
+      return Seg(node, seg.entry, seg.t0, seg.t1);
     }
 
     let nd = nodes[node];
@@ -219,23 +223,17 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       // Midpoint sign picks the child. Robust, and avoids reasoning about
       // which root is an entry and which is an exit.
       var child = nd.outside;
-      var childEnv = env;
       if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) {
         child = nd.inside;
-        // Environment scopes the region f < 0 and nothing else. To scope
-        // the far side instead, flip the node: negating all five numbers
-        // is free, so the representation pays for this rule rather than
-        // the traversal.
-        if (nd.env != 0) { childEnv = nd.env; }
       }
       var ent = inherited;
       if (i > 0) { ent = node; }
-      stack[sp] = Seg(child, ent, sa, sb, childEnv);
+      stack[sp] = Seg(child, ent, sa, sb);
       sp = sp + 1;
       peakDepth = max(peakDepth, u32(sp));
     }
   }
-  return Seg(0, -1, -1.0, tMax, medium);   // t0 < 0: no hit
+  return Seg(0, -1, -1.0, tMax);   // t0 < 0: no hit
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +428,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // Ablation. Each stage's output has to stay live or the compiler will
   // delete the work being measured, so every level writes something derived
   // from what it computed.
-  var h = Seg(0, -1, -1.0, 0.0, 0);   // t0 < 0: no hit
+  var h = Seg(0, -1, -1.0, 0.0);   // t0 < 0: no hit
   if (cam.ablate >= ABLATE_TRACE) {
     h = trace(cam.origin, dir, 1e-3, 1e4);
   }
@@ -453,7 +451,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       s.V = -dir;
       s.m = materials[nd.material];
       s.st = frame(nd, s.P) * s.m.scale;
-      s.env = h.env;
+      s.env = nd.env;
       N = s.N;
       col = shade(s);
     }
