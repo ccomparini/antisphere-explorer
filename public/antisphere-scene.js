@@ -112,8 +112,16 @@ const PAINT_WORDS = { partition: PARTITION, inherit: INHERIT, bare: BARE };
 // ---------------------------------------------------------------------------
 
 // A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
-function node(prim, inside, outside, paint = INHERIT, env = 0) {
-  return { prim, inside, outside, paint, env };
+//
+// `material` is the first step of an eventual replacement for `paint`:
+// for now it just rides alongside it, defaulting to whatever `paint`
+// resolved to when a node doesn't set its own. Callers that copy an
+// existing node (rather than authoring a fresh one) should pass its
+// `.material` through explicitly, the same way they already do for
+// `.paint`/`.env` - otherwise a node with a `material` genuinely
+// different from its `paint` would silently lose that on the copy.
+function node(prim, inside, outside, paint = INHERIT, env = 0, material = paint) {
+  return { prim, inside, outside, paint, env, material };
 }
 
 const EMPTY = 'empty';
@@ -129,7 +137,7 @@ const isLeaf = (t) => t === EMPTY || t.leaf !== undefined;
 function union(t, other) {
   if (t === EMPTY) return other;
   if (isLeaf(t)) return t;
-  return node(t.prim, union(t.inside, other), union(t.outside, other), t.paint, t.env);
+  return node(t.prim, union(t.inside, other), union(t.outside, other), t.paint, t.env, t.material);
 }
 
 // Rigid translation of a primitive by a world-space offset. n and a are
@@ -213,7 +221,7 @@ function resolveInheritance(tree, rootScope) {
       const here = t.paint !== INHERIT ? t.paint : scope;
       const child = (c, childScope) =>
         (c !== EMPTY && c.leaf !== undefined) ? solid(bakeLeaf(c.leaf, here)) : resolve(c, childScope);
-      out = node(t.prim, child(t.inside, here), child(t.outside, scope), INHERIT, t.env);
+      out = node(t.prim, child(t.inside, here), child(t.outside, scope), INHERIT, t.env, t.material);
     }
     byScope.set(t, out);
     return out;
@@ -232,7 +240,7 @@ function flatten(tree) {
     const idx = out.length;
     out.push(null);
     memo.set(t, idx);
-    out[idx] = { prim: t.prim, paint: t.paint, env: t.env ?? 0,
+    out[idx] = { prim: t.prim, paint: t.paint, env: t.env ?? 0, material: t.material ?? t.paint,
                  inside: walk(t.inside), outside: walk(t.outside) };
     return idx;
   };
@@ -383,6 +391,18 @@ export function compileScene(spec) {
     return { paint: m, env: 0 };
   }
 
+  // def.material uses the same vocabulary as def.paint (the PAINT_WORDS
+  // sentinels, or a material name), since material is meant to eventually
+  // take over paint's role - but unlike paintOf(), it never shunts an
+  // ambient-kind material into env: that's an env/ambient-scope concern,
+  // not a substance one. Returns null when unset, so the caller can fall
+  // back to whatever paint already resolved to.
+  function materialOf(def, path) {
+    if (def.material === undefined) return null;
+    if (PAINT_WORDS[def.material] !== undefined) return PAINT_WORDS[def.material];
+    return substrate(def.material, `${path}.material`);
+  }
+
   function primOf(def, path) {
     let p;
     if (def.sphere) {
@@ -520,7 +540,7 @@ export function compileScene(spec) {
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i];
         acc = selfBounded(it.tree)
-          ? node(it.tree.prim, it.tree.inside, acc, it.tree.paint, it.tree.env)
+          ? node(it.tree.prim, it.tree.inside, acc, it.tree.paint, it.tree.env, it.tree.material)
           : node(sphere(it.ball.c, it.ball.r), it.tree, acc, PARTITION);
       }
       return acc;
@@ -601,10 +621,11 @@ export function compileScene(spec) {
         at(path, 'node needs both inside and outside');
       }
       const { paint, env } = paintOf(def, path);
+      const material = materialOf(def, path) ?? paint;
       out = node(primOf(def, path),
                  tree(def.inside,  `${path}.inside`),
                  tree(def.outside, `${path}.outside`),
-                 paint, env);
+                 paint, env, material);
     }
 
     // Positions a subtree in world space by translating every primitive in
