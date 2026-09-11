@@ -179,11 +179,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -217,11 +214,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -255,11 +249,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -293,11 +284,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -331,11 +319,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -369,11 +354,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -407,11 +389,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -445,11 +424,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -483,11 +459,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -521,11 +494,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -559,11 +529,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -597,11 +564,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -635,11 +599,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -673,11 +634,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -711,11 +669,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -749,11 +704,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -787,11 +739,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -825,11 +774,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -863,11 +809,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -901,11 +844,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -939,11 +879,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -977,11 +914,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1015,11 +949,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1053,11 +984,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1091,11 +1019,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1129,11 +1054,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1167,11 +1089,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1205,11 +1124,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1243,11 +1159,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1281,11 +1194,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1319,11 +1229,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1357,11 +1264,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1395,11 +1299,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1433,11 +1334,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1471,11 +1369,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1509,11 +1404,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1547,11 +1439,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1585,11 +1474,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1623,11 +1509,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1661,11 +1544,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1699,11 +1579,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1737,11 +1614,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1775,11 +1649,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1813,11 +1684,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1851,11 +1719,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1889,11 +1754,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1927,11 +1789,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -1965,11 +1824,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2003,11 +1859,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2041,11 +1894,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2079,11 +1929,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2117,11 +1964,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2155,11 +1999,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2193,11 +2034,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2231,11 +2069,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2269,11 +2104,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2307,11 +2139,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2345,11 +2174,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2383,11 +2209,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2421,11 +2244,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2459,11 +2279,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2497,11 +2314,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2535,11 +2349,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2573,11 +2384,8 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         },
         "outside": "empty"
       },
@@ -2595,9 +2403,6 @@
             "radius": 0.72
           },
           "paint": "brass",
-          "inside": {
-            "solid": "stone"
-          },
           "outside": "empty"
         },
         {
@@ -2610,9 +2415,6 @@
             "radius": 0.63
           },
           "paint": "stone",
-          "inside": {
-            "solid": "stone"
-          },
           "outside": "empty"
         },
         {
@@ -2625,9 +2427,6 @@
             "radius": 0.54
           },
           "paint": "brass",
-          "inside": {
-            "solid": "stone"
-          },
           "outside": "empty"
         },
         {
@@ -2640,9 +2439,6 @@
             "radius": 0.45
           },
           "paint": "stone",
-          "inside": {
-            "solid": "stone"
-          },
           "outside": "empty"
         },
         {
@@ -2655,9 +2451,6 @@
             "radius": 0.36
           },
           "paint": "core",
-          "inside": {
-            "solid": "stone"
-          },
           "outside": "empty"
         }
       ],
@@ -2700,11 +2493,8 @@
             ],
             "radius": 0.95
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         }
       },
       "outside": "empty"
@@ -2720,6 +2510,7 @@
             ],
             "offset": 0.9
           },
+          "material": "slate",
           "inside": {
             "plane": {
               "normal": [
@@ -2729,6 +2520,7 @@
               ],
               "offset": 0.9
             },
+            "material": "slate",
             "inside": {
               "plane": {
                 "normal": [
@@ -2738,6 +2530,7 @@
                 ],
                 "offset": 3.2
               },
+              "material": "slate",
               "inside": {
                 "plane": {
                   "normal": [
@@ -2747,6 +2540,7 @@
                   ],
                   "offset": -2.0
                 },
+                "material": "slate",
                 "inside": {
                   "plane": {
                     "normal": [
@@ -2756,6 +2550,7 @@
                     ],
                     "offset": -0.35
                   },
+                  "material": "slate",
                   "inside": {
                     "plane": {
                       "normal": [
@@ -2765,10 +2560,7 @@
                       ],
                       "offset": 1.0
                     },
-                    "inside": {
-                      "solid": "slate"
-                    },
-                    "outside": "empty"
+                    "material": "slate"
                   },
                   "outside": "empty"
                 },
@@ -2778,8 +2570,7 @@
             },
             "outside": "empty"
           },
-          "outside": "empty",
-          "paint": "slate"
+          "outside": "empty"
         },
         {
           "plane": {
@@ -2790,6 +2581,7 @@
             ],
             "offset": 0.55
           },
+          "material": "chalk",
           "inside": {
             "plane": {
               "normal": [
@@ -2799,6 +2591,7 @@
               ],
               "offset": 0.55
             },
+            "material": "chalk",
             "inside": {
               "plane": {
                 "normal": [
@@ -2808,6 +2601,7 @@
                 ],
                 "offset": 2.85
               },
+              "material": "chalk",
               "inside": {
                 "plane": {
                   "normal": [
@@ -2817,6 +2611,7 @@
                   ],
                   "offset": -2.35
                 },
+                "material": "chalk",
                 "inside": {
                   "plane": {
                     "normal": [
@@ -2826,6 +2621,7 @@
                     ],
                     "offset": 0.5
                   },
+                  "material": "chalk",
                   "inside": {
                     "plane": {
                       "normal": [
@@ -2835,10 +2631,7 @@
                       ],
                       "offset": 0.35
                     },
-                    "inside": {
-                      "solid": "chalk"
-                    },
-                    "outside": "empty"
+                    "material": "chalk"
                   },
                   "outside": "empty"
                 },
@@ -2848,8 +2641,7 @@
             },
             "outside": "empty"
           },
-          "outside": "empty",
-          "paint": "chalk"
+          "outside": "empty"
         }
       ],
       "bounds": {
@@ -2872,10 +2664,7 @@
       "radius": 25
     },
     "complement": true,
-    "paint": "partition",
-    "inside": {
-      "solid": "shell"
-    },
+    "material": "shell",
     "outside": {
       "plane": {
         "normal": [
