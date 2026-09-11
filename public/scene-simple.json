@@ -59,7 +59,7 @@
       "material": "brass",
       "inside": {
         "sphere": { "center": [1.85, 0, 0.15], "radius": 1.15 },
-        "material": "brass"
+        "material": "stone"
       }
     },
 
