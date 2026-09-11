@@ -45,7 +45,7 @@
       "material": "jade",
       "inside": {
         "plane": { "normal": [0, 0, 1], "offset": 0.95 },
-        "material": "chalk",
+        "material": "stone",
         "inside": {
           "sphere": { "center": [-0.75, 0.8, 0.85], "radius": 0.8 },
           "complement": true,
