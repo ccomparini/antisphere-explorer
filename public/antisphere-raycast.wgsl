@@ -21,8 +21,8 @@ struct Node {
   // means "no further carving - this whole region uses this node's own
   // material" (materials[material].solid decides whether that's actually
   // solid; see trace()).
-  inside         : u32,
-  outside        : u32,
+  inside         : u32,         // index of inside child or 0u -> no child
+  outside        : u32,         // same but outside
 
   // "material" describes what's inside the node: an index into the
   // materials table (0 is vacuum), read directly wherever this node is
@@ -154,7 +154,7 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // run, not just its nearest sub-piece, which is there for transparency or
 // refraction to reach for later without another struct change.
 struct Seg {
-  node : u32,
+  node : u32,   // the subtree still to visit; encoded (see DEFAULT_INSIDE_BIT)
   t0   : f32,
   t1   : f32,
 };
@@ -184,25 +184,34 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
     let seg = stack[sp];
     if (seg.t1 - seg.t0 <= 1e-6) { continue; }
 
-    if ((seg.node & DEFAULT_INSIDE_BIT) != 0u) {
+    var descent_node = seg.node;
+    if ((descent_node & DEFAULT_INSIDE_BIT) != 0u) {
       // Deferred default inside (see Seg's doc comment): resolve straight
       // from the tagged node's own material, no geometry test needed -
       // there's nothing left to split, this *is* the answer already.
-      let srcNode = seg.node & ~DEFAULT_INSIDE_BIT;
-      if (materials[nodes[srcNode].material].solid != 0u) {
-        if (hit.node == 0u) { hit = Seg(srcNode, seg.t0, seg.t1); }
-        else { hit.t1 = seg.t1; }
-      } else if (hit.node != 0u) {
-        return hit;
+      let seg_nn = seg.node & ~DEFAULT_INSIDE_BIT;
+      let seg_node = nodes[seg_nn];
+      if (materials[seg_node.material].solid != 0u) {
+        if (hit.node == 0u) { hit = Seg(seg_nn, seg.t0, seg.t1); }
+        //else { hit.t1 = seg.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
+      } else {
+        // non-solid inside, so clear the hit:
+        hit.node = 0u;
       }
-      continue;
+
+      descent_node = seg_node.inside;
+    } else {
+      // we went outside.  outside is never solid,
+      // so clear the hit:
+      hit.node = 0u;
     }
-    if (seg.node == 0u) {
+
+    if (descent_node == 0u) {
       if (hit.node != 0u) { return hit; }
       continue;
     }
 
-    let nd = nodes[seg.node];
+    let nd = nodes[descent_node];
     visits = visits + 1u;
 
     // Substituting R = O + tD gives A t^2 + B t + C, with A = k.
@@ -245,8 +254,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       // which root is an entry and which is an exit.
       var child = nd.outside;
       if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) {
-        child = nd.inside;
-        if (child == 0u) { child = seg.node | DEFAULT_INSIDE_BIT; }
+        child = descent_node | DEFAULT_INSIDE_BIT;
       }
       stack[sp] = Seg(child, sa, sb);
       sp = sp + 1;
