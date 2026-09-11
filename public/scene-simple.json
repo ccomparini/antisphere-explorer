@@ -88,11 +88,10 @@
   "root": {
     "sphere": { "center": [0, 0, 0], "radius": 25 },
     "complement": true,
-    "paint": "partition",
+    "material": "shell",
     "outside": {
       "plane": { "normal": [0, 0, 1], "offset": -1.0 },
       "material": "floor",
-      "paint": "partition",
       "outside": { "group": ["bitten", "lens", "marbles"] }
     }
   }
