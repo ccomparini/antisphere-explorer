@@ -277,11 +277,8 @@
             ],
             "radius": 0.95
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         }
       }
     },
