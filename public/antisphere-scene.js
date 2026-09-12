@@ -108,11 +108,18 @@ const EMPTY = 'empty';
 // is handed to `other`. Correct for any pair, and the shared subtree is
 // deduplicated when the tree is flattened.
 //
-// Note that this drops `other` *inside* t's own material: a substituted
-// object shows through as t's material unless it names its own.
+// `t.inside === EMPTY` and `t.outside === EMPTY` are not interchangeable
+// here (see flatten()'s doc comment): an empty *inside* already means "no
+// further carving, this region is unconditionally solid via t's own
+// material" - `other` can't win against that regardless of what it is, so
+// it's left alone rather than substituted in. An empty *outside* still
+// means plain void, so `other` fills it exactly as before.
 function union(t, other) {
   if (t === EMPTY) return other;
-  return node(t.prim, union(t.inside, other), union(t.outside, other), t.material, t.env);
+  return node(t.prim,
+              t.inside === EMPTY ? EMPTY : union(t.inside, other),
+              union(t.outside, other),
+              t.material, t.env);
 }
 
 // Rigid translation of a primitive by a world-space offset. n and a are
