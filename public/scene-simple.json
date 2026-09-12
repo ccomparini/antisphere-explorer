@@ -49,7 +49,12 @@
         "inside": {
           "sphere": { "center": [-0.75, 0.8, 0.85], "radius": 0.8 },
           "complement": true,
-          "material": "brass"
+          "material": "brass",
+          "inside": {
+            "sphere": { "center": [-1.35, 0.0, 0.25], "radius": 0.8 },
+            "complement": true,
+            "material": "jade"
+          }
         }
       }
     },
