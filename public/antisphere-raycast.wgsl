@@ -26,21 +26,24 @@ struct Node {
 
   // "material" describes what's inside the node: an index into the
   // materials table (0 is vacuum), read directly wherever this node is
-  // the surface a ray actually crossed - there is no ancestor-scope
-  // fallback anymore, so a node that wants to be visible names its own
-  // material. It may be solid, or some modifier to how a region is
-  // rendered (including light effects or things like haze), or even just
-  // empty space, which is useful if you want to use nodes to subdivide
-  // space for scoping other things (say, collisions).
+  // the surface a ray actually crossed. A node that doesn't name one of
+  // its own in scene.json inherits its nearest ancestor's, but that's
+  // resolved by antisphere-scene.js's bakeScopes() at compile time - by
+  // the time it reaches this struct it's always this node's own, final
+  // value, with nothing left for trace() to thread through at render
+  // time. It may be solid, or some modifier to how a region is rendered
+  // (including light effects or things like haze), or even just empty
+  // space, which is useful if you want to use nodes to subdivide space
+  // for scoping other things (say, collisions).
   material       : i32,
 
   // Ambient environment in force at this node: an index into the
   // materials table (0 is the default ambient), read directly wherever
   // this node is the surface a ray actually crossed. Already fully
-  // resolved by antisphere-scene.js's bakeEnv() at compile time - baked
-  // ancestor-scope inheritance, the same way material has no ancestor-
-  // scope fallback of its own - so there is nothing left for trace() to
-  // thread through the traversal at render time.
+  // resolved by antisphere-scene.js's bakeScopes() at compile time -
+  // baked ancestor-scope inheritance, the same way material's own
+  // inheritance is baked - so there is nothing left for trace() to thread
+  // through the traversal at render time.
   env            : i32,
 };
 
