@@ -2324,31 +2324,19 @@
     },
     "hollow": {
       "sphere": {
-        "center": [
-          3.4,
-          2.6,
-          0.35
-        ],
+        "center": [ 3.4, 2.6, 0.35 ],
         "radius": 1.5
       },
       "material": "jade",
       "inside": {
         "sphere": {
-          "center": [
-            3.4,
-            2.6,
-            0.35
-          ],
+          "center": [ 3.4, 2.6, 0.35 ],
           "radius": 1.12
         },
-        "inside": "empty",
-        "outside": {
+        "complement": true,
+        "inside": {
           "sphere": {
-            "center": [
-              2.5,
-              1.6,
-              0.9
-            ],
+            "center": [ 2.5, 1.6, 0.9 ],
             "radius": 0.95
           },
           "material": "core",
