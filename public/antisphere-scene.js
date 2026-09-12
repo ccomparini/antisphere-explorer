@@ -49,27 +49,44 @@ function complement(prim) {
 // ---------------------------------------------------------------------------
 // Materials
 //
-// One table. A node names its own material directly - an index into this
-// table, 0 being vacuum - read at render time from whichever node's
-// surface a ray actually crossed (antisphere-raycast.wgsl's main() does
-// `materials[nodes[entry].material]`). There is no ancestor-scope fallback:
-// a node that wants to be visible names its own material, which is what
-// lets one CSG object show several materials on its different surfaces.
+// One table. A node's material - an index into this table, 0 being vacuum
+// - is read at render time from whichever node's surface a ray actually
+// crossed (antisphere-raycast.wgsl's main() does
+// `materials[nodes[entry].material]`), so a hit's shading is always a
+// direct table read, with no scope-threading left to do at render time.
+//
+// A node that doesn't name a material of its own inherits its nearest
+// ancestor's, by descending through "inside" (bakeScopes() resolves this
+// once, at compile time, using the same threading rule as ambient
+// inheritance: "outside" always keeps whatever was already in scope above
+// it, never the current node's own material). Naming a material
+// explicitly - even one already in scope - opts back out of inheriting
+// further, which is what lets one CSG object show several materials on
+// its different surfaces. "material": null explicitly requests vacuum,
+// likewise opting out of inheritance rather than picking up the
+// surrounding scope.
 //
 // Surface parameterization always comes from the node that was crossed,
 // never from the material, so a node's own (n, a, k) supplies the frame: a
 // tangent basis for planes, a center for spheres.
 //
-// "paint" was the old name for this, resolved from ancestor scope at
-// render time instead of named directly on each node; materialAndEnvOf()
-// still accepts it, deprecated, for scenes not yet migrated.
+// "paint" is a deprecated alias for "material", still accepted by
+// materialAndEnvOf() for scenes not yet migrated; its old special value
+// "inherit" now just means the same as omitting a material, and
+// "partition"/"bare" still mean vacuum.
 // ---------------------------------------------------------------------------
 
-// Material 0 is reserved as vacuum (see compileScene()'s table), which
-// doubles as "this node has no material of its own" - a node's own
-// material is read directly, with no ancestor-scope fallback, so there is
-// nothing left for a node to "inherit" from at render time.
+// Material 0 is reserved as vacuum (see compileScene()'s table).
 const NO_MATERIAL = 0;
+
+// Sentinel meaning "no material named here yet" prior to bakeScopes(),
+// distinct from NO_MATERIAL (vacuum, which explicitly opts out of
+// inheriting anything). Never survives past bakeScopes() - resolved there
+// to a real index or to NO_MATERIAL. Node construction that isn't driven
+// by scene.json (BVH split/bounding wrappers, translation, union) always
+// passes a concrete material - see node()'s own default parameter - so
+// only JSON-authored nodes ever start out holding this value.
+const INHERIT_MATERIAL = -1;
 
 // Recognized only via the deprecated "paint" field (see
 // materialAndEnvOf()), for scenes not yet migrated to naming a material
@@ -161,40 +178,45 @@ function translateTree(t, offset) {
               t.material, t.env);
 }
 
-// Resolves ambient-env inheritance once, here, instead of once per ray in
-// antisphere-raycast.wgsl's trace(). Threads the same rule trace() used to
-// apply at runtime - descending into a node's *inside* adopts its own env
-// as the scope for everything below it, unless that env is 0 (inherit),
-// in which case the incoming scope keeps threading through unchanged; the
-// *outside* always keeps the incoming scope, never the node's own env -
-// and bakes the resolved value onto every node's own env field. That's
-// what lets a hit's ambient level be read directly off nodes[entry].env
-// (main() does exactly that) with no runtime threading left at all.
+// Resolves material and ambient-env inheritance once, here, instead of
+// once per ray in antisphere-raycast.wgsl's trace(). Both follow the same
+// rule: descending into a node's *inside* adopts its own value as the
+// scope for everything below it, unless that value means "inherit"
+// (INHERIT_MATERIAL for material, 0 for env), in which case the incoming
+// scope keeps threading through unchanged; *outside* always keeps the
+// incoming scope, never the current node's own value. Baking both onto
+// every node is what lets a hit's material and ambient level each be read
+// directly off nodes[entry] (main() does exactly that) with no runtime
+// threading left at all.
 //
-// Correct as long as the tree is static: nothing here moves a node
-// between ambient regions after this bakes it in, so if scenes ever need
-// runtime-mutable ambient regions, this bake would need to move to (or be
-// redone for) whatever does that mutating.
+// Correct as long as the tree is static: nothing here moves a node between
+// material/ambient regions after this bakes it in, so if scenes ever need
+// runtime-mutable regions, this bake would need to move to (or be redone
+// for) whatever does that mutating.
 //
-// Memoized by (subtree, scope), matching the old material-inheritance
-// bake: a subtree shared under one scope (by "use", "group", or "union")
-// still collapses to one baked copy; only reuse under a genuinely
-// different scope forces a separate one, which is required for
-// correctness - the same subtree can resolve to different ambient levels
-// in different contexts.
-function bakeEnv(tree) {
-  const memo = new Map();   // scope -> (subtree -> baked)
-  const resolve = (t, scope) => {
+// Memoized by (subtree, materialScope, envScope): a subtree shared under
+// one pair of scopes (by "use", "group", or "union") still collapses to
+// one baked copy; only reuse under a genuinely different pair forces a
+// separate one, which is required for correctness - the same subtree can
+// resolve to different materials or ambient levels in different contexts.
+function bakeScopes(tree) {
+  const memo = new Map();   // "matScope:envScope" -> (subtree -> baked)
+  const resolve = (t, matScope, envScope) => {
     if (t === EMPTY) return t;
-    let byScope = memo.get(scope);
-    if (!byScope) { byScope = new Map(); memo.set(scope, byScope); }
+    const key = `${matScope}:${envScope}`;
+    let byScope = memo.get(key);
+    if (!byScope) { byScope = new Map(); memo.set(key, byScope); }
     if (byScope.has(t)) return byScope.get(t);
-    const here = t.env !== 0 ? t.env : scope;
-    const out = node(t.prim, resolve(t.inside, here), resolve(t.outside, scope), t.material, here);
+    const hereMat = t.material === INHERIT_MATERIAL ? matScope : t.material;
+    const hereEnv = t.env !== 0 ? t.env : envScope;
+    const out = node(t.prim,
+                      resolve(t.inside, hereMat, hereEnv),
+                      resolve(t.outside, matScope, envScope),
+                      hereMat, hereEnv);
     byScope.set(t, out);
     return out;
   };
-  return resolve(tree, 0);
+  return resolve(tree, NO_MATERIAL, 0);
 }
 
 // Node 0 is reserved: "no child at all" - antisphere-raycast.wgsl's
@@ -294,7 +316,13 @@ function boundOf(t, declared, memo, table) {
   const sideBound = (child, insideSide) => {
     if (child === EMPTY) {
       if (!insideSide) return NO_SOLID;
-      return table[t.material].solid ? (regionBall(t.prim, true) || UNBOUNDED) : NO_SOLID;
+      // A material still pending inheritance (INHERIT_MATERIAL) isn't
+      // resolved yet at this point in compilation - assume solid, since
+      // that's what inheritance overwhelmingly resolves to, and erring
+      // toward "solid" only ever widens a bound, never narrows one enough
+      // to clip real geometry.
+      const solid = t.material === INHERIT_MATERIAL ? true : table[t.material].solid;
+      return solid ? (regionBall(t.prim, true) || UNBOUNDED) : NO_SOLID;
     }
     const ball = regionBall(t.prim, insideSide);
     const b = boundOf(child, declared, memo, table);
@@ -376,30 +404,28 @@ export function compileScene(spec) {
     return { material: m, env: 0 };
   }
 
-  // "material": null explicitly names vacuum/NO_MATERIAL - the empty
-  // material has no entry in spec.materials (it's not user-defined, so it
-  // has no string name to look up via resolveMaterialName), but an author
-  // may still want to say so outright rather than just omitting "material"
-  // (which defaults to the same thing): most usefully, to give a node's
-  // own default "inside" (see flatten()'s doc comment) an explicitly
-  // non-solid material, for a pure spatial-subdivision node.
+  // "material": null explicitly names vacuum/NO_MATERIAL, opting out of
+  // inheriting an ancestor's material - unlike simply omitting "material",
+  // which instead inherits (see bakeScopes()). Most useful to give a
+  // node's own default "inside" (see flatten()'s doc comment) an
+  // explicitly non-solid material for a pure spatial-subdivision node,
+  // even one nested inside a solid ancestor whose material would
+  // otherwise apply.
   //
-  // "paint" is deprecated in favor of naming a material directly: a
-  // node's own material is read straight off it at render time now,
-  // rather than resolved from ancestor scope, so all three of paint's old
-  // sentinels - PARTITION, INHERIT, and BARE - collapse into simply not
-  // specifying a material at all (NO_MATERIAL). BARE used to reveal a
-  // leaf's own substrate regardless of scope; there is no more scope to
-  // override and no more separate leaf substrate consulted for rendering,
-  // so a node that relied on it will misrender (show whatever NO_MATERIAL
-  // resolves to) rather than what its author intended - name the desired
+  // "paint" is a deprecated alias for "material". Of its old sentinel
+  // values, "inherit" now just means the same as omitting a material
+  // (which already inherits by default); "partition" and "bare" still
+  // mean vacuum, though "bare" no longer has any separate leaf substrate
+  // to reveal, so a node that relied on it to show through scope will
+  // instead show whatever NO_MATERIAL resolves to - name the desired
   // material directly on that node to fix it.
   function materialAndEnvOf(def, path) {
     if (def.material === null) return { material: NO_MATERIAL, env: 0 };
     if (def.material !== undefined) return resolveMaterialName(def.material, `${path}.material`);
-    if (def.paint === undefined) return { material: NO_MATERIAL, env: 0 };
+    if (def.paint === undefined) return { material: INHERIT_MATERIAL, env: 0 };
     console.warn(`scene.json ${path}.paint: "paint" is deprecated - use "material" instead.`);
-    if (def.paint === 'partition' || def.paint === 'inherit' || def.paint === 'bare') {
+    if (def.paint === 'inherit') return { material: INHERIT_MATERIAL, env: 0 };
+    if (def.paint === 'partition' || def.paint === 'bare') {
       return { material: NO_MATERIAL, env: 0 };
     }
     return resolveMaterialName(def.paint, `${path}.paint`);
@@ -652,7 +678,7 @@ export function compileScene(spec) {
 
   if (!spec.root) at('root', 'missing');
   return {
-    nodes: flatten(bakeEnv(tree(spec.root, 'root'))),
+    nodes: flatten(bakeScopes(tree(spec.root, 'root'))),
     materials: table,
     lights: lightList,
     camera: spec.camera || null,

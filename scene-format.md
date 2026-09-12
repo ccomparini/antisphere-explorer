@@ -128,16 +128,21 @@ with `"complement": true`).
 
 ### `"material"` / `"paint"`
 
-- `"material"`: the name of an entry in `"materials"`, read directly off
-  this node at render time (there is no inheritance from ancestor nodes — a
-  node that should be visible must name its own material). `"material":
-  null` explicitly requests no material/vacuum, distinct from simply
-  omitting the field only in intent, not effect — both resolve to no
-  material.
+- `"material"`: the name of an entry in `"materials"`. If omitted, the node
+  inherits its nearest ancestor's material by descending through
+  `"inside"` — the same rule described in "Ambient regions" below applies
+  here too: an `"outside"` subtree always keeps whatever material was
+  already in scope above it, never the node it hangs off of. Naming a
+  material explicitly (even one already in scope) opts back out of
+  inheriting further, which is what lets one CSG object show several
+  materials on its different surfaces. `"material": null` explicitly
+  requests vacuum/no material, likewise opting out of inheritance rather
+  than picking up the surrounding scope — distinct from simply omitting
+  the field, which inherits.
 - `"paint"`: deprecated alias for `"material"`; using it prints a console
-  warning. Its old special values `"partition"`, `"inherit"`, and `"bare"`
-  are still accepted but now all just mean "no material" (their old
-  scope-inheritance behavior no longer exists).
+  warning. Of its old special values, `"inherit"` now just means the same
+  as omitting a material (which already inherits by default); `"partition"`
+  and `"bare"` still mean vacuum.
 
 ### `"use"`
 
