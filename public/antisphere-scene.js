@@ -376,6 +376,14 @@ export function compileScene(spec) {
     return { material: m, env: 0 };
   }
 
+  // "material": null explicitly names vacuum/NO_MATERIAL - the empty
+  // material has no entry in spec.materials (it's not user-defined, so it
+  // has no string name to look up via resolveMaterialName), but an author
+  // may still want to say so outright rather than just omitting "material"
+  // (which defaults to the same thing): most usefully, to give a node's
+  // own default "inside" (see flatten()'s doc comment) an explicitly
+  // non-solid material, for a pure spatial-subdivision node.
+  //
   // "paint" is deprecated in favor of naming a material directly: a
   // node's own material is read straight off it at render time now,
   // rather than resolved from ancestor scope, so all three of paint's old
@@ -387,6 +395,7 @@ export function compileScene(spec) {
   // resolves to) rather than what its author intended - name the desired
   // material directly on that node to fix it.
   function materialAndEnvOf(def, path) {
+    if (def.material === null) return { material: NO_MATERIAL, env: 0 };
     if (def.material !== undefined) return resolveMaterialName(def.material, `${path}.material`);
     if (def.paint === undefined) return { material: NO_MATERIAL, env: 0 };
     console.warn(`scene.json ${path}.paint: "paint" is deprecated - use "material" instead.`);
