@@ -698,7 +698,7 @@ if (!navigator.gpu) {
     // unless we're the ones who just released it via setCameraMode/'C'.
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement !== canvas && cameraMode !== 'orbit') {
-        cameraMode = 'orbit';
+        setCameraMode('orbit');
         note('mouselook released — back to orbit');
       }
     });
