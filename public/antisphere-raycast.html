@@ -122,7 +122,7 @@ if (!navigator.gpu) {
     // ?scene=other.json loads a different scene, so a benchmark setup is a
     // shareable URL rather than an edit.
     const sceneFile = new URLSearchParams(location.search).get('scene') || 'scene.json';
-    const SOURCES = ['antisphere-raycast.wgsl', 'blit.wgsl', sceneFile];
+    const SOURCES = ['antisphere-raycast.wgsl', 'blit.wgsl', `scenes/${sceneFile}`];
     let computeWGSL, blitWGSL, sceneText;
     try {
       [computeWGSL, blitWGSL, sceneText] = await Promise.all(SOURCES.map(loadText));
