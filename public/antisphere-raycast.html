@@ -167,7 +167,6 @@ if (!navigator.gpu) {
 
     function applyScene(spec) {
       const built = compileScene(spec);          // throws before anything is touched
-      if (!built.lights.length) throw new Error('scene.json: needs at least one light');
       for (const b of [nodeBuf, lightBuf, matBuf]) if (b) b.destroy();
       scene = built;
       const nodeData = packNodes(built.nodes);

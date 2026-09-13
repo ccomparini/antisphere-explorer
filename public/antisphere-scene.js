@@ -744,21 +744,22 @@ export function packNodes(list) {
 //
 // Each light is a world position and an RGB color whose magnitude is its
 // radiant power. Falloff is inverse square, so these run well above 1.
-// The buffer must hold at least one entry.
+// If the list passed is empty, it will still pack a single light with color
+// (0.0, 0.0, 0.0) to appease wgsl's requirement of buffer sizes > 0.
 // ---------------------------------------------------------------------------
 
 // 32 bytes per light: vec3 pos | pad | vec3 color | pad
 export function packLights(list) {
-  const buf = new ArrayBuffer(list.length * 32);
-  const f = new Float32Array(buf);
+  const buf = new ArrayBuffer((list.length || 1) * 32);
+  const lval = new Float32Array(buf);
   list.forEach((lt, j) => {
     const o = j * 8;
-    f[o + 0] = lt.pos[0];
-    f[o + 1] = lt.pos[1];
-    f[o + 2] = lt.pos[2];
-    f[o + 4] = lt.color[0];
-    f[o + 5] = lt.color[1];
-    f[o + 6] = lt.color[2];
+    lval[o + 0] = lt.pos[0];
+    lval[o + 1] = lt.pos[1];
+    lval[o + 2] = lt.pos[2];
+    lval[o + 4] = lt.color[0];
+    lval[o + 5] = lt.color[1];
+    lval[o + 6] = lt.color[2];
   });
-  return buf;
+  return lval;
 }
