@@ -68,21 +68,6 @@ import { compileScene, packMaterials, packNodes, packLights }
   from './antisphere-scene.js';
 
 // ---------------------------------------------------------------------------
-// Lights
-//
-// Fallback default; scene.json normally supplies its own lights list, which
-// is what applyScene() actually uses (see compileScene() in
-// antisphere-scene.js). Kept here in case some caller still wants a default
-// list to hand to packLights() directly.
-// ---------------------------------------------------------------------------
-
-const lights = [
-  { pos: [-2.2,  2.4,  3.0], color: [26, 17, 10] },   // warm, above and behind
-  { pos: [ 2.6, -2.4,  2.0], color: [ 7, 14, 26] },   // cool, opposite side
-  { pos: [ 0.0, -3.2,  0.5], color: [ 9,  9, 10] },   // low fill toward camera
-];
-
-// ---------------------------------------------------------------------------
 // Shaders
 //
 // Loaded from disk, so this page must be served over http. Opening it from a
