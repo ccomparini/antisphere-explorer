@@ -153,21 +153,13 @@
   "objects": {
     "bead00": {
       "sphere": {
-        "center": [
-          -5.425,
-          -11.425,
-          -0.44
-        ],
+        "center": [ -5.425, -11.425, -0.44 ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "jade",
       "inside": {
         "plane": {
-          "normal": [
-            0,
-            0,
-            1
-          ],
+          "normal": [ 0, 0, 1 ],
           "offset": -0.0928
         },
         "inside": {
@@ -179,15 +171,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "jade",
+          "complement": true
+        }
+      }
     },
     "bead10": {
       "sphere": {
@@ -198,7 +185,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -217,15 +204,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead20": {
       "sphere": {
@@ -236,7 +218,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -255,15 +237,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead30": {
       "sphere": {
@@ -274,7 +251,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -293,15 +270,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead40": {
       "sphere": {
@@ -312,7 +284,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -331,15 +303,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead50": {
       "sphere": {
@@ -350,7 +317,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -369,15 +336,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead60": {
       "sphere": {
@@ -388,7 +350,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -407,15 +369,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead70": {
       "sphere": {
@@ -426,7 +383,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -445,15 +402,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead01": {
       "sphere": {
@@ -464,7 +416,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -483,15 +435,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead11": {
       "sphere": {
@@ -502,7 +449,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -521,15 +468,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead21": {
       "sphere": {
@@ -540,7 +482,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -559,15 +501,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead31": {
       "sphere": {
@@ -578,7 +515,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -597,15 +534,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead41": {
       "sphere": {
@@ -616,7 +548,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -635,15 +567,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead51": {
       "sphere": {
@@ -654,7 +581,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -673,15 +600,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead61": {
       "sphere": {
@@ -692,7 +614,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -711,15 +633,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead71": {
       "sphere": {
@@ -730,7 +647,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -749,15 +666,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead02": {
       "sphere": {
@@ -768,7 +680,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -787,15 +699,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead12": {
       "sphere": {
@@ -806,7 +713,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -825,15 +732,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead22": {
       "sphere": {
@@ -844,7 +746,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -863,15 +765,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead32": {
       "sphere": {
@@ -882,7 +779,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -901,15 +798,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead42": {
       "sphere": {
@@ -920,7 +812,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -939,15 +831,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead52": {
       "sphere": {
@@ -958,7 +845,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -977,15 +864,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead62": {
       "sphere": {
@@ -996,7 +878,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -1015,15 +897,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead72": {
       "sphere": {
@@ -1034,7 +911,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -1053,15 +930,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead03": {
       "sphere": {
@@ -1072,7 +944,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -1091,15 +963,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead13": {
       "sphere": {
@@ -1110,7 +977,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -1129,15 +996,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead23": {
       "sphere": {
@@ -1148,7 +1010,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -1167,15 +1029,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead33": {
       "sphere": {
@@ -1186,7 +1043,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -1205,15 +1062,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead43": {
       "sphere": {
@@ -1224,7 +1076,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -1243,15 +1095,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead53": {
       "sphere": {
@@ -1262,7 +1109,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -1281,15 +1128,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead63": {
       "sphere": {
@@ -1300,7 +1142,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -1319,15 +1161,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead73": {
       "sphere": {
@@ -1338,7 +1175,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -1357,15 +1194,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead04": {
       "sphere": {
@@ -1376,7 +1208,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -1395,15 +1227,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead14": {
       "sphere": {
@@ -1414,7 +1241,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -1433,15 +1260,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead24": {
       "sphere": {
@@ -1452,7 +1274,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -1471,15 +1293,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead34": {
       "sphere": {
@@ -1490,7 +1307,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -1509,15 +1326,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead44": {
       "sphere": {
@@ -1528,7 +1340,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -1547,15 +1359,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead54": {
       "sphere": {
@@ -1566,7 +1373,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -1585,15 +1392,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead64": {
       "sphere": {
@@ -1604,7 +1406,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -1623,15 +1425,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead74": {
       "sphere": {
@@ -1642,7 +1439,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -1661,15 +1458,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead05": {
       "sphere": {
@@ -1680,7 +1472,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -1699,15 +1491,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead15": {
       "sphere": {
@@ -1718,7 +1505,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -1737,15 +1524,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead25": {
       "sphere": {
@@ -1756,7 +1538,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -1775,15 +1557,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead35": {
       "sphere": {
@@ -1794,7 +1571,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -1813,15 +1590,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead45": {
       "sphere": {
@@ -1832,7 +1604,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -1851,15 +1623,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead55": {
       "sphere": {
@@ -1870,7 +1637,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -1889,15 +1656,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead65": {
       "sphere": {
@@ -1908,7 +1670,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -1927,15 +1689,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead75": {
       "sphere": {
@@ -1946,7 +1703,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -1965,15 +1722,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead06": {
       "sphere": {
@@ -1984,7 +1736,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -2003,15 +1755,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead16": {
       "sphere": {
@@ -2022,7 +1769,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -2041,15 +1788,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead26": {
       "sphere": {
@@ -2060,7 +1802,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -2079,15 +1821,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead36": {
       "sphere": {
@@ -2098,7 +1835,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -2117,15 +1854,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead46": {
       "sphere": {
@@ -2136,7 +1868,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -2155,15 +1887,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead56": {
       "sphere": {
@@ -2174,7 +1901,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -2193,15 +1920,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead66": {
       "sphere": {
@@ -2212,7 +1934,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -2231,15 +1953,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead76": {
       "sphere": {
@@ -2250,7 +1967,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -2269,15 +1986,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead07": {
       "sphere": {
@@ -2288,7 +2000,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -2307,15 +2019,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead17": {
       "sphere": {
@@ -2326,7 +2033,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -2345,15 +2052,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead27": {
       "sphere": {
@@ -2364,7 +2066,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -2383,15 +2085,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead37": {
       "sphere": {
@@ -2402,7 +2099,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "stone",
+      "material": "stone",
       "inside": {
         "plane": {
           "normal": [
@@ -2421,15 +2118,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead47": {
       "sphere": {
@@ -2440,7 +2132,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "brass",
+      "material": "brass",
       "inside": {
         "plane": {
           "normal": [
@@ -2459,15 +2151,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead57": {
       "sphere": {
@@ -2478,7 +2165,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "plane": {
           "normal": [
@@ -2497,15 +2184,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead67": {
       "sphere": {
@@ -2516,7 +2198,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "rose",
+      "material": "rose",
       "inside": {
         "plane": {
           "normal": [
@@ -2535,15 +2217,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "bead77": {
       "sphere": {
@@ -2554,7 +2231,7 @@
         ],
         "radius": 0.56
       },
-      "paint": "slate",
+      "material": "slate",
       "inside": {
         "plane": {
           "normal": [
@@ -2573,15 +2250,10 @@
             ],
             "radius": 0.308
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
-        },
-        "outside": "empty"
-      },
-      "outside": "empty"
+          "material": "core",
+          "complement": true
+        }
+      }
     },
     "tower": {
       "union": [
@@ -2594,11 +2266,7 @@
             ],
             "radius": 0.72
           },
-          "paint": "brass",
-          "inside": {
-            "solid": "stone"
-          },
-          "outside": "empty"
+          "material": "brass"
         },
         {
           "sphere": {
@@ -2609,11 +2277,7 @@
             ],
             "radius": 0.63
           },
-          "paint": "stone",
-          "inside": {
-            "solid": "stone"
-          },
-          "outside": "empty"
+          "material": "stone"
         },
         {
           "sphere": {
@@ -2624,11 +2288,7 @@
             ],
             "radius": 0.54
           },
-          "paint": "brass",
-          "inside": {
-            "solid": "stone"
-          },
-          "outside": "empty"
+          "material": "brass"
         },
         {
           "sphere": {
@@ -2639,11 +2299,7 @@
             ],
             "radius": 0.45
           },
-          "paint": "stone",
-          "inside": {
-            "solid": "stone"
-          },
-          "outside": "empty"
+          "material": "stone"
         },
         {
           "sphere": {
@@ -2654,11 +2310,7 @@
             ],
             "radius": 0.36
           },
-          "paint": "core",
-          "inside": {
-            "solid": "stone"
-          },
-          "outside": "empty"
+          "material": "core"
         }
       ],
       "bounds": {
@@ -2672,42 +2324,25 @@
     },
     "hollow": {
       "sphere": {
-        "center": [
-          3.4,
-          2.6,
-          0.35
-        ],
+        "center": [ 3.4, 2.6, 0.35 ],
         "radius": 1.5
       },
-      "paint": "jade",
+      "material": "jade",
       "inside": {
         "sphere": {
-          "center": [
-            3.4,
-            2.6,
-            0.35
-          ],
+          "center": [ 3.4, 2.6, 0.35 ],
           "radius": 1.12
         },
-        "paint": "bare",
-        "inside": "empty",
-        "outside": {
+        "complement": true,
+        "inside": {
           "sphere": {
-            "center": [
-              2.5,
-              1.6,
-              0.9
-            ],
+            "center": [ 2.5, 1.6, 0.9 ],
             "radius": 0.95
           },
-          "paint": "bare",
-          "inside": "empty",
-          "outside": {
-            "solid": "core"
-          }
+          "material": "core",
+          "complement": true
         }
-      },
-      "outside": "empty"
+      }
     },
     "pedestal": {
       "union": [
@@ -2720,6 +2355,7 @@
             ],
             "offset": 0.9
           },
+          "material": "slate",
           "inside": {
             "plane": {
               "normal": [
@@ -2729,6 +2365,7 @@
               ],
               "offset": 0.9
             },
+            "material": "slate",
             "inside": {
               "plane": {
                 "normal": [
@@ -2738,6 +2375,7 @@
                 ],
                 "offset": 3.2
               },
+              "material": "slate",
               "inside": {
                 "plane": {
                   "normal": [
@@ -2747,6 +2385,7 @@
                   ],
                   "offset": -2.0
                 },
+                "material": "slate",
                 "inside": {
                   "plane": {
                     "normal": [
@@ -2756,6 +2395,7 @@
                     ],
                     "offset": -0.35
                   },
+                  "material": "slate",
                   "inside": {
                     "plane": {
                       "normal": [
@@ -2765,21 +2405,12 @@
                       ],
                       "offset": 1.0
                     },
-                    "inside": {
-                      "solid": "slate"
-                    },
-                    "outside": "empty"
-                  },
-                  "outside": "empty"
-                },
-                "outside": "empty"
-              },
-              "outside": "empty"
-            },
-            "outside": "empty"
-          },
-          "outside": "empty",
-          "paint": "slate"
+                    "material": "slate"
+                  }
+                }
+              }
+            }
+          }
         },
         {
           "plane": {
@@ -2790,6 +2421,7 @@
             ],
             "offset": 0.55
           },
+          "material": "chalk",
           "inside": {
             "plane": {
               "normal": [
@@ -2799,6 +2431,7 @@
               ],
               "offset": 0.55
             },
+            "material": "chalk",
             "inside": {
               "plane": {
                 "normal": [
@@ -2808,6 +2441,7 @@
                 ],
                 "offset": 2.85
               },
+              "material": "chalk",
               "inside": {
                 "plane": {
                   "normal": [
@@ -2817,6 +2451,7 @@
                   ],
                   "offset": -2.35
                 },
+                "material": "chalk",
                 "inside": {
                   "plane": {
                     "normal": [
@@ -2826,6 +2461,7 @@
                     ],
                     "offset": 0.5
                   },
+                  "material": "chalk",
                   "inside": {
                     "plane": {
                       "normal": [
@@ -2835,21 +2471,12 @@
                       ],
                       "offset": 0.35
                     },
-                    "inside": {
-                      "solid": "chalk"
-                    },
-                    "outside": "empty"
-                  },
-                  "outside": "empty"
-                },
-                "outside": "empty"
-              },
-              "outside": "empty"
-            },
-            "outside": "empty"
-          },
-          "outside": "empty",
-          "paint": "chalk"
+                    "material": "chalk"
+                  }
+                }
+              }
+            }
+          }
         }
       ],
       "bounds": {
@@ -2872,10 +2499,7 @@
       "radius": 25
     },
     "complement": true,
-    "paint": "partition",
-    "inside": {
-      "solid": "shell"
-    },
+    "material": "shell",
     "outside": {
       "plane": {
         "normal": [
@@ -2885,10 +2509,7 @@
         ],
         "offset": -1.0
       },
-      "paint": "partition",
-      "inside": {
-        "solid": "floor"
-      },
+      "material": "floor",
       "outside": {
         "group": [
           "bead00",

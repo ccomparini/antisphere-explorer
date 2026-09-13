@@ -13,12 +13,38 @@ struct Node {
   surface_normal : vec3<f32>,   // outward unit normal at P0
   p0_dist        : f32,         // signed distance from the origin to P0
   curvature      : f32,         // signed, 1/(2r); zero is a plane
-  inside         : i32,
-  outside        : i32,
-  // Two 16-bit halves, so scoped state costs no extra node bytes. Low half is
-  // the surface paint: >= 0 sets scope, 0 clears it, negative leaves it alone.
-  // High half is an environment index, 0 meaning inherit.
-  paint          : i32,
+
+  // 0 is reserved: "no child at all" (see antisphere-scene.js's flatten()).
+  // It means something different on each side, matching what an
+  // unspecified "inside"/"outside" already defaulted to before this was a
+  // node concept at all: outside, it's unconditionally void; inside, it
+  // means "no further carving - this whole region uses this node's own
+  // material" (materials[material].solid decides whether that's actually
+  // solid; see trace()).
+  inside         : u32,         // index of inside child or 0u -> no child
+  outside        : u32,         // same but outside
+
+  // "material" describes what's inside the node: an index into the
+  // materials table (0 is vacuum), read directly wherever this node is
+  // the surface a ray actually crossed. A node that doesn't name one of
+  // its own in scene.json inherits its nearest ancestor's, but that's
+  // resolved by antisphere-scene.js's bakeScopes() at compile time - by
+  // the time it reaches this struct it's always this node's own, final
+  // value, with nothing left for trace() to thread through at render
+  // time. It may be solid, or some modifier to how a region is rendered
+  // (including light effects or things like haze), or even just empty
+  // space, which is useful if you want to use nodes to subdivide space
+  // for scoping other things (say, collisions).
+  material       : i32,
+
+  // Ambient environment in force at this node: an index into the
+  // materials table (0 is the default ambient), read directly wherever
+  // this node is the surface a ray actually crossed. Already fully
+  // resolved by antisphere-scene.js's bakeScopes() at compile time -
+  // baked ancestor-scope inheritance, the same way material's own
+  // inheritance is baked - so there is nothing left for trace() to thread
+  // through the traversal at render time.
+  env            : i32,
 };
 
 struct Material {
@@ -28,7 +54,7 @@ struct Material {
   albedo  : vec3<f32>,
   scale   : f32,
   albedo2 : vec3<f32>,
-  pad     : f32,
+  solid   : u32,       // 0 or 1; read by trace() for a node's default "inside"
 };
 
 const KIND_LAMBERT  : u32 = 0u;
@@ -36,8 +62,10 @@ const KIND_GLOSSY   : u32 = 1u;
 const KIND_EMISSIVE : u32 = 2u;
 const KIND_UNLIT    : u32 = 3u;
 // An ambient container never shades. The compiler moves it into a node's
-// environment half and leaves the paint half as PARTITION, so the node is
-// spatial division that happens to set the ambient level beneath it.
+// env field (and bakes that value onto every node beneath it - see
+// bakeEnv() in antisphere-scene.js) and leaves its material as vacuum
+// (0), so the node is a pure spatial division that sets the ambient
+// level beneath it.
 const KIND_AMBIENT  : u32 = 4u;
 
 const PATTERN_CHECKER : u32 = 1u;
@@ -103,48 +131,51 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 }
 
 // A stack entry is a piece of work not yet done: an interval of the ray and
-// the subtree that interval still has to be tested against. Four words rather
-// than six, because the array is per-invocation and its width costs occupancy
-// more than the packing costs ALU.
+// the node that interval still has to be tested against. Plain fields
+// rather than packed words: the array is per-invocation, so this costs more
+// occupancy, but a packing bug (segScope forgetting to sign-extend) is what
+// once spent an afternoon painting cavity interiors as garbage material
+// indices, so for now clarity wins over the two words this could be.
 //
-//   ne  low half  the subtree still to visit, negative for a leaf
-//       high half the node whose surface bounds t0, biased by one so that
-//                 "none" is 0
-//   se  low half  material scope inherited from enclosing nodes
-//       high half environment scope, 0 meaning inherit
-struct Seg { ne : u32, t0 : f32, t1 : f32, se : u32, };
-struct Hit { hit : bool, t : f32, node : i32, mat : i32, env : i32, };
+// node's top bit (DEFAULT_INSIDE_BIT) is the one deliberate exception: set,
+// it flags "this segment is (node & ~DEFAULT_INSIDE_BIT)'s own default
+// inside" (see Node's doc comment) rather than a node still needing its
+// geometry tested. That distinction has to survive being deferred on the
+// stack: a node whose *other* side needs recursing into first (its outside
+// continuing into the rest of the scene is the most common shape a node
+// takes) can't have its own default inside resolved until that recursion
+// finishes, so by the time this pops, nothing but the tag says which
+// node's material it was ever about. Untagged, node is always a real,
+// already-resolved index; 0 is never real (see Node's doc comment), so it
+// just means void.
+//
+// trace() returns a Seg too, reusing it as the hit result rather than a
+// separate Hit type: t0 < 0 means no hit (the same "miss is negative"
+// convention traceFrom() already hands back to its callers), node is the
+// node whose surface was hit (never tagged - see trace()), and t1 is the
+// far bound of the hit region: the full extent of the continuous solid
+// run, not just its nearest sub-piece, which is there for transparency or
+// refraction to reach for later without another struct change.
+struct Seg {
+  node : u32,   // the subtree still to visit; encoded (see DEFAULT_INSIDE_BIT)
+  t0   : f32,
+  t1   : f32,
+};
 
-fn packNE(node : i32, entry : i32) -> u32 {
-  return (u32(entry + 1) << 16u) | (u32(node) & 0xFFFFu);
-}
-fn segNode(w : u32) -> i32 { return i32(w << 16u) >> 16u; }
-fn segEntry(w : u32) -> i32 { return i32(w >> 16u) - 1; }
+const DEFAULT_INSIDE_BIT : u32 = 0x80000000u;
 
-fn packSE(scope : i32, env : i32) -> u32 {
-  return (u32(env) << 16u) | (u32(scope) & 0xFFFFu);
-}
-fn segScope(w : u32) -> i32 { return i32(w & 0xFFFFu); }
-fn segEnv(w : u32) -> i32 { return i32(w >> 16u); }
-
-fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
-  var hit : Hit;
-  hit.hit = false;
-  hit.t = tMax;
-  hit.node = -1;
-  hit.mat = 0;
-  hit.env = 0;
-
-  // The region the ray is currently passing through. Leaves tile the ray and
-  // pop in non-decreasing t, so the last void leaf popped before a solid is
-  // the region touching that surface. That makes the medium a running
-  // variable rather than a stack field, and it is also the more useful
-  // answer: a body sitting in a region gets that region's light even when the
-  // region is not one of its ancestors.
-  var medium : i32 = 0;
+fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
+  // hit.node == 0 means "no hit (yet)" - node 0 is reserved (see Node's
+  // doc comment) so no real crossing can ever claim it. Segments pop in
+  // non-decreasing t (see the loop below), so the first transition into
+  // solid is always the nearest one; once found, further solid pops just
+  // extend t1 (the full extent of that continuous run), and the moment a
+  // pop turns up non-solid again, that run is done and nothing nearer is
+  // left to find.
+  var hit : Seg = Seg(0u, -1.0, tMax);
 
   var stack : array<Seg, 32>;
-  stack[0] = Seg(packNE(0, -1), tMin, tMax, packSE(0, 0));
+  stack[0] = Seg(1u, tMin, tMax);   // node 1 is always the tree's root (0 is reserved)
   var sp : i32 = 1;
 
   var guard : i32 = 0;
@@ -156,36 +187,34 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     let seg = stack[sp];
     if (seg.t1 - seg.t0 <= 1e-6) { continue; }
 
-    let node = segNode(seg.ne);
-    let scope = segScope(seg.se);
-    let env = segEnv(seg.se);
+    var descent_node = seg.node;
+    if ((descent_node & DEFAULT_INSIDE_BIT) != 0u) {
+      // Deferred default inside (see Seg's doc comment): resolve straight
+      // from the tagged node's own material, no geometry test needed -
+      // there's nothing left to split, this *is* the answer already.
+      let seg_nn = seg.node & ~DEFAULT_INSIDE_BIT;
+      let seg_node = nodes[seg_nn];
+      if (materials[seg_node.material].solid != 0u) {
+        if (hit.node == 0u) { hit = Seg(seg_nn, seg.t0, seg.t1); }
+        //else { hit.t1 = seg.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
+      } else {
+        // non-solid inside, so clear the hit:
+        hit.node = 0u;
+      }
 
-    if (node < 0) {
-      // Leaf. Its substrate is (-1 - node), and 0 is vacuum.
-      let substrate = -1 - node;
-      if (substrate == 0) {
-        medium = env;
-        continue;
-      }
-      // Front-to-back ordering means the first solid leaf popped is nearest.
-      let entry = segEntry(seg.ne);
-      hit.hit = true;
-      hit.t = seg.t0;
-      hit.node = entry;
-      // Paint names the surface a node generates, so the node crossed to
-      // arrive here wins. PARTITION and INHERIT are negative and defer to
-      // whatever is in scope; BARE is 0 and falls through to the substrate.
-      var painted = scope;
-      if (entry >= 0) {
-        let entryPaint = (nodes[entry].paint << 16) >> 16;
-        if (entryPaint >= 0) { painted = entryPaint; }
-      }
-      hit.mat = select(substrate, painted, painted > 0);
-      hit.env = medium;
-      break;
+      descent_node = seg_node.inside;
+    } else {
+      // we went outside.  outside is never solid,
+      // so clear the hit:
+      hit.node = 0u;
     }
 
-    let nd = nodes[node];
+    if (descent_node == 0u) {
+      if (hit.node != 0u) { return hit; }
+      continue;
+    }
+
+    let nd = nodes[descent_node];
     visits = visits + 1u;
 
     // Substituting R = O + tD gives A t^2 + B t + C, with A = k.
@@ -219,8 +248,6 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
     if (nr == 2 && r1 > seg.t0 && r1 < seg.t1) { b[nb] = r1; nb = nb + 1; }
     b[nb] = seg.t1;
 
-    let inherited = segEntry(seg.ne);
-
     // Push far to near so the nearest subsegment pops first.
     for (var i : i32 = nb - 1; i >= 0; i = i - 1) {
       let sa = b[i];
@@ -229,22 +256,10 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Hit {
       // Midpoint sign picks the child. Robust, and avoids reasoning about
       // which root is an entry and which is an exit.
       var child = nd.outside;
-      var childScope = scope;
-      var childEnv = env;
       if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) {
-        child = nd.inside;
-        // Paint and environment both scope the region f < 0 and nothing else.
-        // To scope the far side instead, flip the node: negating all five
-        // numbers is free, so the representation pays for this rule rather
-        // than the traversal.
-        let paint = (nd.paint << 16) >> 16;   // low half, sign extended
-        let nodeEnv = nd.paint >> 16;         // high half, 0 means inherit
-        if (paint >= 0) { childScope = paint; }
-        if (nodeEnv != 0) { childEnv = nodeEnv; }
+        child = descent_node | DEFAULT_INSIDE_BIT;
       }
-      var ent = inherited;
-      if (i > 0) { ent = node; }
-      stack[sp] = Seg(packNE(child, ent), sa, sb, packSE(childScope, childEnv));
+      stack[sp] = Seg(child, sa, sb);
       sp = sp + 1;
       peakDepth = max(peakDepth, u32(sp));
     }
@@ -283,8 +298,9 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  let hit = trace(q.o, q.d, q.tMin, q.tMax);
-  rayResults[i] = select(-1.0, hit.t, hit.hit);
+  // trace()'s own miss convention (t0 < 0) already matches this buffer's,
+  // so the result needs no translation.
+  rayResults[i] = trace(q.o, q.d, q.tMin, q.tMax).t0;
 }
 
 // Surface parameterization from the node's own five numbers. A plane gets a
@@ -315,12 +331,14 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
 // ---------------------------------------------------------------------------
 
 struct Surf {
-  env : i32,           // environment in scope where the ray hit
-  P  : vec3<f32>,      // hit position
-  N  : vec3<f32>,      // outward normal, already faced toward the ray
-  V  : vec3<f32>,      // toward the viewer
-  st : vec2<f32>,      // node-frame parameterization, scaled
-  m  : Material,
+  env : i32,       // environment in scope where the ray hit
+  // cmc - pos vs P is annoying.  let's get some consistent naming.
+  P  : vec3<f32>,  // hit position
+  N  : vec3<f32>,  // outward normal, already faced toward the ray
+  V  : vec3<f32>,  // toward the viewer
+  st : vec2<f32>,  // node-frame parameterization, scaled per material
+  m  : Material,   // the material at the point hit (redundant with node)
+  node : u32,      // index of the node with the relevant surface
 };
 
 struct Direct { diffuse : vec3<f32>, specular : vec3<f32>, };
@@ -348,27 +366,32 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
   out.diffuse = vec3<f32>(0.0);
   out.specular = vec3<f32>(0.0);
 
-  // Bias scales with position so the offset stays meaningful out near the
-  // shell as well as at the origin.
-  let bias = 1e-3 * max(1.0, length(s.P));
-  let shadowOrigin = s.P + s.N * bias;
-
   let n = arrayLength(&lights);
   for (var i : u32 = 0u; i < n; i = i + 1u) {
     let lt = lights[i];
     let d = lt.pos - s.P;
     let d2 = dot(d, d);
     let dist = sqrt(max(d2, 1e-8));
-    let L = d / dist;
+    let L = d / dist; // I guess L is normalized direction to light
 
     let ndl = dot(s.N, L);
     if (ndl <= 0.0) { continue; }          // back-facing, no ray needed
 
     if (cam.shadows != 0u) {
-      // Any solid between here and the light occludes it. The front-to-back
-      // traversal already stops at the first one.
+      // Any solid between light and the surface occludes the light.
+      // The front-to-back traversal already stops at the first one.
+      // (cmc: possible optimization would be a trace-in-any-order,
+      // which would simply check if anything occluded the beam
+      // regardless of order)
       shadowRays = shadowRays + 1u;
-      if (trace(shadowOrigin, L, bias, dist - bias).hit) { continue; }
+      // dist + 0.1 makes us measure a bit past the surface so that
+      // we don't get roundoff effects:
+      let hit = trace(lt.pos, -L, 0.0, dist+0.1);
+      if(hit.node != s.node) {
+        // the ray hit something other than our surface, 
+        // so we're in shadow:
+        continue;
+      }
     }
 
     // Inverse square, softened near zero so a light sitting on a surface
@@ -443,11 +466,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // Ablation. Each stage's output has to stay live or the compiler will
   // delete the work being measured, so every level writes something derived
   // from what it computed.
-  var h : Hit;
-  h.hit = false;
-  h.t = 0.0;
-  h.node = -1;
-  h.mat = 0;
+  var h = Seg(0u, -1.0, 0.0);   // t0 < 0: no hit
   if (cam.ablate >= ABLATE_TRACE) {
     h = trace(cam.origin, dir, 1e-3, 1e4);
   }
@@ -457,23 +476,24 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (cam.ablate < ABLATE_TRACE) {
     col = abs(dir) * 0.25;
   } else if (cam.ablate < ABLATE_SHADE) {
-    col = select(vec3<f32>(0.0), vec3<f32>(fract(h.t * 0.05)), h.hit);
-  } else if (h.hit) {
-    if (h.node < 0) {
-      col = vec3<f32>(0.25, 0.04, 0.05);   // camera started inside solid
-    } else {
-      let nd = nodes[h.node];
-      var s : Surf;
-      s.P = cam.origin + h.t * dir;
-      s.N = normalize(gradAt(nd, s.P));
-      if (dot(s.N, dir) > 0.0) { s.N = -s.N; }   // face the ray
-      s.V = -dir;
-      s.m = materials[h.mat];
-      s.st = frame(nd, s.P) * s.m.scale;
-      s.env = h.env;
-      N = s.N;
-      col = shade(s);
-    }
+    col = select(vec3<f32>(0.0), vec3<f32>(fract(h.t0 * 0.05)), h.t0 >= 0.0);
+  } else if (h.t0 >= 0.0) {
+    // h.node is always a real node here - no more "camera started inside
+    // solid, no boundary to shade from" case (see trace()'s doc comment on
+    // Seg): a node's default inside is now a legitimate hit in its own
+    // right, resolved from that node's own material either way.
+    let nd = nodes[h.node];
+    var s : Surf;
+    s.node = h.node;
+    s.P = cam.origin + h.t0 * dir;
+    s.N = normalize(gradAt(nd, s.P));
+    if (dot(s.N, dir) > 0.0) { s.N = -s.N; }   // face the ray
+    s.V = -dir;
+    s.m = materials[nd.material];
+    s.st = frame(nd, s.P) * s.m.scale;
+    s.env = nd.env;
+    N = s.N;
+    col = shade(s);
   }
 
   var outCol = pow(col, vec3<f32>(1.0 / 2.2));
@@ -482,8 +502,12 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     case DEBUG_SHADOW:   { outCol = ramp(f32(shadowRays) / max(1.0, f32(arrayLength(&lights)))); }
     case DEBUG_DEPTH:    { outCol = ramp(f32(peakDepth) / 32.0); }
     case DEBUG_MATERIAL: {
-      let f = f32(h.mat) * 1.9;
-      outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), h.hit);
+      // Same source main's shading uses (nodes[h.node].material). h.node
+      // is 0 on a miss (never a real node - see Node's doc comment), so
+      // no separate guard is needed the way h.entry < 0 used to need one.
+      let shown = h.t0 >= 0.0;
+      let f = f32(select(0, nodes[h.node].material, shown)) * 1.9;
+      outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), shown);
     }
     case DEBUG_NORMAL:   { outCol = N * 0.5 + 0.5; }
     default: {}

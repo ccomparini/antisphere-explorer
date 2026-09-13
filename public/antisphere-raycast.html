@@ -297,6 +297,7 @@ if (!navigator.gpu) {
           layout: traceFromPipe.getBindGroupLayout(0),
           entries: [
             { binding: 1, resource: { buffer: nodeBuf } },
+            { binding: 4, resource: { buffer: matBuf } },
             { binding: 5, resource: { buffer: traceRayBuf } },
             { binding: 6, resource: { buffer: traceResultBuf } },
           ],
