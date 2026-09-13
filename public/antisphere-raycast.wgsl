@@ -331,12 +331,14 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
 // ---------------------------------------------------------------------------
 
 struct Surf {
-  env : i32,           // environment in scope where the ray hit
-  P  : vec3<f32>,      // hit position
-  N  : vec3<f32>,      // outward normal, already faced toward the ray
-  V  : vec3<f32>,      // toward the viewer
-  st : vec2<f32>,      // node-frame parameterization, scaled
-  m  : Material,
+  env : i32,       // environment in scope where the ray hit
+  // cmc - pos vs P is annoying.  let's get some consistent naming.
+  P  : vec3<f32>,  // hit position
+  N  : vec3<f32>,  // outward normal, already faced toward the ray
+  V  : vec3<f32>,  // toward the viewer
+  st : vec2<f32>,  // node-frame parameterization, scaled per material
+  m  : Material,   // the material at the point hit (redundant with node)
+  node : u32,      // index of the node with the relevant surface
 };
 
 struct Direct { diffuse : vec3<f32>, specular : vec3<f32>, };
@@ -364,27 +366,32 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
   out.diffuse = vec3<f32>(0.0);
   out.specular = vec3<f32>(0.0);
 
-  // Bias scales with position so the offset stays meaningful out near the
-  // shell as well as at the origin.
-  let bias = 1e-3 * max(1.0, length(s.P));
-  let shadowOrigin = s.P + s.N * bias;
-
   let n = arrayLength(&lights);
   for (var i : u32 = 0u; i < n; i = i + 1u) {
     let lt = lights[i];
     let d = lt.pos - s.P;
     let d2 = dot(d, d);
     let dist = sqrt(max(d2, 1e-8));
-    let L = d / dist;
+    let L = d / dist; // I guess L is normalized direction to light
 
     let ndl = dot(s.N, L);
     if (ndl <= 0.0) { continue; }          // back-facing, no ray needed
 
     if (cam.shadows != 0u) {
-      // Any solid between here and the light occludes it. The front-to-back
-      // traversal already stops at the first one.
+      // Any solid between light and the surface occludes the light.
+      // The front-to-back traversal already stops at the first one.
+      // (cmc: possible optimization would be a trace-in-any-order,
+      // which would simply check if anything occluded the beam
+      // regardless of order)
       shadowRays = shadowRays + 1u;
-      if (trace(shadowOrigin, L, bias, dist - bias).t0 >= 0.0) { continue; }
+      // dist + 0.1 makes us measure a bit past the surface so that
+      // we don't get roundoff effects:
+      let hit = trace(lt.pos, -L, 0.0, dist+0.1);
+      if(hit.node != s.node) {
+        // the ray hit something other than our surface, 
+        // so we're in shadow:
+        continue;
+      }
     }
 
     // Inverse square, softened near zero so a light sitting on a surface
@@ -477,6 +484,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     // right, resolved from that node's own material either way.
     let nd = nodes[h.node];
     var s : Surf;
+    s.node = h.node;
     s.P = cam.origin + h.t0 * dir;
     s.N = normalize(gradAt(nd, s.P));
     if (dot(s.N, dir) > 0.0) { s.N = -s.N; }   // face the ray
