@@ -7,6 +7,15 @@ tables the WGSL raycaster (`public/antisphere-raycast.wgsl`) actually reads.
 See `public/scene.json` for a large worked example, and `public/scene-simple.json`
 / `public/scene-just-tower.json` for smaller ones.
 
+## Coordinates
+
+All positions, normals and offsets are in a right-handed coordinate system
+with **+z up**; +x and +y span the ground plane. Lengths are in scene units
+with no implied real-world scale, so a scene is free to treat one unit as a
+metre, a kilometre, or a pixel, as long as it does so consistently — the only
+place absolute magnitude matters is light `color`, whose inverse-square
+falloff is expressed in those same units.
+
 Top level:
 
 ```
@@ -31,8 +40,8 @@ Top level:
 ## `materials`
 
 Each key is a material name; the value describes how surfaces using it look
-and behave. Names `partition`, `inherit`, and `bare` are reserved (left over
-from the deprecated `paint` field) and can't be used as material names.
+and behave. The name `inherit` is reserved (left over from the deprecated
+`paint` field) and can't be used as a material name.
 
 | field      | type                                          | default          | meaning |
 |------------|-----------------------------------------------|------------------|---------|
@@ -54,7 +63,8 @@ from the deprecated `paint` field) and can't be used as material names.
   "Ambient regions" below), and the node itself keeps no material of its own.
 
 Material `0` (vacuum/no material) is implicit and reserved; you never author
-it directly, but a node with no `material` field resolves to it.
+it directly, but it is what a node resolves to when no material is named
+anywhere above it.
 
 ## `lights`
 
@@ -111,6 +121,24 @@ which side of it counts as inside — the standard CSG complement, A → U∖A.
 For a sphere this turns it into a spherical hollow; for a plane it flips
 which half-space is inside.
 
+#### Which side of a plane is "inside"
+
+A plane's implicit function is `f(R) = normal · R - offset`, and `"inside"`
+is where `f(R) < 0` — the half-space the normal points *away* from. This
+catches people out reliably, so, concretely:
+
+```
+{ "normal": [0, 0, 1], "offset": 0 }      // inside is z < 0, the ground down
+{ "normal": [0, 0, -1], "offset": 0 }     // inside is z > 0, everything up
+{ "normal": [0, 0, 1], "offset": 2 }      // inside is z < 2
+{ "normal": [0, 0, 1], "offset": -1 }     // inside is z < -1
+```
+
+So a floor occupying everything below `z = 0` is the first of these, and the
+same plane with `"complement": true` is the second. To build a slab or a box,
+intersect half-spaces by nesting each plane in the previous one's `"inside"`,
+with the normals pointing outwards from the solid.
+
 ### `"inside"` / `"outside"`
 
 A primitive node tests its implicit function `f(R)`; rays with `f(R) < 0`
@@ -138,11 +166,11 @@ with `"complement": true`).
   materials on its different surfaces. `"material": null` explicitly
   requests vacuum/no material, likewise opting out of inheritance rather
   than picking up the surrounding scope — distinct from simply omitting
-  the field, which inherits.
+  the field, which inherits. A node with nothing named anywhere above it
+  resolves to vacuum, which is how a pure spatial partition is written.
 - `"paint"`: deprecated alias for `"material"`; using it prints a console
-  warning. Of its old special values, `"inherit"` now just means the same
-  as omitting a material (which already inherits by default); `"partition"`
-  and `"bare"` still mean vacuum.
+  warning. Its old value `"inherit"` now just means the same as omitting a
+  material, which already inherits by default.
 
 ### `"use"`
 
@@ -215,3 +243,17 @@ everything in its `"inside"` subtree. `"outside"` always keeps whatever
 ambient level was already in effect above it, never adopts the node's own —
 so ambient regions can be nested the same way solids can, by descending
 through `"inside"`.
+
+## A note on duplicate keys
+
+JSON resolves duplicate keys silently, keeping the last one. This format puts
+many optional siblings in a single object, so writing two primitives in one
+node —
+
+```
+{ "sphere": { ... }, "sphere": { ... } }     // the first one is gone
+```
+
+— loses geometry with no error from the parser and no complaint from the
+compiler. If a piece of geometry goes missing without a diagnostic, check
+for a repeated key before looking anywhere else.
