@@ -164,7 +164,7 @@ struct Seg {
 
 const DEFAULT_INSIDE_BIT : u32 = 0x80000000u;
 
-fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
+fn trace(rayOrigin : vec3<f32>, rayDir : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
   // hit.node == 0 means "no hit (yet)" - node 0 is reserved (see Node's
   // doc comment) so no real crossing can ever claim it. Segments pop in
   // non-decreasing t (see the loop below), so the first transition into
@@ -176,92 +176,92 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
 
   var stack : array<Seg, 32>;
   stack[0] = Seg(1u, tMin, tMax);   // node 1 is always the tree's root (0 is reserved)
-  var sp : i32 = 1;
+  var stackPtr : i32 = 1;
 
   var guard : i32 = 0;
-  while (sp > 0) {
+  while (stackPtr > 0) {
     guard = guard + 1;
     if (guard > 512) { break; }
 
-    sp = sp - 1;
-    let seg = stack[sp];
-    if (seg.t1 - seg.t0 <= 1e-6) { continue; }
+    stackPtr = stackPtr - 1;
+    let segment = stack[stackPtr];
+    if (segment.t1 - segment.t0 <= 1e-6) { continue; }
 
-    var descent_node = seg.node;
-    if ((descent_node & DEFAULT_INSIDE_BIT) != 0u) {
+    var nextNode = segment.node;
+    if ((nextNode & DEFAULT_INSIDE_BIT) != 0u) {
       // Deferred default inside (see Seg's doc comment): resolve straight
       // from the tagged node's own material, no geometry test needed -
       // there's nothing left to split, this *is* the answer already.
-      let seg_nn = seg.node & ~DEFAULT_INSIDE_BIT;
-      let seg_node = nodes[seg_nn];
-      if (materials[seg_node.material].solid != 0u) {
-        if (hit.node == 0u) { hit = Seg(seg_nn, seg.t0, seg.t1); }
-        //else { hit.t1 = seg.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
+      let nodeIndex = segment.node & ~DEFAULT_INSIDE_BIT;
+      let deferredNode = nodes[nodeIndex];
+      if (materials[deferredNode.material].solid != 0u) {
+        if (hit.node == 0u) { hit = Seg(nodeIndex, segment.t0, segment.t1); }
+        //else { hit.t1 = segment.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
       } else {
         // non-solid inside, so clear the hit:
         hit.node = 0u;
       }
 
-      descent_node = seg_node.inside;
+      nextNode = deferredNode.inside;
     } else {
       // we went outside.  outside is never solid,
       // so clear the hit:
       hit.node = 0u;
     }
 
-    if (descent_node == 0u) {
+    if (nextNode == 0u) {
       if (hit.node != 0u) { return hit; }
       continue;
     }
 
-    let nd = nodes[descent_node];
+    let node = nodes[nextNode];
     visits = visits + 1u;
 
-    // Substituting R = O + tD gives A t^2 + B t + C, with A = k.
+    // Substituting R = rayOrigin + t*rayDir gives A t^2 + B t + C, with A = k.
     // A plane is the quadratic degenerating to linear, no special case.
-    let lin = 1.0 - 2.0 * nd.p0_dist * nd.curvature;
-    let A = nd.curvature;
-    let B = 2.0 * nd.curvature * dot(O, D) + lin * dot(D, nd.surface_normal);
-    let C = fAt(nd, O);
+    let linCoeff = 1.0 - 2.0 * node.p0_dist * node.curvature;
+    let quadCoeff = node.curvature;
+    let linearCoeff = 2.0 * node.curvature * dot(rayOrigin, rayDir) + linCoeff * dot(rayDir, node.surface_normal);
+    let constCoeff = fAt(node, rayOrigin);
 
-    var r0 = 0.0;
-    var r1 = 0.0;
-    var nr : i32 = 0;
-    let disc = B * B - 4.0 * A * C;
-    if (disc >= 0.0) {
-      let sq = sqrt(disc);
-      var q = -0.5 * (B + sq);
-      if (B < 0.0) { q = -0.5 * (B - sq); }
-      let x0 = q / A;
-      var x1 = -B / A - x0;
-      if (abs(q) > 1e-20) { x1 = C / q; }
-      r0 = min(x0, x1);
-      r1 = max(x0, x1);
-      nr = 2;
+    var root0 = 0.0;
+    var root1 = 0.0;
+    var numRoots : i32 = 0;
+    let discriminant = linearCoeff * linearCoeff - 4.0 * quadCoeff * constCoeff;
+    if (discriminant >= 0.0) {
+      let sqrtDisc = sqrt(discriminant);
+      var q = -0.5 * (linearCoeff + sqrtDisc);
+      if (linearCoeff < 0.0) { q = -0.5 * (linearCoeff - sqrtDisc); }
+      let x0 = q / quadCoeff;
+      var x1 = -linearCoeff / quadCoeff - x0;
+      if (abs(q) > 1e-20) { x1 = constCoeff / q; }
+      root0 = min(x0, x1);
+      root1 = max(x0, x1);
+      numRoots = 2;
     }
 
     // Up to two split points carve the segment into up to three subsegments.
-    var b : array<f32, 4>;
-    b[0] = seg.t0;
-    var nb : i32 = 1;
-    if (nr >= 1 && r0 > seg.t0 && r0 < seg.t1) { b[nb] = r0; nb = nb + 1; }
-    if (nr == 2 && r1 > seg.t0 && r1 < seg.t1) { b[nb] = r1; nb = nb + 1; }
-    b[nb] = seg.t1;
+    var bounds : array<f32, 4>;
+    bounds[0] = segment.t0;
+    var numBounds : i32 = 1;
+    if (numRoots >= 1 && root0 > segment.t0 && root0 < segment.t1) { bounds[numBounds] = root0; numBounds = numBounds + 1; }
+    if (numRoots == 2 && root1 > segment.t0 && root1 < segment.t1) { bounds[numBounds] = root1; numBounds = numBounds + 1; }
+    bounds[numBounds] = segment.t1;
 
     // Push far to near so the nearest subsegment pops first.
-    for (var i : i32 = nb - 1; i >= 0; i = i - 1) {
-      let sa = b[i];
-      let sb = b[i + 1];
-      if (sb - sa <= 1e-6 || sp >= 32) { continue; }
+    for (var i : i32 = numBounds - 1; i >= 0; i = i - 1) {
+      let segmentStart = bounds[i];
+      let segmentEnd = bounds[i + 1];
+      if (segmentEnd - segmentStart <= 1e-6 || stackPtr >= 32) { continue; }
       // Midpoint sign picks the child. Robust, and avoids reasoning about
       // which root is an entry and which is an exit.
-      var child = nd.outside;
-      if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) {
-        child = descent_node | DEFAULT_INSIDE_BIT;
+      var childNode = node.outside;
+      if (fAt(node, rayOrigin + 0.5 * (segmentStart + segmentEnd) * rayDir) < 0.0) {
+        childNode = nextNode | DEFAULT_INSIDE_BIT;
       }
-      stack[sp] = Seg(child, sa, sb);
-      sp = sp + 1;
-      peakDepth = max(peakDepth, u32(sp));
+      stack[stackPtr] = Seg(childNode, segmentStart, segmentEnd);
+      stackPtr = stackPtr + 1;
+      peakDepth = max(peakDepth, u32(stackPtr));
     }
   }
   return hit;
