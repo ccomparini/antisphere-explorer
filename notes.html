@@ -267,6 +267,35 @@ Thus, we have a unifying formula for planes and spheres in <span class="m-vec">n
 <p>This works in any dimension.
 </div>
 
+<hr>
+<div id="dot-product-form">
+
+We can lift a given antisphere into a 5 vector <span class="m-vec">S</span>:<br>
+
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+  <mi class="m-vec">S</mi> <mo>&equals;</mo>
+  <mo fence=true>[</mo>
+    <mo>(</mo><mn>1</mn><mo>&minus;</mo><mn>2</mn><mi class="m-sca">a</mi><mi class="m-sca">k</mi><mo>)</mo><mn class="m-vec">n</mn><mo>,</mo>
+    <mi class="m-sca">k</mi><mo>,</mo>
+    <msup><mi class="m-sca">a</mi><mn>2</mn></msup> <mo>&minus;</mo> <mi class="m-sca">a</mi>
+  <mo fence=true>]</mo>
+</math><br>
+
+And 
+
+<hr>
+WHOA DUDE THIS IS MAGIC!
+
+𝒬 = |  k        0        0        (1−2ak)nx/2  |
+    |  0        k        0        (1−2ak)ny/2  |
+    |  0        0        k        (1−2ak)nz/2  |
+    | (1−2ak)nx/2 (1−2ak)ny/2 (1−2ak)nz/2   a²k−a |
+
+We really need to not use mathml for this because mathml is a nightmare.
+
+</div>
+
+
 <script>
 document.querySelectorAll('.m-vec').forEach(el => {
    el.textContent += '\u20D7'; // add COMBINING RIGHT ARROW ABOVE
