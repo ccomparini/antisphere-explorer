@@ -172,45 +172,22 @@ fn trace(rayOrigin : vec3<f32>, rayDir : vec3<f32>, tMin : f32, tMax : f32) -> S
   // extend t1 (the full extent of that continuous run), and the moment a
   // pop turns up non-solid again, that run is done and nothing nearer is
   // left to find.
-  var hit : Seg = Seg(0u, -1.0, tMax);
+  var hit : Seg = Seg(0u, tMin, tMax);
 
   var stack : array<Seg, 32>;
-  stack[0] = Seg(1u, tMin, tMax);   // node 1 is always the tree's root (0 is reserved)
-  var stackPtr : i32 = 1;
+  var stackPtr : i32 = 0;
+  var nextNode : u32 = 1u;   // node 1 is always the tree's root (0 is reserved)
 
   var guard : i32 = 0;
-  while (stackPtr > 0) {
+  loop {
     guard = guard + 1;
     if (guard > 512) { break; }
 
-    stackPtr = stackPtr - 1;
-    let segment = stack[stackPtr];
-    if (segment.t1 - segment.t0 <= 1e-6) { continue; }
-
-    var nextNode = segment.node;
-    if ((nextNode & DEFAULT_INSIDE_BIT) != 0u) {
-      // Deferred default inside (see Seg's doc comment): resolve straight
-      // from the tagged node's own material, no geometry test needed -
-      // there's nothing left to split, this *is* the answer already.
-      let nodeIndex = segment.node & ~DEFAULT_INSIDE_BIT;
-      let deferredNode = nodes[nodeIndex];
-      if (materials[deferredNode.material].solid != 0u) {
-        if (hit.node == 0u) { hit = Seg(nodeIndex, segment.t0, segment.t1); }
-        //else { hit.t1 = segment.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
-      } else {
-        // non-solid inside, so clear the hit:
-        hit.node = 0u;
-      }
-
-      nextNode = deferredNode.inside;
-    } else {
-      // we went outside.  outside is never solid,
-      // so clear the hit:
-      hit.node = 0u;
-    }
-
-    if (nextNode == 0u) {
-      if (hit.node != 0u) { return hit; }
+    if (hit.t1 - hit.t0 <= 1e-6) {
+      if (stackPtr <= 0) { break; }
+      stackPtr = stackPtr - 1;
+      hit = stack[stackPtr];
+      nextNode = hit.node;
       continue;
     }
 
@@ -242,26 +219,58 @@ fn trace(rayOrigin : vec3<f32>, rayDir : vec3<f32>, tMin : f32, tMax : f32) -> S
 
     // Up to two split points carve the segment into up to three subsegments.
     var bounds : array<f32, 4>;
-    bounds[0] = segment.t0;
+    bounds[0] = hit.t0;
     var numBounds : i32 = 1;
-    if (numRoots >= 1 && root0 > segment.t0 && root0 < segment.t1) { bounds[numBounds] = root0; numBounds = numBounds + 1; }
-    if (numRoots == 2 && root1 > segment.t0 && root1 < segment.t1) { bounds[numBounds] = root1; numBounds = numBounds + 1; }
-    bounds[numBounds] = segment.t1;
+    if (numRoots >= 1 && root0 > hit.t0 && root0 < hit.t1) { bounds[numBounds] = root0; numBounds = numBounds + 1; }
+    if (numRoots == 2 && root1 > hit.t0 && root1 < hit.t1) { bounds[numBounds] = root1; numBounds = numBounds + 1; }
+    bounds[numBounds] = hit.t1;
 
     // Push far to near so the nearest subsegment pops first.
     for (var i : i32 = numBounds - 1; i >= 0; i = i - 1) {
-      let segmentStart = bounds[i];
-      let segmentEnd = bounds[i + 1];
-      if (segmentEnd - segmentStart <= 1e-6 || stackPtr >= 32) { continue; }
+      let boundStart = bounds[i];
+      let boundEnd = bounds[i + 1];
+      if (boundEnd - boundStart <= 1e-6 || stackPtr >= 32) { continue; }
       // Midpoint sign picks the child. Robust, and avoids reasoning about
       // which root is an entry and which is an exit.
       var childNode = node.outside;
-      if (fAt(node, rayOrigin + 0.5 * (segmentStart + segmentEnd) * rayDir) < 0.0) {
+      if (fAt(node, rayOrigin + 0.5 * (boundStart + boundEnd) * rayDir) < 0.0) {
         childNode = nextNode | DEFAULT_INSIDE_BIT;
       }
-      stack[stackPtr] = Seg(childNode, segmentStart, segmentEnd);
+      stack[stackPtr] = Seg(childNode, boundStart, boundEnd);
       stackPtr = stackPtr + 1;
       peakDepth = max(peakDepth, u32(stackPtr));
+    }
+
+    // Pop from stack for next iteration, or exit if empty.
+    if (stackPtr <= 0) { break; }
+    stackPtr = stackPtr - 1;
+    hit = stack[stackPtr];
+    nextNode = hit.node;
+
+    // Handle deferred default inside.
+    if ((nextNode & DEFAULT_INSIDE_BIT) != 0u) {
+      // Deferred default inside (see Seg's doc comment): resolve straight
+      // from the tagged node's own material, no geometry test needed -
+      // there's nothing left to split, this *is* the answer already.
+      let nodeIndex = nextNode & ~DEFAULT_INSIDE_BIT;
+      let deferredNode = nodes[nodeIndex];
+      if (materials[deferredNode.material].solid != 0u) {
+        if (hit.node == 0u) { hit.node = nodeIndex; }
+        //else { hit.t1 = hit.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
+      } else {
+        // non-solid inside, so clear the hit:
+        hit.node = 0u;
+      }
+
+      nextNode = deferredNode.inside;
+    } else {
+      // we went outside.  outside is never solid,
+      // so clear the hit:
+      hit.node = 0u;
+    }
+
+    if (nextNode == 0u) {
+      if (hit.node != 0u) { return hit; }
     }
   }
   return hit;
