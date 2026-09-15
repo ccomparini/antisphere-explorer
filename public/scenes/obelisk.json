@@ -2,9 +2,8 @@
   "camera": { "target": [0, 0, 0.45], "yaw": 0.62, "pitch": 0.30, "distance": 2.8 },
 
   "materials": {
-    "sky":     { "kind": "unlit", "albedo": [0.09, 0.11, 0.15] },
-    "floor":   { "albedo": [0.30, 0.31, 0.33], "albedo2": [0.16, 0.17, 0.19],
-                 "pattern": "checker", "scale": 2.0 },
+    "sky":     { "kind": "unlit", "albedo": [0.43, 0.66, 0.98] },
+    "floor":   { "albedo": [0.30, 0.31, 0.33] },
     "granite": { "kind": "glossy", "albedo": [0.44, 0.42, 0.39],
                  "shininess": 40, "specular": 0.45 },
     "gilt":    { "kind": "glossy", "albedo": [0.72, 0.58, 0.24],
@@ -24,7 +23,7 @@
       "complement": true,
       "material": "sky",
       "outside": {
-        "plane": { "normal": [0, 0, 1], "offset": 0 },
+        "sphere": { "center": [0, 0, -325], "radius": 325 },
         "material": "floor",
         "outside": {
           "sphere": { "center": [0, 0, 0.5], "radius": 0.52 },
