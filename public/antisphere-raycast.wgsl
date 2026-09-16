@@ -14,36 +14,22 @@ struct Node {
   p0_dist        : f32,         // signed distance from the origin to P0
   curvature      : f32,         // signed, 1/(2r); zero is a plane
 
-  // 0 is reserved: "no child at all" (see antisphere-scene.js's flatten()).
-  // It means something different on each side, matching what an
-  // unspecified "inside"/"outside" already defaulted to before this was a
-  // node concept at all: outside, it's unconditionally void; inside, it
-  // means "no further carving - this whole region uses this node's own
-  // material" (materials[material].solid decides whether that's actually
-  // solid; see trace()).
   inside         : u32,         // index of inside child or 0u -> no child
   outside        : u32,         // same but outside
 
-  // "material" describes what's inside the node: an index into the
-  // materials table (0 is vacuum), read directly wherever this node is
-  // the surface a ray actually crossed. A node that doesn't name one of
-  // its own in scene.json inherits its nearest ancestor's, but that's
-  // resolved by antisphere-scene.js's bakeScopes() at compile time - by
-  // the time it reaches this struct it's always this node's own, final
-  // value, with nothing left for trace() to thread through at render
-  // time. It may be solid, or some modifier to how a region is rendered
-  // (including light effects or things like haze), or even just empty
-  // space, which is useful if you want to use nodes to subdivide space
-  // for scoping other things (say, collisions).
+  // "material" is an index into the materials table describing what's
+  // "inside" the node.  Since nodes are surface boundaries, this means
+  // that (unlike in reality) a bounded volume can "have" more than one
+  // material.  This is an advantage, though; for example if you want to
+  // model a cube with different colored sides, give the 6 nodes bounding
+  // the cube different materials, et voilà.  It's up to scene/object
+  // authors to make things look right.
+  // Material 0 is reseved for empty space. The "outside" material is
+  // implicitly 0.
   material       : i32,
 
-  // Ambient environment in force at this node: an index into the
-  // materials table (0 is the default ambient), read directly wherever
-  // this node is the surface a ray actually crossed. Already fully
-  // resolved by antisphere-scene.js's bakeScopes() at compile time -
-  // baked ancestor-scope inheritance, the same way material's own
-  // inheritance is baked - so there is nothing left for trace() to thread
-  // through the traversal at render time.
+  // Precomputed index of the "ambient" material in force at this node.
+  // Used for applying region scoped lighting or other effects.
   env            : i32,
 };
 
@@ -54,7 +40,7 @@ struct Material {
   albedo  : vec3<f32>,
   scale   : f32,
   albedo2 : vec3<f32>,
-  solid   : u32,       // 0 or 1; read by trace() for a node's default "inside"
+  solid   : u32,       // 0 or 1; used to determine if it stops rays
 };
 
 const KIND_LAMBERT  : u32 = 0u;
@@ -149,13 +135,6 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // already-resolved index; 0 is never real (see Node's doc comment), so it
 // just means void.
 //
-// trace() returns a Seg too, reusing it as the hit result rather than a
-// separate Hit type: t0 < 0 means no hit (the same "miss is negative"
-// convention traceFrom() already hands back to its callers), node is the
-// node whose surface was hit (never tagged - see trace()), and t1 is the
-// far bound of the hit region: the full extent of the continuous solid
-// run, not just its nearest sub-piece, which is there for transparency or
-// refraction to reach for later without another struct change.
 struct Seg {
   node : u32,   // the subtree still to visit; encoded (see DEFAULT_INSIDE_BIT)
   t0   : f32,
@@ -272,15 +251,12 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
 //
 // A batch entry point for anything that needs to ask the scene a geometric
 // question without also rendering a frame: walk mode's ground probe today,
-// collision or other physics later. Reuses trace() itself, so any change to
-// how the scene is walked (including the material/solidity rework still in
-// progress) automatically applies here too, rather than needing a second,
-// separately-maintained implementation kept in sync by hand.
+// collision or other physics later.
 //
 // Results come back through a GPU buffer, so the caller reads them via a
 // mapAsync a frame or so after submitting, the same latency shape as the
-// profiler's timestamp queries elsewhere in this file. Miss is t < 0, since
-// a real t is never negative for tMin >= 0.
+// profiler's timestamp queries elsewhere in this file. If nothing is hit,
+// node == 0 in the final segment returned.
 // ---------------------------------------------------------------------------
 
 struct RayQuery {
@@ -298,8 +274,6 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  // trace()'s own miss convention (t0 < 0) already matches this buffer's,
-  // so the result needs no translation.
   rayResults[i] = trace(q.o, q.d, q.tMin, q.tMax).t0;
 }
 
@@ -332,8 +306,8 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
 
 struct Surf {
   env : i32,       // environment in scope where the ray hit
-  // cmc - pos vs P is annoying.  let's get some consistent naming.
-  P  : vec3<f32>,  // hit position
+  // cmc - pos vs P is annoying.  let's get some consistent naming (pos)
+  P  : vec3<f32>,  // hit position in world coordinates
   N  : vec3<f32>,  // outward normal, already faced toward the ray
   V  : vec3<f32>,  // toward the viewer
   st : vec2<f32>,  // node-frame parameterization, scaled per material
@@ -463,10 +437,11 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     + cam.right * (ndc.x * cam.aspect * cam.tanHalf)
     + cam.up    * (ndc.y * cam.tanHalf));
 
-  // Ablation. Each stage's output has to stay live or the compiler will
-  // delete the work being measured, so every level writes something derived
+  // Ablation - used for profiling separate stages of the render.
+  // Each stage's output has to stay live or the compiler will delete
+  // the work being measured, so every level writes something derived
   // from what it computed.
-  var h = Seg(0u, -1.0, 0.0);   // t0 < 0: no hit
+  var h = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
     h = trace(cam.origin, dir, 1e-3, 1e4);
   }
@@ -478,10 +453,8 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   } else if (cam.ablate < ABLATE_SHADE) {
     col = select(vec3<f32>(0.0), vec3<f32>(fract(h.t0 * 0.05)), h.t0 >= 0.0);
   } else if (h.node != 0) {
-    // h.node is always a real node here - no more "camera started inside
-    // solid, no boundary to shade from" case (see trace()'s doc comment on
-    // Seg): a node's default inside is now a legitimate hit in its own
-    // right, resolved from that node's own material either way.
+    // the ray hit h.node - render according to the node's material
+    // (see shade())
     let nd = nodes[h.node];
     var s : Surf;
     s.node = h.node;
@@ -490,7 +463,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     if (dot(s.N, dir) > 0.0) { s.N = -s.N; }   // face the ray
     s.V = -dir;
     s.m = materials[nd.material];
-    s.st = frame(nd, s.P) * s.m.scale;
+    s.st = frame(nd, s.P) * s.m.scale; // surface parameterization
     s.env = nd.env;
     N = s.N;
     col = shade(s);
