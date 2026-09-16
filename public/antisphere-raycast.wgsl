@@ -477,7 +477,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     col = abs(dir) * 0.25;
   } else if (cam.ablate < ABLATE_SHADE) {
     col = select(vec3<f32>(0.0), vec3<f32>(fract(h.t0 * 0.05)), h.t0 >= 0.0);
-  } else if (h.t0 >= 0.0) {
+  } else if (h.node != 0) {
     // h.node is always a real node here - no more "camera started inside
     // solid, no boundary to shade from" case (see trace()'s doc comment on
     // Seg): a node's default inside is now a legitimate hit in its own
