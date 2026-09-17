@@ -191,8 +191,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
   var sp : i32 = 0;
 
   var guard : i32 = 0;
-  while (guard < 512) {
-    guard = guard + 1;
+  loop {
 
     var descent_node = seg.node;
     if ((descent_node & DEFAULT_INSIDE_BIT) != 0u) {
@@ -292,6 +291,11 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
     if (sp == 0) { break; }
     sp = sp - 1;
     seg = stack[sp];
+
+    guard = guard + 1;
+    if (guard >= 512) {
+      break; // invalidate hit as well?
+    }
   }
   return hit;
 }
