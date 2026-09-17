@@ -725,16 +725,21 @@ export function packNodes(list) {
   const f = new Float32Array(buf), i = new Int32Array(buf);
   list.forEach((nd, j) => {
     const o = j * 12;
-    f[o + 0] = nd.prim.surface_normal[0];
-    f[o + 1] = nd.prim.surface_normal[1];
-    f[o + 2] = nd.prim.surface_normal[2];
-    f[o + 3] = nd.prim.p0_dist;
-    f[o + 4] = nd.prim.curvature;
+    const a = nd.prim.p0_dist;
+    const k = nd.prim.curvature;
+    const lin = 1 - 2 * a * k;
+    f[o + 0] = lin * nd.prim.surface_normal[0]; // lift_linear[0]
+    f[o + 1] = lin * nd.prim.surface_normal[1]; // lift_linear[1]
+    f[o + 2] = lin * nd.prim.surface_normal[2]; // lift_linear[2]
+    f[o + 3] = nd.prim.curvature;
+    f[o + 4] = a * a * k - a;     // lift_const
     i[o + 5] = nd.inside;
     i[o + 6] = nd.outside;
     i[o + 7] = nd.material;
     i[o + 8] = nd.env;
     // o+9..o+11 are the 12 bytes of trailing pad; left zeroed.
+
+
   });
   return buf;
 }

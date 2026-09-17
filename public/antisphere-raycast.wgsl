@@ -1,18 +1,37 @@
 // Antisphere ray caster.
 //
-// An antisphere is five numbers, (n.xyz, a, k): the unit normal at the near
-// diametric point, the signed distance from the origin to that point, and the
-// signed curvature k = 1/(a+b) = 1/(2r). Planes are k = 0. Negating all five
-// gives the exact complement.
+// An antisphere is five numbers. Authoring uses (n.xyz, a, k): the unit
+// normal at the near diametric point, the signed distance from the origin to
+// that point, and the signed curvature k = 1/(a+b) = 1/(2r). Planes are k = 0.
+// Negating all five gives the exact complement.
+//
+// The GPU stores the same five numbers in lifted form instead, because every
+// runtime formula is cheaper in it and nothing is lost: n and a are never
+// needed here, since the centre, the gradient and a plane's normal all come
+// straight out of the lift. See Node.
 //
 // Traversal is a solid BSP walk where each node splits the ray at up to two
 // points instead of one. Bindings, in order: camera, nodes, output image,
 // lights, materials, then (traceFrom only) ray queries and ray results.
 
 struct Node {
-  surface_normal : vec3<f32>,   // outward unit normal at P0
-  p0_dist        : f32,         // signed distance from the origin to P0
-  curvature      : f32,         // signed, 1/(2r); zero is a plane
+  // The implicit function in lifted form:
+  //
+  //   f(R) = lift_linear . R  +  curvature * (R . R)  +  lift_const
+  //
+  // which is (n, a, k) precomputed by the scene compiler as
+  // lift_linear = (1 - 2ak)n and lift_const = a^2 k - a. Two dot products
+  // and an add, where the (n, a, k) form re-derived (1 - 2ak) and
+  // (a^2 k - a) on every call — and fAt is called about four times per node
+  // visit, once for the ray's own origin and once per subsegment midpoint.
+  //
+  // Everything else derives from these too:
+  //   grad f  = 2*curvature*R + lift_linear
+  //   centre  = -lift_linear / (2*curvature)          (spheres)
+  //   normal  = lift_linear                           (planes: 1-2ak = 1)
+  lift_linear    : vec3<f32>,   // (1 - 2ak) n
+  curvature      : f32,         // k, signed; zero is a plane
+  lift_const     : f32,         // a^2 k - a
 
   inside         : u32,         // index of inside child or 0u -> no child
   outside        : u32,         // same but outside
@@ -104,16 +123,18 @@ struct Light {
 @group(0) @binding(3) var<storage, read> lights : array<Light>;
 @group(0) @binding(4) var<storage, read> materials : array<Material>;
 
-// f(R) = k(R.R) + (1 - 2ak)(R.n) - a + k a^2
+// The implicit function at an arbitrary point. trace() no longer calls this:
+// along a ray it works with the A/B/C coefficients of the same polynomial
+// instead, which is cheaper. Kept because it is the definition everything
+// else is derived from, and for callers that have a point rather than a ray.
 fn fAt(nd : Node, R : vec3<f32>) -> f32 {
-  return nd.curvature * dot(R, R)
-       + (1.0 - 2.0 * nd.p0_dist * nd.curvature) * dot(R, nd.surface_normal)
-       - nd.p0_dist + nd.curvature * nd.p0_dist * nd.p0_dist;
+  return dot(nd.lift_linear, R) + nd.curvature * dot(R, R) + nd.lift_const;
 }
 
-// grad f = 2kR + (1 - 2ak)n. Reduces to n exactly when k = 0.
+// grad f = 2kR + (1 - 2ak)n, which is exactly the lift's own coefficients.
+// Reduces to the plane normal when curvature is zero.
 fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
-  return 2.0 * nd.curvature * R + (1.0 - 2.0 * nd.p0_dist * nd.curvature) * nd.surface_normal;
+  return 2.0 * nd.curvature * R + nd.lift_linear;
 }
 
 // A stack entry is a piece of work not yet done: an interval of the ray and
@@ -152,6 +173,12 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
   // pop turns up non-solid again, that run is done and nothing nearer is
   // left to find.
   var hit : Seg = Seg(0u, -1.0, tMax);
+
+  // Loop-invariant across every node visited: these depend on the ray, not
+  // on the node, so they are hoisted out rather than recomputed inside the
+  // B and C coefficients each time round.
+  let originDotDir = dot(O, D);
+  let originSq = dot(O, O);
 
   var stack : array<Seg, 32>;
   stack[0] = Seg(1u, tMin, tMax);   // node 1 is always the tree's root (0 is reserved)
@@ -196,35 +223,47 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
     let nd = nodes[descent_node];
     visits = visits + 1u;
 
-    // Substituting R = O + tD gives A t^2 + B t + C, with A = k.
-    // A plane is the quadratic degenerating to linear, no special case.
-    let lin = 1.0 - 2.0 * nd.p0_dist * nd.curvature;
+    // Substituting R = O + tD gives A t^2 + B t + C, with A = k (|D| = 1).
+    // A plane is the quadratic degenerating to linear.
     let A = nd.curvature;
-    let B = 2.0 * nd.curvature * dot(O, D) + lin * dot(D, nd.surface_normal);
-    let C = fAt(nd, O);
+    let B = 2.0 * nd.curvature * originDotDir + dot(nd.lift_linear, D);
+    let C = dot(nd.lift_linear, O) + nd.curvature * originSq + nd.lift_const;
 
-    var r0 = 0.0;
-    var r1 = 0.0;
-    var nr : i32 = 0;
+    // Roots start beyond any segment a ray can carry, so a miss, a ray
+    // parallel to a plane, and a plane's sentinel far root are all rejected
+    // by the same range test below. No count to keep or check.
+    var r0 = 1e30;
+    var r1 = 1e30;
     let disc = B * B - 4.0 * A * C;
     if (disc >= 0.0) {
       let sq = sqrt(disc);
       var q = -0.5 * (B + sq);
       if (B < 0.0) { q = -0.5 * (B - sq); }
-      let x0 = q / A;
-      var x1 = -B / A - x0;
-      if (abs(q) > 1e-20) { x1 = C / q; }
-      r0 = min(x0, x1);
-      r1 = max(x0, x1);
-      nr = 2;
+
+      // The stable pair: C/q stays finite as A -> 0, q/A does not. A plane
+      // therefore gets a sentinel rather than a division by zero, which WGSL
+      // calls an indeterminate value and which would poison the min/max
+      // below. +1e30 is safe in either slot: as r1 it fails r1 < seg.t1, and
+      // as r0 it would fail r0 > seg.t0, so only the real root ever splits a
+      // segment. q/A is still evaluated and simply discarded.
+      //
+      // For a plane q works out to exactly -B, so C/q is the linear root
+      // -C/B, and q near zero there means the ray runs parallel to the plane
+      // and never crosses it.
+      let far = select(1e30, q / A, A != 0.0);
+      let near = select(-B / A - far, C / q, abs(q) > 1e-20);
+      if (abs(q) > 1e-20 || A != 0.0) {
+        r0 = min(near, far);
+        r1 = max(near, far);
+      }
     }
 
     // Up to two split points carve the segment into up to three subsegments.
     var b : array<f32, 4>;
     b[0] = seg.t0;
     var nb : i32 = 1;
-    if (nr >= 1 && r0 > seg.t0 && r0 < seg.t1) { b[nb] = r0; nb = nb + 1; }
-    if (nr == 2 && r1 > seg.t0 && r1 < seg.t1) { b[nb] = r1; nb = nb + 1; }
+    if (r0 > seg.t0 && r0 < seg.t1) { b[nb] = r0; nb = nb + 1; }
+    if (r1 > seg.t0 && r1 < seg.t1) { b[nb] = r1; nb = nb + 1; }
     b[nb] = seg.t1;
 
     // Push far to near so the nearest subsegment pops first.
@@ -233,9 +272,12 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       let sb = b[i + 1];
       if (sb - sa <= 1e-6 || sp >= 32) { continue; }
       // Midpoint sign picks the child. Robust, and avoids reasoning about
-      // which root is an entry and which is an exit.
+      // which root is an entry and which is an exit. f(O + tD) is the very
+      // polynomial just solved, so this is two fused multiply-adds rather
+      // than building the point and evaluating f from scratch.
+      let mid = 0.5 * (sa + sb);
       var child = nd.outside;
-      if (fAt(nd, O + 0.5 * (sa + sb) * D) < 0.0) {
+      if ((A * mid + B) * mid + C < 0.0) {
         child = descent_node | DEFAULT_INSIDE_BIT;
       }
       stack[sp] = Seg(child, sa, sb);
@@ -281,13 +323,15 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
 // tangent basis; a sphere gets longitude and latitude about its center.
 fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
   if (nd.curvature == 0.0) {
+    // 1 - 2ak is exactly 1 for a plane, so lift_linear is the unit normal.
+    let normal = nd.lift_linear;
     var axis = vec3<f32>(0.0, 0.0, 1.0);
-    if (abs(nd.surface_normal.z) > 0.9) { axis = vec3<f32>(1.0, 0.0, 0.0); }
-    let t = normalize(cross(nd.surface_normal, axis));
-    let b = cross(nd.surface_normal, t);
+    if (abs(normal.z) > 0.9) { axis = vec3<f32>(1.0, 0.0, 0.0); }
+    let t = normalize(cross(normal, axis));
+    let b = cross(normal, t);
     return vec2<f32>(dot(P, t), dot(P, b));
   }
-  let c = (nd.p0_dist - 0.5 / nd.curvature) * nd.surface_normal;
+  let c = nd.lift_linear / (-2.0 * nd.curvature);   // sphere centre
   let d = normalize(P - c);
   return vec2<f32>(atan2(d.y, d.x), asin(clamp(d.z, -1.0, 1.0)));
 }
