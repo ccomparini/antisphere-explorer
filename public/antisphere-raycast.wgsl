@@ -304,33 +304,43 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
 // running over hits bucketed by material.
 // ---------------------------------------------------------------------------
 
+// What shading needs that cannot be recovered from the node alone: where the
+// ray landed, which way the surface faces there, and which way the viewer is.
+// Material and ambient environment both live on the node the ray crossed, so
+// this carries that index rather than copies of either.
 struct Surf {
-  env : i32,       // environment in scope where the ray hit
   // cmc - pos vs P is annoying.  let's get some consistent naming (pos)
   P  : vec3<f32>,  // hit position in world coordinates
   N  : vec3<f32>,  // outward normal, already faced toward the ray
   V  : vec3<f32>,  // toward the viewer
   st : vec2<f32>,  // node-frame parameterization, scaled per material
-  m  : Material,   // the material at the point hit (redundant with node)
   node : u32,      // index of the node with the relevant surface
 };
 
 struct Direct { diffuse : vec3<f32>, specular : vec3<f32>, };
 
-fn albedoAt(s : Surf) -> vec3<f32> {
-  if (s.m.pattern == PATTERN_CHECKER) {
-    let ck = fract((floor(s.st.x) + floor(s.st.y)) * 0.5);
-    return mix(s.m.albedo, s.m.albedo2, step(0.25, ck));
-  }
-  return s.m.albedo;
+fn surfaceMaterial(s : Surf) -> Material {
+  return materials[nodes[s.node].material];
 }
 
-// Ambient is whatever environment is in scope at the hit, shaped by a crude
+// Ambient is whatever environment the node carries, shaped by a crude
 // hemisphere term. Environment 0 is the default.
 fn ambient(env : i32, N : vec3<f32>) -> vec3<f32> {
   var base = vec3<f32>(0.13, 0.13, 0.14);
   if (env > 0) { base = materials[env].albedo; }
   return base * (0.77 + 0.23 * max(N.z, 0.0));
+}
+
+fn surfaceAmbient(s : Surf) -> vec3<f32> {
+  return ambient(nodes[s.node].env, s.N);
+}
+
+fn albedoAt(s : Surf, m : Material) -> vec3<f32> {
+  if (m.pattern == PATTERN_CHECKER) {
+    let ck = fract((floor(s.st.x) + floor(s.st.y)) * 0.5);
+    return mix(m.albedo, m.albedo2, step(0.25, ck));
+  }
+  return m.albedo;
 }
 
 // Sums direct light over every source, with one shadow ray each. A shininess
@@ -362,7 +372,7 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
       // we don't get roundoff effects:
       let hit = trace(lt.pos, -L, 0.0, dist+0.1);
       if(hit.node != s.node) {
-        // the ray hit something other than our surface, 
+        // the ray hit something other than our surface,
         // so we're in shadow:
         continue;
       }
@@ -381,29 +391,32 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
 }
 
 fn shadeLambert(s : Surf) -> vec3<f32> {
+  let m = surfaceMaterial(s);
   let d = directLighting(s, 0.0);
-  return albedoAt(s) * (ambient(s.env, s.N) + d.diffuse);
+  return albedoAt(s, m) * (surfaceAmbient(s) + d.diffuse);
 }
 
 // params.x shininess, params.y specular strength
 fn shadeGlossy(s : Surf) -> vec3<f32> {
-  let d = directLighting(s, max(s.m.params.x, 1.0));
-  return albedoAt(s) * (ambient(s.env, s.N) + d.diffuse) + d.specular * s.m.params.y;
+  let m = surfaceMaterial(s);
+  let d = directLighting(s, max(m.params.x, 1.0));
+  return albedoAt(s, m) * (surfaceAmbient(s) + d.diffuse) + d.specular * m.params.y;
 }
 
 // params.x emission strength, added on top of ordinary diffuse response
 fn shadeEmissive(s : Surf) -> vec3<f32> {
+  let m = surfaceMaterial(s);
   let d = directLighting(s, 0.0);
-  let alb = albedoAt(s);
-  return alb * (ambient(s.env, s.N) + d.diffuse) + alb * s.m.params.x;
+  let alb = albedoAt(s, m);
+  return alb * (surfaceAmbient(s) + d.diffuse) + alb * m.params.x;
 }
 
 fn shadeUnlit(s : Surf) -> vec3<f32> {
-  return albedoAt(s);
+  return albedoAt(s, surfaceMaterial(s));
 }
 
 fn shade(s : Surf) -> vec3<f32> {
-  switch (s.m.kind) {
+  switch (surfaceMaterial(s).kind) {
     case KIND_GLOSSY:   { return shadeGlossy(s); }
     case KIND_EMISSIVE: { return shadeEmissive(s); }
     case KIND_UNLIT:    { return shadeUnlit(s); }
@@ -462,9 +475,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     s.N = normalize(gradAt(nd, s.P));
     if (dot(s.N, dir) > 0.0) { s.N = -s.N; }   // face the ray
     s.V = -dir;
-    s.m = materials[nd.material];
-    s.st = frame(nd, s.P) * s.m.scale; // surface parameterization
-    s.env = nd.env;
+    s.st = frame(nd, s.P) * materials[nd.material].scale; // surface parameterization
     N = s.N;
     col = shade(s);
   }
