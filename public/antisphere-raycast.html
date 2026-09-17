@@ -66,952 +66,843 @@
 <script type="module">
 import { compileScene, packMaterials, packNodes, packLights }
   from './antisphere-scene.js';
-
-// ---------------------------------------------------------------------------
-// Shaders
-//
-// Loaded from disk, so this page must be served over http. Opening it from a
-// file:// URL will fail the fetch. From this directory:
-//
-//     python3 -m http.server
-// ---------------------------------------------------------------------------
-
-async function loadText(url) {
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`${url}: ${res.status} ${res.statusText}`);
-  return res.text();
-}
-
-
-
-// ---------------------------------------------------------------------------
-// Setup
-// ---------------------------------------------------------------------------
+import {
+  loadText, requestGPU, configureCanvas, buildPipelines, uploadStorage,
+  createTimestampQuery, createTraceBuffers, createCameraUniform,
+} from './gpu-setup.js';
 
 const canvas = document.getElementById('c');
 const stat = document.getElementById('stat');
+const el = (id) => document.getElementById(id);
 
 function fail(msg) {
-  document.getElementById('err').style.display = 'grid';
-  document.getElementById('err').textContent = msg;
+  el('err').style.display = 'grid';
+  el('err').textContent = msg;
   canvas.style.display = 'none';
 }
 
-if (!navigator.gpu) {
-  fail('This page needs WebGPU. Try Chrome or Edge 113+, or Safari 18+.');
-} else {
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) {
-    fail('No suitable GPU adapter found.');
-  } else {
-    // ?scene=other.json loads a different scene, so a benchmark setup is a
-    // shareable URL rather than an edit.
-    const sceneFile = new URLSearchParams(location.search).get('scene') || 'scene.json';
-    const SOURCES = ['antisphere-raycast.wgsl', 'blit.wgsl', `scenes/${sceneFile}`];
-    let computeWGSL, blitWGSL, sceneText;
-    try {
-      [computeWGSL, blitWGSL, sceneText] = await Promise.all(SOURCES.map(loadText));
-    } catch (e) {
-      fail(`Could not load the source files (${e.message}).\n\n` +
-           'This page reads its WGSL and its scene from separate files, so it has ' +
-           'to be served over http rather than opened directly. Run ' +
-           '"python3 -m http.server" in this directory and load it from there.');
-      throw e;
-    }
+const MAX_TRACE_RAYS = 16;
+const TS_COUNT = 4;
 
-    const canTimestamp = adapter.features.has('timestamp-query');
-    const canBgraStorage = adapter.features.has('bgra8unorm-storage');
-    const device = await adapter.requestDevice({
-      requiredFeatures: [
-        ...(canTimestamp ? ['timestamp-query'] : []),
-        ...(canBgraStorage ? ['bgra8unorm-storage'] : []),
+// Everything below runs inside main() rather than an else-branch, so failures
+// return early instead of nesting the whole renderer one level deeper.
+main().catch((e) => { fail(e.message); throw e; });
+
+async function main() {
+  // -----------------------------------------------------------------------
+  // Sources
+  //
+  // Loaded over http; opening this page from a file:// URL will fail the
+  // fetch. ?scene=other.json picks a different scene, so a benchmark setup is
+  // a shareable URL rather than an edit.
+  // -----------------------------------------------------------------------
+
+  const sceneFile = new URLSearchParams(location.search).get('scene') || 'scene.json';
+  const SOURCES = ['antisphere-raycast.wgsl', 'blit.wgsl', `scenes/${sceneFile}`];
+  let computeWGSL, blitWGSL, sceneText;
+  try {
+    [computeWGSL, blitWGSL, sceneText] = await Promise.all(SOURCES.map(loadText));
+  } catch (e) {
+    throw new Error(
+      `Could not load the source files (${e.message}).\n\n` +
+      'This page reads its WGSL and its scene from separate files, so it has ' +
+      'to be served over http rather than opened directly. Run ' +
+      '"python3 -m http.server" in this directory and load it from there.');
+  }
+
+  // -----------------------------------------------------------------------
+  // Device, canvas, and the resources that outlive a scene
+  // -----------------------------------------------------------------------
+
+  const { device, canTimestamp, canBgraStorage } = await requestGPU();
+  const { ctx, format, canDirect } = configureCanvas(canvas, device, canBgraStorage);
+
+  const cam = createCameraUniform(device);
+  const ts = createTimestampQuery(device, canTimestamp, TS_COUNT);
+  const rayQuery = createTraceBuffers(device, MAX_TRACE_RAYS);
+
+  // Linear filtering lets the render target be a different resolution from
+  // the canvas: the blit shader samples it scaled to fit.
+  const blitSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+
+  let pipes = null;
+  let scene = null;
+  let nodeBuf = null, lightBuf = null, matBuf = null;
+  let tex = null, computeBG = null, blitBG = null, traceFromBG = null;
+  let tw = 0, th = 0;
+
+  // The render target (rw x rh) can be smaller than the canvas (tw x th); the
+  // blit shader scales it up to fit. Direct output has no blit step, so it
+  // always renders at full canvas resolution regardless of scale.
+  let rw = 0, rh = 0, renderScale = 1;
+
+  // -----------------------------------------------------------------------
+  // Scene buffers and bind groups
+  // -----------------------------------------------------------------------
+
+  function applyScene(spec) {
+    const built = compileScene(spec);        // throws before anything is touched
+    for (const b of [nodeBuf, lightBuf, matBuf]) if (b) b.destroy();
+    scene = built;
+    const nodeData = packNodes(built.nodes);
+    const lightData = packLights(built.lights);
+    const matData = packMaterials(built.materials);
+    nodeBuf  = uploadStorage(device, nodeData);
+    lightBuf = uploadStorage(device, lightData);
+    matBuf   = uploadStorage(device, matData);
+    makeBindGroups();
+
+    // Instrumentation: compiled scene size, in nodes/materials/lights and
+    // packed bytes, for comparing tree-shape and encoding changes across
+    // branches. Byte counts matter alongside node counts because a node's own
+    // packed size isn't guaranteed constant across branches.
+    const total = nodeData.byteLength + lightData.byteLength + matData.byteLength;
+    console.log(
+      `scene size: ${built.nodes.length} nodes (${nodeData.byteLength} B) · ` +
+      `${built.materials.length} materials (${matData.byteLength} B) · ` +
+      `${built.lights.length} lights (${lightData.byteLength} B) · ` +
+      `total ${total} B`
+    );
+  }
+
+  // The swap chain hands back a different texture every frame, so the direct
+  // path cannot cache its bind group.
+  function directBindGroup(view) {
+    return device.createBindGroup({
+      layout: pipes.computeDirect.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: cam.buffer } },
+        { binding: 1, resource: { buffer: nodeBuf } },
+        { binding: 2, resource: view },
+        { binding: 3, resource: { buffer: lightBuf } },
+        { binding: 4, resource: { buffer: matBuf } },
       ],
     });
-    device.addEventListener('uncapturederror', (e) => console.error(e.error));
+  }
 
-    const ctx = canvas.getContext('webgpu');
+  // Bind group layouts come from the pipelines, so both the pipelines and the
+  // output texture invalidate them.
+  function makeBindGroups() {
+    if (!tex || !pipes || !nodeBuf) return;
+    computeBG = device.createBindGroup({
+      layout: pipes.compute.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: cam.buffer } },
+        { binding: 1, resource: { buffer: nodeBuf } },
+        { binding: 2, resource: tex.createView() },
+        { binding: 3, resource: { buffer: lightBuf } },
+        { binding: 4, resource: { buffer: matBuf } },
+      ],
+    });
+    blitBG = device.createBindGroup({
+      layout: pipes.blit.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: tex.createView() },
+        { binding: 1, resource: blitSampler },
+      ],
+    });
+    traceFromBG = device.createBindGroup({
+      layout: pipes.traceFrom.getBindGroupLayout(0),
+      entries: [
+        { binding: 1, resource: { buffer: nodeBuf } },
+        { binding: 4, resource: { buffer: matBuf } },
+        { binding: 5, resource: { buffer: rayQuery.rayBuf } },
+        { binding: 6, resource: { buffer: rayQuery.resultBuf } },
+      ],
+    });
+  }
 
-    // Writing straight to the swap chain needs a storage-capable canvas
-    // format. bgra8unorm is preferred on Windows and macOS but only supports
-    // storage behind an optional feature, so fall back to rgba8unorm, which
-    // always does.
-    const preferred = navigator.gpu.getPreferredCanvasFormat();
-    const format = (preferred === 'bgra8unorm' && !canBgraStorage)
-      ? 'rgba8unorm' : preferred;
+  // Swaps pipelines in only if every shader compiled and every pipeline
+  // validated, so a bad edit leaves the previous frame rendering.
+  async function rebuildPipelines(computeSrc, blitSrc) {
+    const { error, pipelines } = await buildPipelines(device, format, computeSrc, blitSrc);
+    if (error) return error;
+    pipes = pipelines;
+    makeBindGroups();
+    return null;
+  }
 
-    let canDirect = true;
+  const firstError = await rebuildPipelines(computeWGSL, blitWGSL);
+  if (firstError) throw new Error(`${firstError}. See the console for details.`);
+
+  applyScene(JSON.parse(sceneText));
+
+  // -----------------------------------------------------------------------
+  // Sizing
+  // -----------------------------------------------------------------------
+
+  // Recreates the render target at tw/th scaled by renderScale, only if that
+  // actually changes its size. Called both on canvas resize and whenever
+  // renderScale itself changes.
+  function updateRenderSize() {
+    const w = Math.max(1, Math.round(tw * renderScale));
+    const h = Math.max(1, Math.round(th * renderScale));
+    if (w === rw && h === rh) return;
+    rw = w; rh = h;
+    if (tex) tex.destroy();
+    tex = device.createTexture({
+      size: [rw, rh],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    makeBindGroups();
+  }
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+    const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+    if (w !== tw || h !== th) {
+      tw = w; th = h;
+      canvas.width = w; canvas.height = h;
+    }
+    updateRenderSize();
+  }
+  window.addEventListener('resize', resize);
+
+  // Rounded to a step boundary so repeated presses land on clean values (0.7,
+  // not 0.6999999999999998) instead of drifting with float error. Capped at 1:
+  // the blit is a single bilinear tap, not a box filter, so upscaling the
+  // source past the canvas buys no quality, just cost.
+  function setRenderScale(v) {
+    renderScale = Math.max(0.25, Math.min(1, Math.round(v * 10) / 10));
+    updateRenderSize();
+    note(`render scale ${renderScale.toFixed(2)} (${rw}x${rh})`);
+  }
+
+  // -----------------------------------------------------------------------
+  // Hot reload
+  //
+  // Refetches the shaders and the scene and rebuilds. Camera and buffers are
+  // untouched, so the view does not jump. A failed rebuild is reported and
+  // the previous pipelines keep rendering.
+  // -----------------------------------------------------------------------
+
+  let live = [computeWGSL, blitWGSL, sceneText];
+  let reloading = false;
+  let watching = false;      // polling is opt-in; R reloads on demand
+
+  function note(text, bad) {
+    const n = el('note');
+    n.textContent = text;
+    n.style.color = bad ? '#f87171' : '#4ade80';
+    clearTimeout(note.timer);
+    note.timer = setTimeout(() => { n.textContent = ''; }, bad ? 6000 : 1600);
+  }
+
+  async function reload(force) {
+    if (reloading) return;
+    reloading = true;
     try {
-      ctx.configure({
-        device, format, alphaMode: 'opaque',
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING,
-      });
+      const next = await Promise.all(SOURCES.map(loadText));
+      const changed = next.map((t, i) => force || t !== live[i]);
+      if (!changed.some(Boolean)) return;
+      // Record the new text either way, so a broken file is not retried on
+      // every poll.
+      live = next;
+
+      const done = [];
+      if (changed[0] || changed[1]) {
+        const err = await rebuildPipelines(next[0], next[1]);
+        if (err) { note(`reload: ${err}`, true); return; }
+        done.push('shaders');
+      }
+      if (changed[2]) {
+        try {
+          applyScene(JSON.parse(next[2]));
+          done.push('scene');
+        } catch (e) {
+          note(`reload: ${e.message}`, true);
+          return;
+        }
+      }
+      note(`reloaded ${done.join(' and ')}`);
     } catch (e) {
-      canDirect = false;
-      console.warn('canvas storage binding unavailable, blit only:', e.message);
-      ctx.configure({ device, format, alphaMode: 'opaque' });
+      note(`reload: ${e.message}`, true);
+    } finally {
+      reloading = false;
     }
+  }
 
-    // Scene buffers are replaced wholesale when scene.json changes, since the
-    // node, material, and light counts all move.
-    let nodeBuf = null, lightBuf = null, matBuf = null;
-    let scene = null;
+  setInterval(() => { if (watching) reload(false); }, 1500);
 
-    function upload(data) {
-      const buf = device.createBuffer({
-        size: data.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      });
-      device.queue.writeBuffer(buf, 0, data);
-      return buf;
+  // -----------------------------------------------------------------------
+  // Camera
+  // -----------------------------------------------------------------------
+
+  // Orbit camera
+  let yaw = 0.55, pitch = 0.30, dist = 6.4;
+  let target = [0, 0, 0.15];
+
+  // Free-look camera state, shared by both the 'free' and 'walk' modes (they
+  // differ only in how arrow keys move it). Starts wherever orbit last was
+  // (see setCameraMode), so switching modes never jumps the view.
+  let freeEye = [0, 0, 0], freeYaw = yaw, freePitch = pitch;
+  const CAMERA_MODES = ['orbit', 'free', 'walk'];
+  let cameraMode = 'orbit';
+
+  // The unit look direction for a yaw/pitch pair, shared by every camera mode
+  // so dragging/mouselook rotates the view the same way in each.
+  function lookDir(yw, pt) {
+    const cp = Math.cos(pt), sp = Math.sin(pt);
+    return [-cp * Math.sin(yw), -cp * Math.cos(yw), -sp];
+  }
+
+  // Eye position and look direction for whichever mode is active.
+  function cameraBasis() {
+    if (cameraMode !== 'orbit') {
+      return { eye: freeEye, forward: lookDir(freeYaw, freePitch) };
     }
+    const forward = lookDir(yaw, pitch);
+    const eye = [target[0] - dist * forward[0],
+                 target[1] - dist * forward[1],
+                 target[2] - dist * forward[2]];
+    return { eye, forward };
+  }
 
-    function applyScene(spec) {
-      const built = compileScene(spec);          // throws before anything is touched
-      for (const b of [nodeBuf, lightBuf, matBuf]) if (b) b.destroy();
-      scene = built;
-      const nodeData = packNodes(built.nodes);
-      const lightData = packLights(built.lights);
-      const matData = packMaterials(built.materials);
-      nodeBuf  = upload(nodeData);
-      lightBuf = upload(lightData);
-      matBuf   = upload(matData);
-      makeBindGroups();
-
-      // Instrumentation: compiled scene size, in nodes/materials/lights and
-      // packed bytes, for comparing tree-shape and encoding changes across
-      // branches. Byte counts matter alongside node counts because a
-      // node's own packed size isn't guaranteed constant across branches.
-      const total = nodeData.byteLength + lightData.byteLength + matData.byteLength;
-      console.log(
-        `scene size: ${built.nodes.length} nodes (${nodeData.byteLength} B) · ` +
-        `${built.materials.length} materials (${matData.byteLength} B) · ` +
-        `${built.lights.length} lights (${lightData.byteLength} B) · ` +
-        `total ${total} B`
-      );
-    }
-
-    const camBuf = device.createBuffer({
-      size: 80,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    // Linear filtering lets the render target be a different resolution
-    // from the canvas: the blit shader samples it scaled to fit.
-    const blitSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
-
-    // Buffers for traceFrom(), the compute shader's batch ray-query entry
-    // point (antisphere-raycast.wgsl). Sized for a handful of rays; today
-    // only walk mode's single ground probe uses it, but the point of doing
-    // this on the GPU rather than in JS is that a second caller (collision
-    // probes, say) costs no new shader code, just more rays in the batch.
-    const MAX_TRACE_RAYS = 16;
-    const traceRayBuf = device.createBuffer({
-      size: MAX_TRACE_RAYS * 32,   // RayQuery: vec3 o, f32 tMin, vec3 d, f32 tMax
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const traceResultBuf = device.createBuffer({
-      size: MAX_TRACE_RAYS * 4,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-    const traceReadBuf = device.createBuffer({
-      size: MAX_TRACE_RAYS * 4,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
-
-    // A shader that fails to compile leaves the pipeline invalid, and an
-    // invalid pipeline makes the whole submit fail: black frames, no
-    // exception. Report compilation messages rather than guessing.
-    async function checkShader(mod, label) {
-      const info = await mod.getCompilationInfo();
-      let failed = false;
-      for (const msg of info.messages) {
-        const where = `${label} line ${msg.lineNum}:${msg.linePos}`;
-        if (msg.type === 'error') { failed = true; console.error(where, msg.message); }
-        else console.warn(where, msg.message);
-      }
-      return !failed;
-    }
-
-    let computePipe = null, computeDirectPipe = null, blitPipe = null, traceFromPipe = null;
-    let tex = null, computeBG = null, blitBG = null, traceFromBG = null, tw = 0, th = 0;
-
-    // The render target (rw x rh) can be smaller than the canvas (tw x th);
-    // the blit shader scales it up to fit. Direct output has no blit step,
-    // so it always renders at full canvas resolution regardless of scale.
-    let rw = 0, rh = 0, renderScale = 1;
-
-    // The swap chain hands back a different texture every frame, so the
-    // direct path cannot cache its bind group.
-    function directBindGroup(view) {
-      return device.createBindGroup({
-        layout: computeDirectPipe.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: camBuf } },
-          { binding: 1, resource: { buffer: nodeBuf } },
-          { binding: 2, resource: view },
-          { binding: 3, resource: { buffer: lightBuf } },
-          { binding: 4, resource: { buffer: matBuf } },
-        ],
-      });
-    }
-
-    // Bind group layouts come from the pipelines, so both the pipelines and
-    // the output texture invalidate them.
-    function makeBindGroups() {
-      if (!tex || !computePipe || !blitPipe || !nodeBuf) return;
-      computeBG = device.createBindGroup({
-        layout: computePipe.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: camBuf } },
-          { binding: 1, resource: { buffer: nodeBuf } },
-          { binding: 2, resource: tex.createView() },
-          { binding: 3, resource: { buffer: lightBuf } },
-          { binding: 4, resource: { buffer: matBuf } },
-        ],
-      });
-      blitBG = device.createBindGroup({
-        layout: blitPipe.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: tex.createView() },
-          { binding: 1, resource: blitSampler },
-        ],
-      });
-      if (traceFromPipe) {
-        traceFromBG = device.createBindGroup({
-          layout: traceFromPipe.getBindGroupLayout(0),
-          entries: [
-            { binding: 1, resource: { buffer: nodeBuf } },
-            { binding: 4, resource: { buffer: matBuf } },
-            { binding: 5, resource: { buffer: traceRayBuf } },
-            { binding: 6, resource: { buffer: traceResultBuf } },
-          ],
-        });
-      }
-    }
-
-    // Builds both pipelines from source and only swaps them in if everything
-    // validates, so a bad edit leaves the previous frame rendering.
-    async function buildPipelines(computeSrc, blitSrc) {
-      // The storage format is a literal in the WGSL type, so the direct-to-
-      // canvas variant needs its own module when the canvas is not rgba8unorm.
-      const directSrc = computeSrc.replace('texture_storage_2d<rgba8unorm',
-                                           `texture_storage_2d<${format}`);
-      const sameSrc = directSrc === computeSrc;
-
-      const cMod = device.createShaderModule({ code: computeSrc });
-      const dMod = sameSrc ? cMod : device.createShaderModule({ code: directSrc });
-      const bMod = device.createShaderModule({ code: blitSrc });
-      const ok = await Promise.all([
-        checkShader(cMod, 'compute shader'),
-        sameSrc ? true : checkShader(dMod, 'compute shader (direct)'),
-        checkShader(bMod, 'blit shader'),
-      ]);
-      if (!ok.every(Boolean)) return 'shader failed to compile';
-
-      device.pushErrorScope('validation');
-      const cp = device.createComputePipeline({
-        layout: 'auto',
-        compute: { module: cMod, entryPoint: 'main' },
-      });
-      const dp = sameSrc ? cp : device.createComputePipeline({
-        layout: 'auto',
-        compute: { module: dMod, entryPoint: 'main' },
-      });
-      const bp = device.createRenderPipeline({
-        layout: 'auto',
-        vertex: { module: bMod, entryPoint: 'vs' },
-        fragment: { module: bMod, entryPoint: 'fs', targets: [{ format }] },
-        primitive: { topology: 'triangle-list' },
-      });
-      // Same module as the render pipeline: traceFrom() is just another
-      // entry point in antisphere-raycast.wgsl, sharing trace() with main().
-      const tfp = device.createComputePipeline({
-        layout: 'auto',
-        compute: { module: cMod, entryPoint: 'traceFrom' },
-      });
-      const err = await device.popErrorScope();
-      if (err) { console.error(err.message); return 'pipeline validation failed'; }
-
-      computePipe = cp;
-      computeDirectPipe = dp;
-      blitPipe = bp;
-      traceFromPipe = tfp;
-      makeBindGroups();
-      return null;
-    }
-
-    const firstError = await buildPipelines(computeWGSL, blitWGSL);
-    if (firstError) {
-      fail(`${firstError}. See the console for details.`);
-      throw new Error(firstError);
-    }
-
+  // Free-look modes rotate via mouselook (movement deltas while the pointer is
+  // locked to the canvas) rather than click-drag, so entering or leaving them
+  // also grabs or releases the pointer.
+  function requestLook() {
     try {
-      applyScene(JSON.parse(sceneText));
-    } catch (e) {
-      fail(e.message);
-      throw e;
+      const p = canvas.requestPointerLock();
+      if (p && p.catch) p.catch(() => note('click the canvas to enable mouselook', true));
+    } catch {
+      note('click the canvas to enable mouselook', true);
     }
+  }
+  function releaseLook() {
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+  }
 
-    // Recreates the render target at tw/th scaled by renderScale, only if
-    // that actually changes its size. Called both on canvas resize and
-    // whenever renderScale itself changes.
-    function updateRenderSize() {
-      const w = Math.max(1, Math.round(tw * renderScale));
-      const h = Math.max(1, Math.round(th * renderScale));
-      if (w === rw && h === rh) return;
-      rw = w; rh = h;
-      if (tex) tex.destroy();
-      tex = device.createTexture({
-        size: [rw, rh],
-        format: 'rgba8unorm',
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-      });
-      makeBindGroups();
+  // Carries eye position and orientation across a mode switch instead of
+  // jumping to the other mode's last remembered state. Switching directly
+  // between 'free' and 'walk' needs no sync: they share the same state.
+  function setCameraMode(mode) {
+    if (mode === cameraMode) return;
+    const wasLook = cameraMode !== 'orbit', willLook = mode !== 'orbit';
+    if (willLook && !wasLook) {
+      const { eye } = cameraBasis();                // orbit -> free/walk
+      freeEye = eye; freeYaw = yaw; freePitch = pitch;
+      requestLook();
+    } else if (!willLook && wasLook) {
+      const { eye, forward } = cameraBasis();       // free/walk -> orbit
+      yaw = freeYaw; pitch = freePitch;
+      target = [eye[0] + dist * forward[0],
+                eye[1] + dist * forward[1],
+                eye[2] + dist * forward[2]];
+      releaseLook();
     }
+    if (mode === 'walk') fallVelocity = 0;
+    cameraMode = mode;
+    note(`camera: ${mode}`);
+  }
 
-    function resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
-      const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
-      if (w !== tw || h !== th) {
-        tw = w; th = h;
-        canvas.width = w; canvas.height = h;
-      }
-      updateRenderSize();
+  // The scene may name a viewpoint. Applied on first load and on demand, but
+  // not on hot reload, which would yank the view mid-iteration.
+  function applySceneCamera() {
+    const c = scene && scene.camera;
+    if (!c) return;
+    if (c.target) target = c.target.slice();
+    if (c.yaw !== undefined) yaw = c.yaw;
+    if (c.pitch !== undefined) pitch = c.pitch;
+    if (c.distance !== undefined) dist = c.distance;
+  }
+  applySceneCamera();
+
+  let shadowsOn = true;
+  let moveFwd = false, moveBack = false;
+  const MOVE_SPEED = 4;    // world units/sec in free/walk mode
+  const GRAVITY = 9.8;     // world units/sec^2, walk mode only
+  const EYE_HEIGHT = 1.6;  // walk mode's minimum height above the ground
+  let fallVelocity = 0;    // walk mode's current downward speed
+
+  // Ground height under walk mode, from the GPU via traceFrom() (see
+  // antisphere-raycast.wgsl). One query is always in flight at a time;
+  // groundZ holds whichever answer arrived most recently, which lags the
+  // camera's current position by a frame or so (a mapAsync round trip isn't
+  // instantaneous) rather than blocking the render loop on it.
+  let groundZ = -Infinity, groundQueryEye = null, groundQueryPending = false;
+
+  function requestGroundQuery(eye) {
+    if (groundQueryPending || !traceFromBG) return;
+    groundQueryPending = true;
+    groundQueryEye = eye.slice();
+    device.queue.writeBuffer(rayQuery.rayBuf, 0,
+      new Float32Array([eye[0], eye[1], eye[2], 1e-3, 0, 0, -1, 1000]));
+
+    const enc = device.createCommandEncoder();
+    const pass = enc.beginComputePass();
+    pass.setPipeline(pipes.traceFrom);
+    pass.setBindGroup(0, traceFromBG);
+    pass.dispatchWorkgroups(1);
+    pass.end();
+    enc.copyBufferToBuffer(rayQuery.resultBuf, 0, rayQuery.readBuf, 0, 4);
+    device.queue.submit([enc.finish()]);
+
+    rayQuery.readBuf.mapAsync(GPUMapMode.READ, 0, 4).then(() => {
+      const t = new Float32Array(rayQuery.readBuf.getMappedRange(0, 4).slice(0))[0];
+      rayQuery.readBuf.unmap();
+      groundZ = t >= 0 ? groundQueryEye[2] - t : -Infinity;
+      groundQueryPending = false;
+    }).catch(() => { groundQueryPending = false; });
+  }
+
+  // Walk mode's horizontal heading: the look direction with its z dropped and
+  // the rest renormalized, so looking up/down doesn't change how fast (or
+  // which way) arrow keys move you across the ground.
+  function walkForwardXY(yw, pt) {
+    const f = lookDir(yw, pt);
+    const len = Math.hypot(f[0], f[1]) || 1;   // looking ~straight up/down: len -> 0 anyway
+    return [f[0] / len, f[1] / len, 0];
+  }
+
+  // Ground-clamped fall: above the minimum height, gravity accelerates the
+  // descent; at or below it, stand exactly on the ground with no velocity.
+  function updateWalkPhysics(dt) {
+    requestGroundQuery(freeEye);   // kicks off the next reading; groundZ is the latest so far
+    const minZ = groundZ + EYE_HEIGHT;   // -Infinity stays -Infinity
+    if (freeEye[2] > minZ) {
+      fallVelocity += GRAVITY * dt;
+      freeEye[2] -= fallVelocity * dt;
+      if (freeEye[2] < minZ) { freeEye[2] = minZ; fallVelocity = 0; }
+    } else {
+      freeEye[2] = minZ;
+      fallVelocity = 0;
     }
-    window.addEventListener('resize', resize);
+  }
 
-    // ---------------------------------------------------------------------
-    // Hot reload
-    //
-    // Refetches both WGSL files and rebuilds. Camera, scene, and buffers are
-    // untouched, so the view does not jump. A failed rebuild is reported and
-    // the previous pipelines keep rendering.
-    // ---------------------------------------------------------------------
-
-    let live = [computeWGSL, blitWGSL, sceneText];
-    let reloading = false;
-    let watching = false;      // polling is opt-in; R reloads on demand
-
-    function note(text, bad) {
-      const el = document.getElementById('note');
-      el.textContent = text;
-      el.style.color = bad ? '#f87171' : '#4ade80';
-      clearTimeout(note.timer);
-      note.timer = setTimeout(() => { el.textContent = ''; }, bad ? 6000 : 1600);
-    }
-
-    async function reload(force) {
-      if (reloading) return;
-      reloading = true;
-      try {
-        const next = await Promise.all(SOURCES.map(loadText));
-        const changed = next.map((t, i) => force || t !== live[i]);
-        if (!changed.some(Boolean)) return;
-        // Record the new text either way, so a broken file is not retried
-        // on every poll.
-        live = next;
-
-        const done = [];
-        if (changed[0] || changed[1]) {
-          const err = await buildPipelines(next[0], next[1]);
-          if (err) { note(`reload: ${err}`, true); return; }
-          done.push('shaders');
-        }
-        if (changed[2]) {
-          try {
-            applyScene(JSON.parse(next[2]));
-            done.push('scene');
-          } catch (e) {
-            note(`reload: ${e.message}`, true);
-            return;
-          }
-        }
-        note(`reloaded ${done.join(' and ')}`);
-      } catch (e) {
-        note(`reload: ${e.message}`, true);
-      } finally {
-        reloading = false;
-      }
-    }
-
-    setInterval(() => { if (watching) reload(false); }, 1500);
-
-    // Orbit camera
-    let yaw = 0.55, pitch = 0.30, dist = 6.4;
-    let target = [0, 0, 0.15];
-
-    // Free-look camera state, shared by both the 'free' and 'walk' modes
-    // (they differ only in how arrow keys move it). Starts wherever orbit
-    // last was (see setCameraMode), so switching modes never jumps the view.
-    let freeEye = [0, 0, 0], freeYaw = yaw, freePitch = pitch;
-    const CAMERA_MODES = ['orbit', 'free', 'walk'];
-    let cameraMode = 'orbit';
-
-    // The unit look direction for a yaw/pitch pair, shared by every camera
-    // mode so dragging/mouselook rotates the view the same way in each.
-    function lookDir(yw, pt) {
-      const cp = Math.cos(pt), sp = Math.sin(pt);
-      return [-cp * Math.sin(yw), -cp * Math.cos(yw), -sp];
-    }
-
-    // Eye position and look direction for whichever mode is active.
-    function cameraBasis() {
-      if (cameraMode !== 'orbit') return { eye: freeEye, f: lookDir(freeYaw, freePitch) };
-      const f = lookDir(yaw, pitch);
-      const eye = [target[0] - dist * f[0], target[1] - dist * f[1], target[2] - dist * f[2]];
-      return { eye, f };
-    }
-
-    // Free-look modes rotate via mouselook (movement deltas while the
-    // pointer is locked to the canvas) rather than click-drag, so entering
-    // or leaving them also grabs or releases the pointer.
-    function requestLook() {
-      try {
-        const p = canvas.requestPointerLock();
-        if (p && p.catch) p.catch(() => note('click the canvas to enable mouselook', true));
-      } catch {
-        note('click the canvas to enable mouselook', true);
-      }
-    }
-    function releaseLook() {
-      if (document.pointerLockElement === canvas) document.exitPointerLock();
-    }
-
-    // Carries eye position and orientation across a mode switch instead of
-    // jumping to the other mode's last remembered state. Switching directly
-    // between 'free' and 'walk' needs no sync: they share the same state.
-    function setCameraMode(mode) {
-      if (mode === cameraMode) return;
-      const wasLook = cameraMode !== 'orbit', willLook = mode !== 'orbit';
-      if (willLook && !wasLook) {
-        const { eye } = cameraBasis();               // orbit -> free/walk
-        freeEye = eye; freeYaw = yaw; freePitch = pitch;
-        requestLook();
-      } else if (!willLook && wasLook) {
-        const { eye, f } = cameraBasis();             // free/walk -> orbit
-        yaw = freeYaw; pitch = freePitch;
-        target = [eye[0] + dist * f[0], eye[1] + dist * f[1], eye[2] + dist * f[2]];
-        releaseLook();
-      }
-      if (mode === 'walk') fallVelocity = 0;
-      cameraMode = mode;
-      note(`camera: ${mode}`);
-    }
-
-    // The scene may name a viewpoint. Applied on first load and on demand,
-    // but not on hot reload, which would yank the view mid-iteration.
-    function applySceneCamera() {
-      const c = scene && scene.camera;
-      if (!c) return;
-      if (c.target) target = c.target.slice();
-      if (c.yaw !== undefined) yaw = c.yaw;
-      if (c.pitch !== undefined) pitch = c.pitch;
-      if (c.distance !== undefined) dist = c.distance;
-    }
-    applySceneCamera();     // after the bindings above exist, not at load time
-    let shadowsOn = true;
-    let moveFwd = false, moveBack = false;
-    const MOVE_SPEED = 4;    // world units/sec in free/walk mode
-    const GRAVITY = 9.8;     // world units/sec^2, walk mode only
-    const EYE_HEIGHT = 1.6;  // walk mode's minimum height above the ground
-    let fallVelocity = 0;    // walk mode's current downward speed
-
-    // Ground height under walk mode, from the GPU via traceFrom() (see
-    // antisphere-raycast.wgsl). One query is always in flight at a time;
-    // groundZ holds whichever answer arrived most recently, which lags the
-    // camera's current position by a frame or so (a mapAsync round trip
-    // isn't instantaneous) rather than blocking the render loop on it.
-    let groundZ = -Infinity, groundQueryEye = null, groundQueryPending = false;
-
-    function requestGroundQuery(eye) {
-      if (groundQueryPending || !traceFromBG) return;
-      groundQueryPending = true;
-      groundQueryEye = eye.slice();
-      device.queue.writeBuffer(traceRayBuf, 0,
-        new Float32Array([eye[0], eye[1], eye[2], 1e-3, 0, 0, -1, 1000]));
-
-      const enc = device.createCommandEncoder();
-      const pass = enc.beginComputePass();
-      pass.setPipeline(traceFromPipe);
-      pass.setBindGroup(0, traceFromBG);
-      pass.dispatchWorkgroups(1);
-      pass.end();
-      enc.copyBufferToBuffer(traceResultBuf, 0, traceReadBuf, 0, 4);
-      device.queue.submit([enc.finish()]);
-
-      traceReadBuf.mapAsync(GPUMapMode.READ, 0, 4).then(() => {
-        const t = new Float32Array(traceReadBuf.getMappedRange(0, 4).slice(0))[0];
-        traceReadBuf.unmap();
-        groundZ = t >= 0 ? groundQueryEye[2] - t : -Infinity;
-        groundQueryPending = false;
-      }).catch(() => { groundQueryPending = false; });
-    }
-
-    // Walk mode's horizontal heading: the look direction with its z dropped
-    // and the rest renormalized, so looking up/down doesn't change how fast
-    // (or which way) arrow keys move you across the ground.
-    function walkForwardXY(yw, pt) {
-      const f = lookDir(yw, pt);
-      const len = Math.hypot(f[0], f[1]) || 1;   // looking ~straight up/down: len -> 0 anyway
-      return [f[0] / len, f[1] / len, 0];
-    }
-
-    // Ground-clamped fall: above the minimum height, gravity accelerates the
-    // descent; at or below it, stand exactly on the ground with no velocity.
-    function updateWalkPhysics(dt) {
-      requestGroundQuery(freeEye);   // kicks off the next reading; groundZ is the latest one so far
-      const minZ = groundZ + EYE_HEIGHT;   // -Infinity stays -Infinity
-      if (freeEye[2] > minZ) {
-        fallVelocity += GRAVITY * dt;
-        freeEye[2] -= fallVelocity * dt;
-        if (freeEye[2] < minZ) { freeEye[2] = minZ; fallVelocity = 0; }
-      } else {
-        freeEye[2] = minZ;
-        fallVelocity = 0;
-      }
-    }
-
-    // Rounded to a step boundary so repeated presses land on clean values
-    // (0.7, not 0.6999999999999998) instead of drifting with float error.
-    // Capped at 1: the blit is a single bilinear tap, not a box filter, so
-    // upscaling the source past the canvas buys no quality, just cost.
-    function setRenderScale(v) {
-      renderScale = Math.max(0.25, Math.min(1, Math.round(v * 10) / 10));
-      updateRenderSize();
-      note(`render scale ${renderScale.toFixed(2)} (${rw}x${rh})`);
-    }
-
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 's' || e.key === 'S') shadowsOn = !shadowsOn;
-      if (e.key === 'r' || e.key === 'R') reload(true);
-      if (e.key === 'p' || e.key === 'P') {
-        profiling = !profiling;
-        document.getElementById('prof').style.display = profiling ? 'block' : 'none';
-      }
-      if (e.key === 'a' || e.key === 'A') {
-        if (!canTimestamp) {
-          note('ablation needs timestamp-query', true);
-        } else if (ladder) {
-          ladder = null;
-          el('p-lad').textContent = 'cancelled';
-        } else {
-          startLadder(e.shiftKey);
-        }
-      }
-      if (e.key === 'c' || e.key === 'C') {
-        applySceneCamera();
-        if (cameraMode !== 'orbit') releaseLook();
-        cameraMode = 'orbit';
-        note('camera reset to scene viewpoint');
-      }
-      if (e.key === 'm' || e.key === 'M') {
-        const i = CAMERA_MODES.indexOf(cameraMode);
-        setCameraMode(CAMERA_MODES[(i + 1) % CAMERA_MODES.length]);
-      }
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        if (e.key === 'ArrowUp') moveFwd = true; else moveBack = true;
-      }
-      if (e.key === 'b' || e.key === 'B') {
-        if (canDirect) {
-          directOut = !directOut;
-          note(directOut
-            ? `output: direct to swap chain${renderScale !== 1 ? ' (ignores render scale)' : ''}`
-            : 'output: blit');
-        } else {
-          note('direct output unavailable on this adapter', true);
-        }
-      }
-      if (e.key === '[' || e.key === ']') {
-        const step = e.key === ']' ? 0.1 : -0.1;
-        setRenderScale(renderScale + step);
-      }
-      if (e.key === 'd' || e.key === 'D') {
-        debugView = (debugView + 1) % VIEWS.length;
-        note(`view: ${VIEWS[debugView]}`);
-      }
-      if (e.key === 'w' || e.key === 'W') {
-        watching = !watching;
-        note(watching ? 'watching files for changes' : 'watch off');
-      }
-    });
-    window.addEventListener('keyup', (e) => {
-      if (e.key === 'ArrowUp') moveFwd = false;
-      if (e.key === 'ArrowDown') moveBack = false;
-    });
-    let dragging = false, lx = 0, ly = 0;
-    canvas.addEventListener('pointerdown', (e) => {
-      dragging = true; lx = e.clientX; ly = e.clientY;
-      canvas.setPointerCapture(e.pointerId);
-    });
-    canvas.addEventListener('pointerup', () => { dragging = false; });
-    canvas.addEventListener('pointercancel', () => { dragging = false; });
-    canvas.addEventListener('pointermove', (e) => {
-      if (!dragging || ladder || cameraMode !== 'orbit') return;
-      yaw += (e.clientX - lx) * 0.006;
-      pitch = Math.max(-1.35, Math.min(1.35, pitch + (e.clientY - ly) * 0.005));
-      lx = e.clientX; ly = e.clientY;
-    });
-    canvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      if (ladder || cameraMode !== 'orbit') return;   // free/walk zoom via arrow keys instead
-      dist = Math.max(2.0, Math.min(20, dist * Math.exp(e.deltaY * 0.001)));
-    }, { passive: false });
-
-    // Free/walk mouselook: like Minecraft, the mouse rotates the view without
-    // a button held, once the pointer is locked to the canvas (see
-    // requestLook/releaseLook). movementX/Y are only meaningful while locked.
-    window.addEventListener('mousemove', (e) => {
-      if (cameraMode === 'orbit' || document.pointerLockElement !== canvas || ladder) return;
-      freeYaw += e.movementX * 0.006;
-      freePitch = Math.max(-1.35, Math.min(1.35, freePitch + e.movementY * 0.005));
-    });
-    // Pointer lock needs a user gesture; a keydown grants it (see
-    // requestLook), but if that's ever refused, a click on the canvas
-    // recovers it without forcing the player back to orbit mode.
-    canvas.addEventListener('click', () => {
-      if (cameraMode !== 'orbit' && document.pointerLockElement !== canvas) requestLook();
-    });
-    document.addEventListener('pointerlockerror', () => {
-      note('pointer lock failed — click the canvas', true);
-    });
-    // Browsers force-release the lock on Escape (and possibly other times);
-    // treat that the same as the player asking to leave the look mode,
-    // unless we're the ones who just released it via setCameraMode/'C'.
-    document.addEventListener('pointerlockchange', () => {
-      if (document.pointerLockElement !== canvas && cameraMode !== 'orbit') {
-        setCameraMode('orbit');
-        note('mouselook released — back to orbit');
-      }
-    });
-
-    // One buffer, two views: the camera basis is float, the mode selectors
-    // are integers. Writing an enum through a float and rounding it back was
-    // asking for a silent off-by-one.
-    const camBytes = new ArrayBuffer(80);
-    const camArr = new Float32Array(camBytes);
-    const camEnum = new Uint32Array(camBytes);
-
-    function writeCamera() {
-      const { eye, f } = cameraBasis();
-      let r = [f[1], -f[0], 0];                    // cross(fwd, worldUp = +Z)
-      const rl = Math.hypot(...r) || 1; r = r.map((v) => v / rl);
-      const u = [                                  // cross(right, fwd)
-        r[1] * f[2] - r[2] * f[1],
-        r[2] * f[0] - r[0] * f[2],
-        r[0] * f[1] - r[1] * f[0],
-      ];
-      camArr.set(eye, 0);          camArr[3] = Math.tan(0.5 * 0.9);
-      camArr.set(r, 4);            camArr[7] = rw / rh;
-      const rung = ladder ? ladder.rungs[ladder.i] : null;
-      camArr.set(u, 8);            camEnum[11] = rung ? rung.shadows : (shadowsOn ? 1 : 0);
-      camArr.set(f, 12);           camEnum[15] = ladder ? 0 : debugView;
-      camEnum[16] = rung ? rung.ablate : 2;   // 2 = full shading path
-      device.queue.writeBuffer(camBuf, 0, camBytes);
-    }
-
-    // ---------------------------------------------------------------------
-    // Profiling
-    //
-    // GPU timestamps can only be written at pass boundaries, so what is
-    // measured here is compute pass vs blit pass. Anything finer comes from
-    // the shader's per-invocation work counters, surfaced as debug views.
-    // Chrome quantizes timestamp results (100us by default), so treat these
-    // as millisecond-scale figures, not precise ones.
-    // ---------------------------------------------------------------------
-
-    const TS_COUNT = 4;
-    const querySet = canTimestamp
-      ? device.createQuerySet({ type: 'timestamp', count: TS_COUNT }) : null;
-    const tsResolve = canTimestamp ? device.createBuffer({
-      size: TS_COUNT * 8,
-      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
-    }) : null;
-    const tsRead = canTimestamp ? device.createBuffer({
-      size: TS_COUNT * 8,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    }) : null;
-    let tsPending = false;
-
-    const VIEWS = ['shaded', 'node visits', 'shadow rays', 'stack depth',
-                   'material id', 'normals'];
-    let profiling = false, debugView = 0, directOut = false;
-
-    // Ablation ladder. Pass timestamps carry a systematic bias in how the
-    // driver stamps pass edges, but that bias cancels when the same
-    // measurement is differenced across configurations, so the gaps between
-    // rungs are trustworthy where the absolute numbers are not.
-    const LADDER = [
-      { name: 'dispatch',    ablate: 0, shadows: 0, color: '#3d4757' },
-      { name: 'traversal',   ablate: 1, shadows: 0, color: '#4b9fd8' },
-      { name: 'shading',     ablate: 2, shadows: 0, color: '#5ec26a' },
-      { name: 'shadow rays', ablate: 2, shadows: 1, color: '#e0b83c' },
+  function writeCamera() {
+    const { eye, forward } = cameraBasis();
+    let right = [forward[1], -forward[0], 0];      // cross(forward, worldUp = +Z)
+    const rl = Math.hypot(...right) || 1;
+    right = right.map((v) => v / rl);
+    const up = [                                   // cross(right, forward)
+      right[1] * forward[2] - right[2] * forward[1],
+      right[2] * forward[0] - right[0] * forward[2],
+      right[0] * forward[1] - right[1] * forward[0],
     ];
-    const LADDER_WARMUP = 8;     // frames discarded after switching rungs
-    const LADDER_SAMPLES = 16;   // timestamps collected per rung
-    let ladder = null;
+    const rung = ladder ? ladder.rungs[ladder.i] : null;
+    cam.floats.set(eye, 0);      cam.floats[3] = Math.tan(0.5 * 0.9);
+    cam.floats.set(right, 4);    cam.floats[7] = rw / rh;
+    cam.floats.set(up, 8);       cam.enums[11] = rung ? rung.shadows : (shadowsOn ? 1 : 0);
+    cam.floats.set(forward, 12); cam.enums[15] = ladder ? 0 : debugView;
+    cam.enums[16] = rung ? rung.ablate : 2;   // 2 = full shading path
+    device.queue.writeBuffer(cam.buffer, 0, cam.host);
+  }
 
-    // A run profiles the configuration currently on screen. With shadows off
-    // the last rung would repeat the one before it, so it is dropped and the
-    // run is labelled accordingly. Shift forces the full pipeline instead,
-    // for when the shadow cost is the thing being asked about.
-    function ladderRungs(force) {
-      return (force || shadowsOn) ? LADDER : LADDER.slice(0, 3);
+  // -----------------------------------------------------------------------
+  // Input
+  // -----------------------------------------------------------------------
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 's' || e.key === 'S') shadowsOn = !shadowsOn;
+    if (e.key === 'r' || e.key === 'R') reload(true);
+    if (e.key === 'p' || e.key === 'P') {
+      profiling = !profiling;
+      el('prof').style.display = profiling ? 'block' : 'none';
     }
+    if (e.key === 'a' || e.key === 'A') {
+      if (!canTimestamp) {
+        note('ablation needs timestamp-query', true);
+      } else if (ladder) {
+        ladder = null;
+        el('p-lad').textContent = 'cancelled';
+      } else {
+        startLadder(e.shiftKey);
+      }
+    }
+    if (e.key === 'c' || e.key === 'C') {
+      applySceneCamera();
+      if (cameraMode !== 'orbit') releaseLook();
+      cameraMode = 'orbit';
+      note('camera reset to scene viewpoint');
+    }
+    if (e.key === 'm' || e.key === 'M') {
+      const i = CAMERA_MODES.indexOf(cameraMode);
+      setCameraMode(CAMERA_MODES[(i + 1) % CAMERA_MODES.length]);
+    }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (e.key === 'ArrowUp') moveFwd = true; else moveBack = true;
+    }
+    if (e.key === 'b' || e.key === 'B') {
+      if (canDirect) {
+        directOut = !directOut;
+        note(directOut
+          ? `output: direct to swap chain${renderScale !== 1 ? ' (ignores render scale)' : ''}`
+          : 'output: blit');
+      } else {
+        note('direct output unavailable on this adapter', true);
+      }
+    }
+    if (e.key === '[' || e.key === ']') {
+      setRenderScale(renderScale + (e.key === ']' ? 0.1 : -0.1));
+    }
+    if (e.key === 'd' || e.key === 'D') {
+      debugView = (debugView + 1) % VIEWS.length;
+      note(`view: ${VIEWS[debugView]}`);
+    }
+    if (e.key === 'w' || e.key === 'W') {
+      watching = !watching;
+      note(watching ? 'watching files for changes' : 'watch off');
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'ArrowUp') moveFwd = false;
+    if (e.key === 'ArrowDown') moveBack = false;
+  });
 
-    const median = (xs) => {
-      const a = [...xs].sort((x, y) => x - y);
-      return a.length ? a[a.length >> 1] : NaN;
+  let dragging = false, lx = 0, ly = 0;
+  canvas.addEventListener('pointerdown', (e) => {
+    dragging = true; lx = e.clientX; ly = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointerup', () => { dragging = false; });
+  canvas.addEventListener('pointercancel', () => { dragging = false; });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!dragging || ladder || cameraMode !== 'orbit') return;
+    yaw += (e.clientX - lx) * 0.006;
+    pitch = Math.max(-1.35, Math.min(1.35, pitch + (e.clientY - ly) * 0.005));
+    lx = e.clientX; ly = e.clientY;
+  });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (ladder || cameraMode !== 'orbit') return;   // free/walk zoom via arrow keys instead
+    dist = Math.max(2.0, Math.min(20, dist * Math.exp(e.deltaY * 0.001)));
+  }, { passive: false });
+
+  // Free/walk mouselook: like Minecraft, the mouse rotates the view without a
+  // button held, once the pointer is locked to the canvas (see requestLook /
+  // releaseLook). movementX/Y are only meaningful while locked.
+  window.addEventListener('mousemove', (e) => {
+    if (cameraMode === 'orbit' || document.pointerLockElement !== canvas || ladder) return;
+    freeYaw += e.movementX * 0.006;
+    freePitch = Math.max(-1.35, Math.min(1.35, freePitch + e.movementY * 0.005));
+  });
+  // Pointer lock needs a user gesture; a keydown grants it (see requestLook),
+  // but if that's ever refused, a click on the canvas recovers it without
+  // forcing the player back to orbit mode.
+  canvas.addEventListener('click', () => {
+    if (cameraMode !== 'orbit' && document.pointerLockElement !== canvas) requestLook();
+  });
+  document.addEventListener('pointerlockerror', () => {
+    note('pointer lock failed — click the canvas', true);
+  });
+  // Browsers force-release the lock on Escape (and possibly other times);
+  // treat that the same as the player asking to leave the look mode, unless
+  // we're the ones who just released it via setCameraMode or 'C'.
+  document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement !== canvas && cameraMode !== 'orbit') {
+      setCameraMode('orbit');
+      note('mouselook released — back to orbit');
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // Profiling
+  //
+  // GPU timestamps can only be written at pass boundaries, so what is
+  // measured here is compute pass vs blit pass. Anything finer comes from the
+  // shader's per-invocation work counters, surfaced as debug views. Chrome
+  // quantizes timestamp results (100us by default), so treat these as
+  // millisecond-scale figures, not precise ones.
+  // -----------------------------------------------------------------------
+
+  let tsPending = false, tsQuantized = false, tsDropped = 0;
+
+  const VIEWS = ['shaded', 'node visits', 'shadow rays', 'stack depth',
+                 'material id', 'normals'];
+  let profiling = false, debugView = 0, directOut = false;
+
+  // Ablation ladder. Pass timestamps carry a systematic bias in how the driver
+  // stamps pass edges, but that bias cancels when the same measurement is
+  // differenced across configurations, so the gaps between rungs are
+  // trustworthy where the absolute numbers are not.
+  const LADDER = [
+    { name: 'dispatch',    ablate: 0, shadows: 0, color: '#3d4757' },
+    { name: 'traversal',   ablate: 1, shadows: 0, color: '#4b9fd8' },
+    { name: 'shading',     ablate: 2, shadows: 0, color: '#5ec26a' },
+    { name: 'shadow rays', ablate: 2, shadows: 1, color: '#e0b83c' },
+  ];
+  const LADDER_WARMUP = 8;     // frames discarded after switching rungs
+  const LADDER_SAMPLES = 16;   // timestamps collected per rung
+  let ladder = null;
+
+  // A run profiles the configuration currently on screen. With shadows off the
+  // last rung would repeat the one before it, so it is dropped and the run is
+  // labelled accordingly. Shift forces the full pipeline instead, for when the
+  // shadow cost is the thing being asked about.
+  const ladderRungs = (force) => ((force || shadowsOn) ? LADDER : LADDER.slice(0, 3));
+
+  const median = (xs) => {
+    const a = [...xs].sort((x, y) => x - y);
+    return a.length ? a[a.length >> 1] : NaN;
+  };
+
+  function startLadder(force) {
+    const rungs = ladderRungs(force);
+    const shadows = force || shadowsOn ? 'shadows on' : 'shadows off';
+    ladder = {
+      i: 0, frames: 0, rungs,
+      samples: rungs.map(() => []),
+      label: `${shadows} \u00b7 ${directOut ? 'direct' : 'blit'}` +
+             (force && !shadowsOn ? ' (forced)' : ''),
     };
+    profiling = true;
+    el('prof').style.display = 'block';
+  }
 
-    function startLadder(force) {
-      const rungs = ladderRungs(force);
-      const shadows = force || shadowsOn ? 'shadows on' : 'shadows off';
-      ladder = {
-        i: 0, frames: 0, rungs,
-        samples: rungs.map(() => []),
-        label: `${shadows} \u00b7 ${directOut ? 'direct' : 'blit'}` +
-               (force && !shadowsOn ? ' (forced)' : ''),
-      };
-      profiling = true;
-      document.getElementById('prof').style.display = 'block';
-    }
+  function finishLadder() {
+    const { samples, rungs, label } = ladder;
+    const totals = samples.map(median);
+    ladder = null;
+    // Each stage is the gap between consecutive rungs. Differences can go
+    // slightly negative on noise; report them rather than hide them.
+    const parts = totals.map((t, i) => (i === 0 ? t : t - totals[i - 1]));
+    const total = totals[totals.length - 1];
+    el('p-lad').textContent = `${total.toFixed(2)} ms \u00b7 ${label}`;
+    el('lad-bar').innerHTML = rungs.map((L, i) =>
+      `<span style="width:${Math.max(0, parts[i]) / total * 100}%;background:${L.color}"></span>`
+    ).join('');
+    el('lad-rows').innerHTML = rungs.map((L, i) =>
+      `<div class="r"><span><i style="background:${L.color}"></i>${L.name}</span>` +
+      `<b>${parts[i].toFixed(2)} ms &middot; ${(parts[i] / total * 100).toFixed(0)}%</b></div>`
+    ).join('');
+  }
 
-    function finishLadder() {
-      const { samples, rungs, label } = ladder;
-      const totals = samples.map(median);
-      ladder = null;
-      // Each stage is the gap between consecutive rungs. Differences can go
-      // slightly negative on noise; report them rather than hide them.
-      const parts = totals.map((t, i) => (i === 0 ? t : t - totals[i - 1]));
-      const total = totals[totals.length - 1];
-      el('p-lad').textContent = `${total.toFixed(2)} ms \u00b7 ${label}`;
-      el('lad-bar').innerHTML = rungs.map((L, i) =>
-        `<span style="width:${Math.max(0, parts[i]) / total * 100}%;background:${L.color}"></span>`
-      ).join('');
-      el('lad-rows').innerHTML = rungs.map((L, i) =>
-        `<div class="r"><span><i style="background:${L.color}"></i>${L.name}</span>` +
-        `<b>${parts[i].toFixed(2)} ms &middot; ${(parts[i] / total * 100).toFixed(0)}%</b></div>`
-      ).join('');
-    }
-
-    // Rolling means, so the readout does not flicker.
-    const avg = (n) => {
-      const buf = [];
-      return (x) => {
-        if (x !== undefined) { buf.push(x); if (buf.length > n) buf.shift(); }
-        return buf.length ? buf.reduce((a, b) => a + b, 0) / buf.length : NaN;
-      };
+  // Rolling means, so the readout does not flicker.
+  const avg = (n) => {
+    const buf = [];
+    return (x) => {
+      if (x !== undefined) { buf.push(x); if (buf.length > n) buf.shift(); }
+      return buf.length ? buf.reduce((a, b) => a + b, 0) / buf.length : NaN;
     };
-    const avgFrame = avg(30), avgCpu = avg(30), avgGpu = avg(30),
-      avgBlit = avg(30), avgGap = avg(30), avgTotal = avg(30), avgDone = avg(30);
-let tsQuantized = false, tsDropped = 0;
-    const history = new Array(120).fill(0);
+  };
+  const avgFrame = avg(30), avgCpu = avg(30), avgGpu = avg(30),
+        avgBlit = avg(30), avgGap = avg(30), avgTotal = avg(30), avgDone = avg(30);
+  const history = new Array(120).fill(0);
 
-    const el = (id) => document.getElementById(id);
-    const ms = (x) => (Number.isFinite(x) ? x.toFixed(2) + ' ms' : '-');
+  const ms = (x) => (Number.isFinite(x) ? x.toFixed(2) + ' ms' : '-');
 
-    function drawSpark() {
-      const c = el('spark'), g = c.getContext('2d');
-      const w = c.width, h = c.height;
-      g.clearRect(0, 0, w, h);
-      const peak = Math.max(16.7, ...history);
-      g.strokeStyle = '#2a3340';
-      g.beginPath();                                  // 60 fps reference
-      const y60 = h - (16.7 / peak) * h;
-      g.moveTo(0, y60); g.lineTo(w, y60); g.stroke();
-      g.fillStyle = '#4b9fd8';
-      const bw = w / history.length;
-      history.forEach((v, i) => {
-        const bh = Math.max(1, (v / peak) * h);
-        g.fillRect(i * bw, h - bh, Math.max(1, bw - 1), bh);
+  function drawSpark() {
+    const c = el('spark'), g = c.getContext('2d');
+    const w = c.width, h = c.height;
+    g.clearRect(0, 0, w, h);
+    const peak = Math.max(16.7, ...history);
+    g.strokeStyle = '#2a3340';
+    g.beginPath();                                  // 60 fps reference
+    const y60 = h - (16.7 / peak) * h;
+    g.moveTo(0, y60); g.lineTo(w, y60); g.stroke();
+    g.fillStyle = '#4b9fd8';
+    const bw = w / history.length;
+    history.forEach((v, i) => {
+      const bh = Math.max(1, (v / peak) * h);
+      g.fillRect(i * bw, h - bh, Math.max(1, bw - 1), bh);
+    });
+  }
+
+  function updatePanel(frameMs, cpuMs, rays) {
+    history.push(frameMs); history.shift();
+    el('p-frame').textContent = ms(avgFrame(frameMs));
+    el('p-cpu').textContent   = ms(avgCpu(cpuMs));
+    el('p-gpu').textContent   = canTimestamp ? ms(avgGpu()) : 'n/a';
+    el('p-blit').textContent  = !canTimestamp ? 'n/a'
+                              : directOut ? 'none' : ms(avgBlit());
+    el('p-gap').textContent   = canTimestamp ? ms(avgGap()) : 'n/a';
+    el('p-total').textContent = canTimestamp ? ms(avgTotal()) : 'n/a';
+    el('p-done').textContent  = ms(avgDone());
+    el('p-out').textContent   = directOut ? 'direct' : 'blit';
+    el('p-view').textContent  = VIEWS[debugView];
+    el('p-rays').textContent  = (rays / 1e6).toFixed(2) + ' M';
+    let msg = '';
+    if (!canTimestamp) msg = 'timestamp-query unavailable on this adapter';
+    else if (tsQuantized) msg = 'timestamps quantized to 100us; see ' +
+                                'chrome://flags/#enable-webgpu-developer-features';
+    if (tsDropped) msg += `${msg ? ' | ' : ''}${tsDropped} bad samples`;
+    el('p-note').textContent = msg;
+    drawSpark();
+  }
+
+  // Reads back the pass timestamps and folds them into the rolling averages.
+  // `rung` is captured at submit time, since the readback lands one or more
+  // frames later and may arrive after the rung has changed.
+  function readTimestamps(rung) {
+    tsPending = true;
+    ts.readBuf.mapAsync(GPUMapMode.READ).then(() => {
+      const timestamps = new BigInt64Array(ts.readBuf.getMappedRange().slice(0));
+      ts.readBuf.unmap();
+      const computeNs = Number(timestamps[1] - timestamps[0]);
+      const blitNs    = directOut ? 0 : Number(timestamps[3] - timestamps[2]);
+      const gapNs     = directOut ? 0 : Number(timestamps[2] - timestamps[1]);
+      const totalNs   = directOut ? computeNs : Number(timestamps[3] - timestamps[0]);
+
+      // GPUs reset the timestamp counter occasionally, which shows up as
+      // negative or wild deltas. Drop those samples rather than average them in.
+      if (computeNs >= 0 && blitNs >= 0 && totalNs >= 0 && totalNs < 1e9) {
+        avgGpu(computeNs / 1e6);
+        avgBlit(blitNs / 1e6);
+        avgGap(gapNs / 1e6);
+        avgTotal(totalNs / 1e6);
+        // Quantized values are exact multiples of 100us, which is easy to spot
+        // and worth saying out loud.
+        tsQuantized = [computeNs, blitNs, totalNs]
+          .every((v) => v === 0 || v % 100000 === 0);
+        if (ladder && rung >= 0) ladder.samples[rung].push(computeNs / 1e6);
+      } else {
+        tsDropped++;
+      }
+      tsPending = false;
+    }).catch(() => { tsPending = false; });
+  }
+
+  function advanceLadder() {
+    if (!ladder) return;
+    if (ladder.frames > LADDER_WARMUP &&
+        (ladder.samples[ladder.i].length >= LADDER_SAMPLES ||
+         ladder.frames > 300)) {          // give up on a rung rather than hang
+      ladder.i++;
+      ladder.frames = 0;
+      if (ladder.i >= ladder.rungs.length) { finishLadder(); return; }
+    }
+    el('p-lad').textContent =
+      `running ${ladder.i + 1}/${ladder.rungs.length}: ${ladder.rungs[ladder.i].name}`;
+  }
+
+  // -----------------------------------------------------------------------
+  // Frame
+  // -----------------------------------------------------------------------
+
+  // Held while flying/walking, not a discrete step, so speed is frame-rate
+  // independent. Locked during the ablation ladder like the pointer and wheel,
+  // so it doesn't disturb the view mid-measurement.
+  function updateCameraMotion(frameMs) {
+    if (cameraMode === 'orbit' || ladder) return;
+    const dt = frameMs / 1000;
+    if (moveFwd || moveBack) {
+      const dir = cameraMode === 'walk'
+        ? walkForwardXY(freeYaw, freePitch) : lookDir(freeYaw, freePitch);
+      const d = ((moveFwd ? 1 : 0) - (moveBack ? 1 : 0)) * MOVE_SPEED * dt;
+      freeEye[0] += dir[0] * d; freeEye[1] += dir[1] * d; freeEye[2] += dir[2] * d;
+    }
+    if (cameraMode === 'walk') updateWalkPhysics(dt);
+  }
+
+  function encodeDirect(enc, timing) {
+    // Compute writes the swap chain texture itself. No render pass, so slots
+    // 2 and 3 of the query set go unused.
+    const view = ctx.getCurrentTexture().createView();
+    const cpass = enc.beginComputePass(timing ? {
+      timestampWrites: {
+        querySet: ts.querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1,
+      },
+    } : {});
+    cpass.setPipeline(pipes.computeDirect);
+    cpass.setBindGroup(0, directBindGroup(view));
+    cpass.dispatchWorkgroups(Math.ceil(tw / 8), Math.ceil(th / 8));
+    cpass.end();
+    if (timing) {
+      enc.resolveQuerySet(ts.querySet, 0, 2, ts.resolveBuf, 0);
+      enc.copyBufferToBuffer(ts.resolveBuf, 0, ts.readBuf, 0, 2 * 8);
+    }
+  }
+
+  function encodeBlit(enc, timing) {
+    const cpass = enc.beginComputePass(timing ? {
+      timestampWrites: {
+        querySet: ts.querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1,
+      },
+    } : {});
+    cpass.setPipeline(pipes.compute);
+    cpass.setBindGroup(0, computeBG);
+    cpass.dispatchWorkgroups(Math.ceil(rw / 8), Math.ceil(rh / 8));
+    cpass.end();
+
+    const rpass = enc.beginRenderPass({
+      colorAttachments: [{
+        view: ctx.getCurrentTexture().createView(),
+        loadOp: 'clear', storeOp: 'store',
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      }],
+      ...(timing ? {
+        timestampWrites: {
+          querySet: ts.querySet, beginningOfPassWriteIndex: 2, endOfPassWriteIndex: 3,
+        },
+      } : {}),
+    });
+    rpass.setPipeline(pipes.blit);
+    rpass.setBindGroup(0, blitBG);
+    rpass.draw(3);
+    rpass.end();
+
+    if (timing) {
+      enc.resolveQuerySet(ts.querySet, 0, TS_COUNT, ts.resolveBuf, 0);
+      enc.copyBufferToBuffer(ts.resolveBuf, 0, ts.readBuf, 0, TS_COUNT * 8);
+    }
+  }
+
+  let frames = 0, tPrev = performance.now(), fps = 0, tLast = performance.now();
+
+  function frame() {
+    resize();
+    if (!computeBG || !blitBG) { requestAnimationFrame(frame); return; }
+
+    const now = performance.now();
+    const frameMs = now - tLast;
+    tLast = now;
+
+    updateCameraMotion(frameMs);
+    writeCamera();
+
+    // Only samples taken after the warmup count toward the current rung.
+    let rungSampled = -1;
+    if (ladder) {
+      ladder.frames++;
+      if (ladder.frames > LADDER_WARMUP) rungSampled = ladder.i;
+    }
+
+    const timing = !!ts && (profiling || ladder) && !tsPending;
+    const cpuStart = performance.now();
+
+    const enc = device.createCommandEncoder();
+    if (directOut) encodeDirect(enc, timing); else encodeBlit(enc, timing);
+    device.queue.submit([enc.finish()]);
+    const cpuMs = performance.now() - cpuStart;
+
+    // Independent of the timestamps: how long until the queue reports the
+    // whole submission finished. Includes queue wait and event-loop latency,
+    // so it is an upper bound rather than a GPU-time measurement. Never
+    // awaited, since awaiting it would remove the pipelining being measured.
+    if (profiling) {
+      const submittedAt = performance.now();
+      device.queue.onSubmittedWorkDone().then(() => {
+        avgDone(performance.now() - submittedAt);
       });
     }
 
-    function updatePanel(frameMs, cpuMs, rays) {
-      history.push(frameMs); history.shift();
-      el('p-frame').textContent = ms(avgFrame(frameMs));
-      el('p-cpu').textContent   = ms(avgCpu(cpuMs));
-      el('p-gpu').textContent   = canTimestamp ? ms(avgGpu()) : 'n/a';
-      el('p-blit').textContent  = !canTimestamp ? 'n/a'
-                                : directOut ? 'none' : ms(avgBlit());
-      el('p-gap').textContent   = canTimestamp ? ms(avgGap()) : 'n/a';
-      el('p-total').textContent = canTimestamp ? ms(avgTotal()) : 'n/a';
-      el('p-done').textContent  = ms(avgDone());
-      el('p-out').textContent   = directOut ? 'direct' : 'blit';
-      el('p-view').textContent  = VIEWS[debugView];
-      el('p-rays').textContent  = (rays / 1e6).toFixed(2) + ' M';
-      let note = '';
-      if (!canTimestamp) note = 'timestamp-query unavailable on this adapter';
-      else if (tsQuantized) note = 'timestamps quantized to 100us; see ' +
-                                   'chrome://flags/#enable-webgpu-developer-features';
-      if (tsDropped) note += `${note ? ' | ' : ''}${tsDropped} bad samples`;
-      el('p-note').textContent = note;
-      drawSpark();
+    // One in-flight mapping at a time; frames that arrive while a readback is
+    // pending simply skip their timestamps.
+    if (timing) readTimestamps(rungSampled);
+
+    advanceLadder();
+
+    // Direct output has no render-scale step, so it always dispatches at full
+    // canvas resolution regardless of rw/rh.
+    if (profiling) updatePanel(frameMs, cpuMs, directOut ? tw * th : rw * rh);
+
+    frames++;
+    if (now - tPrev > 500) {
+      fps = Math.round((frames * 1000) / (now - tPrev));
+      frames = 0; tPrev = now;
+      const res = (rw === tw && rh === th) ? `${tw}x${th}` : `${tw}x${th} (render ${rw}x${rh})`;
+      stat.textContent =
+        `${scene.nodes.length} nodes · ${scene.materials.length - 1} materials · ` +
+        `${scene.lights.length} lights · ${res} · ${fps} fps`;
     }
 
-    let frames = 0, tPrev = performance.now(), fps = 0, tLast = performance.now();
-
-    function frame() {
-      resize();
-      if (!computeBG || !blitBG) { requestAnimationFrame(frame); return; }
-
-      const now = performance.now();
-      const frameMs = now - tLast;
-      tLast = now;
-
-      // Held while flying/walking, not a discrete step, so speed is
-      // frame-rate independent. Locked during the ablation ladder like the
-      // pointer and wheel, so it doesn't disturb the view mid-measurement.
-      if (cameraMode !== 'orbit' && !ladder) {
-        const dt = frameMs / 1000;
-        if (moveFwd || moveBack) {
-          const dir = cameraMode === 'walk' ? walkForwardXY(freeYaw, freePitch) : lookDir(freeYaw, freePitch);
-          const d = ((moveFwd ? 1 : 0) - (moveBack ? 1 : 0)) * MOVE_SPEED * dt;
-          freeEye[0] += dir[0] * d; freeEye[1] += dir[1] * d; freeEye[2] += dir[2] * d;
-        }
-        if (cameraMode === 'walk') updateWalkPhysics(dt);
-      }
-      writeCamera();
-
-      // Only samples taken after the warmup count toward the current rung.
-      let rungSampled = -1;
-      if (ladder) {
-        ladder.frames++;
-        if (ladder.frames > LADDER_WARMUP) rungSampled = ladder.i;
-      }
-
-      const timing = canTimestamp && (profiling || ladder) && !tsPending;
-      const cpuStart = performance.now();
-
-      const enc = device.createCommandEncoder();
-
-      if (directOut) {
-        // Compute writes the swap chain texture itself. No render pass, so
-        // slots 2 and 3 of the query set go unused.
-        const view = ctx.getCurrentTexture().createView();
-        const cpass = enc.beginComputePass(timing ? {
-          timestampWrites: { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
-        } : {});
-        cpass.setPipeline(computeDirectPipe);
-        cpass.setBindGroup(0, directBindGroup(view));
-        cpass.dispatchWorkgroups(Math.ceil(tw / 8), Math.ceil(th / 8));
-        cpass.end();
-        if (timing) {
-          enc.resolveQuerySet(querySet, 0, 2, tsResolve, 0);
-          enc.copyBufferToBuffer(tsResolve, 0, tsRead, 0, 2 * 8);
-        }
-      } else {
-        const cpass = enc.beginComputePass(timing ? {
-          timestampWrites: { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
-        } : {});
-        cpass.setPipeline(computePipe);
-        cpass.setBindGroup(0, computeBG);
-        cpass.dispatchWorkgroups(Math.ceil(rw / 8), Math.ceil(rh / 8));
-        cpass.end();
-
-        const rpass = enc.beginRenderPass({
-          colorAttachments: [{
-            view: ctx.getCurrentTexture().createView(),
-            loadOp: 'clear', storeOp: 'store',
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
-          }],
-          ...(timing ? {
-            timestampWrites: { querySet, beginningOfPassWriteIndex: 2, endOfPassWriteIndex: 3 },
-          } : {}),
-        });
-        rpass.setPipeline(blitPipe);
-        rpass.setBindGroup(0, blitBG);
-        rpass.draw(3);
-        rpass.end();
-
-        if (timing) {
-          enc.resolveQuerySet(querySet, 0, TS_COUNT, tsResolve, 0);
-          enc.copyBufferToBuffer(tsResolve, 0, tsRead, 0, TS_COUNT * 8);
-        }
-      }
-
-      device.queue.submit([enc.finish()]);
-      const cpuMs = performance.now() - cpuStart;
-
-      // Independent of the timestamps: how long until the queue reports the
-      // whole submission finished. Includes queue wait and event-loop latency,
-      // so it is an upper bound rather than a GPU-time measurement. Never
-      // awaited, since awaiting it would remove the pipelining being measured.
-      if (profiling) {
-        const submittedAt = performance.now();
-        device.queue.onSubmittedWorkDone().then(() => {
-          avgDone(performance.now() - submittedAt);
-        });
-      }
-
-      // One in-flight mapping at a time; frames that arrive while a readback
-      // is pending simply skip their timestamps.
-      if (timing) {
-        tsPending = true;
-        tsRead.mapAsync(GPUMapMode.READ).then(() => {
-          const timestamps = new BigInt64Array(tsRead.getMappedRange().slice(0));
-          tsRead.unmap();
-          const computeNs = Number(timestamps[1] - timestamps[0]);
-          const blitNs    = directOut ? 0 : Number(timestamps[3] - timestamps[2]);
-          const gapNs     = directOut ? 0 : Number(timestamps[2] - timestamps[1]);
-          const totalNs   = directOut ? computeNs
-                                      : Number(timestamps[3] - timestamps[0]);
-
-          // GPUs reset the timestamp counter occasionally, which shows up as
-          // negative or wild deltas. Drop those samples rather than average
-          // them in.
-          if (computeNs >= 0 && blitNs >= 0 && totalNs >= 0 && totalNs < 1e9) {
-            avgGpu(computeNs / 1e6);
-            avgBlit(blitNs / 1e6);
-            avgGap(gapNs / 1e6);
-            avgTotal(totalNs / 1e6);
-            // Quantized values are exact multiples of 100us, which is easy to
-            // spot and worth saying out loud.
-            tsQuantized = [computeNs, blitNs, totalNs]
-              .every((v) => v === 0 || v % 100000 === 0);
-            // The rung is captured at submit time, since the readback lands
-            // one or more frames later and may arrive after the rung changed.
-            if (ladder && rungSampled >= 0) {
-              ladder.samples[rungSampled].push(computeNs / 1e6);
-            }
-          } else {
-            tsDropped++;
-          }
-          tsPending = false;
-        }).catch(() => { tsPending = false; });
-      }
-
-      if (ladder && ladder.frames > LADDER_WARMUP &&
-          (ladder.samples[ladder.i].length >= LADDER_SAMPLES ||
-           ladder.frames > 300)) {         // give up on a rung rather than hang
-        ladder.i++;
-        ladder.frames = 0;
-        if (ladder.i >= ladder.rungs.length) finishLadder();
-      }
-      if (ladder) {
-        el('p-lad').textContent =
-          `running ${ladder.i + 1}/${ladder.rungs.length}: ${ladder.rungs[ladder.i].name}`;
-      }
-
-      // Direct output has no render-scale step, so it always dispatches at
-      // full canvas resolution regardless of rw/rh.
-      if (profiling) updatePanel(frameMs, cpuMs, directOut ? tw * th : rw * rh);
-
-      frames++;
-      if (now - tPrev > 500) {
-        fps = Math.round((frames * 1000) / (now - tPrev));
-        frames = 0; tPrev = now;
-        const res = (rw === tw && rh === th) ? `${tw}x${th}` : `${tw}x${th} (render ${rw}x${rh})`;
-        stat.textContent = `${scene.nodes.length} nodes · ${scene.materials.length - 1} materials · ${scene.lights.length} lights · ${res} · ${fps} fps`;
-      }
-
-      requestAnimationFrame(frame);
-    }
     requestAnimationFrame(frame);
   }
+  requestAnimationFrame(frame);
 }
 </script>
 </body>
