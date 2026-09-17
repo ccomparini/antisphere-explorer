@@ -50,12 +50,14 @@ export async function requestGPU() {
  * If storage usage is refused outright, `canDirect` comes back false and the
  * caller is limited to the blit path.
  */
-export function configureCanvas(canvas, device, canBgraStorage) {
-  const ctx = canvas.getContext('webgpu');
+export function chooseCanvasFormat(canBgraStorage) {
   const preferred = navigator.gpu.getPreferredCanvasFormat();
-  const format = (preferred === 'bgra8unorm' && !canBgraStorage)
-    ? 'rgba8unorm' : preferred;
+  return (preferred === 'bgra8unorm' && !canBgraStorage) ? 'rgba8unorm' : preferred;
+}
 
+export function configureCanvas(canvas, device, canBgraStorage,
+                                format = chooseCanvasFormat(canBgraStorage)) {
+  const ctx = canvas.getContext('webgpu');
   try {
     ctx.configure({
       device, format, alphaMode: 'opaque',
