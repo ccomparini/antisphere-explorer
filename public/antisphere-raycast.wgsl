@@ -180,18 +180,19 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
   let originDotDir = dot(O, D);
   let originSq = dot(O, O);
 
+  // The root is held in a variable rather than seeded onto the stack, which
+  // is what lets a length check at the top of the loop go. The push below is
+  // the only thing that ever writes the stack, and it rejects anything
+  // shorter than the epsilon, so no popped segment can be degenerate. A
+  // degenerate range from the caller then costs one node visit that pushes
+  // nothing, instead of a test on every iteration forever after.
+  var seg = Seg(1u, tMin, tMax);   // node 1 is always the tree's root (0 is reserved)
   var stack : array<Seg, 32>;
-  stack[0] = Seg(1u, tMin, tMax);   // node 1 is always the tree's root (0 is reserved)
-  var sp : i32 = 1;
+  var sp : i32 = 0;
 
   var guard : i32 = 0;
-  while (sp > 0) {
+  while (guard < 512) {
     guard = guard + 1;
-    if (guard > 512) { break; }
-
-    sp = sp - 1;
-    let seg = stack[sp];
-    if (seg.t1 - seg.t0 <= 1e-6) { continue; }
 
     var descent_node = seg.node;
     if ((descent_node & DEFAULT_INSIDE_BIT) != 0u) {
@@ -216,74 +217,81 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
     }
 
     if (descent_node == 0u) {
+      // Nothing further to test down this branch. If a solid run was open,
+      // it ended here and is the nearest one there is.
       if (hit.node != 0u) { return hit; }
-      continue;
-    }
+    } else {
+      let nd = nodes[descent_node];
+      visits = visits + 1u;
 
-    let nd = nodes[descent_node];
-    visits = visits + 1u;
+      // Substituting R = O + tD gives A t^2 + B t + C, with A = k (|D| = 1).
+      // A plane is the quadratic degenerating to linear.
+      let A = nd.curvature;
+      let B = 2.0 * nd.curvature * originDotDir + dot(nd.lift_linear, D);
+      let C = dot(nd.lift_linear, O) + nd.curvature * originSq + nd.lift_const;
 
-    // Substituting R = O + tD gives A t^2 + B t + C, with A = k (|D| = 1).
-    // A plane is the quadratic degenerating to linear.
-    let A = nd.curvature;
-    let B = 2.0 * nd.curvature * originDotDir + dot(nd.lift_linear, D);
-    let C = dot(nd.lift_linear, O) + nd.curvature * originSq + nd.lift_const;
+      // Roots start beyond any segment a ray can carry, so a miss, a ray
+      // parallel to a plane, and a plane's sentinel far root are all rejected
+      // by the same range test below. No count to keep or check.
+      var r0 = 1e30;
+      var r1 = 1e30;
+      let disc = B * B - 4.0 * A * C;
+      if (disc >= 0.0) {
+        let sq = sqrt(disc);
+        var q = -0.5 * (B + sq);
+        if (B < 0.0) { q = -0.5 * (B - sq); }
 
-    // Roots start beyond any segment a ray can carry, so a miss, a ray
-    // parallel to a plane, and a plane's sentinel far root are all rejected
-    // by the same range test below. No count to keep or check.
-    var r0 = 1e30;
-    var r1 = 1e30;
-    let disc = B * B - 4.0 * A * C;
-    if (disc >= 0.0) {
-      let sq = sqrt(disc);
-      var q = -0.5 * (B + sq);
-      if (B < 0.0) { q = -0.5 * (B - sq); }
+        // The stable pair: C/q stays finite as A -> 0, q/A does not. A plane
+        // therefore gets a sentinel rather than a division by zero, which
+        // WGSL calls an indeterminate value and which would poison the
+        // min/max below. +1e30 is safe in either slot: as r1 it fails
+        // r1 < seg.t1, and as r0 it would fail r0 > seg.t0, so only the real
+        // root ever splits a segment. q/A is still evaluated and discarded.
+        //
+        // For a plane q works out to exactly -B, so C/q is the linear root
+        // -C/B, and q near zero there means the ray runs parallel to the
+        // plane and never crosses it.
+        let far = select(1e30, q / A, A != 0.0);
+        let near = select(-B / A - far, C / q, abs(q) > 1e-20);
+        if (abs(q) > 1e-20 || A != 0.0) {
+          r0 = min(near, far);
+          r1 = max(near, far);
+        }
+      }
 
-      // The stable pair: C/q stays finite as A -> 0, q/A does not. A plane
-      // therefore gets a sentinel rather than a division by zero, which WGSL
-      // calls an indeterminate value and which would poison the min/max
-      // below. +1e30 is safe in either slot: as r1 it fails r1 < seg.t1, and
-      // as r0 it would fail r0 > seg.t0, so only the real root ever splits a
-      // segment. q/A is still evaluated and simply discarded.
-      //
-      // For a plane q works out to exactly -B, so C/q is the linear root
-      // -C/B, and q near zero there means the ray runs parallel to the plane
-      // and never crosses it.
-      let far = select(1e30, q / A, A != 0.0);
-      let near = select(-B / A - far, C / q, abs(q) > 1e-20);
-      if (abs(q) > 1e-20 || A != 0.0) {
-        r0 = min(near, far);
-        r1 = max(near, far);
+      // Up to two split points carve the segment into up to three subsegments.
+      var b : array<f32, 4>;
+      b[0] = seg.t0;
+      var nb : i32 = 1;
+      if (r0 > seg.t0 && r0 < seg.t1) { b[nb] = r0; nb = nb + 1; }
+      if (r1 > seg.t0 && r1 < seg.t1) { b[nb] = r1; nb = nb + 1; }
+      b[nb] = seg.t1;
+
+      // Push far to near so the nearest subsegment pops first. This is the
+      // only write to the stack, and the length test here is what makes the
+      // one at the top of the loop unnecessary.
+      for (var i : i32 = nb - 1; i >= 0; i = i - 1) {
+        let sa = b[i];
+        let sb = b[i + 1];
+        if (sb - sa <= 1e-6 || sp >= 32) { continue; }
+        // Midpoint sign picks the child. Robust, and avoids reasoning about
+        // which root is an entry and which is an exit. f(O + tD) is the very
+        // polynomial just solved, so this is two fused multiply-adds rather
+        // than building the point and evaluating f from scratch.
+        let mid = 0.5 * (sa + sb);
+        var child = nd.outside;
+        if ((A * mid + B) * mid + C < 0.0) {
+          child = descent_node | DEFAULT_INSIDE_BIT;
+        }
+        stack[sp] = Seg(child, sa, sb);
+        sp = sp + 1;
+        peakDepth = max(peakDepth, u32(sp));
       }
     }
 
-    // Up to two split points carve the segment into up to three subsegments.
-    var b : array<f32, 4>;
-    b[0] = seg.t0;
-    var nb : i32 = 1;
-    if (r0 > seg.t0 && r0 < seg.t1) { b[nb] = r0; nb = nb + 1; }
-    if (r1 > seg.t0 && r1 < seg.t1) { b[nb] = r1; nb = nb + 1; }
-    b[nb] = seg.t1;
-
-    // Push far to near so the nearest subsegment pops first.
-    for (var i : i32 = nb - 1; i >= 0; i = i - 1) {
-      let sa = b[i];
-      let sb = b[i + 1];
-      if (sb - sa <= 1e-6 || sp >= 32) { continue; }
-      // Midpoint sign picks the child. Robust, and avoids reasoning about
-      // which root is an entry and which is an exit. f(O + tD) is the very
-      // polynomial just solved, so this is two fused multiply-adds rather
-      // than building the point and evaluating f from scratch.
-      let mid = 0.5 * (sa + sb);
-      var child = nd.outside;
-      if ((A * mid + B) * mid + C < 0.0) {
-        child = descent_node | DEFAULT_INSIDE_BIT;
-      }
-      stack[sp] = Seg(child, sa, sb);
-      sp = sp + 1;
-      peakDepth = max(peakDepth, u32(sp));
-    }
+    if (sp == 0) { break; }
+    sp = sp - 1;
+    seg = stack[sp];
   }
   return hit;
 }
