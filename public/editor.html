@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Antisphere editor</title>
+<style>
+  :root { color-scheme: dark; --line: #1e2530; }
+  html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden;
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #7f8a99; }
+  #grid {
+    display: grid; height: 100vh;
+    grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px;
+    background: var(--line);
+  }
+  .pane { position: relative; background: #0b0d10; overflow: hidden; }
+  .pane canvas { display: block; width: 100%; height: 100%; }
+  .pane .tag {
+    position: absolute; left: 8px; top: 6px; pointer-events: none;
+    color: #64707f; text-shadow: 0 1px 2px rgba(0,0,0,.8);
+  }
+  .pane.active { outline: 1px solid #3b6ea5; outline-offset: -1px; }
+  .pane.active .tag { color: #cbd5e1; }
+  #bar {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 10px;
+    padding: 6px 12px; border-radius: 6px;
+    background: rgba(10,13,17,.86); border: 1px solid var(--line);
+    backdrop-filter: blur(6px); white-space: nowrap;
+  }
+  #bar b { color: #cbd5e1; font-weight: 500; }
+  #note { color: #4ade80; }
+  #err {
+    position: fixed; inset: 0; display: none; place-content: center;
+    padding: 2rem; text-align: center; white-space: pre-wrap;
+    font: 14px/1.7 ui-monospace, Menlo, monospace; color: #e2e8f0;
+  }
+</style>
+</head>
+<body>
+<div id="grid">
+  <div class="pane"><canvas></canvas><span class="tag">perspective</span></div>
+  <div class="pane"><canvas></canvas><span class="tag">front (-Y)</span></div>
+  <div class="pane"><canvas></canvas><span class="tag">side (+X)</span></div>
+  <div class="pane"><canvas></canvas><span class="tag">top (+Z)</span></div>
+</div>
+<div id="bar">
+  <b id="stat">starting…</b> · click a pane to focus · M mode · S shadows ·
+  D debug · [ ] scale · R reload · <span id="note"></span>
+</div>
+<div id="err"></div>
+
+<script type="module">
+import { ASContext } from './as-context.js';
+import { ASRenderer, DEBUG_VIEWS } from './as-renderer.js';
+import { ASCamera, attachCameraControls } from './as-camera.js';
+
+const el = (id) => document.getElementById(id);
+const panes = [...document.querySelectorAll('.pane')];
+
+function fail(msg) {
+  el('err').style.display = 'grid';
+  el('err').textContent = msg;
+  el('grid').style.display = 'none';
+}
+
+let noteTimer = 0;
+function note(text, bad) {
+  el('note').textContent = text;
+  el('note').style.color = bad ? '#f87171' : '#4ade80';
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => { el('note').textContent = ''; }, bad ? 6000 : 1600);
+}
+
+main().catch((e) => { fail(e.message); throw e; });
+
+async function main() {
+  const sceneFile = new URLSearchParams(location.search).get('scene') || 'scene.json';
+
+  // One device, one set of pipelines, one scene — shared by every pane.
+  const gpu = await ASContext.create();
+  const scene = await gpu.loadScene(`scenes/${sceneFile}`);
+
+  // Four viewpoints onto the same geometry. The first follows whatever the
+  // scene file declares; the rest are fixed axis views, framed on the scene
+  // camera's target so they all look at the same thing.
+  const centre = scene.camera?.target ?? [0, 0, 0];
+  const far = (scene.camera?.distance ?? 8) * 1.2;
+  const layouts = [
+    { },                                                  // scene viewpoint
+    { yaw: 0,           pitch: 0,          distance: far },
+    { yaw: Math.PI / 2, pitch: 0,          distance: far },
+    { yaw: 0,           pitch: 1.35,       distance: far },
+  ];
+
+  const views = panes.map((pane, i) => {
+    const camera = new ASCamera({ target: centre.slice(), ...layouts[i] });
+    if (i === 0) camera.setFromSpec(scene.camera);
+    const renderer = gpu.createRenderer(pane.querySelector('canvas'), { scene, camera });
+    const controls = attachCameraControls(pane.querySelector('canvas'), camera, {
+      onNote: note,
+      // Only the focused pane responds to keys and the pointer, so arrow keys
+      // don't fly all four cameras at once.
+      enabled: () => views[i] === active,
+      probe: (origin, direction) => scene.traceRay(origin, direction),
+    });
+    return { pane, renderer, camera, controls, index: i };
+  });
+
+  let active = views[0];
+  function focus(view) {
+    if (active === view) return;
+    active.controls.releaseLook();
+    active = view;
+    for (const v of views) v.pane.classList.toggle('active', v === active);
+  }
+  views.forEach((v) => v.pane.addEventListener('pointerdown', () => focus(v)));
+  views[0].pane.classList.add('active');
+
+  // Held-key movement and walk-mode gravity, for the focused pane only.
+  gpu.onFrame((dt) => { for (const v of views) v.controls.update(dt); });
+
+  window.addEventListener('keydown', (e) => {
+    const v = active;
+    switch (e.key.toLowerCase()) {
+      case 'm': note(`${v.index}: camera ${v.controls.cycleMode()}`); break;
+      case 's':
+        v.renderer.shadows = !v.renderer.shadows;
+        note(`${v.index}: shadows ${v.renderer.shadows ? 'on' : 'off'}`);
+        break;
+      case 'd': note(`${v.index}: ${v.renderer.cycleDebugView()}`); break;
+      case 'b':
+        note(`${v.index}: ${v.renderer.setDirectOut(!v.renderer.directOut) ? 'direct' : 'blit'}`);
+        break;
+      case 'c': v.renderer.useSceneCamera(); note(`${v.index}: camera reset`); break;
+      case 'r': reload(); break;
+      case '[': case ']': {
+        const step = e.key === ']' ? 0.1 : -0.1;
+        const s = v.renderer.setRenderScale(v.renderer.renderScale + step);
+        note(`${v.index}: scale ${s.toFixed(2)}`);
+        break;
+      }
+      default: return;
+    }
+  });
+
+  // Shader reload rebuilds the shared pipelines, so every pane picks it up at
+  // once; scene reload replaces the shared buffers, likewise.
+  async function reload() {
+    try {
+      const shaders = await gpu.reloadShaders({ force: true });
+      if (shaders.error) { note(`reload: ${shaders.error}`, true); return; }
+      const text = await (await fetch(`scenes/${sceneFile}`, { cache: 'no-store' })).text();
+      scene.update(JSON.parse(text));
+      note('reloaded');
+    } catch (err) {
+      note(`reload: ${err.message}`, true);
+    }
+  }
+
+  window.addEventListener('resize', () => { for (const v of views) v.renderer.resize(); });
+
+  let frames = 0, tPrev = performance.now();
+  gpu.onFrame(() => {
+    frames++;
+    const now = performance.now();
+    if (now - tPrev < 500) return;
+    const fps = Math.round((frames * 1000) / (now - tPrev));
+    frames = 0; tPrev = now;
+    el('stat').textContent =
+      `${scene.nodes.length} nodes · ${scene.lights.length} lights · ` +
+      `${views.length} views · ${fps} fps`;
+  });
+
+  gpu.start();
+
+  // Handy from the console while building the editor out.
+  Object.assign(window, { gpu, scene, views, DEBUG_VIEWS });
+}
+</script>
+</body>
+</html>
