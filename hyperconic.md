@@ -3,36 +3,39 @@
 They aren't really hyperconic sections, despite the name of this file.
 Viva la revolution.
 
-## Standard quadric:  R 
-H(R) = transpose(R)·K·R + 2·c·R + d
-K (a matrix — controls the quadratic/curvature part),
-c (a vector — controls the linear part, i.e. which way the whole thing is "tilted" or offset)
-d (a scalar constant).
+## Standard quadric
 
-## What we store (old/original and new/gemneralized out to revolution quadrics)
+$H(R) = \mathrm{transpose}(R)\cdot K\cdot R + 2\cdot c\cdot R + d$
+
+- $R$ = the 3D point being tested (a Euclidean vec3 position in 3-space).
+- $K$ (a 3x3 matrix — controls the quadratic/curvature part),
+- $c$ (a vector — controls the linear part, i.e. which way the whole thing is "tilted" or offset)
+- $d$ (a scalar constant).
+
+## What We Store (old/original and new/gemneralized out to revolution quadrics)
 
 "Original" antisphere:  {n,a,k} (normal (vec3), distance along n from origin, curvature)
 Handles planes and spheres.  5 total floats.
 
 Generalized out to revolution quadrics: { n (vec3), k_par, k_perp, c (vec3), d }
-  n       -- vec3, unit axis direction (derived-in-meaning from K, but stored explicitly)
-  k_par   -- scalar curvature relative to 
-  k_perp  -- scalar perpendicular curvature
-  c       -- vec3, position/linear term (free vector, NOT generally parallel to n)
-  d       -- scalar constant term of the quadratic equation
+- n       -- vec3, unit axis direction (derived-in-meaning from K, but stored explicitly)
+- k_par   -- scalar curvature relative to 
+- k_perp  -- scalar perpendicular curvature
+- c       -- vec3, position/linear term (free vector, NOT generally parallel to n)
+- d       -- scalar constant term of the quadratic equation
 
 
-## Common setup
+## Common Setup
 
-K = k_perp*I + (k_par - k_perp)*(n outer n)   -- n = unit "axis" direction
-c_n    = c . n            (component of c ALONG the axis, a scalar)
-c_perp = c - c_n*n        (component of c PERPENDICULAR to the axis, a vector;
-                           by construction c_perp . n = 0)
+- $K = k\_perp*I + (k\_par - k\_perp)*(n \otimes n)$   -- n = unit "axis" direction
+- $c_n    = c \cdot n$            (component of c ALONG the axis, a scalar)
+- $c\_perp = c - c_n*n$        (component of c PERPENDICULAR to the axis, a vector;
+                           by construction $c\_perp \cdot n = 0$)
 
-x      = R . n            (a point's coordinate along the axis)
-R_perp = R - x*n          (a point's coordinate in the perpendicular plane)
+- $x      = R \cdot n$            (a point's coordinate along the axis)
+- $R\_perp = R - x*n$          (a point's coordinate in the perpendicular plane)
 
-H(R) = k_par*x^2 + k_perp*(R_perp . R_perp) + 2*c_n*x + 2*c_perp.R_perp + d
+- $H(R) = k\_par \cdot x^2 + k\_perp \cdot (R\_perp . R\_perp) + 2 \cdot c_n \cdot x + 2 \cdot c\_perp.R\_perp + d$
 
 K's eigenvalues are always (k_par, k_perp, k_perp) -- k_perp repeated (any
 perpendicular direction), k_par once (the axis itself).
@@ -56,16 +59,20 @@ Quadric form: transpose(X) * Q * X = 0, X = (Rx,Ry,Rz,1)
                   sphere does, because that compression is exactly what breaks under
                   translation once an axis exists (see below).
 
-Writing K out with n=(nx,ny,nz), the full symmetric 4x4 Q is:
-
-  Q = [ k_perp + (k_par-k_perp)*nx*nx,   (k_par-k_perp)*nx*ny,          (k_par-k_perp)*nx*nz,          cx ]
-      [ (k_par-k_perp)*nx*ny,            k_perp + (k_par-k_perp)*ny*ny, (k_par-k_perp)*ny*nz,          cy ]
-      [ (k_par-k_perp)*nx*nz,            (k_par-k_perp)*ny*nz,          k_perp + (k_par-k_perp)*nz*nz, cz ]
-      [ cx,                              cy,                            cz,                             d ]
+Let $\Delta k = k\_par - k\_perp$.
+Then we can write the full symmetric 4x4 Q as:
 
 
-Storage cost: axis n (2 true dof) + k_par + k_perp (2) + c (3) + d (1, often
-normalizable away) =~ 7-8 numbers for a general-position spheroid, vs. 5 for a sphere.
+$$
+Q =
+\begin{bmatrix}
+k\_perp+\Delta k\,n_x^2 & \Delta k\,n_xn_y & \Delta k\,n_xn_z & c_x \\
+\Delta k\,n_xn_y & k\_perp+\Delta k\,n_y^2 & \Delta k\,n_yn_z & c_y \\
+\Delta k\,n_xn_z & \Delta k\,n_yn_z & k\_perp+\Delta k\,n_z^2 & c_z \\
+c_x & c_y & c_z & d
+\end{bmatrix}
+$$
+
 
 ## Table
 
@@ -183,17 +190,38 @@ NaN after the fact.
 
 ## TRANSFORMS
 
-This is key.
+### ROTATION
+Rot is a 3x3 rotation matrix
+- $ n'=\mathrm{Rot} \cdot n $
+- $ k\_par'=k\_par $   (unchanged)
+- $ k\_perp'=k\_perp $   (unchanged)
+- $ c' = \mathrm{Rot} \cdot c $
+- $ d' = d$ (unchanged)
 
-K is a 4x4 matrix.
+### TRANSLATION
+t is a 3-vector translation (x, y, z)
+- $ n' = n $         (unchanged)
+- $ k\_par' = k\_par $   (unchanged)
+- $ k\_perp' = k\_perp $   (unchanged)
+- $ c' = c - [k\_perp*t + (k\_par-k\_perp)*(n \cdot t)*n] $
+- $ d' = d - 2(c \cdot t) + [k\_perp*(t \cdot t) + (k\_par-k\_perp)*(n \cdot t)^2] $
 
-ROTATION (A=Rot, t=0):   K' = Rot*K*transpose(Rot)   =>   n'=Rot*n, k_par'=k_par, k_perp'=k_perp
-                          c' = Rot*c
-TRANSLATION (t):          K' = K   (exact, for ANY symmetric K, singular or not)
-                          c' = c - K*t
-                          d' = d - 2(c.t) + transpose(t)*K*t
-SCALE (s, about origin):  K' = K/s ;  c' = c/s ;  d' = d/s
-COMPLEMENT:               negate K, c, d together  =>  H'(R) = -H(R), exact
+### SCALE
+s is scalar - we scale all axes uniformly
+- $ n' = n $         (unchanged)
+- $ k\_par' = k\_par/s $
+- $ k\_perp' = k\_perp/s $
+- $ c' = c/s $
+- $ d' = d/s $
+
+## COMPLEMENT
+- $ n' = n $         (unchanged)
+- $ k\_par' = -k\_par $
+- $ k\_perp' = -k\_perp $
+- $ c' = -c $
+- $ d' = -d $
+
+Note: complement is the same as scaling by -1.
 
 Net result: revolution quadrics need no new transform math at all — every rule already
 derived for the spheroid case works.
