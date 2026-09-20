@@ -1,23 +1,45 @@
-# Antisphere: Spheroid Extension (K/c/d form, physical meaning, transforms, complement)
+# Revolution Quadrics: Spheroid, Slab, Cylinder, Paraboloid, Hyperboloid, Cone
 
-## Terminology note
+They aren't really hyperconic sections, despite the name of this file.
+Viva la revolution.
 
-"Spheroid" = rotationally-symmetric ellipsoid: ONE axis of symmetry, TWO distinct
-curvature values (k_par along the axis, k_perp -- repeated -- around it). This is
-everything covered below. "Ellipsoid" is reserved for the fully general triaxial case
-(three independent curvatures, no axis of symmetry, not yet worked out) -- use
-"spheroid" until/unless that generalization is actually built.
+## Standard quadric:  R 
+H(R) = transpose(R)·K·R + 2·c·R + d
+K (a matrix — controls the quadratic/curvature part),
+c (a vector — controls the linear part, i.e. which way the whole thing is "tilted" or offset)
+d (a scalar constant).
 
-## Motivation
+## What we store (old/original and new/gemneralized out to revolution quadrics)
 
-The plain antisphere {n, a, k} compresses "position" and "shape" into one direction n,
-which only works because a sphere has NO preferred direction of its own -- the isotropic
-curvature block K = k*I means inverse(K) is also a multiple of I, so the center
-C = -inverse(K)*c is automatically parallel to c, and one vector n could serve double
-duty. A spheroid has a real geometric axis, generally NOT aligned with the direction to
-the center once translated to a general position -- so the compressed format breaks
-down and a more explicit form is needed.
+"Original" antisphere:  {n,a,k} (normal (vec3), distance along n from origin, curvature)
+Handles planes and spheres.  5 total floats.
 
+Generalized out to revolution quadrics: { n (vec3), k_par, k_perp, c (vec3), d }
+  n       -- vec3, unit axis direction (derived-in-meaning from K, but stored explicitly)
+  k_par   -- scalar curvature relative to 
+  k_perp  -- scalar perpendicular curvature
+  c       -- vec3, position/linear term (free vector, NOT generally parallel to n)
+  d       -- scalar constant term of the quadratic equation
+
+
+## Common setup
+
+K = k_perp*I + (k_par - k_perp)*(n outer n)   -- n = unit "axis" direction
+c_n    = c . n            (component of c ALONG the axis, a scalar)
+c_perp = c - c_n*n        (component of c PERPENDICULAR to the axis, a vector;
+                           by construction c_perp . n = 0)
+
+x      = R . n            (a point's coordinate along the axis)
+R_perp = R - x*n          (a point's coordinate in the perpendicular plane)
+
+H(R) = k_par*x^2 + k_perp*(R_perp . R_perp) + 2*c_n*x + 2*c_perp.R_perp + d
+
+K's eigenvalues are always (k_par, k_perp, k_perp) -- k_perp repeated (any
+perpendicular direction), k_par once (the axis itself).
+K invertible  <=>  k_par != 0 AND k_perp != 0.
+Center C = -inverse(K)*c exists ONLY when K is invertible; when it exists it is
+still just ONE point (true for sphere, spheroid, AND hyperboloids/cone alike --
+"one center" is not special to spheres, only the shape AROUND that center differs).
 ## The K/c/d representation, and Q spelled out
 
 Quadric form: transpose(X) * Q * X = 0, X = (Rx,Ry,Rz,1)
@@ -41,143 +63,146 @@ Writing K out with n=(nx,ny,nz), the full symmetric 4x4 Q is:
       [ (k_par-k_perp)*nx*nz,            (k_par-k_perp)*ny*nz,          k_perp + (k_par-k_perp)*nz*nz, cz ]
       [ cx,                              cy,                            cz,                             d ]
 
-  (For the running worked example n=(0,1,0), k_perp=0.5, k_par=1, C=(2,0,0), giving
-  c=(-1,0,0), d=1.5, this evaluates to the diagonal:
-     Q = [[0.5,  0,   0,  -1 ],
-          [0,    1,   0,   0 ],
-          [0,    0,  0.5,  0 ],
-          [-1,   0,   0,  1.5]]
-   -- diagonal only because n happened to be axis-aligned; in general the
-   off-diagonal (k_par-k_perp)*ni*nj terms are nonzero.)
-
-  Center:  C = -inverse(K) * c
-  (For plain sphere K=k*I this reduces to the familiar C = a*n - n/(2k).)
-
-  Semi-axis length along any unit direction u:  sqrt(E / k_u), where k_u is k_par if
-  u=n, k_perp if u is perpendicular to n, and E is the shared constant obtained by
-  completing the square (E depends on K, c, d together).
-
-  Plane case: K = 0 (both k_par=k_perp=0) reduces the quadric to 2*c.R + d = 0, i.e.
-  n = c/|c|, offset a = -d/(2|c|) -- planes remain exactly representable, still
-  reducible to the familiar compact {n,a} form as a special case.
 
 Storage cost: axis n (2 true dof) + k_par + k_perp (2) + c (3) + d (1, often
 normalizable away) =~ 7-8 numbers for a general-position spheroid, vs. 5 for a sphere.
 
-## Physical meaning of k_par vs k_perp
+## Table
 
-Larger k = smaller radius in that direction = surface curves back on itself more
-tightly (k=0 = flat = never curves, the plane limit).
+(note we dmostly on't care if K invertible - it already wasn't in the k=0 plane case)
+| k_par        | k_perp       | extra condition        | Shape                    | K invertible? |
+|--------------|--------------|-------------------------|---------------------------|----------------|
+| k (>0)       | k (=k_par)   | --                      | Sphere                    | Yes            |
+| k_par>0      | k_perp>0, unequal | --                 | Spheroid (oblate if k_par>k_perp, prolate if k_par<k_perp) | Yes |
+| 0            | 0            | --                      | Plane                     | No (rank 0)    |
+| k_par>0      | 0            | c_perp = 0              | Slab (pair of parallel planes) | No (rank 1) |
+| k_par>0      | 0            | c_perp != 0             | Parabolic cylinder        | No (rank 1)    |
+| 0            | k_perp>0     | c_n = 0                 | Cylinder (right circular) | No (rank 2)    |
+| 0            | k_perp>0     | c_n != 0                | Paraboloid of revolution  | No (rank 2)    |
+| opposite signs | opposite signs | E-term "wrong" along axis | Hyperboloid of ONE sheet | Yes |
+| opposite signs | opposite signs | E-term "wrong" perpendicular | Hyperboloid of TWO sheets | Yes |
+| opposite signs | opposite signs | E = 0 (boundary case)  | Cone (degenerate)          | Yes            |
+| 0            | 0            | c = 0 AND d = 0 too (i.e. ALL of K,c,d are zero) | Degenerate: H(R)=0 for every R -- not a real primitive; treat as an error/uninitialized sentinel (see separate note on strict vs non-strict comparison and NaN-safe ray handling for this case) | No |
 
-  - k_par > k_perp  =>  OBLATE   (flattened along the axis, wide equator)
-                        e.g. an M&M, a hamburger patty, Earth's actual shape
-  - k_par < k_perp  =>  PROLATE  (stretched along the axis, narrow equator)
-                        e.g. an American football / rugby ball, a watermelon
-  - k_par = k_perp  =>  sphere (no preferred direction at all)
+If K is invertible:
+  Center:  C = -inverse(K) * c
+  (For plain sphere K=k*I this reduces to the familiar C = a*n - n/(2k).)
 
-CAVEAT: k_par / k_perp are the coefficients in the quadratic form evaluated along
-those directions -- they determine both semi-axis lengths correctly, but they are NOT
-the same as the true local radius of curvature at a specific surface point (that true
-value mixes both semi-axes together, e.g. radius-of-curvature-at-pole = a_perp^2/a_par
-for an ellipse). Use k_par/k_perp for shape/storage/transforms; derive true
-point-curvature separately if ever needed (e.g. adaptive tessellation density).
 
-REJECTED ANALOGY (worth remembering NOT to reach for this again): "two k's <-> two
-foci of an ellipse, like one k <-> one center for a sphere." Does not hold. A 2D
-ellipse has 2 foci; a 3D spheroid's foci sweep out a whole CIRCLE (not 2 points); a
-general triaxial ellipsoid's foci form curves, not points. The "2" in k_par/k_perp
-counts distinct curvature values (a degree-of-freedom count for K), which is a
-different kind of "2" than a focus count -- don't build further intuition on that
-match, it's coincidental. Separately, "one center" is not special to spheres --
-C=-inverse(K)*c gives exactly one center for spheres, spheroids, AND general
-ellipsoids alike; only the shape *around* that center changes.
+## Physical meaning of k_par vs k_perp (for the bounded spheroid case)
 
-## Transforms (all verified numerically against n=(0,1,0), k_perp=0.5, k_par=1, C=(2,0,0))
+Larger k = smaller radius in that direction (surface curves back on itself more
+tightly); k=0 = flat, never curves (the plane/cylinder/slab limit).
+  - k_par > k_perp  =>  OBLATE spheroid (flattened along axis, wide equator)
+  - k_par < k_perp  =>  PROLATE spheroid (stretched along axis, narrow equator)
+  - k_par = k_perp  =>  sphere (no preferred direction)
+CAVEAT: k_par/k_perp give correct semi-axis lengths (semi-axis = sqrt(E/k_i)) but
+are NOT the same as true local radius-of-curvature at a point (that mixes both:
+radius-of-curvature-at-pole = a_perp^2/a_par for an ellipse).
 
-ROTATION about origin (block A=Rot, t=0):
-    K' = Rot * K * transpose(Rot)  =>  n' = Rot*n ; k_par, k_perp unchanged
-    c' = Rot * c
-  (ordinary rigid-vector rule; verified: 90-degree rotation about z sends
-   n=(0,1,0) -> (-1,0,0) and recovers C' = Rot*C correctly)
+## Degenerate-family shapes, derived directly (not limits)
 
-TRANSLATION by t (block A=I):
-    K' = K                      <-- EXACT, unconditional, for ANY symmetric K
-    c' = c - K*t
-    d' = d - 2(c.t) + transpose(t)*K*t
-  Verified with a translation NOT aligned to the axis (t=(1,0,1)): c changes
-  direction substantially, but K is bit-for-bit unchanged, and the recovered
-  center C' = -inverse(K)*c' comes out to exactly C+t, with shape (E) preserved.
+PLANE K = 0 (both k_par=k_perp=0) reduces the quadric to 2*c.R + d = 0, i.e.
+  n = c/|c|, offset a = -d/(2|c|) -- planes remain exactly representable, still
+  reducible to the familiar compact {n,a} form as a special case.
 
-UNIFORM SCALE by s about origin (block A=s*I):
-  Canonical version, consistent with the plain-sphere k'=k/s rule:
-    n unchanged
-    k_par'  = k_par / s
-    k_perp' = k_perp / s
-    C' = s * C
-  Verified: s=2 doubles both semi-axes (1 -> 2, 1/sqrt(2) -> sqrt(2)) and doubles
-  the center position.
-  Negative s: K depends on n only via (n outer n), so sign(s) does NOT flip n for
-  the shape test (unlike the plain-sphere case) -- (n outer n) is identical for n
-  and -n. If n is also used elsewhere as a texture/orientation pole, track sign(s)
-  separately for that purpose only.
 
-## THE KEY RESULT: why the axis n does not swim under translation
+SLAB (k_par>0, k_perp=0, c_perp=0): H depends only on x. Completing the square:
+  (x + c_n)^2 = c_n^2 - d = E.  If E>0: two parallel planes at x = -c_n +/- sqrt(E),
+  "inside" = the SLAB between them (-c_n-sqrt(E) <= x <= -c_n+sqrt(E)).
+  Example verified: n=(0,1,0), k_par=1, k_perp=0, c=(0,-2,0), d=3
+  -> H = (y-1)(y-3), planes at y=1 and y=3, inside = 1<=y<=3.
 
-n is defined as the eigenvector of K belonging to K's single NON-repeated eigenvalue
-(K's three eigenvalues are k_par, k_perp, k_perp). This is a purely algebraic property
-of K alone -- it does NOT reference c, the center, or the origin.
+PARABOLIC CYLINDER (k_par>0, k_perp=0, c_perp!=0): the perpendicular linear term
+  survives -> curved in the (x, c_perp-direction) plane, perfectly straight
+  (extruded) along the remaining perpendicular direction.
+  Example verified: c=(1,-2,0) (c_perp=(1,0,0)) -> x = (1-(y-2)^2)/2, a parabola
+  extruded along z.
 
-Since translation gives K' = K exactly (the literal same matrix), and eigenvectors are
-a pure function of a matrix's entries, n' computed from K' is FORCED to equal n --
-not approximately, as a direct logical consequence of K'=K.
+CYLINDER (k_par=0, k_perp>0, c_n=0): H depends only on R_perp -- a circle of
+  radius sqrt(E/k_perp) in the perpendicular plane, swept along the ENTIRE axis
+  (infinite right circular cylinder).
+  Example verified: n=(0,1,0), k_perp=1, c=(1,0,0) (c_n=0), d=0
+  -> (Rx+1)^2+Rz^2=1 for every y.
 
-Contrast with the OLD plain-sphere {n,a,k} encoding: there, n was defined via c
-(n = c/|c|, since c was constrained parallel to n by construction). c DOES change
-under translation (c' = c - K*t) -- so a direction derived from c necessarily swims.
-That was the mechanism behind the original texture-anchor "swimming" bug.
+PARABOLOID OF REVOLUTION (k_par=0, k_perp>0, c_n!=0): x becomes a linear function
+  of |R_perp - center|^2 -- circular cross-section, opens along the axis.
+  Example verified: same as above but c=(1,0.5,0) (c_n=0.5)
+  -> Ry = 1 - (Rx+1)^2 - Rz^2.
 
-The fix is NOT "translation doesn't affect direction in general" (c's direction very
-much still shifts). The fix is that n was moved to depend on K (provably
-translation-invariant) instead of on c (provably NOT translation-invariant). Position
-information now lives entirely in c/C; shape+orientation information lives entirely
-in K; translation only ever touches the former.
+HYPERBOLOID OF ONE SHEET (opposite-sign k's, "wrong" term along axis): single
+  connected surface, waist at its narrowest, unbounded, encircles the axis.
+  Example verified: k_par=1 (y-axis), k_perp=-1, d=1 -> Rx^2+Rz^2 = y^2+1
+  (circle of radius >=1 at every y, connected).
 
-## Complement (CSG solid/empty flip)
+HYPERBOLOID OF TWO SHEETS (opposite-sign k's, "wrong" term perpendicular):
+  two disconnected pieces, each opening away from the axis.
+  Example verified: same k's, d=-1 -> y^2-(Rx^2+Rz^2)=1, requires |y|>=1.
 
-GENERAL RULE: negate every coefficient of Q -- equivalently, K'=-K, c'=-c, d'=-d.
+CONE (opposite-sign k's, E=0 exactly): the degenerate boundary between the one-
+  and two-sheet cases -- the asymptotic surface both approach as |d|->0.
+  Example verified: d=0 -> Rx^2+Rz^2 = y^2, apex at origin, C (=-inverse(K)c) is
+  literally the apex, a point ON the surface, not enclosed by any solid region.
 
-Proof: H(R) = transpose(R)*K*R + 2c.R + d. Negating all three terms gives H'(R) =
--H(R), EXACTLY, for ANY symmetric K (isotropic, spheroid-anisotropic, or fully
-general triaxial) -- nothing in this derivation depends on K's structure, so it is
-MORE general than the old plain-sphere-only "negate n,a,k" rule.
+PRACTICAL FLAG: "K invertible" tells you a single finite point C exists -- it does
+NOT tell you that point is a meaningful bounded-solid center. For hyperboloid-of-
+two-sheets, C sits in the empty gap BETWEEN the sheets; for the cone, C IS the
+apex (on the surface, not inside anything). Only for sphere/spheroid does
+"K invertible" also mean "C is the center of a bounded solid interior." Any
+bounding-volume or texture-anchor code that assumes otherwise needs an explicit
+shape-category check (via sign(k_par), sign(k_perp), sign(E)), not just
+"does inverse(K) exist."
 
-Verified numerically on the worked spheroid example: H(center)=-0.5 (inside) before
-negation, +0.5 (outside) after -- exact sign flip.
+## Note on the "invertible" vs "complement" distinction (frequently conflated)
+(cmc note:  frequent = I conflated this once and got confused)
 
-Center is UNCHANGED by complement: C' = -inverse(K')*c' = -inverse(-K)*(-c) =
--inverse(K)*c = C. Complement flips solid/empty everywhere but leaves center, axis,
-and the k_par/k_perp RATIO (oblate-vs-prolate character) all unchanged -- only the
-sign of both curvatures flips together, in lockstep.
+"Invertible" = a property of the MATRIX K alone (does inverse(K) exist / are all
+its eigenvalues nonzero). Purely about whether a single center point C exists.
+"Complement" = negating the ENTIRE Q (K, c, AND d together) to flip inside<->outside
+(H'(R) = -H(R), exact for any symmetric K). These are UNRELATED operations --
+complement works identically (and equally well) whether or not K happens to be
+invertible; e.g. a plane (K=0, about as non-invertible as possible) complements
+just fine via n'=-n, a'=-a.
 
-Reduces correctly to previously-established special cases:
-  - Plane (K=0): reduces to c'=-c, d'=-d, i.e. n'=-n, a'=-a -- the original plane
-    complement rule.
-  - Plain sphere (K=k*I): reduces to negating {n,a,k} together, exactly as derived
-    several turns before the spheroid extension existed.
+## Ray/line intersection: at most 3 pieces, with one documented exception
 
-OPEN CAVEAT: this derivation never assumed K is positive-(semi)definite. If K has
-mixed-sign eigenvalues (a hyperboloid, not yet explored), Q'=-Q is still the exact
-algebraic complement of the region H(R)<=0, but that region is unbounded, so
-"complement" means something topologically different there than for a bounded
-ellipsoid/spheroid interior. Not resolved, just flagged.
+Since H(R(t)) is always at most degree-2 in t, a ray meets any of these surfaces
+in AT MOST 2 points (splitting the ray into at most 3 in/out/in intervals) --
+holds for every row in the table.
+EXCEPTION: cylinders, cones, and hyperboloids of ONE sheet are RULED surfaces
+(contain entire embedded straight lines). If a ray aligns exactly with one such
+ruling, A=B=C=0 IDENTICALLY (not "zero roots" -- the whole polynomial vanishes,
+H(R(t))=0 for every t: the entire ray lies exactly on the surface). Ray-
+intersection code needs an epsilon-tolerance check for "A and B (and C) are all
+~0" as its own case, both for this ruled-surface exception and for the fully-
+degenerate all-zero-parameters sentinel node noted in the table above -- in both
+cases, falling through to the ordinary quadratic-formula divide risks producing
+NaN (0/0), which WGSL's fast-math assumption does NOT guarantee will be caught by
+isNan()/comparisons downstream. Guard BEFORE the divide; do not try to detect
+NaN after the fact.
 
-## Open items / not yet covered here
+## TRANSFORMS
 
-- General (fully triaxial) ELLIPSOIDS: three distinct curvatures, no shared axis of
-  revolution, K has no repeated eigenvalue -- eigendecomposition still recovers the
-  3 principal directions, but there is no single privileged "n" and all 3 matter
-  individually. Do not call the spheroid case "ellipsoid" until this is built.
-- Ray intersection for the spheroid (A,B,C in terms of n,c,k_par,k_perp) was already
-  derived and verified in a separate note.
-- Opposite-sign k_par/k_perp gives a hyperboloid (1 or 2 sheets) rather than a
-  spheroid -- noted as falling out of the same formula, not yet explored.
+This is key.
+
+K is a 4x4 matrix.
+
+ROTATION (A=Rot, t=0):   K' = Rot*K*transpose(Rot)   =>   n'=Rot*n, k_par'=k_par, k_perp'=k_perp
+                          c' = Rot*c
+TRANSLATION (t):          K' = K   (exact, for ANY symmetric K, singular or not)
+                          c' = c - K*t
+                          d' = d - 2(c.t) + transpose(t)*K*t
+SCALE (s, about origin):  K' = K/s ;  c' = c/s ;  d' = d/s
+COMPLEMENT:               negate K, c, d together  =>  H'(R) = -H(R), exact
+
+Net result: revolution quadrics need no new transform math at all — every rule already
+derived for the spheroid case works.
+
+## Terminology note
+
+"Spheroid" = rotationally-symmetric ellipsoid: ONE axis of symmetry, TWO distinct
+curvature values (k_par along the axis, k_perp -- repeated -- around it). This is
+everything covered below. "Ellipsoid" is reserved for the fully general triaxial case
+(three independent curvatures, no axis of symmetry, not yet worked out) -- use
+"spheroid" until/unless that generalization is actually built.
+
