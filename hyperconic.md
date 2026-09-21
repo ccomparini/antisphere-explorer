@@ -1,7 +1,8 @@
-# Revolution Quadrics: Spheroid, Slab, Cylinder, Paraboloid, Hyperboloid, Cone
+# Revolution Quadrics in the Antisphere framework: Spheroid, Slab, Cylinder, Paraboloid, Hyperboloid, Cone
 
-They aren't really hyperconic sections, despite the name of this file.
-Viva la revolution.
+Related reading: https://en.wikipedia.org/wiki/Quadric
+This version, however, is in the antisphere framework,
+where surfaces are defined in terms of curve.
 
 ## Standard quadric
 
@@ -12,18 +13,24 @@ $H(R) = \mathrm{transpose}(R)\cdot K\cdot R + 2\cdot c\cdot R + d$
 - $c$ (a vector — controls the linear part, i.e. which way the whole thing is "tilted" or offset)
 - $d$ (a scalar constant).
 
-## What We Store (old/original and new/gemneralized out to revolution quadrics)
+## What We Store (old/original and new/generalized out to revolution quadrics)
 
-"Original" antisphere:  {n,a,k} (normal (vec3), distance along n from origin, curvature)
+"Original" antisphere:
+- n - normal (vec3)
+- a - distance along n from origin (scalar)
+- k - curvature (scalar, note signed)
+
 Handles planes and spheres.  5 total floats.
 
 Generalized out to revolution quadrics: { n (vec3), k_par, k_perp, c (vec3), d }
 - n       -- vec3, unit axis direction (derived-in-meaning from K, but stored explicitly)
-- k_par   -- scalar curvature relative to 
-- k_perp  -- scalar perpendicular curvature
+- k_par   -- scalar curvature along n
+- k_perp  -- scalar curvature perpendicular to n
 - c       -- vec3, position/linear term (free vector, NOT generally parallel to n)
 - d       -- scalar constant term of the quadratic equation
 
+Handles general quadrics.  9 total floats.  k_par and k_perp may be 0
+(both 0 is a plane) or negative.
 
 ## Common Setup
 
@@ -159,17 +166,6 @@ apex (on the surface, not inside anything). Only for sphere/spheroid does
 bounding-volume or texture-anchor code that assumes otherwise needs an explicit
 shape-category check (via sign(k_par), sign(k_perp), sign(E)), not just
 "does inverse(K) exist."
-
-## Note on the "invertible" vs "complement" distinction (frequently conflated)
-(cmc note:  frequent = I conflated this once and got confused)
-
-"Invertible" = a property of the MATRIX K alone (does inverse(K) exist / are all
-its eigenvalues nonzero). Purely about whether a single center point C exists.
-"Complement" = negating the ENTIRE Q (K, c, AND d together) to flip inside<->outside
-(H'(R) = -H(R), exact for any symmetric K). These are UNRELATED operations --
-complement works identically (and equally well) whether or not K happens to be
-invertible; e.g. a plane (K=0, about as non-invertible as possible) complements
-just fine via n'=-n, a'=-a.
 
 ## Ray/line intersection: at most 3 pieces, with one documented exception
 
