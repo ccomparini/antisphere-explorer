@@ -496,9 +496,12 @@ export function compileScene(spec) {
     if (!cut) return null;
     const prim = makePrim(cut.t);
     if (!prim) return null;
-    return { prim, bal: cut.bal,
-             inside:  arr.slice(0, cut.k).map((a) => items[a.i]),
-             outside: arr.slice(cut.k).map((a) => items[a.i]) };
+    return {
+      prim,
+      bal: cut.bal,
+      inside:  arr.slice(0, cut.k).map((a) => items[a.i]),
+      outside: arr.slice(cut.k).map((a) => items[a.i])
+    };
   }
 
   // Fallback when nothing separates cleanly: split at the median and put any
