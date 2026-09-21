@@ -101,7 +101,7 @@ async function main() {
   const sceneFile = new URLSearchParams(location.search).get('scene') || 'scene.json';
   const scenePath = `scenes/${sceneFile}`;
 
-  const gpu = await ASContext.create();
+  const gpu = await ASContext.create({ 'computeUrl': 'antisphere-raycast.wgsl' });
   const scene = await gpu.loadScene(scenePath);
   const camera = new ASCamera();
   const view = gpu.createRenderer(canvas, { scene, camera });
