@@ -1,0 +1,547 @@
+// The editor's side panel: a view of the SceneDocument.
+//
+// The markup lives in editor.html and says what the panel looks like; this
+// file says what it shows and what its controls do. Nothing here builds DOM.
+//
+// Every model the markup binds to is getters over the live document, so a
+// refresh is just uiulator's update(); there's no copy to keep in sync. Every
+// setter is a document operation, so everything the panel can change is
+// transactional and undoable, and a refused edit simply reads back as the
+// old value on the next refresh.
+//
+// Sections are bound by separate uiulator instances, which is what gives
+// them different event modes: lights edit on every tick (a cheap buffer
+// write, coalesced into one undo step), while geometry and materials wait
+// for a finished edit, since those recompile.
+//
+// The document announces every change; the panel refreshes the sections a
+// change can affect. Buttons name a data-action: the panel handles the few
+// that are about its own display and passes the rest to the editor's
+// command table.
+
+import { DEBUG_VIEWS } from '../as-renderer.js';
+import { CAMERA_MODES } from '../as-camera.js';
+import { ROOT, joinPath } from './scene-document.js';
+
+/**
+ * True for controls that consume ordinary keystrokes. The editor's shortcuts
+ * and arrow-key flying stand down while one of these has focus, so typing a
+ * light's position doesn't fly the camera.
+ */
+export function isTextEntry(elem) {
+  if (!elem) return false;
+  if (elem.tagName === 'TEXTAREA' || elem.tagName === 'SELECT') return true;
+  return elem.tagName === 'INPUT' &&
+    ['text', 'number', 'search', 'email', 'url', 'tel', 'password'].includes(elem.type);
+}
+
+// ---------------------------------------------------------------------------
+// Conversions
+// ---------------------------------------------------------------------------
+
+// Albedo is a 0..1 colour and maps straight onto <input type=color>.
+const clamp01 = (x) => Math.max(0, Math.min(1, x));
+const toHex = (rgb) => '#' + rgb.map((c) =>
+  Math.round(clamp01(c) * 255).toString(16).padStart(2, '0')).join('');
+const fromHex = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+
+// Enough digits to be exact for anything typed, few enough that 0.1 + 0.2
+// doesn't show as 0.30000000000000004.
+const tidy = (v) => +(+v).toFixed(6);
+
+const isObject = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+
+// ---------------------------------------------------------------------------
+// Structure outline
+//
+// The tree is unbounded in depth and uiulator expands markup rather than
+// recursing into it, so the tree is flattened into rows, each carrying its
+// own tree-drawing prefix. Collapsing is data too: the walk skips the
+// children of rows not in `expanded`.
+//
+// Rows are addressed exactly as the document addresses selections: an owner
+// (an object key, or ROOT) and a path of literal spec keys. A row that
+// refers to another object selects that object, since that's what someone
+// clicking on a name means.
+// ---------------------------------------------------------------------------
+
+const v3 = (v) => `(${v.map((x) => +(+x).toFixed(2)).join(', ')})`;
+
+function refName(def) {
+  if (typeof def === 'string') return def === 'empty' ? null : def;
+  return isObject(def) && typeof def.use === 'string' ? def.use : null;
+}
+
+// A row's label, and its children as [display name, path segments, subtree].
+function describe(def) {
+  if (def === 'empty') return { label: '∅', kids: [] };
+  if (typeof def === 'string') return { label: `→ ${def}`, kids: [] };
+  if (!isObject(def)) return { label: '?', kids: [] };
+
+  const extras = [];
+  if (def.translate) extras.push(`+${v3(def.translate)}`);
+  if (def.bounds) extras.push('bounded');
+  const tail = extras.length ? ` · ${extras.join(' · ')}` : '';
+
+  if (def.use) return { label: `use ${def.use}${tail}`, kids: [] };
+  for (const op of ['group', 'union']) {
+    if (Array.isArray(def[op])) {
+      return {
+        label: `${op} (${def[op].length})${tail}`,
+        kids: def[op].map((member, i) => [String(i), [op, String(i)], member]),
+      };
+    }
+  }
+
+  let label = '?';
+  if (def.sphere) label = `sphere r=${+def.sphere.radius} @${v3(def.sphere.center)}`;
+  else if (def.plane) label = `plane n=${v3(def.plane.normal)} d=${+(def.plane.offset ?? 0)}`;
+  if (def.complement) label += ' ⁻';
+  const material = def.material ?? def.paint;
+  if (material !== undefined) label += ` · ${material === null ? 'vacuum' : material}`;
+
+  const kids = [];
+  if (def.inside !== undefined) kids.push(['in', ['inside'], def.inside]);
+  if (def.outside !== undefined) kids.push(['out', ['outside'], def.outside]);
+  return { label: label + tail, kids };
+}
+
+function flatten(spec, expanded, selection) {
+  const rows = [];
+
+  function walk(owner, segments, name, def, prefix, isLast, depth) {
+    const path = joinPath(segments);
+    const key = `${owner}:${path}`;
+    const { label, kids } = describe(def);
+    // An object's own row selects the object, even when its body is a
+    // reference to its prototype; any other reference selects its target.
+    const ref = (owner === ROOT || segments.length) ? refName(def) : null;
+    const target = ref ? { owner: ref, path: '' } : { owner, path };
+    const open = expanded.has(key);
+    rows.push({
+      prefix: depth === 0 ? '' : prefix + (isLast ? '└─ ' : '├─ '),
+      glyph: kids.length ? (open ? '▾' : '▸') : ' ',
+      hasKids: kids.length > 0,
+      name, label, key,
+      target,
+      selected: selection.owner === target.owner && selection.path === target.path,
+    });
+    if (!kids.length || !open) return;
+    const childPrefix = depth === 0 ? '' : prefix + (isLast ? '   ' : '│  ');
+    kids.forEach(([childName, childSegments, child], i) =>
+      walk(owner, [...segments, ...childSegments], childName, child,
+           childPrefix, i === kids.length - 1, depth + 1));
+  }
+
+  walk(ROOT, [], 'root', spec.root, '', true, 0);
+
+  const named = Object.entries(spec.objects ?? {});
+  if (named.length) {
+    const open = expanded.has('objects');
+    rows.push({ prefix: '', glyph: open ? '▾' : '▸', hasKids: true, name: 'objects',
+                label: `(${named.length})`, key: 'objects', target: null, selected: false });
+    if (open) {
+      named.forEach(([name, def], i) =>
+        walk(name, [], name, def, '', i === named.length - 1, 1));
+    }
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Panel
+// ---------------------------------------------------------------------------
+
+/**
+ * Bind the panel markup already in `root` to a document.
+ *
+ * @param {HTMLElement} root   the panel container, holding the bound markup
+ * @param {object} ctx
+ * @param {SceneDocument} ctx.doc
+ * @param {ASScene} ctx.scene                for statistics
+ * @param {() => object} ctx.getActive       the focused view {renderer, camera, controls, index, name}
+ * @param {() => object} ctx.getCameraView   the view whose camera the Camera section edits
+ * @param {(name:string) => void} ctx.command   run an editor command
+ */
+export function createPanel(root, ctx) {
+  const uiulator = globalThis.uiulator;
+  if (typeof uiulator !== 'function') {
+    throw new Error('uiulator.js is not loaded; include it with a <script> before the page module');
+  }
+  const { doc, scene } = ctx;
+  const $ = (selector) => root.querySelector(selector);
+  const expanded = new Set([`${ROOT}:`]);
+
+  // -- header ------------------------------------------------------------------
+
+  const header = {
+    get title() { return doc.fileName; },
+    get dirty() { return doc.dirty; },
+    get error() { return doc.error ?? ''; },
+    get canUndo() { return doc.canUndo; },
+    get canRedo() { return doc.canRedo; },
+    get history() {
+      const parts = [];
+      if (doc.undoLabel) parts.push(`undo: ${doc.undoLabel}`);
+      if (doc.redoLabel) parts.push(`redo: ${doc.redoLabel}`);
+      return parts.join(' · ');
+    },
+    get stats() {
+      return `${scene.nodes.length} nodes · ${scene.materials.length - 1} materials · ` +
+             `${scene.lights.length} lights · ${scene.bytes ?? '?'} B`;
+    },
+  };
+
+  // -- camera ------------------------------------------------------------------
+  //
+  // The view whose camera this section edits is chosen by its camera glyph,
+  // not by hover focus, so reaching the panel across other panes doesn't
+  // change what's being edited.
+
+  const edited = () => ctx.getCameraView();
+  const camera = {
+    cameraModes: CAMERA_MODES,
+    debugViews: DEBUG_VIEWS,
+    get viewName() { return edited()?.name ?? ''; },
+    get mode() { return edited().camera.mode; },
+    set mode(v) { edited().controls.setMode(v); },
+    get shadows() { return edited().renderer.shadows; },
+    set shadows(v) { edited().renderer.shadows = !!v; },
+    // Option values are the array keys, so strings.
+    get debugView() { return String(edited().renderer.debugView); },
+    set debugView(v) { edited().renderer.setDebugView(+v); },
+    get scale() { return edited().renderer.renderScale; },
+    set scale(v) { edited().renderer.setRenderScale(v); },
+    get scaleText() { return this.scale.toFixed(2); },
+  };
+
+  // -- selection -----------------------------------------------------------------
+  //
+  // At object level, translate moves the object itself — for an instance,
+  // its own { use, translate } body — while shape fields edit the node the
+  // selection resolves to, which for an instance is its prototype. So moving
+  // an instance moves only it, and resizing it resizes every instance.
+
+  const current = () => {
+    const { owner, path } = doc.selection;
+    if (!owner) return null;
+    const found = doc.resolve(owner, path);
+    return found ? { owner, path, node: found.node } : null;
+  };
+
+  const translateHolder = (cur) => {
+    if (cur.path) return cur.node;
+    return cur.owner === ROOT ? doc.spec.root : doc.spec.objects[cur.owner];
+  };
+
+  // Rapid edits to one field of one node merge into a single undo step.
+  const fieldKey = (cur, field) => `field:${cur.owner}:${cur.path}:${field}`;
+
+  function editShape(field, mutate) {
+    const cur = current();
+    if (!cur) return;
+    doc.editNode(cur.owner, cur.path, mutate, {
+      label: `Edit ${field} of ${cur.owner}${cur.path ? '/' + cur.path : ''}`,
+      coalesce: fieldKey(cur, field),
+    });
+  }
+
+  function setTranslate(next) {
+    const cur = current();
+    if (!cur) return;
+    const where = cur.owner + (cur.path ? '/' + cur.path : '');
+    const coalesce = fieldKey(cur, 'translate');
+    if (cur.path) {
+      doc.editNode(cur.owner, cur.path, (n) => { n.translate = next; },
+                   { label: `Move ${where}`, coalesce });
+    } else {
+      doc.edit(`Move ${where}`, (spec) => {
+        const body = cur.owner === ROOT ? spec.root : spec.objects[cur.owner];
+        if (!isObject(body)) throw new Error(`${where} can't be moved`);
+        body.translate = next;
+      }, { coalesce });
+    }
+  }
+
+  const selection = {
+    get has() { return !!current(); },
+    get title() {
+      const cur = current();
+      if (!cur) return '';
+      return (cur.owner === ROOT ? 'root' : cur.owner) + (cur.path ? ` / ${cur.path}` : '');
+    },
+    get kindText() {
+      const cur = current();
+      if (!cur) return '';
+      const node = cur.node;
+      const type = typeof node === 'string' ? (node === 'empty' ? 'empty' : 'reference')
+        : node.sphere ? 'sphere' : node.plane ? 'plane'
+        : node.group ? 'group' : node.union ? 'union' : node.use ? 'reference' : '?';
+      if (cur.owner === ROOT) return type;
+      if (!cur.path) {
+        if (doc.isInstance(cur.owner)) return `instance of ${doc.spec.objects[cur.owner].use}`;
+        const n = doc.instancesOf(cur.owner).length;
+        return n ? `definition · ${n} instance${n === 1 ? '' : 's'}` : 'definition';
+      }
+      if (!doc.isInstance(cur.owner)) return type;
+      // Editing here edits the definition; say so when others will change too.
+      const definition = doc.definitionKeyOf(cur.owner);
+      const users = doc.instancesOf(definition).length;
+      return users > 1 ? `${type} in ${definition}, shared by ${users}` : `${type} in ${definition}`;
+    },
+    get isObjectLevel() { const c = current(); return !!c && !c.path && c.owner !== ROOT; },
+    get isInstance() { const c = current(); return !!c && !c.path && doc.isInstance(c.owner); },
+    get canPromote() { const c = current(); return !!c && !!c.path && isObject(c.node) && !c.node.use; },
+    get isSphere() { return !!current()?.node?.sphere; },
+    get isPlane() { return !!current()?.node?.plane; },
+    get isPrimitive() { const n = current()?.node; return !!(n?.sphere || n?.plane); },
+    get hasTranslate() { const c = current(); return !!c && isObject(translateHolder(c)); },
+
+    get radius() { return tidy(current()?.node?.sphere?.radius ?? 0); },
+    set radius(v) { editShape('radius', (n) => { n.sphere.radius = v; }); },
+    get offset() { return tidy(current()?.node?.plane?.offset ?? 0); },
+    set offset(v) { editShape('offset', (n) => { n.plane.offset = v; }); },
+
+    get complement() { return !!current()?.node?.complement; },
+    set complement(v) {
+      editShape('complement', (n) => { if (v) n.complement = true; else delete n.complement; });
+    },
+
+    // Material options: inherit (no material key), vacuum (null), or a name.
+    get materialNames() { return Object.keys(doc.spec.materials ?? {}); },
+    get material() {
+      const m = current()?.node?.material;
+      return m === null ? '(vacuum)' : m ?? '';
+    },
+    set material(v) {
+      editShape('material', (n) => {
+        if (v === '') delete n.material;
+        else n.material = v === '(vacuum)' ? null : v;
+      });
+    },
+  };
+
+  // Three-component fields, bound as e.g. tx ty tz.
+  function vectorFields(model, names, read, write) {
+    names.forEach((name, axis) => Object.defineProperty(model, name, {
+      enumerable: true,
+      get: () => tidy(read()?.[axis] ?? 0),
+      set: (v) => { const next = (read() ?? [0, 0, 0]).slice(); next[axis] = v; write(next); },
+    }));
+  }
+  vectorFields(selection, ['tx', 'ty', 'tz'],
+    () => { const c = current(); return c && isObject(translateHolder(c)) ? translateHolder(c).translate : null; },
+    setTranslate);
+  vectorFields(selection, ['cx', 'cy', 'cz'],
+    () => current()?.node?.sphere?.center,
+    (next) => editShape('centre', (n) => { n.sphere.center = next; }));
+  vectorFields(selection, ['nx', 'ny', 'nz'],
+    () => current()?.node?.plane?.normal,
+    (next) => editShape('normal', (n) => { n.plane.normal = next; }));
+
+  // -- lights ------------------------------------------------------------------
+  //
+  // Light colour is radiant power, routinely above 1, so it's shown as a hue
+  // the colour picker can display and an intensity carrying the magnitude.
+  // The last hue is remembered per light, so taking intensity to zero and
+  // back doesn't lose it.
+
+  const hues = [];
+
+  function lightView(i) {
+    const light = () => doc.spec.lights[i];
+    const split = () => {
+      const c = light().color;
+      const peak = Math.max(...c);
+      if (peak > 0) hues[i] = c.map((x) => x / peak);
+      return { hue: hues[i] ?? [1, 1, 1], intensity: peak };
+    };
+    const setAxis = (axis, v) => {
+      const pos = light().pos.slice();
+      pos[axis] = v;
+      doc.setLight(i, { pos });
+    };
+    return {
+      get x() { return tidy(light().pos[0]); }, set x(v) { setAxis(0, v); },
+      get y() { return tidy(light().pos[1]); }, set y(v) { setAxis(1, v); },
+      get z() { return tidy(light().pos[2]); }, set z(v) { setAxis(2, v); },
+      get hue() { return toHex(split().hue); },
+      set hue(v) {
+        const { intensity } = split();
+        hues[i] = fromHex(v);
+        doc.setLight(i, { color: hues[i].map((c) => c * intensity) });
+      },
+      get intensity() { return +split().intensity.toFixed(3); },
+      set intensity(v) {
+        const { hue } = split();
+        doc.setLight(i, { color: hue.map((c) => c * v) });
+      },
+    };
+  }
+
+  const lightsModel = { lights: [] };
+  const rebuildLights = () => {
+    const count = doc.spec.lights?.length ?? 0;
+    if (lightsModel.lights.length !== count) hues.length = 0;
+    lightsModel.lights = Array.from({ length: count }, (_, i) => lightView(i));
+  };
+
+  // -- materials -----------------------------------------------------------------
+
+  // Absent fields read as the compiler's defaults, so a control never shows
+  // "undefined", and are only written into the spec once actually edited.
+  function materialView(name) {
+    const def = () => doc.spec.materials[name];
+    const kind = def().kind ?? 'lambert';
+    const colour = (key, fallback) => ({
+      enumerable: true,
+      get: () => toHex(def()[key] ?? fallback),
+      set: (v) => doc.setMaterial(name, { [key]: fromHex(v) }),
+    });
+    const scalar = (key, fallback) => ({
+      enumerable: true,
+      get: () => def()[key] ?? fallback,
+      set: (v) => doc.setMaterial(name, { [key]: v }),
+    });
+    return Object.defineProperties({
+      name, kind,
+      albedoLabel: kind === 'ambient' ? 'level' : 'albedo',
+      isChecker: def().pattern === 'checker',
+      isGlossy: kind === 'glossy',
+      isEmissive: kind === 'emissive',
+    }, {
+      albedo:    colour('albedo', [0.7, 0.7, 0.7]),
+      albedo2:   colour('albedo2', [0.3, 0.3, 0.3]),
+      scale:     scalar('scale', 1),
+      shininess: scalar('shininess', 32),
+      specular:  scalar('specular', 0.6),
+      emission:  scalar('emission', 1),
+    });
+  }
+
+  const materialsModel = { materials: [] };
+  const rebuildMaterials = () => {
+    materialsModel.materials = Object.keys(doc.spec.materials ?? {}).map(materialView);
+  };
+
+  // -- structure -----------------------------------------------------------------
+
+  const structureModel = { rows: [] };
+  const rebuildRows = () => {
+    structureModel.rows = flatten(doc.spec, expanded, doc.selection);
+  };
+
+  // -- bindings ----------------------------------------------------------------
+
+  const sections = {
+    header: uiulator(header, $('#panel-head')),
+    camera: uiulator(camera, $('#panel-camera'), { 'update-on-change': true }),
+    selection: uiulator(selection, $('#panel-selection'), {
+      'control-on-submit': true, 'update-on-change': true,
+    }),
+    lights: uiulator(lightsModel, $('#panel-lights'), { 'update-on-change': true }),
+    materials: uiulator(materialsModel, $('#panel-materials'), {
+      'control-on-submit': true, 'update-on-change': true,
+    }),
+    structure: uiulator(structureModel, $('#panel-structure')),
+  };
+  const ALL = Object.keys(sections);
+
+  function refresh(...names) {
+    if (!names.length) names = ALL;
+    if (names.includes('lights')) rebuildLights();
+    if (names.includes('materials')) rebuildMaterials();
+    if (names.includes('structure')) rebuildRows();
+    for (const name of names) sections[name].update();
+  }
+
+  // Which sections a change can affect. Light values change on every tick of
+  // a drag, so they touch as little as possible; anything that may have
+  // restructured the scene refreshes everything.
+  doc.onChange(({ kind }) => {
+    switch (kind) {
+      case 'lights':    refresh('header', 'lights'); break;
+      case 'materials': refresh('header', 'materials', 'selection'); break;
+      case 'selection': refresh('selection', 'structure'); break;
+      case 'error':
+      case 'saved':     refresh('header', 'selection'); break;
+      default:          refresh(); break;
+    }
+  });
+
+  // A light drag coalesces into one undo step; letting go of the control
+  // ends it, so the next drag is a step of its own.
+  $('#panel-lights').addEventListener('change', () => doc.endCoalesce());
+
+  // -- actions -----------------------------------------------------------------
+
+  // Buttons in repeated items carry their index in value="@key". One
+  // delegated handler covers every button, including those uiulator creates
+  // later by expansion.
+  root.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-action]');
+    if (!button || !root.contains(button)) return;
+    // A focused button would keep the shortcuts disabled, and uiulator won't
+    // update the text of the focused element, which a toggle glyph needs.
+    button.blur();
+    const index = Number(button.value);
+    const action = button.dataset.action;
+
+    switch (action) {
+      case 'toggle':
+      case 'select-row': {
+        const row = structureModel.rows[index];
+        if (!row) break;
+        if (action === 'select-row' && row.target) {
+          doc.select(row.target.owner, row.target.path);
+          break;
+        }
+        if (!row.hasKids) break;
+        if (expanded.has(row.key)) expanded.delete(row.key);
+        else expanded.add(row.key);
+        refresh('structure');
+        break;
+      }
+      case 'add-light':
+        doc.addLight();
+        break;
+      case 'remove-light':
+        doc.removeLight(index);
+        break;
+      default:
+        ctx.command(action);
+    }
+  });
+
+  // Controls that don't take typing give focus back once used, so the view
+  // shortcuts work again without having to click a pane first.
+  root.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.tagName === 'SELECT' || ['range', 'checkbox', 'color'].includes(t.type)) t.blur();
+  });
+
+  // -- initial fill ------------------------------------------------------------
+
+  refresh();
+  // A <select> is shown before its expanded <option>s exist, so on the very
+  // first pass its value has nothing to match. The second pass finds them.
+  refresh('camera', 'selection');
+
+  return {
+    /** Re-read the edited camera's settings, after a shortcut may have changed them. */
+    refreshCamera: () => refresh('camera'),
+
+    /** Open the Camera section on the view now being edited, and bring it into sight. */
+    showCamera() {
+      const section = $('#panel-camera');
+      section.open = true;
+      refresh('camera');
+      section.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      section.classList.remove('flash');
+      void section.offsetWidth;          // restart the animation
+      section.classList.add('flash');
+    },
+    /** Refresh named sections, or all of them. */
+    refresh,
+  };
+}

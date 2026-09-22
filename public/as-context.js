@@ -20,6 +20,16 @@ import {
 
 const MAX_TRACE_RAYS = 16;
 
+// One ray query's result, as traceFrom() writes it: the Seg that the
+// shader's trace() returns.
+//   u32 node   the node whose region the ray entered, or 0 for a miss
+//   f32 t0     how far along the ray it entered
+//   f32 t1     where the segment it was found in ends (not a thickness)
+// node == 0 is the only miss test; t0 and t1 are meaningless for a miss.
+// createTraceBuffers() sizes its result buffers with this, so the shader
+// struct, the buffer size and the readback below all have to agree.
+export const RAY_HIT_BYTES = 12;
+
 export class ASContext {
   /**
    * Acquire a device and build pipelines from the given shader files.
@@ -60,7 +70,11 @@ export class ASContext {
     this.generation = 0;
 
     this._live = { compute: null, blit: null };
-    this._rayQuery = createTraceBuffers(device, MAX_TRACE_RAYS);
+    this._rayQuery = createTraceBuffers(device, MAX_TRACE_RAYS, RAY_HIT_BYTES);
+    // Ray queries share one set of buffers, so they take turns: a pick
+    // arriving while walk mode's ground probe is still mapped would
+    // otherwise fail with the read buffer already in use.
+    this._rayQueue = Promise.resolve();
     this._raf = 0;
     this._lastFrame = performance.now();
     this._onFrame = new Set();
@@ -178,6 +192,9 @@ export class ASScene {
 
     this.spec = spec;
     this.nodes = built.nodes;
+    // provenance[i] names the authored object and path node i came from, or
+    // is null for nodes the compiler invented. See antisphere-scene.js.
+    this.provenance = built.provenance;
     this.materials = built.materials;
     this.lights = built.lights;
     this.camera = built.camera ?? null;
@@ -205,21 +222,34 @@ export class ASScene {
   }
 
   /**
-   * Cast rays on the GPU and read the hit distances back.
+   * Cast rays on the GPU and read back what each one hit: { node, t0, t1 },
+   * parallel arrays with one entry per ray. node is 0 where a ray missed,
+   * and t0 and t1 are then meaningless; see RAY_HIT_BYTES.
    *
    * Uses traceFrom(), a second entry point in the raycast shader that shares
    * trace() with the renderer, so a caller costs more rays in a batch rather
-   * than new shader code. Resolves to a Float32Array of distances, negative
-   * where the ray missed.
+   * than new shader code. Queries take turns on the context's shared
+   * buffers.
    *
    * The round trip is a frame or two, so this is for queries whose answer can
-   * lag — ground height, collision probes — not for anything synchronous.
+   * lag — ground height, collision probes, picking — not for anything
+   * synchronous.
    */
-  async traceRays(rays) {
+  castRays(rays) {
+    const context = this.context;
+    const run = () => this._cast(rays);
+    const result = context._rayQueue.then(run, run);
+    context._rayQueue = result.then(() => {}, () => {});
+    return result;
+  }
+
+  async _cast(rays) {
     const { device, pipelines, _rayQuery: rq } = this.context;
-    if (!pipelines || rays.length === 0) return new Float32Array(0);
+    if (!pipelines || rays.length === 0 || !this.nodeBuf) {
+      return { node: new Uint32Array(0), t0: new Float32Array(0), t1: new Float32Array(0) };
+    }
     if (rays.length > rq.maxRays) {
-      throw new Error(`traceRays: ${rays.length} rays, capacity is ${rq.maxRays}`);
+      throw new Error(`castRays: ${rays.length} rays, capacity is ${rq.maxRays}`);
     }
 
     const packed = new Float32Array(rays.length * 8);
@@ -242,7 +272,7 @@ export class ASScene {
       ],
     });
 
-    const bytes = rays.length * 4;
+    const bytes = rays.length * RAY_HIT_BYTES;
     const enc = device.createCommandEncoder();
     const pass = enc.beginComputePass();
     pass.setPipeline(pipelines.traceFrom);
@@ -253,15 +283,43 @@ export class ASScene {
     device.queue.submit([enc.finish()]);
 
     await rq.readBuf.mapAsync(GPUMapMode.READ, 0, bytes);
-    const out = new Float32Array(rq.readBuf.getMappedRange(0, bytes).slice(0));
+    const raw = rq.readBuf.getMappedRange(0, bytes).slice(0);
     rq.readBuf.unmap();
-    return out;
+
+    const words = new Uint32Array(raw), floats = new Float32Array(raw);
+    const n = rays.length;
+    const node = new Uint32Array(n), t0 = new Float32Array(n), t1 = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      node[i] = words[i * 3];
+      t0[i] = floats[i * 3 + 1];
+      t1[i] = floats[i * 3 + 2];
+    }
+    return { node, t0, t1 };
+  }
+
+  /**
+   * Hit distances only, -1 where the ray missed. The node decides a miss,
+   * since the shader leaves t0 stale then.
+   */
+  async traceRays(rays) {
+    const { node, t0 } = await this.castRays(rays);
+    return t0.map((t, i) => (node[i] ? t : -1));
   }
 
   /** One ray, for callers that want a scalar. Negative means no hit. */
   async traceRay(origin, direction, opts = {}) {
     const [t] = await this.traceRays([{ origin, direction, ...opts }]);
     return t ?? -1;
+  }
+
+  /**
+   * What one ray hits first: { node, t0, t1 }, or null for a miss. The node
+   * indexes this scene's nodes, and provenance[node] says which authored
+   * object it came from; the hit point is origin + t0 * direction.
+   */
+  async pick(origin, direction, opts = {}) {
+    const { node, t0, t1 } = await this.castRays([{ origin, direction, ...opts }]);
+    return node[0] ? { node: node[0], t0: t0[0], t1: t1[0] } : null;
   }
 
   destroy() {

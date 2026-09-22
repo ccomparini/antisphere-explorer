@@ -192,11 +192,11 @@ export function createTraceBuffers(device, maxRays) {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     }),
     resultBuf: device.createBuffer({
-      size: maxRays * 4,
+      size: maxRays * 12,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     }),
     readBuf: device.createBuffer({
-      size: maxRays * 4,
+      size: maxRays * 12,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     }),
   };

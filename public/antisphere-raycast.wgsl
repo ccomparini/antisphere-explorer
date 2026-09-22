@@ -156,6 +156,7 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // already-resolved index; 0 is never real (see Node's doc comment), so it
 // just means void.
 //
+// trace() returns one of these too, as its answer: see trace().
 struct Seg {
   node : u32,   // the subtree still to visit; encoded (see DEFAULT_INSIDE_BIT)
   t0   : f32,
@@ -164,15 +165,23 @@ struct Seg {
 
 const DEFAULT_INSIDE_BIT : u32 = 0x80000000u;
 
+// The first solid thing along a ray, as a Seg: node is the node whose
+// region the ray entered (never tagged), t0 how far along the ray it
+// entered, and t1 where the segment it was found in ends. t1 is not
+// necessarily the far side of the object, so it isn't a thickness.
+//
+// node == 0 is the one test for a miss. t0 and t1 mean nothing then: a
+// provisional hit that turned out hollow leaves its distances behind, and
+// resetting them costs time for a value no caller should read.
 fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
-  // hit.node == 0 means "no hit (yet)" - node 0 is reserved (see Node's
+  // found.node == 0 means "no hit (yet)" - node 0 is reserved (see Node's
   // doc comment) so no real crossing can ever claim it. Segments pop in
   // non-decreasing t (see the loop below), so the first transition into
   // solid is always the nearest one; once found, further solid pops just
   // extend t1 (the full extent of that continuous run), and the moment a
   // pop turns up non-solid again, that run is done and nothing nearer is
   // left to find.
-  var hit : Seg = Seg(0u, -1.0, tMax);
+  var found : Seg = Seg(0u, -1.0, tMax);
 
   // Loop-invariant across every node visited: these depend on the ray, not
   // on the node, so they are hoisted out rather than recomputed inside the
@@ -201,24 +210,24 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       let seg_nn = seg.node & ~DEFAULT_INSIDE_BIT;
       let seg_node = nodes[seg_nn];
       if (materials[seg_node.material].solid != 0u) {
-        if (hit.node == 0u) { hit = Seg(seg_nn, seg.t0, seg.t1); }
-        //else { hit.t1 = seg.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
+        if (found.node == 0u) { found = Seg(seg_nn, seg.t0, seg.t1); }
+        //else { found.t1 = seg.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
       } else {
         // non-solid inside, so clear the hit:
-        hit.node = 0u;
+        found.node = 0u;
       }
 
       descent_node = seg_node.inside;
     } else {
       // we went outside.  outside is never solid,
       // so clear the hit:
-      hit.node = 0u;
+      found.node = 0u;
     }
 
     if (descent_node == 0u) {
       // Nothing further to test down this branch. If a solid run was open,
       // it ended here and is the nearest one there is.
-      if (hit.node != 0u) { return hit; }
+      if (found.node != 0u) { return found; }
     } else {
       let nd = nodes[descent_node];
       visits = visits + 1u;
@@ -297,20 +306,23 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       break; // invalidate hit as well?
     }
   }
-  return hit;
+
+  return found;
 }
 
 // ---------------------------------------------------------------------------
 // Host-side ray queries
 //
 // A batch entry point for anything that needs to ask the scene a geometric
-// question without also rendering a frame: walk mode's ground probe today,
-// collision or other physics later.
+// question without also rendering a frame: walk mode's ground probe,
+// picking in the editor, collision or other physics later.
 //
-// Results come back through a GPU buffer, so the caller reads them via a
+// Each result is the Seg that trace() returns: node is the node whose
+// region the ray entered, or 0 for a miss; t0 how far along the ray and t1
+// where that segment ends, both meaningless for a miss. The host reads these back via a
 // mapAsync a frame or so after submitting, the same latency shape as the
-// profiler's timestamp queries elsewhere in this file. If nothing is hit,
-// node == 0 in the final segment returned.
+// profiler's timestamp queries elsewhere; as-context.js's RAY_HIT_BYTES is
+// the size of one.
 // ---------------------------------------------------------------------------
 
 struct RayQuery {
@@ -321,14 +333,14 @@ struct RayQuery {
 };
 
 @group(0) @binding(5) var<storage, read> rayQueries : array<RayQuery>;
-@group(0) @binding(6) var<storage, read_write> rayResults : array<f32>;
+@group(0) @binding(6) var<storage, read_write> rayResults : array<Seg>;
 
 @compute @workgroup_size(64)
 fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  rayResults[i] = trace(q.o, q.d, q.tMin, q.tMax).t0;
+  rayResults[i] = trace(q.o, q.d, q.tMin, q.tMax);
 }
 
 // Surface parameterization from the node's own five numbers. A plane gets a
@@ -360,23 +372,26 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
 // running over hits bucketed by material.
 // ---------------------------------------------------------------------------
 
-// What shading needs that cannot be recovered from the node alone: where the
-// ray landed, which way the surface faces there, and which way the viewer is.
-// Material and ambient environment both live on the node the ray crossed, so
-// this carries that index rather than copies of either.
-struct Surf {
-  // cmc - pos vs P is annoying.  let's get some consistent naming (pos)
-  P  : vec3<f32>,  // hit position in world coordinates
-  N  : vec3<f32>,  // outward normal, already faced toward the ray
-  V  : vec3<f32>,  // toward the viewer
-  st : vec2<f32>,  // node-frame parameterization, scaled per material
-  node : u32,      // index of the node with the relevant surface
+// Where a ray landed, resolved for shading: what can't be recovered from the
+// node alone - the point, which way the surface faces there, and which way
+// the viewer is. Material and ambient environment both live on the node the
+// ray crossed, so this carries that index rather than copies of either.
+//
+// trace() answers with a Seg, which says only which node was entered and
+// how far along the ray. main() resolves that into a Hit for rays it
+// shades; nothing else needs the rest.
+struct Hit {
+  position      : vec3<f32>,  // world coordinates
+  normal        : vec3<f32>,  // outward, already faced toward the ray
+  toViewer      : vec3<f32>,  // unit vector back along the ray
+  surfaceCoords : vec2<f32>,  // node-frame parameterization, scaled per material
+  node          : u32,        // the node whose surface was hit
 };
 
 struct Direct { diffuse : vec3<f32>, specular : vec3<f32>, };
 
-fn surfaceMaterial(s : Surf) -> Material {
-  return materials[nodes[s.node].material];
+fn surfaceMaterial(hit : Hit) -> Material {
+  return materials[nodes[hit.node].material];
 }
 
 // Ambient is whatever environment the node carries, shaped by a crude
@@ -387,13 +402,13 @@ fn ambient(env : i32, N : vec3<f32>) -> vec3<f32> {
   return base * (0.77 + 0.23 * max(N.z, 0.0));
 }
 
-fn surfaceAmbient(s : Surf) -> vec3<f32> {
-  return ambient(nodes[s.node].env, s.N);
+fn surfaceAmbient(hit : Hit) -> vec3<f32> {
+  return ambient(nodes[hit.node].env, hit.normal);
 }
 
-fn albedoAt(s : Surf, m : Material) -> vec3<f32> {
+fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
   if (m.pattern == PATTERN_CHECKER) {
-    let ck = fract((floor(s.st.x) + floor(s.st.y)) * 0.5);
+    let ck = fract((floor(hit.surfaceCoords.x) + floor(hit.surfaceCoords.y)) * 0.5);
     return mix(m.albedo, m.albedo2, step(0.25, ck));
   }
   return m.albedo;
@@ -401,7 +416,7 @@ fn albedoAt(s : Surf, m : Material) -> vec3<f32> {
 
 // Sums direct light over every source, with one shadow ray each. A shininess
 // of zero skips the specular term entirely.
-fn directLighting(s : Surf, shininess : f32) -> Direct {
+fn directLighting(hit : Hit, shininess : f32) -> Direct {
   var out : Direct;
   out.diffuse = vec3<f32>(0.0);
   out.specular = vec3<f32>(0.0);
@@ -409,12 +424,12 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
   let n = arrayLength(&lights);
   for (var i : u32 = 0u; i < n; i = i + 1u) {
     let lt = lights[i];
-    let d = lt.pos - s.P;
+    let d = lt.pos - hit.position;
     let d2 = dot(d, d);
     let dist = sqrt(max(d2, 1e-8));
     let L = d / dist; // I guess L is normalized direction to light
 
-    let ndl = dot(s.N, L);
+    let ndl = dot(hit.normal, L);
     if (ndl <= 0.0) { continue; }          // back-facing, no ray needed
 
     if (cam.shadows != 0u) {
@@ -426,8 +441,8 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
       shadowRays = shadowRays + 1u;
       // dist + 0.1 makes us measure a bit past the surface so that
       // we don't get roundoff effects:
-      let hit = trace(lt.pos, -L, 0.0, dist+0.1);
-      if(hit.node != s.node) {
+      let blocker = trace(lt.pos, -L, 0.0, dist+0.1);
+      if(blocker.node != hit.node) {
         // the ray hit something other than our surface,
         // so we're in shadow:
         continue;
@@ -439,44 +454,44 @@ fn directLighting(s : Surf, shininess : f32) -> Direct {
     let E = lt.color / (1.0 + d2);
     out.diffuse = out.diffuse + E * ndl;
     if (shininess > 0.0) {
-      let H = normalize(L + s.V);
-      out.specular = out.specular + E * pow(max(dot(s.N, H), 0.0), shininess);
+      let H = normalize(L + hit.toViewer);
+      out.specular = out.specular + E * pow(max(dot(hit.normal, H), 0.0), shininess);
     }
   }
   return out;
 }
 
-fn shadeLambert(s : Surf) -> vec3<f32> {
-  let m = surfaceMaterial(s);
-  let d = directLighting(s, 0.0);
-  return albedoAt(s, m) * (surfaceAmbient(s) + d.diffuse);
+fn shadeLambert(hit : Hit) -> vec3<f32> {
+  let m = surfaceMaterial(hit);
+  let d = directLighting(hit, 0.0);
+  return albedoAt(hit, m) * (surfaceAmbient(hit) + d.diffuse);
 }
 
 // params.x shininess, params.y specular strength
-fn shadeGlossy(s : Surf) -> vec3<f32> {
-  let m = surfaceMaterial(s);
-  let d = directLighting(s, max(m.params.x, 1.0));
-  return albedoAt(s, m) * (surfaceAmbient(s) + d.diffuse) + d.specular * m.params.y;
+fn shadeGlossy(hit : Hit) -> vec3<f32> {
+  let m = surfaceMaterial(hit);
+  let d = directLighting(hit, max(m.params.x, 1.0));
+  return albedoAt(hit, m) * (surfaceAmbient(hit) + d.diffuse) + d.specular * m.params.y;
 }
 
 // params.x emission strength, added on top of ordinary diffuse response
-fn shadeEmissive(s : Surf) -> vec3<f32> {
-  let m = surfaceMaterial(s);
-  let d = directLighting(s, 0.0);
-  let alb = albedoAt(s, m);
-  return alb * (surfaceAmbient(s) + d.diffuse) + alb * m.params.x;
+fn shadeEmissive(hit : Hit) -> vec3<f32> {
+  let m = surfaceMaterial(hit);
+  let d = directLighting(hit, 0.0);
+  let alb = albedoAt(hit, m);
+  return alb * (surfaceAmbient(hit) + d.diffuse) + alb * m.params.x;
 }
 
-fn shadeUnlit(s : Surf) -> vec3<f32> {
-  return albedoAt(s, surfaceMaterial(s));
+fn shadeUnlit(hit : Hit) -> vec3<f32> {
+  return albedoAt(hit, surfaceMaterial(hit));
 }
 
-fn shade(s : Surf) -> vec3<f32> {
-  switch (surfaceMaterial(s).kind) {
-    case KIND_GLOSSY:   { return shadeGlossy(s); }
-    case KIND_EMISSIVE: { return shadeEmissive(s); }
-    case KIND_UNLIT:    { return shadeUnlit(s); }
-    default:            { return shadeLambert(s); }
+fn shade(hit : Hit) -> vec3<f32> {
+  switch (surfaceMaterial(hit).kind) {
+    case KIND_GLOSSY:   { return shadeGlossy(hit); }
+    case KIND_EMISSIVE: { return shadeEmissive(hit); }
+    case KIND_UNLIT:    { return shadeUnlit(hit); }
+    default:            { return shadeLambert(hit); }
   }
 }
 
@@ -510,9 +525,9 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // Each stage's output has to stay live or the compiler will delete
   // the work being measured, so every level writes something derived
   // from what it computed.
-  var h = Seg(0u, -1.0, 0.0);
+  var found = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
-    h = trace(cam.origin, dir, 1e-3, 1e4);
+    found = trace(cam.origin, dir, 1e-3, 1e4);
   }
 
   var col = vec3<f32>(0.0);
@@ -520,20 +535,20 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (cam.ablate < ABLATE_TRACE) {
     col = abs(dir) * 0.25;
   } else if (cam.ablate < ABLATE_SHADE) {
-    col = select(vec3<f32>(0.0), vec3<f32>(fract(h.t0 * 0.05)), h.t0 >= 0.0);
-  } else if (h.node != 0) {
-    // the ray hit h.node - render according to the node's material
+    col = select(vec3<f32>(0.0), vec3<f32>(fract(found.t0 * 0.05)), found.node != 0u);
+  } else if (found.node != 0) {
+    // the ray entered found.node - render according to the node's material
     // (see shade())
-    let nd = nodes[h.node];
-    var s : Surf;
-    s.node = h.node;
-    s.P = cam.origin + h.t0 * dir;
-    s.N = normalize(gradAt(nd, s.P));
-    if (dot(s.N, dir) > 0.0) { s.N = -s.N; }   // face the ray
-    s.V = -dir;
-    s.st = frame(nd, s.P) * materials[nd.material].scale; // surface parameterization
-    N = s.N;
-    col = shade(s);
+    let nd = nodes[found.node];
+    var hit : Hit;
+    hit.node = found.node;
+    hit.position = cam.origin + found.t0 * dir;
+    hit.normal = normalize(gradAt(nd, hit.position));
+    if (dot(hit.normal, dir) > 0.0) { hit.normal = -hit.normal; }   // face the ray
+    hit.toViewer = -dir;
+    hit.surfaceCoords = frame(nd, hit.position) * materials[nd.material].scale;
+    N = hit.normal;
+    col = shade(hit);
   }
 
   var outCol = pow(col, vec3<f32>(1.0 / 2.2));
@@ -542,11 +557,11 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     case DEBUG_SHADOW:   { outCol = ramp(f32(shadowRays) / max(1.0, f32(arrayLength(&lights)))); }
     case DEBUG_DEPTH:    { outCol = ramp(f32(peakDepth) / 32.0); }
     case DEBUG_MATERIAL: {
-      // Same source main's shading uses (nodes[h.node].material). h.node
-      // is 0 on a miss (never a real node - see Node's doc comment), so
-      // no separate guard is needed the way h.entry < 0 used to need one.
-      let shown = h.t0 >= 0.0;
-      let f = f32(select(0, nodes[h.node].material, shown)) * 1.9;
+      // Same source main's shading uses (nodes[found.node].material).
+      // found.node is 0 on a miss (never a real node - see Node's doc
+      // comment), which is the only reliable miss test (see trace()).
+      let shown = found.node != 0u;
+      let f = f32(select(0, nodes[found.node].material, shown)) * 1.9;
       outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), shown);
     }
     case DEBUG_NORMAL:   { outCol = N * 0.5 + 0.5; }

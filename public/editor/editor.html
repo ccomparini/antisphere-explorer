@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Antisphere editor</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --line: #1e2530; --bg: #0b0d10; --panel: #0f1217; --field: #161b22;
+    --text: #7f8a99; --bright: #cbd5e1; --accent: #3b6ea5; --warn: #fbbf24;
+    --panel-w: 320px;
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden;
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
+
+  #app { display: grid; height: 100vh; grid-template-columns: 1fr var(--panel-w); }
+  #app.panel-hidden { grid-template-columns: 1fr 0; }
+
+  /* Views ---------------------------------------------------------------- */
+  #views { position: relative; min-width: 0; }
+  #grid {
+    display: grid; height: 100%;
+    grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px;
+    background: var(--line);
+  }
+  .pane { position: relative; background: var(--bg); overflow: hidden; min-width: 0; }
+  .pane canvas { display: block; width: 100%; height: 100%; }
+  .pane .tag {
+    position: absolute; left: 8px; top: 6px; pointer-events: none;
+    color: #64707f; text-shadow: 0 1px 2px rgba(0,0,0,.8);
+  }
+  .pane.active { outline: 1px solid var(--accent); outline-offset: -1px; }
+  /* The camera glyph: picks which view the Camera section edits. */
+  .pane .cam {
+    position: absolute; right: 6px; top: 4px; padding: 0 4px;
+    font-size: 15px; line-height: 1.4; cursor: pointer;
+    background: rgba(10,13,17,.55); border: 1px solid transparent; border-radius: 4px;
+    opacity: .5;
+  }
+  .pane:hover .cam, .pane .cam.editing { opacity: 1; }
+  .pane .cam.editing { border-color: var(--accent); }
+  .pane.active .tag { color: var(--bright); }
+  #bar {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px;
+    padding: 6px 12px; border-radius: 6px;
+    background: rgba(10,13,17,.86); border: 1px solid var(--line);
+    backdrop-filter: blur(6px); white-space: nowrap;
+  }
+  #bar b { color: var(--bright); font-weight: 500; }
+  #note { color: #4ade80; }
+
+  /* Panel ---------------------------------------------------------------- */
+  #panel {
+    background: var(--panel); border-left: 1px solid var(--line);
+    overflow-y: auto; overflow-x: hidden; min-width: 0;
+  }
+  #app.panel-hidden #panel { display: none; }
+  .panel-head { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .panel-head .title { color: var(--bright); font-weight: 500; }
+  .panel-head .title.dirty { color: var(--warn); }
+  .panel-head .title.dirty::after { content: ' •'; }
+  .err { color: #f87171; white-space: pre-wrap; }
+  .toolbar { display: flex; gap: 4px; margin: 6px 0; flex-wrap: wrap; align-items: center; }
+  .toolbar .gap { width: 8px; }
+  .stats, .dim { color: #5b6573; }
+
+  .sec { border-bottom: 1px solid var(--line); }
+  .sec > summary {
+    padding: 8px 12px; cursor: pointer; color: var(--bright);
+    list-style: none; user-select: none;
+  }
+  .sec > summary::before { content: '▸ '; color: #5b6573; }
+  .sec[open] > summary::before { content: '▾ '; }
+  .sec-body { padding: 2px 12px 12px; }
+  @keyframes flash { from { background: #1b2a3d; } to { background: transparent; } }
+  .sec.flash > summary { animation: flash .9s ease-out; }
+
+  .row { display: grid; grid-template-columns: 5.5em 1fr; align-items: center;
+    gap: 6px; margin: 3px 0; }
+  .row > label { color: #6b7686; }
+  .ctl { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .item { border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; margin: 6px 0; }
+  .item-head { display: flex; justify-content: space-between; align-items: center;
+    gap: 8px; color: var(--bright); margin-bottom: 2px; }
+
+  .outline { padding-top: 4px; }
+  .orow { white-space: pre; overflow: hidden; text-overflow: ellipsis; line-height: 1.5;
+    border-radius: 3px; }
+  .orow.selected { background: #172536; }
+  .orow .pre { color: #3a4452; }
+  .orow button { border: 0; background: none; padding: 0; font: inherit; cursor: pointer; }
+  .orow .tog { padding-right: 3px; color: #6b7686; }
+  .orow .pick { color: #8fa3b8; }
+  .orow .pick.label { color: var(--text); }
+  .orow.selected .pick { color: var(--bright); }
+
+  button, select, input.num {
+    font: inherit; color: var(--bright); background: var(--field);
+    border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: #2d3848; }
+  button.off { opacity: .35; }
+  button.x { padding: 0 6px; color: #8b95a5; }
+  input.num { width: 4.4em; padding: 2px 4px; min-width: 0; }
+  input[type=color] { width: 32px; height: 20px; padding: 0; border: 1px solid var(--line);
+    background: none; border-radius: 3px; }
+  input[type=range] { flex: 1; min-width: 0; }
+
+  #err {
+    position: fixed; inset: 0; display: none; place-content: center;
+    padding: 2rem; text-align: center; white-space: pre-wrap;
+    font: 14px/1.7 ui-monospace, Menlo, monospace; color: #e2e8f0;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="views">
+    <div id="grid">
+      <div class="pane"><canvas></canvas><span class="tag">perspective</span><button class="cam" title="Edit this view's camera">📷</button></div>
+      <div class="pane"><canvas></canvas><span class="tag">front (-Y)</span><button class="cam" title="Edit this view's camera">📷</button></div>
+      <div class="pane"><canvas></canvas><span class="tag">side (+X)</span><button class="cam" title="Edit this view's camera">📷</button></div>
+      <div class="pane"><canvas></canvas><span class="tag">top (+Z)</span><button class="cam" title="Edit this view's camera">📷</button></div>
+    </div>
+    <div id="bar">
+      <b id="stat">starting…</b> · click selects · double-click drills in · 📷 edits camera · M mode · S shadows ·
+      D debug · [ ] scale · R reload · P panel · <span id="note"></span>
+    </div>
+  </div>
+
+  <!--
+    The panel. Bindings are uiulator's: data-shows displays a field,
+    data-controls edits one, data-expands repeats an element per item,
+    data-shows-if hides an element when a field is false, and data-class-if
+    toggles a class. Each section is bound separately (see editor-panel.js),
+    which is what lets lights update on every tick while geometry and
+    materials wait for a finished edit. Buttons name a data-action, which is
+    an editor command unless the panel handles it itself; in repeated items,
+    value="@key" carries the item's index.
+  -->
+  <div id="panel">
+    <div id="panel-head" class="panel-head">
+      <div class="title" data-shows="title" data-class-if="dirty"></div>
+      <div class="toolbar">
+        <button data-action="new">New</button>
+        <button data-action="open">Open…</button>
+        <button data-action="save" title="Downloads the scene (⌘S); the server copy is untouched">Save</button>
+        <button data-action="revert">Revert</button>
+        <input type="file" id="panel-file" accept=".json,.json5" hidden>
+      </div>
+      <div class="toolbar">
+        <button data-action="undo" data-class-if="off:!canUndo" title="⌘Z">Undo</button>
+        <button data-action="redo" data-class-if="off:!canRedo" title="⇧⌘Z">Redo</button>
+        <span class="gap"></span>
+        <button data-action="create-sphere">+ Sphere</button>
+        <button data-action="create-box">+ Box</button>
+      </div>
+      <div class="stats" data-shows="history"></div>
+      <div class="err" data-shows-if="error" data-shows="error"></div>
+      <div class="stats" data-shows="stats"></div>
+    </div>
+
+    <details class="sec" id="panel-selection" open>
+      <summary>Selection</summary>
+      <div class="sec-body">
+        <div class="dim" data-shows-unless="has">Nothing selected. Click a name in Structure.</div>
+        <div data-shows-if="has">
+          <div class="item-head">
+            <span data-shows="title"></span><span class="dim" data-shows="kindText"></span>
+          </div>
+          <div class="toolbar">
+            <button data-action="delete" title="Delete">Delete</button>
+            <button data-action="duplicate" data-shows-if="isObjectLevel" title="⌘D">Duplicate</button>
+            <button data-action="rename" data-shows-if="isObjectLevel">Rename…</button>
+            <button data-action="make-unique" data-shows-if="isInstance"
+                    title="Give this instance its own copy of the definition">Make unique</button>
+            <button data-action="promote" data-shows-if="canPromote"
+                    title="Make this part a named object">Name…</button>
+            <button data-action="deselect" title="Esc">Deselect</button>
+          </div>
+          <div class="row" data-shows-if="hasTranslate"><label>translate</label><div class="ctl">
+            <input class="num" type="number" step="0.1" data-controls="tx">
+            <input class="num" type="number" step="0.1" data-controls="ty">
+            <input class="num" type="number" step="0.1" data-controls="tz">
+          </div></div>
+          <div class="row" data-shows-if="isSphere"><label>centre</label><div class="ctl">
+            <input class="num" type="number" step="0.1" data-controls="cx">
+            <input class="num" type="number" step="0.1" data-controls="cy">
+            <input class="num" type="number" step="0.1" data-controls="cz">
+          </div></div>
+          <div class="row" data-shows-if="isSphere"><label>radius</label><div class="ctl">
+            <input class="num" type="number" step="0.05" min="0" data-controls="radius">
+          </div></div>
+          <div class="row" data-shows-if="isPlane"><label>normal</label><div class="ctl">
+            <input class="num" type="number" step="0.1" data-controls="nx">
+            <input class="num" type="number" step="0.1" data-controls="ny">
+            <input class="num" type="number" step="0.1" data-controls="nz">
+          </div></div>
+          <div class="row" data-shows-if="isPlane"><label>offset</label><div class="ctl">
+            <input class="num" type="number" step="0.05" data-controls="offset">
+          </div></div>
+          <div class="row" data-shows-if="isPrimitive"><label>material</label><div class="ctl">
+            <select data-controls="material">
+              <option value="">(inherit)</option>
+              <option value="(vacuum)">(vacuum)</option>
+              <option data-expands="materialNames" data-shows></option>
+            </select>
+          </div></div>
+          <div class="row" data-shows-if="isPrimitive"><label>complement</label><div class="ctl">
+            <input type="checkbox" data-controls="complement">
+          </div></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="sec" id="panel-structure" open>
+      <summary>Structure</summary>
+      <div class="sec-body outline">
+        <div class="orow" data-expands="rows" data-class-if="selected"><span class="pre" data-shows="prefix"></span><button class="tog" value="@key" data-action="toggle" data-shows="glyph"></button><button class="pick" value="@key" data-action="select-row" data-shows="name"></button> <button class="pick label" value="@key" data-action="select-row" data-shows="label"></button></div>
+      </div>
+    </details>
+
+    <details class="sec" id="panel-camera">
+      <summary>Camera · <span data-shows="viewName"></span></summary>
+      <div class="sec-body">
+        <div class="row"><label>camera</label><div class="ctl">
+          <select data-controls="mode">
+            <option data-expands="cameraModes" data-shows></option>
+          </select>
+        </div></div>
+        <div class="row"><label>shadows</label><div class="ctl">
+          <input type="checkbox" data-controls="shadows">
+        </div></div>
+        <div class="row"><label>debug</label><div class="ctl">
+          <select data-controls="debugView">
+            <option data-expands="debugViews" value="@key" data-shows></option>
+          </select>
+        </div></div>
+        <div class="row"><label>scale</label><div class="ctl">
+          <input type="range" min="0.1" max="1" step="0.05" data-controls="scale">
+          <span class="dim" data-shows="scaleText"></span>
+        </div></div>
+        <div class="row"><label></label><div class="ctl">
+          <button data-action="reset-camera">Reset camera</button>
+        </div></div>
+      </div>
+    </details>
+
+    <details class="sec" id="panel-lights">
+      <summary>Lights</summary>
+      <div class="sec-body">
+        <div class="item" data-expands="lights">
+          <div class="item-head">
+            <span>light <span data-shows="@key"></span></span>
+            <button class="x" value="@key" data-action="remove-light" title="Remove">×</button>
+          </div>
+          <div class="row"><label>pos</label><div class="ctl">
+            <input class="num" type="number" step="0.1" data-controls="x">
+            <input class="num" type="number" step="0.1" data-controls="y">
+            <input class="num" type="number" step="0.1" data-controls="z">
+          </div></div>
+          <div class="row"><label>colour</label><div class="ctl">
+            <input type="color" data-controls="hue">
+            <input class="num" type="number" step="1" data-controls="intensity" title="intensity">
+          </div></div>
+        </div>
+        <button data-action="add-light">+ Add light</button>
+      </div>
+    </details>
+
+    <details class="sec" id="panel-materials">
+      <summary>Materials</summary>
+      <div class="sec-body">
+        <div class="item" data-expands="materials">
+          <div class="item-head">
+            <span data-shows="name"></span><span class="dim" data-shows="kind"></span>
+          </div>
+          <div class="row"><label data-shows="albedoLabel"></label><div class="ctl">
+            <input type="color" data-controls="albedo">
+          </div></div>
+          <div class="row" data-shows-if="isChecker"><label>albedo 2</label><div class="ctl">
+            <input type="color" data-controls="albedo2">
+          </div></div>
+          <div class="row" data-shows-if="isChecker"><label>scale</label><div class="ctl">
+            <input class="num" type="number" step="0.1" data-controls="scale">
+          </div></div>
+          <div class="row" data-shows-if="isGlossy"><label>shininess</label><div class="ctl">
+            <input class="num" type="number" step="1" data-controls="shininess">
+          </div></div>
+          <div class="row" data-shows-if="isGlossy"><label>specular</label><div class="ctl">
+            <input class="num" type="number" step="0.1" data-controls="specular">
+          </div></div>
+          <div class="row" data-shows-if="isEmissive"><label>emission</label><div class="ctl">
+            <input class="num" type="number" step="0.1" data-controls="emission">
+          </div></div>
+        </div>
+      </div>
+    </details>
+  </div>
+</div>
+<div id="err"></div>
+
+<!-- A classic script, so it defines the global the panel module expects. -->
+<script src="./uiulator.js"></script>
+<script type="module" src="./editor.js"></script>
+</body>
+</html>

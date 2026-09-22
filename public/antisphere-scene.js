@@ -111,12 +111,36 @@ const KINDS = {
 const KIND_AMBIENT = 4;
 
 // ---------------------------------------------------------------------------
+// Provenance
+//
+// Every node authored in scene.json remembers where it came from, so a ray
+// hit can be traced back to something a user can select: { owner, path },
+// where owner is the key of the named object the node belongs to (or
+// ROOT_OWNER for the root subtree) and path is the literal keys from that
+// object's body down to the node, joined with '/' - "inside/outside",
+// "union/2/inside". That's the same addressing the editor's SceneDocument
+// uses for selections, so a hit maps straight onto one.
+//
+// Provenance rides along on each node object and is copied by everything
+// that copies a node (union, translation, scope baking), so it survives to
+// flatten(). Nodes the compiler invents - group split surfaces and
+// bounding wrappers - have none: they are never a surface a ray stops on.
+//
+// An instance - an object whose whole body is { use, translate } - gets
+// nodes of its own attributed to it (see reown()), even when untranslated,
+// so a hit can say which instance was struck rather than just which
+// prototype. Sharing within one owner is unaffected.
+// ---------------------------------------------------------------------------
+
+export const ROOT_OWNER = '@root';
+
+// ---------------------------------------------------------------------------
 // Tree
 // ---------------------------------------------------------------------------
 
 // A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
-function node(prim, inside, outside, material = NO_MATERIAL, env = 0) {
-  return { prim, inside, outside, material, env };
+function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = null) {
+  return { prim, inside, outside, material, env, prov };
 }
 
 const EMPTY = 'empty';
@@ -136,7 +160,7 @@ function union(t, other) {
   return node(t.prim,
               t.inside === EMPTY ? EMPTY : union(t.inside, other),
               union(t.outside, other),
-              t.material, t.env);
+              t.material, t.env, t.prov);
 }
 
 // Rigid translation of a primitive by a world-space offset. n and a are
@@ -175,7 +199,26 @@ function translateTree(t, offset) {
   return node(translatePrim(t.prim, offset),
               translateTree(t.inside, offset),
               translateTree(t.outside, offset),
-              t.material, t.env);
+              t.material, t.env, t.prov);
+}
+
+// Re-attribute to `to` every node that `from` owns, copying them - and any
+// node above them, so it can point at the copies - while leaving untouched
+// subtrees shared. Used to give an instance nodes of its own (see the
+// Provenance comment above). Memoized, so shared structure stays shared
+// within the copy.
+function reown(t, from, to, memo = new Map()) {
+  if (t === EMPTY) return t;
+  if (memo.has(t)) return memo.get(t);
+  const inside = reown(t.inside, from, to, memo);
+  const outside = reown(t.outside, from, to, memo);
+  const mine = t.prov?.owner === from;
+  const out = (!mine && inside === t.inside && outside === t.outside)
+    ? t
+    : node(t.prim, inside, outside, t.material, t.env,
+           mine ? { ...t.prov, owner: to } : t.prov);
+  memo.set(t, out);
+  return out;
 }
 
 // Resolves material and ambient-env inheritance once, here, instead of
@@ -212,7 +255,7 @@ function bakeScopes(tree) {
     const out = node(t.prim,
                       resolve(t.inside, hereMat, hereEnv),
                       resolve(t.outside, matScope, envScope),
-                      hereMat, hereEnv);
+                      hereMat, hereEnv, t.prov);
     byScope.set(t, out);
     return out;
   };
@@ -233,7 +276,7 @@ function bakeScopes(tree) {
 // no longer needs a placeholder leaf material to say so.
 function flatten(tree) {
   const out = [{ prim: { surface_normal: [0, 0, 0], p0_dist: 0, curvature: 0 },
-                 material: 0, env: 0, inside: 0, outside: 0 }];
+                 material: 0, env: 0, inside: 0, outside: 0, prov: null }];
   const memo = new Map();
   const walk = (t) => {
     if (t === EMPTY) return 0;
@@ -242,7 +285,7 @@ function flatten(tree) {
     out.push(null);
     memo.set(t, idx);
     out[idx] = { prim: t.prim, material: t.material, env: t.env ?? 0,
-                 inside: walk(t.inside), outside: walk(t.outside) };
+                 inside: walk(t.inside), outside: walk(t.outside), prov: t.prov };
     return idx;
   };
   walk(tree);
@@ -447,24 +490,49 @@ export function compileScene(spec) {
     return def.complement ? complement(p) : p;
   }
 
+  // Where a subtree sits for provenance: its owner, and the literal keys
+  // from the owner's body down to it. `below` extends it by more keys.
+  const below = (where, ...keys) =>
+    ({ owner: where.owner, segments: [...where.segments, ...keys] });
+  const provOf = (where) => ({ owner: where.owner, path: where.segments.join('/') });
+  const isUseBody = (def) =>
+    def !== null && typeof def === 'object' && typeof def.use === 'string';
+
   // Named objects are memoized so repeated use shares one subtree.
   const built = new Map();
   const declared = new Map();     // subtree -> author-declared bounding ball
   const boundMemo = new Map();
+  const instanceBodies = new Map();   // identical-instance detection
 
   function named(name, path) {
     if (built.has(name)) return built.get(name);
     const def = (spec.objects || {})[name];
     if (!def) at(path, `unknown object "${name}"`);
     built.set(name, null);                       // cycle guard
-    const t = tree(def, `objects.${name}`);
+    let t = tree(def, `objects.${name}`, { owner: name, segments: [] });
+
+    // An instance gets nodes of its own, attributed to it, so a hit can say
+    // which instance was struck (see the Provenance comment up top).
+    if (isUseBody(def) && t !== null) {
+      t = reown(t, def.use, name);
+      // Two instances with the same prototype and offset are the same
+      // geometry in the same place: never what anyone means.
+      const key = `${def.use}|${JSON.stringify(def.translate ?? [0, 0, 0])}`;
+      const twin = instanceBodies.get(key);
+      if (twin) {
+        console.warn(`scene.json objects.${name}: identical to objects.${twin} ` +
+                     '(same prototype, same place)');
+      } else {
+        instanceBodies.set(key, name);
+      }
+    }
     built.set(name, t);
     return t;
   }
 
-  function operand(d, path) {
+  function operand(d, path, where) {
     if (d === EMPTY) return EMPTY;
-    return typeof d === 'string' ? named(d, path) : tree(d, path);
+    return typeof d === 'string' ? named(d, path) : tree(d, path, where);
   }
 
   // Split candidates: planes along the axes and the four body diagonals, plus
@@ -575,7 +643,7 @@ export function compileScene(spec) {
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i];
         acc = selfBounded(it.tree)
-          ? node(it.tree.prim, it.tree.inside, acc, it.tree.material, it.tree.env)
+          ? node(it.tree.prim, it.tree.inside, acc, it.tree.material, it.tree.env, it.tree.prov)
           : node(sphere(it.ball.c, it.ball.r), it.tree, acc);
       }
       return acc;
@@ -588,7 +656,7 @@ export function compileScene(spec) {
   // them, giving a hierarchy instead of a linear chain. Because one node type
   // serves as both splitting surface and bounding volume, the result is a BSP
   // tree and a bounding volume hierarchy at the same time.
-  function buildGroup(def, path) {
+  function buildGroup(def, path, where) {
     if (!Array.isArray(def.group)) {
       at(path, 'group takes an array of subtrees, or names of entries under "objects"');
     }
@@ -600,7 +668,7 @@ export function compileScene(spec) {
     def.group.forEach((d, i) => {
       const p = `${path}.group[${i}]`;
       const label = typeof d === 'string' ? `"${d}"` : p;
-      const t = operand(d, p);
+      const t = operand(d, p, below(where, 'group', String(i)));
       if (t === null) at(p, `object ${label} refers to itself`);
       const b = boundOf(t, declared, boundMemo, table);
       if (b === NO_SOLID) return;                  // contributes nothing
@@ -627,7 +695,7 @@ export function compileScene(spec) {
     return partition(parts);
   }
 
-  function tree(def, path) {
+  function tree(def, path, where) {
     if (def === 'empty') return EMPTY;
     if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
 
@@ -636,7 +704,7 @@ export function compileScene(spec) {
       out = named(def.use, path);
       if (out === null) at(path, `object "${def.use}" refers to itself`);
     } else if (def.group !== undefined) {
-      out = buildGroup(def, path);
+      out = buildGroup(def, path, where);
     } else if (def.union !== undefined) {
       if (!Array.isArray(def.union)) {
         at(path, 'union takes an array of subtrees, each with its own inside ' +
@@ -647,16 +715,18 @@ export function compileScene(spec) {
       }
       if (!def.union.length) at(path, 'union needs at least one operand');
       out = def.union
-        .map((d, i) => operand(d, `${path}.union[${i}]`))
+        .map((d, i) => operand(d, `${path}.union[${i}]`, below(where, 'union', String(i))))
         .reduce((acc, p) => union(acc, p));
     } else {
       // "inside" and "outside" both default to EMPTY when unspecified, but
       // mean different things there - see flatten()'s doc comment. A bare
       // primitive with neither specified is just a simple solid shape.
-      const insideTree = tree(def.inside !== undefined ? def.inside : 'empty', `${path}.inside`);
-      const outsideTree = tree(def.outside !== undefined ? def.outside : 'empty', `${path}.outside`);
+      const insideTree = tree(def.inside !== undefined ? def.inside : 'empty',
+                              `${path}.inside`, below(where, 'inside'));
+      const outsideTree = tree(def.outside !== undefined ? def.outside : 'empty',
+                               `${path}.outside`, below(where, 'outside'));
       const { material, env } = materialAndEnvOf(def, path);
-      out = node(primOf(def, path), insideTree, outsideTree, material, env);
+      out = node(primOf(def, path), insideTree, outsideTree, material, env, provOf(where));
     }
 
     // Positions a subtree in world space by translating every primitive in
@@ -679,9 +749,14 @@ export function compileScene(spec) {
     return out;
   }
 
+
   if (!spec.root) at('root', 'missing');
+  const nodes = flatten(bakeScopes(tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] })));
   return {
-    nodes: flatten(bakeScopes(tree(spec.root, 'root'))),
+    nodes,
+    // provenance[i] is { owner, path } for authored node i, or null for
+    // node 0 and for nodes the compiler invented.
+    provenance: nodes.map((n) => n.prov),
     materials: table,
     lights: lightList,
     camera: spec.camera || null,

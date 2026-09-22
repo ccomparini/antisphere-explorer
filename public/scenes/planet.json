@@ -21,7 +21,7 @@
     "brass": {
       "kind": "glossy",
       "albedo": [0.66, 0.58, 0.22],
-      "shininess": 70,
+      "shininess": 95,
       "specular": 1.1
     },
     "chalk": { "kind": "unlit", "albedo": [0.80, 0.78, 0.72] },
@@ -34,20 +34,28 @@
   },
 
   "lights": [
-    { "pos": [-2.2,  2.4, 3.0], "color": [26, 17, 10] }
+    { "pos": [-8.2,  8.4, 8.0], "color": [44, 34, 20] }
   ],
 
   "objects": {
     "bitten": {
-      "sphere": { "center": [-1.35, 0, 0.25], "radius": 1.15 },
-      "material": "core",
+      "plane": { "normal": [0, 0, 1], "offset": 0.95 },
+      "material": "brass",
       "inside": {
-        "plane": { "normal": [0, 0, 1], "offset": 0.95 },
-        "material": "shell",
+        "sphere": { "center": [-1.35, 0, 0.25], "radius": 1.15 },
+        "material": "brass",
         "inside": {
-          "sphere": { "center": [-0.75, 0.8, 0.85], "radius": 0.8 },
-          "complement": true,
-          "material": "core"
+          "plane": { "normal": [0, 0, 1], "offset": 0.95 },
+          "material": "brass",
+          "inside": {
+            "sphere": { "center": [-0.75, 0.8, 0.2], "radius": 0.6 },
+            "complement": true,
+            "material": "brass"
+          },
+          "outside": {
+            "sphere": { "center": [-1.35, 0.0, 0.0], "radius": 1.0 },
+            "material": "core"
+          }
         }
       },
       "outside": {
