@@ -67,6 +67,25 @@ export function createCommands({ doc, getActive, note, ask = globalThis.prompt, 
     return owner && owner !== ROOT && !path ? owner : null;
   };
 
+  // Every selected object, as keys.
+  const selectedObjects = () =>
+    doc.selections.filter((e) => !e.path && e.owner !== ROOT).map((e) => e.owner);
+
+  // Deepest and last first, so removing one can't shift the address of
+  // another still to go: group and union members are addressed by index.
+  function deepestFirst(a, b) {
+    const A = a.path.split('/'), B = b.path.split('/');
+    for (let i = 0; i < Math.max(A.length, B.length); i++) {
+      if (A[i] === B[i]) continue;
+      if (A[i] === undefined) return 1;
+      if (B[i] === undefined) return -1;
+      const x = Number(A[i]), y = Number(B[i]);
+      if (Number.isInteger(x) && Number.isInteger(y)) return y - x;
+      return A[i] < B[i] ? 1 : -1;
+    }
+    return 0;
+  }
+
   // New objects land where the focused camera is looking.
   const placement = () => getActive?.()?.camera?.target?.slice() ?? [0, 0, 0.5];
 
@@ -97,18 +116,54 @@ export function createCommands({ doc, getActive, note, ask = globalThis.prompt, 
     'create-sphere': () => create('sphere'),
     'create-box': () => create('box'),
 
+    // Deletes everything selected, as one undo step: if any part of it is
+    // refused, none of it happens.
     delete() {
-      const { owner, path } = doc.selection;
-      if (!owner) { note('nothing selected'); return; }
-      if (owner === ROOT && !path) { note('the root cannot be deleted', true); return; }
-      report(path ? doc.deleteNode(owner, path) : doc.deleteObject(owner));
+      const entries = doc.selections;
+      if (!entries.length) { note('nothing selected'); return; }
+      if (entries.some((e) => e.owner === ROOT && !e.path)) {
+        note('the root cannot be deleted', true);
+        return;
+      }
+      const objects = selectedObjects();
+      // A node inside an object that is going anyway needs no deleting.
+      const nodes = entries.filter((e) => e.path && !objects.includes(e.owner))
+                           .sort(deepestFirst);
+
+      const label = entries.length === 1
+        ? `Delete ${entries[0].owner}${entries[0].path ? '/' + entries[0].path : ''}`
+        : `Delete ${entries.length} things`;
+
+      report(doc.transaction(label, () => {
+        for (const entry of nodes) {
+          // An earlier deletion may have taken this one with it.
+          if (doc.resolve(entry.owner, entry.path)) doc.deleteNode(entry.owner, entry.path);
+        }
+        // A prototype can't go while its instances remain, so take whatever
+        // has no instances left, round by round. If a round can't make
+        // progress, let deleteObject refuse with its own message.
+        let remaining = [...objects];
+        while (remaining.length) {
+          const ready = remaining.filter((key) => doc.instancesOf(key).length === 0);
+          if (!ready.length) { doc.deleteObject(remaining[0]); break; }
+          for (const key of ready) doc.deleteObject(key);
+          remaining = remaining.filter((key) => !ready.includes(key));
+        }
+      }));
     },
 
     duplicate() {
-      const key = selectedObject();
-      if (!key) { note('select an object to duplicate'); return; }
-      const result = doc.duplicateObject(key, { offset: [1.25, 0, 0] });
-      report(result, result.ok && `duplicated as ${result.name}`);
+      const keys = selectedObjects();
+      if (!keys.length) { note('select an object to duplicate'); return; }
+      const copies = [];
+      const label = keys.length === 1 ? `Duplicate ${keys[0]}` : `Duplicate ${keys.length} objects`;
+      const result = doc.transaction(label, () => {
+        for (const key of keys) copies.push(doc.duplicateObject(key, { offset: [1.25, 0, 0] }).name);
+      });
+      if (!report(result, `duplicated as ${copies.join(', ')}`)) return;
+      // Leave the copies selected, so a second duplicate walks along.
+      doc.select(copies[0]);
+      for (const name of copies.slice(1)) doc.addToSelection(name);
     },
 
     rename() {

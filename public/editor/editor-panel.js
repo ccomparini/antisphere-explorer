@@ -106,7 +106,9 @@ function describe(def) {
   return { label: label + tail, kids };
 }
 
-function flatten(spec, expanded, selection) {
+function flatten(doc, expanded) {
+  const spec = doc.spec;
+  const primary = doc.selection;
   const rows = [];
 
   function walk(owner, segments, name, def, prefix, isLast, depth) {
@@ -124,7 +126,8 @@ function flatten(spec, expanded, selection) {
       hasKids: kids.length > 0,
       name, label, key,
       target,
-      selected: selection.owner === target.owner && selection.path === target.path,
+      selected: doc.isSelected(target.owner, target.path),
+      primary: primary.owner === target.owner && primary.path === target.path,
     });
     if (!kids.length || !open) return;
     const childPrefix = depth === 0 ? '' : prefix + (isLast ? '   ' : '│  ');
@@ -139,7 +142,8 @@ function flatten(spec, expanded, selection) {
   if (named.length) {
     const open = expanded.has('objects');
     rows.push({ prefix: '', glyph: open ? '▾' : '▸', hasKids: true, name: 'objects',
-                label: `(${named.length})`, key: 'objects', target: null, selected: false });
+                label: `(${named.length})`, key: 'objects', target: null,
+                selected: false, primary: false });
     if (open) {
       named.forEach(([name, def], i) =>
         walk(name, [], name, def, '', i === named.length - 1, 1));
@@ -265,6 +269,12 @@ export function createPanel(root, ctx) {
 
   const selection = {
     get has() { return !!current(); },
+    get count() { return doc.selections.length; },
+    get multiple() { return doc.selections.length > 1; },
+    get countText() {
+      const n = doc.selections.length;
+      return `${n} selected · these fields edit the last, Delete and Duplicate all of them`;
+    },
     get title() {
       const cur = current();
       if (!cur) return '';
@@ -428,7 +438,7 @@ export function createPanel(root, ctx) {
 
   const structureModel = { rows: [] };
   const rebuildRows = () => {
-    structureModel.rows = flatten(doc.spec, expanded, doc.selection);
+    structureModel.rows = flatten(doc, expanded);
   };
 
   // -- bindings ----------------------------------------------------------------
@@ -493,7 +503,9 @@ export function createPanel(root, ctx) {
         const row = structureModel.rows[index];
         if (!row) break;
         if (action === 'select-row' && row.target) {
-          doc.select(row.target.owner, row.target.path);
+          const { owner, path } = row.target;
+          if (e.shiftKey) doc.addToSelection(owner, path);
+          else doc.select(owner, path);
           break;
         }
         if (!row.hasKids) break;

@@ -17,10 +17,14 @@
 // its prototype; anything else is a definition. The root subtree is
 // addressed as ROOT ('@root'), since it has no key.
 //
-// Selection is two-level: an owner (an object key, or ROOT) and a path within
-// that owner's *definition*. Paths are the literal keys into the spec,
-// joined with '/': 'inside/outside', 'union/2/inside'. Scoped to one
+// A selection entry is two-level: an owner (an object key, or ROOT) and a
+// path within that owner's *definition*. Paths are the literal keys into the
+// spec, joined with '/': 'inside/outside', 'union/2/inside'. Scoped to one
 // definition, a deletion elsewhere can't shift them.
+//
+// The selection is an ordered set of entries. The last one added is the
+// primary: the one whose properties get shown and edited. `selection` is
+// the primary alone, `selections` all of them.
 //
 // Editing inside an instance edits its prototype, so every instance changes.
 // makeUnique() gives one instance a private copy of its definition first.
@@ -49,6 +53,7 @@ const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 export const splitPath = (path) => (path ? String(path).split('/') : []);
 export const joinPath = (segments) => segments.join('/');
 
+const sameEntry = (a, b) => a.owner === b.owner && a.path === b.path;
 const isObject = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const isUseBody = (def) => isObject(def) && typeof def.use === 'string';
 
@@ -141,7 +146,8 @@ export class SceneDocument {
   #index = 0;
   #nextId = 0;
   #savedId = 0;
-  #selection = { owner: null, path: '' };
+  #selected = [];               // entries { owner, path }; the last is primary
+  #inTransaction = false;
   #error = null;
   #listeners = new Set();
   #coalesceMs;
@@ -175,7 +181,13 @@ export class SceneDocument {
   get spec() { return this.#spec; }
   get error() { return this.#error; }
   get dirty() { return this.#history[this.#index].id !== this.#savedId; }
-  get selection() { return { ...this.#selection }; }
+  /** The primary selection, or { owner: null, path: '' } if nothing is selected. */
+  get selection() {
+    const last = this.#selected.at(-1);
+    return last ? { ...last } : { owner: null, path: '' };
+  }
+  /** Every selected entry, primary last. */
+  get selections() { return this.#selected.map((e) => ({ ...e })); }
 
   get canUndo() { return this.#index > 0; }
   get canRedo() { return this.#index < this.#history.length - 1; }
@@ -201,7 +213,7 @@ export class SceneDocument {
     this.#history = [this.#entry('open', null)];
     this.#index = 0;
     this.#savedId = this.#history[0].id;
-    this.#selection = { owner: null, path: '' };
+    this.#selected = [];
     this.#error = null;
   }
 
@@ -225,6 +237,12 @@ export class SceneDocument {
    * nothing in between, merge into one undo step.
    */
   edit(label, mutate, { kind = 'structure', coalesce = null } = {}) {
+    // Inside a transaction, operations only mutate: the transaction compiles
+    // and records once for all of them, and a throw here aborts the lot.
+    if (this.#inTransaction) {
+      mutate(this.#spec);
+      return { ok: true };
+    }
     const before = clone(this.#spec);
     let error = null;
     try {
@@ -251,6 +269,19 @@ export class SceneDocument {
     this.#validateSelection();
     this.#emit({ kind, label });
     return { ok: true };
+  }
+
+  /**
+   * Run several operations as one edit: one compile, one undo step, and if
+   * any of them fails, none of them happened. `fn` calls ordinary document
+   * operations. Nested transactions fold into the outermost.
+   */
+  transaction(label, fn, opts) {
+    if (this.#inTransaction) { fn(); return { ok: true }; }
+    return this.edit(label, () => {
+      this.#inTransaction = true;
+      try { fn(); } finally { this.#inTransaction = false; }
+    }, opts);
   }
 
   /** End the current coalescing run, so the next edit starts a new undo step. */
@@ -337,22 +368,44 @@ export class SceneDocument {
   // -- selection ---------------------------------------------------------------
 
   /**
-   * Select an object, or a node within its definition. Returns false, and
-   * leaves the selection alone, if there is no such thing.
+   * Select just this: an object, or a node within its definition, replacing
+   * whatever was selected. Null clears. Returns false, and leaves the
+   * selection alone, if there is no such thing.
    */
   select(owner, path = '') {
     if (owner === null) {
-      this.#selection = { owner: null, path: '' };
+      this.#selected = [];
     } else {
-      if (!this.#ownerExists(owner)) return false;
-      if (path && !this.resolve(owner, path)) return false;
-      this.#selection = { owner, path: path ?? '' };
+      if (!this.#selectable(owner, path)) return false;
+      this.#selected = [{ owner, path: path ?? '' }];
     }
     this.#emit({ kind: 'selection' });
     return true;
   }
 
+  /**
+   * Add to the selection, making the addition primary. Something already
+   * selected just becomes primary. Returns false for nothing selectable.
+   */
+  addToSelection(owner, path = '') {
+    if (!this.#selectable(owner, path)) return false;
+    const entry = { owner, path: path ?? '' };
+    this.#selected = this.#selected.filter((e) => !sameEntry(e, entry));
+    this.#selected.push(entry);
+    this.#emit({ kind: 'selection' });
+    return true;
+  }
+
+  isSelected(owner, path = '') {
+    return this.#selected.some((e) => e.owner === owner && e.path === (path ?? ''));
+  }
+
   clearSelection() { return this.select(null); }
+
+  #selectable(owner, path) {
+    if (!this.#ownerExists(owner)) return false;
+    return !path || !!this.resolve(owner, path);
+  }
 
   #ownerExists(owner) {
     return owner === ROOT || Object.hasOwn(this.#spec.objects ?? {}, owner);
@@ -363,15 +416,21 @@ export class SceneDocument {
   // deleted node leaves an explicit 'empty' in its slot, so the path still
   // resolves; that counts as gone too.
   #validateSelection() {
-    const { owner, path } = this.#selection;
-    if (!owner) return;
-    if (!this.#ownerExists(owner)) {
-      this.#selection = { owner: null, path: '' };
-      return;
+    const kept = [];
+    for (const entry of this.#selected) {
+      if (!this.#ownerExists(entry.owner)) continue;
+      let next = entry;
+      if (entry.path) {
+        const found = this.resolve(entry.owner, entry.path);
+        if (!found || found.node === 'empty') next = { owner: entry.owner, path: '' };
+      }
+      // Trimming can make two entries the same; keep the later, so the
+      // primary stays primary.
+      const dup = kept.findIndex((e) => sameEntry(e, next));
+      if (dup >= 0) kept.splice(dup, 1);
+      kept.push(next);
     }
-    if (!path) return;
-    const found = this.resolve(owner, path);
-    if (!found || found.node === 'empty') this.#selection = { owner, path: '' };
+    this.#selected = kept;
   }
 
   // -- lookup ------------------------------------------------------------------
@@ -629,7 +688,7 @@ export class SceneDocument {
    * so this is the one operation that has to touch the whole spec.
    */
   renameObject(from, to) {
-    const previous = this.#selection;
+    const previous = this.#selected;
     const result = this.edit(`Rename ${from} to ${to}`, (spec) => {
       if (!this.has(from)) throw new Error(`no object "${from}"`);
       this.#checkNewName(to);
@@ -641,9 +700,9 @@ export class SceneDocument {
       spec.objects = Object.fromEntries(
         Object.entries(spec.objects).map(([k, v]) => [k === from ? to : k, v]));
       // Before edit() validates, or the selection would be dropped as gone.
-      if (this.#selection.owner === from) this.#selection = { ...this.#selection, owner: to };
+      this.#selected = this.#selected.map((e) => (e.owner === from ? { ...e, owner: to } : e));
     });
-    if (!result.ok) this.#selection = previous;
+    if (!result.ok) this.#selected = previous;
     return result;
   }
 

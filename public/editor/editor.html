@@ -87,13 +87,14 @@
   .outline { padding-top: 4px; }
   .orow { white-space: pre; overflow: hidden; text-overflow: ellipsis; line-height: 1.5;
     border-radius: 3px; }
-  .orow.selected { background: #172536; }
+  .orow.selected { background: #15202e; }
+  .orow.primary { background: #172536; }
   .orow .pre { color: #3a4452; }
   .orow button { border: 0; background: none; padding: 0; font: inherit; cursor: pointer; }
   .orow .tog { padding-right: 3px; color: #6b7686; }
   .orow .pick { color: #8fa3b8; }
   .orow .pick.label { color: var(--text); }
-  .orow.selected .pick { color: var(--bright); }
+  .orow.selected .pick, .orow.primary .pick { color: var(--bright); }
 
   button, select, input.num {
     font: inherit; color: var(--bright); background: var(--field);
@@ -165,11 +166,12 @@
     <details class="sec" id="panel-selection" open>
       <summary>Selection</summary>
       <div class="sec-body">
-        <div class="dim" data-shows-unless="has">Nothing selected. Click a name in Structure.</div>
+        <div class="dim" data-shows-unless="has">Nothing selected. Click in a view or a name in Structure; shift-click adds.</div>
         <div data-shows-if="has">
           <div class="item-head">
             <span data-shows="title"></span><span class="dim" data-shows="kindText"></span>
           </div>
+          <div class="dim" data-shows-if="multiple" data-shows="countText"></div>
           <div class="toolbar">
             <button data-action="delete" title="Delete">Delete</button>
             <button data-action="duplicate" data-shows-if="isObjectLevel" title="⌘D">Duplicate</button>
@@ -218,7 +220,7 @@
     <details class="sec" id="panel-structure" open>
       <summary>Structure</summary>
       <div class="sec-body outline">
-        <div class="orow" data-expands="rows" data-class-if="selected"><span class="pre" data-shows="prefix"></span><button class="tog" value="@key" data-action="toggle" data-shows="glyph"></button><button class="pick" value="@key" data-action="select-row" data-shows="name"></button> <button class="pick label" value="@key" data-action="select-row" data-shows="label"></button></div>
+        <div class="orow" data-expands="rows" data-class-if="selected, primary"><span class="pre" data-shows="prefix"></span><button class="tog" value="@key" data-action="toggle" data-shows="glyph"></button><button class="pick" value="@key" data-action="select-row" data-shows="name"></button> <button class="pick label" value="@key" data-action="select-row" data-shows="label"></button></div>
       </div>
     </details>
 

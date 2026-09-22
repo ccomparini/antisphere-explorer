@@ -387,3 +387,80 @@ test('promote names a subtree without changing the scene', () => {
   assert.equal(doc.promote(ROOT, '', 'everything').ok, false);
   assert.equal(doc.promote(ROOT, 'inside', 'again').ok, false);   // already a reference
 });
+
+// -- multiple selection ------------------------------------------------------------
+
+test('the selection is an ordered set whose last entry is primary', () => {
+  const { doc } = make();
+  doc.select('bead-1');
+  doc.addToSelection('lamp');
+  doc.addToSelection('bead-2', 'inside');
+  assert.deepEqual(doc.selection, { owner: 'bead-2', path: 'inside' });
+  assert.deepEqual(doc.selections.map((e) => e.owner), ['bead-1', 'lamp', 'bead-2']);
+  assert.equal(doc.isSelected('lamp'), true);
+  assert.equal(doc.isSelected('bead-2'), false);       // its node is selected, not it
+
+  // Re-adding something already selected makes it primary rather than repeating it.
+  doc.addToSelection('bead-1');
+  assert.deepEqual(doc.selections.map((e) => e.owner), ['lamp', 'bead-2', 'bead-1']);
+
+  // A plain select replaces the lot.
+  doc.select('lamp');
+  assert.deepEqual(doc.selections, [{ owner: 'lamp', path: '' }]);
+  doc.clearSelection();
+  assert.deepEqual(doc.selections, []);
+  assert.deepEqual(doc.selection, { owner: null, path: '' });
+});
+
+test('adding something that does not exist changes nothing', () => {
+  const { doc } = make();
+  doc.select('lamp');
+  assert.equal(doc.addToSelection('nope'), false);
+  assert.equal(doc.addToSelection('lamp', 'inside/nowhere'), false);
+  assert.deepEqual(doc.selections, [{ owner: 'lamp', path: '' }]);
+});
+
+test('a deletion prunes just the entries it removed', () => {
+  const { doc } = make();
+  doc.select('bead-1');
+  doc.addToSelection('lamp');
+  doc.deleteObject('lamp');
+  assert.deepEqual(doc.selections, [{ owner: 'bead-1', path: '' }]);
+});
+
+test('entries trimmed to the same thing collapse, keeping the primary last', () => {
+  const { doc } = make();
+  doc.select('bead-1');              // the object
+  doc.addToSelection('bead-1', 'inside');
+  doc.deleteNode('bead-1', 'inside');   // trims the second entry to the object
+  assert.deepEqual(doc.selections, [{ owner: 'bead-1', path: '' }]);
+});
+
+test('a transaction is one compile and one undo step', () => {
+  const { doc, scene } = make();
+  const compiles = scene.compiles;
+  doc.transaction('Delete two beads', () => {
+    doc.deleteObject('bead-1');
+    doc.deleteObject('bead-2');
+  });
+  assert.equal(scene.compiles, compiles + 1);
+  assert.deepEqual(doc.spec.root.inside.union, ['lamp']);
+  assert.equal(doc.undoLabel, 'Delete two beads');
+  doc.undo();
+  assert.deepEqual(doc.spec.root.inside.union, ['bead-1', 'bead-2', 'lamp']);
+});
+
+test('a transaction that fails part way leaves nothing behind', () => {
+  const { doc, scene } = make();
+  const before = structuredClone(doc.spec);
+  const compiles = scene.compiles;
+  const r = doc.transaction('Delete two', () => {
+    doc.deleteObject('lamp');
+    doc.deleteObject('bead');        // refused: it still has instances
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /prototype of/);
+  assert.deepEqual(doc.spec, before);
+  assert.equal(scene.compiles, compiles);
+  assert.equal(doc.canUndo, false);
+});

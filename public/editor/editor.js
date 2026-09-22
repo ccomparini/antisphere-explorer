@@ -153,11 +153,13 @@ async function main() {
   // -- picking ---------------------------------------------------------------
 
   // A click selects the object under the cursor, a double click the node
-  // itself, and a click on nothing clears the selection. A press that moves
-  // more than a few pixels is a camera drag, not a click.
+  // itself, and a click on nothing clears the selection. Shift adds to the
+  // selection instead of replacing it, and then a click on nothing leaves it
+  // alone. A press that moves more than a few pixels is a camera drag, not a
+  // click.
   const CLICK_SLOP = 4;
 
-  async function pickAt(view, event, deep) {
+  async function pickAt(view, event, { deep = false, add = false } = {}) {
     if (typeof scene.pick !== 'function' || !scene.provenance) {
       note('picking needs ASScene.pick() and ASScene.provenance', true);
       return;
@@ -165,12 +167,15 @@ async function main() {
     const rect = view.pane.querySelector('canvas').getBoundingClientRect();
     const { origin, direction } = rayThroughPixel(view.camera, rect, event.clientX, event.clientY);
     const hit = await scene.pick(origin, direction);
-    if (!hit) { doc.clearSelection(); return; }
+    if (!hit) { if (!add) doc.clearSelection(); return; }
     const target = selectionForHit(scene.provenance, hit.node, { deep });
     if (!target) { note('nothing selectable there'); return; }
     // The scene may have changed during the round trip; a stale hit just
     // fails to select.
-    if (!doc.select(target.owner, target.path)) note('that has changed; try again');
+    const chosen = add
+      ? doc.addToSelection(target.owner, target.path)
+      : doc.select(target.owner, target.path);
+    if (!chosen) note('that has changed; try again');
   }
 
   views.forEach((v) => {
@@ -198,7 +203,7 @@ async function main() {
       press = null;
       if (!start || document.pointerLockElement) return;
       if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > CLICK_SLOP) return;
-      pickAt(v, e, e.detail >= 2);
+      pickAt(v, e, { deep: e.detail >= 2, add: e.shiftKey });
     });
   });
   views[0].pane.classList.add('active');
