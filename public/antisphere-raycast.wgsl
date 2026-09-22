@@ -1,40 +1,56 @@
 // Antisphere ray caster.
 //
-// An antisphere is five numbers. Authoring uses (n.xyz, a, k): the unit
-// normal at the near diametric point, the signed distance from the origin to
-// that point, and the signed curvature k = 1/(a+b) = 1/(2r). Planes are k = 0.
-// Negating all five gives the exact complement.
+// An antisphere is nine numbers: a unit axis of revolution, a curvature
+// along it, a curvature around it, a linear term and a constant. That covers
+// every quadric of revolution - sphere, spheroid, plane, slab, cylinder,
+// paraboloid, hyperboloid of one or two sheets, cone - and negating all but
+// the axis gives the exact complement, as it always did. Spheres and planes
+// are the isotropic case, where the two curvatures are equal and the axis
+// stops mattering.
 //
-// The GPU stores the same five numbers in lifted form instead, because every
-// runtime formula is cheaper in it and nothing is lost: n and a are never
-// needed here, since the centre, the gradient and a plane's normal all come
-// straight out of the lift. See Node.
+// The GPU stores a rearrangement of those nine rather than the numbers an
+// author wrote, because every runtime formula is cheaper in it and nothing
+// is lost. See Node.
 //
 // Traversal is a solid BSP walk where each node splits the ray at up to two
 // points instead of one. Bindings, in order: camera, nodes, output image,
 // lights, materials, then (traceFrom only) ray queries and ray results.
 
 struct Node {
-  // The implicit function in lifted form:
+  // A revolution quadric:
   //
-  //   f(R) = lift_linear . R  +  curvature * (R . R)  +  lift_const
+  //   H(R) = curvature_perp (R.R) + curvature_delta (R.axis)^2
+  //          + linear . R + const_term
   //
-  // which is (n, a, k) precomputed by the scene compiler as
-  // lift_linear = (1 - 2ak)n and lift_const = a^2 k - a. Two dot products
-  // and an add, where the (n, a, k) form re-derived (1 - 2ak) and
-  // (a^2 k - a) on every call — and fAt is called about four times per node
-  // visit, once for the ray's own origin and once per subsegment midpoint.
+  // which is transpose(R) K R + 2 c.R + d for the scene compiler's
+  // K = k_perp I + (k_par - k_perp) axis(x)axis. Two of the nine numbers
+  // arrive rearranged, because these are the forms the formulas below
+  // actually use:
+  //
+  //   curvature_delta = k_par - k_perp     zero for a sphere or a plane
+  //   linear          = 2c                 as both H and its gradient want it
+  //
+  // Nothing is lost - k_par is curvature_perp + curvature_delta, and c is
+  // linear/2 - and the isotropic case is exactly the old five numbers doing
+  // what they always did: a sphere has curvature_delta 0 and curvature_perp
+  // 1/(2r); a plane has both curvatures 0, leaving linear as its unit normal
+  // and const_term as -a.
   //
   // Everything else derives from these too:
-  //   grad f  = 2*curvature*R + lift_linear
-  //   centre  = -lift_linear / (2*curvature)          (spheres)
-  //   normal  = lift_linear                           (planes: 1-2ak = 1)
-  lift_linear    : vec3<f32>,   // (1 - 2ak) n
-  curvature      : f32,         // k, signed; zero is a plane
-  lift_const     : f32,         // a^2 k - a
+  //   grad H  = 2*curvature_perp*R + 2*curvature_delta*(R.axis)*axis + linear
+  //   centre  = -linear / (2*curvature_perp)     (spheres; see frame())
+  //   normal  = linear                           (planes)
+  //
+  // curvature_delta is also the test for "does this primitive have an axis
+  // at all": zero means every direction is alike and `axis` is arbitrary.
+  axis            : vec3<f32>,  // unit axis of revolution
+  curvature_perp  : f32,        // k_perp, signed; curvature around the axis
+  linear          : vec3<f32>,  // 2c
+  curvature_delta : f32,        // k_par - k_perp
+  const_term      : f32,        // d
 
-  inside         : u32,         // index of inside child or 0u -> no child
-  outside        : u32,         // same but outside
+  inside          : u32,        // index of inside child or 0u -> no child
+  outside         : u32,        // same but outside
 
   // "material" is an index into the materials table describing what's
   // "inside" the node.  Since nodes are surface boundaries, this means
@@ -45,11 +61,11 @@ struct Node {
   // authors to make things look right.
   // Material 0 is reseved for empty space. The "outside" material is
   // implicitly 0.
-  material       : i32,
+  material        : i32,
 
   // Precomputed index of the "ambient" material in force at this node.
   // Used for applying region scoped lighting or other effects.
-  env            : i32,
+  env             : i32,
 };
 
 struct Material {
@@ -128,13 +144,18 @@ struct Light {
 // instead, which is cheaper. Kept because it is the definition everything
 // else is derived from, and for callers that have a point rather than a ray.
 fn fAt(nd : Node, R : vec3<f32>) -> f32 {
-  return dot(nd.lift_linear, R) + nd.curvature * dot(R, R) + nd.lift_const;
+  let along = dot(nd.axis, R);
+  return nd.curvature_perp * dot(R, R) + nd.curvature_delta * along * along
+       + dot(nd.linear, R) + nd.const_term;
 }
 
-// grad f = 2kR + (1 - 2ak)n, which is exactly the lift's own coefficients.
-// Reduces to the plane normal when curvature is zero.
+// grad H = 2KR + 2c, which is exactly the stored coefficients. Reduces to
+// 2kR + 2c for a sphere and to the plane's own normal when both curvatures
+// are zero. Callers normalize, so the factor of two is harmless.
 fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
-  return 2.0 * nd.curvature * R + nd.lift_linear;
+  return 2.0 * nd.curvature_perp * R
+       + 2.0 * nd.curvature_delta * dot(nd.axis, R) * nd.axis
+       + nd.linear;
 }
 
 // A stack entry is a piece of work not yet done: an interval of the ray and
@@ -164,6 +185,10 @@ struct Seg {
 };
 
 const DEFAULT_INSIDE_BIT : u32 = 0x80000000u;
+
+// Below this, a ray's polynomial coefficient counts as zero: see the ruled
+// surfaces in trace().
+const DEGENERATE : f32 = 1e-12;
 
 // The first solid thing along a ray, as a Seg: node is the node whose
 // region the ray entered (never tagged), t0 how far along the ray it
@@ -232,11 +257,18 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       let nd = nodes[descent_node];
       visits = visits + 1u;
 
-      // Substituting R = O + tD gives A t^2 + B t + C, with A = k (|D| = 1).
-      // A plane is the quadratic degenerating to linear.
-      let A = nd.curvature;
-      let B = 2.0 * nd.curvature * originDotDir + dot(nd.lift_linear, D);
-      let C = dot(nd.lift_linear, O) + nd.curvature * originSq + nd.lift_const;
+      // Substituting R = O + tD into H gives A t^2 + B t + C (|D| = 1). A
+      // plane is the quadratic degenerating to linear, and so is a cylinder
+      // or a paraboloid to a ray that runs along its axis.
+      let axisDotDir = dot(nd.axis, D);
+      let axisDotOrigin = dot(nd.axis, O);
+      let A = nd.curvature_perp + nd.curvature_delta * axisDotDir * axisDotDir;
+      let B = 2.0 * (nd.curvature_perp * originDotDir
+                     + nd.curvature_delta * axisDotOrigin * axisDotDir)
+              + dot(nd.linear, D);
+      let C = nd.curvature_perp * originSq
+              + nd.curvature_delta * axisDotOrigin * axisDotOrigin
+              + dot(nd.linear, O) + nd.const_term;
 
       // Roots start beyond any segment a ray can carry, so a miss, a ray
       // parallel to a plane, and a plane's sentinel far root are all rejected
@@ -244,7 +276,15 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       var r0 = 1e30;
       var r1 = 1e30;
       let disc = B * B - 4.0 * A * C;
-      if (disc >= 0.0) {
+      // Cylinders, cones and hyperboloids of one sheet are ruled: they
+      // contain whole straight lines, and a ray along one makes A, B and C
+      // vanish together - H is zero the length of the ray, not at two points
+      // on it. The all-zero sentinel node does the same. Both have to be
+      // caught before the divide, since WGSL's fast-math assumption means a
+      // NaN produced there may never be noticed downstream. With no roots the
+      // segment stays whole, and the midpoint test below puts it outside,
+      // which is right: a ray lying in a surface never enters it.
+      if (disc >= 0.0 && (abs(A) > DEGENERATE || abs(B) > DEGENERATE)) {
         let sq = sqrt(disc);
         var q = -0.5 * (B + sq);
         if (B < 0.0) { q = -0.5 * (B - sq); }
@@ -343,21 +383,47 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   rayResults[i] = trace(q.o, q.d, q.tMin, q.tMax);
 }
 
-// Surface parameterization from the node's own five numbers. A plane gets a
-// tangent basis; a sphere gets longitude and latitude about its center.
+// Surface parameterization from the node's own numbers. A plane gets a
+// tangent basis; a sphere gets longitude and latitude about its centre; and
+// anything with a real axis - spheroid, cylinder, cone, paraboloid,
+// hyperboloid - gets the natural cylindrical pair: the angle around the axis
+// and the distance along it.
 fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
-  if (nd.curvature == 0.0) {
-    // 1 - 2ak is exactly 1 for a plane, so lift_linear is the unit normal.
-    let normal = nd.lift_linear;
-    var axis = vec3<f32>(0.0, 0.0, 1.0);
-    if (abs(normal.z) > 0.9) { axis = vec3<f32>(1.0, 0.0, 0.0); }
-    let t = normalize(cross(normal, axis));
-    let b = cross(normal, t);
+  // A tangent basis for an axis or a normal, avoiding the degenerate cross.
+  var axis = nd.axis;
+  if (nd.curvature_perp == 0.0 && nd.curvature_delta == 0.0) {
+    // A plane: both curvatures zero leaves linear as the unit normal.
+    axis = nd.linear;
+  }
+  var helper = vec3<f32>(0.0, 0.0, 1.0);
+  if (abs(axis.z) > 0.9) { helper = vec3<f32>(1.0, 0.0, 0.0); }
+  let t = normalize(cross(axis, helper));
+  let b = cross(axis, t);
+
+  if (nd.curvature_perp == 0.0 && nd.curvature_delta == 0.0) {
     return vec2<f32>(dot(P, t), dot(P, b));
   }
-  let c = nd.lift_linear / (-2.0 * nd.curvature);   // sphere centre
-  let d = normalize(P - c);
-  return vec2<f32>(atan2(d.y, d.x), asin(clamp(d.z, -1.0, 1.0)));
+  if (nd.curvature_delta == 0.0) {
+    // Isotropic: a sphere about -c/k, in longitude and latitude as before.
+    let centre = nd.linear / (-2.0 * nd.curvature_perp);
+    let d = normalize(P - centre);
+    return vec2<f32>(atan2(d.y, d.x), asin(clamp(d.z, -1.0, 1.0)));
+  }
+
+  // An axis of its own. Anchor at whichever centre exists: along the axis
+  // when there is curvature along it, across when there is curvature
+  // around it. A cone or a cylinder has only one of the two; a spheroid has
+  // both, and they meet at its centre.
+  let c = 0.5 * nd.linear;
+  let k_par = nd.curvature_perp + nd.curvature_delta;
+  let axial = dot(c, axis);
+  var anchor = vec3<f32>(0.0);
+  if (k_par != 0.0) { anchor = anchor - (axial / k_par) * axis; }
+  if (nd.curvature_perp != 0.0) {
+    anchor = anchor - (c - axial * axis) / nd.curvature_perp;
+  }
+  let u = P - anchor;
+  return vec2<f32>(atan2(dot(u, b), dot(u, t)), dot(u, axis));
 }
 
 // ---------------------------------------------------------------------------

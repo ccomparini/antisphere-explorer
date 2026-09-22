@@ -1,48 +1,131 @@
 // ---------------------------------------------------------------------------
 // Antisphere representation
 //
-//   A node stores five numbers: (n.xyz, a, k)
-//     n  unit normal at the near diametric point P0
-//     a  signed distance from origin to P0 along n   (P0 = a*n)
-//     k  signed curvature, k = 1/(a+b) = 1/(2r)
+//   A node stores nine numbers: (n.xyz, k_par, k_perp, c.xyz, d)
+//     n       unit axis of revolution
+//     k_par   curvature along the axis
+//     k_perp  curvature in every direction perpendicular to it
+//     c       linear term; a free vector, not generally parallel to n
+//     d       constant term
 //
 //   Implicit function:
-//     f(R) = k(R.R) + (1 - 2ak)(R.n) - a + k a^2
-//   f(R) < 0 means inside. For k > 0, f = k*(|R-C|^2 - r^2).
-//   For k = 0 it collapses to R.n - a, the plane equation.
+//     H(R) = transpose(R) K R + 2 c.R + d,  K = k_perp I + (k_par-k_perp) n(x)n
+//          = k_perp (R.R) + (k_par - k_perp)(R.n)^2 + 2 c.R + d
 //
-//   center C = (a - 1/(2k)) n,  radius r = 1/(2k)
-//   Negating all five numbers gives the exact complement (f -> -f).
+//   H(R) < 0 still means inside, and negating k_par, k_perp, c and d still
+//   gives the exact complement.
+//
+//   The original five numbers (n, a, k) are the isotropic case of this, and
+//   compile to exactly what they used to:
+//     sphere  k_par = k_perp = 1/(2r),  c = -kC,  d = k(|C|^2 - r^2)
+//     plane   k_par = k_perp = 0,       c = n/2,  d = -a
+//
+//   What the signs of the two curvatures mean (see hyperconic.md):
+//     equal, non-zero      sphere
+//     same sign, unequal   spheroid: oblate if k_par > k_perp, else prolate
+//     both zero            plane
+//     k_perp = 0           slab, or a parabolic cylinder when c has a
+//                          perpendicular component
+//     k_par = 0            cylinder, or a paraboloid when c has an axial one
+//     opposite signs       hyperboloid of one or two sheets, or, where the
+//                          surface passes through its own centre, a cone
+//
+//   Only sphere and spheroid enclose a bounded solid, which is why
+//   regionBall() checks the signs rather than just whether K inverts.
 // ---------------------------------------------------------------------------
 
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+function unitVector(v, fallback = [0, 0, 1]) {
+  const len = Math.hypot(v[0], v[1], v[2]);
+  return len > 1e-12 ? v.map((x) => x / len) : fallback;
+}
+
+// K v, for K = k_perp I + (k_par - k_perp) n(x)n.
+function applyCurvature(prim, v) {
+  const delta = prim.k_par - prim.k_perp;
+  const along = dot3(v, prim.axis);
+  return v.map((x, i) => prim.k_perp * x + delta * along * prim.axis[i]);
+}
+
+/** A quadric straight from its stored numbers; the axis need not be unit. */
+function quadric(axis, k_par, k_perp, linear, constant) {
+  return { axis: unitVector(axis), k_par, k_perp, linear, constant };
+}
+
+/**
+ * A quadric written about a point, which is how every shape below is easiest
+ * to state: H(R) = u K u + localLinear.u + localConst, with u = R - centre.
+ * Expanding that gives c = -K centre + localLinear/2 and
+ * d = centre.K centre - localLinear.centre + localConst.
+ */
+function about(axis, k_par, k_perp, centre, localLinear = [0, 0, 0], localConst = 0) {
+  const prim = quadric(axis, k_par, k_perp, [0, 0, 0], 0);
+  const Kc = applyCurvature(prim, centre);
+  prim.linear = Kc.map((v, i) => -v + 0.5 * localLinear[i]);
+  prim.constant = dot3(centre, Kc) - dot3(localLinear, centre) + localConst;
+  return prim;
+}
+
+// The isotropic pair, unchanged in meaning: H = k(|R - C|^2 - r^2) for a
+// sphere, H = n.R - a for a plane.
 function sphere(center, radius) {
-  const originDist = Math.hypot(center[0], center[1], center[2]);
-  const unit = originDist > 1e-9
-    ? center.map((v) => v / originDist) : [0, 0, 1];
-  // P0 is the far intersection of the line through the origin, where the
-  // outward normal is `unit`.
-  return {
-    surface_normal: unit,
-    p0_dist: originDist + radius,
-    curvature: 1 / (2 * radius),
-  };
+  const k = 1 / (2 * radius);
+  return about(unitVector(center), k, k, center, [0, 0, 0], -k * radius * radius);
 }
 
 function plane(normal, offset) {
-  const len = Math.hypot(normal[0], normal[1], normal[2]);
-  return {
-    surface_normal: normal.map((v) => v / len),
-    p0_dist: offset / len,
-    curvature: 0,
-  };
+  const n = unitVector(normal);
+  return quadric(n, 0, 0, n.map((v) => v / 2), -offset / Math.hypot(normal[0], normal[1], normal[2]));
 }
 
-// CSG complement: negate all five stored numbers.
+// Rotationally symmetric ellipsoid: semiAxial along the axis, semiRadial
+// around it. Equal semi-axes give a sphere back.
+function spheroid(centre, axis, semiAxial, semiRadial) {
+  return about(axis, 1 / (semiAxial * semiAxial), 1 / (semiRadial * semiRadial),
+               centre, [0, 0, 0], -1);
+}
+
+// Infinite right circular cylinder about the axis through `centre`.
+function cylinder(centre, axis, radius) {
+  return about(axis, 0, 1 / (radius * radius), centre, [0, 0, 0], -1);
+}
+
+// The solid between two parallel planes, `thickness` apart, centred on
+// `centre` and perpendicular to the axis.
+function slab(centre, axis, thickness) {
+  const half = thickness / 2;
+  return about(axis, 1, 0, centre, [0, 0, 0], -half * half);
+}
+
+// Double cone with its apex on the axis; slope is radius gained per unit
+// length along the axis, so a 45 degree cone has slope 1.
+function cone(apex, axis, slope) {
+  return about(axis, -slope * slope, 1, apex, [0, 0, 0], 0);
+}
+
+// Paraboloid of revolution opening along +axis from its vertex; `focal` is
+// the focal length, so the surface is |R_perp|^2 = 4 focal x.
+function paraboloid(vertex, axis, focal) {
+  const n = unitVector(axis);
+  return about(n, 0, 1, vertex, n.map((v) => -4 * focal * v), 0);
+}
+
+// One sheet (a waist of `radius` about the axis) or two (opening away from
+// `centre` along it); semiAxial sets how fast they open.
+function hyperboloid(centre, axis, radius, semiAxial, sheets) {
+  return about(axis, -1 / (semiAxial * semiAxial), 1 / (radius * radius),
+               centre, [0, 0, 0], sheets === 2 ? 1 : -1);
+}
+
+// CSG complement: negate everything but the axis, which has no side.
 function complement(prim) {
   return {
-    surface_normal: prim.surface_normal.map((v) => -v),
-    p0_dist: -prim.p0_dist,
-    curvature: -prim.curvature,
+    axis: prim.axis,
+    k_par: -prim.k_par,
+    k_perp: -prim.k_perp,
+    linear: prim.linear.map((v) => -v),
+    constant: -prim.constant,
   };
 }
 
@@ -163,32 +246,27 @@ function union(t, other) {
               t.material, t.env, t.prov);
 }
 
-// Rigid translation of a primitive by a world-space offset. n and a are
-// defined relative to the global origin (see the module comment up top),
-// so translating anything - not just a sphere's center - changes both:
-// recover the center implied by (n, a, k), move it, then re-derive (n, a)
-// from the new center, keeping the same sign of (a - r) so a small move
-// can't flip which side of the primitive counts as "inside". Curvature -
-// the sphere's size, sign included - never changes under a translation.
+// Rigid translation of a primitive by a world-space offset. Substituting
+// R - t for R leaves the axis and both curvatures alone and moves only the
+// linear and constant terms:
+//   c' = c - K t,  d' = d - 2 c.t + t.K t
+// which is exact for every shape in the family, and needs none of the
+// re-derivation the old (n, a, k) form did: that form compressed the
+// position into a single distance along the normal, which is precisely what
+// stops working once a primitive has an axis of its own.
 function translatePrim(prim, t) {
-  const { surface_normal: n, p0_dist: a, curvature: k } = prim;
-  if (k === 0) {
-    // A plane's normal doesn't move; only its offset does, by however far
-    // along that normal the translation goes.
-    const shift = n[0] * t[0] + n[1] * t[1] + n[2] * t[2];
-    return { surface_normal: n, p0_dist: a + shift, curvature: k };
-  }
-  const r = 1 / (2 * k);
-  const sign = (a - r) < 0 ? -1 : 1;
-  const c = n.map((v) => v * (a - r));
-  const c2 = c.map((v, i) => v + t[i]);
-  const mag = Math.hypot(c2[0], c2[1], c2[2]);
-  const n2 = mag > 1e-9 ? c2.map((v) => sign * v / mag) : n;
-  return { surface_normal: n2, p0_dist: sign * mag + r, curvature: k };
+  const Kt = applyCurvature(prim, t);
+  return {
+    axis: prim.axis,
+    k_par: prim.k_par,
+    k_perp: prim.k_perp,
+    linear: prim.linear.map((v, i) => v - Kt[i]),
+    constant: prim.constant - 2 * dot3(prim.linear, t) + dot3(t, Kt),
+  };
 }
 
 // Rigid translation of a whole subtree: every node's own primitive moves,
-// recursively, since each one's (n, a, k) is in the same global frame (see
+// recursively, since each one's numbers are in the same global frame (see
 // translatePrim). This is what "translate" (see tree()) rides on to place
 // an object authored once under "objects" wherever it's needed, instead
 // of copying and hand-editing every number in it per instance. A
@@ -275,7 +353,7 @@ function bakeScopes(tree) {
 // specified already had ("inside" solid, "outside" empty); it just
 // no longer needs a placeholder leaf material to say so.
 function flatten(tree) {
-  const out = [{ prim: { surface_normal: [0, 0, 0], p0_dist: 0, curvature: 0 },
+  const out = [{ prim: { axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: 0 },
                  material: 0, env: 0, inside: 0, outside: 0, prov: null }];
   const memo = new Map();
   const walk = (t) => {
@@ -297,9 +375,10 @@ function flatten(tree) {
 //
 // The bounding sphere of a subtree's solid region, used by "group" to check
 // the author's disjointness claim and to build the early-out tests. A node's
-// own five numbers already describe a ball whenever that side of it is
-// bounded: the inside for k > 0, the outside for k < 0. A half-space bounds
-// neither side.
+// own numbers already describe a ball whenever that side of it is bounded:
+// the inside for positive curvature, the outside for negative. A half-space
+// bounds neither side, and neither does anything with an axis it runs off
+// along - a cylinder, a paraboloid, a hyperboloid or a cone.
 //
 // Returns NO_SOLID, UNBOUNDED, or { c, r }.
 // ---------------------------------------------------------------------------
@@ -309,11 +388,25 @@ const UNBOUNDED = 'unbounded';
 
 const dist3 = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]);
 
+// Only a sphere or a spheroid encloses anything: both curvatures non-zero
+// and of one sign. Everything else - and the unbounded side of those - gets
+// null, which boundOf() reads as "this side is not bounded by me", the same
+// as a half-space always did.
 function regionBall(prim, insideSide) {
-  if (prim.curvature === 0) return null;
-  if (insideSide !== (prim.curvature > 0)) return null;
-  const r = 0.5 / prim.curvature;
-  return { c: prim.surface_normal.map((v) => v * (prim.p0_dist - r)), r: Math.abs(r) };
+  const { k_par, k_perp, linear: c } = prim;
+  if (k_par === 0 || k_perp === 0) return null;
+  if ((k_par > 0) !== (k_perp > 0)) return null;      // hyperboloid or cone
+  if (insideSide !== (k_perp > 0)) return null;       // the side that runs off
+
+  // Centre C = -K^-1 c, using K^-1 = (1/k_perp) I + (1/k_par - 1/k_perp) n(x)n.
+  // About it the surface is u K u = E, so the semi-axes are sqrt(E/k_par)
+  // along the axis and sqrt(E/k_perp) around it.
+  const axial = dot3(c, prim.axis);
+  const centre = c.map((v, i) =>
+    -(v / k_perp + (1 / k_par - 1 / k_perp) * axial * prim.axis[i]));
+  const E = -(dot3(c, centre) + prim.constant);
+  if (E / k_perp <= 0) return null;                   // empty, or a single point
+  return { c: centre, r: Math.max(Math.sqrt(E / k_par), Math.sqrt(E / k_perp)) };
 }
 
 // Bounding sphere of the intersection of two balls. Exact for containment,
@@ -474,19 +567,80 @@ export function compileScene(spec) {
     return resolveMaterialName(def.paint, `${path}.paint`);
   }
 
+  // Every shape a node can be. Each is stated the way an author thinks of
+  // it - a centre, an axis, some lengths - and turned into the nine numbers
+  // by the constructors up top. "quadric" is the way out for anything the
+  // named shapes don't cover, a parabolic cylinder for instance.
+  const SHAPES = {
+    sphere: (def, path) => {
+      const { center, radius } = def;
+      if (!center || !(radius > 0)) at(path, 'needs center and positive radius');
+      return sphere(center, radius);
+    },
+    plane: (def, path) => {
+      if (!def.normal) at(path, 'needs normal');
+      return plane(def.normal, def.offset ?? 0);
+    },
+    spheroid: (def, path) => {
+      const { center, axis, semiAxial, semiRadial } = def;
+      if (!center || !axis) at(path, 'needs center and axis');
+      if (!(semiAxial > 0) || !(semiRadial > 0)) {
+        at(path, 'needs positive semiAxial (along the axis) and semiRadial (around it)');
+      }
+      return spheroid(center, axis, semiAxial, semiRadial);
+    },
+    cylinder: (def, path) => {
+      const { center, axis, radius } = def;
+      if (!center || !axis) at(path, 'needs center (a point on the axis) and axis');
+      if (!(radius > 0)) at(path, 'needs a positive radius');
+      return cylinder(center, axis, radius);
+    },
+    slab: (def, path) => {
+      const { center, axis, thickness } = def;
+      if (!center || !axis) at(path, 'needs center and axis');
+      if (!(thickness > 0)) at(path, 'needs a positive thickness');
+      return slab(center, axis, thickness);
+    },
+    cone: (def, path) => {
+      const { apex, axis, slope } = def;
+      if (!apex || !axis) at(path, 'needs apex and axis');
+      if (!(slope > 0)) at(path, 'needs a positive slope: radius gained per unit along the axis');
+      return cone(apex, axis, slope);
+    },
+    paraboloid: (def, path) => {
+      const { vertex, axis, focal } = def;
+      if (!vertex || !axis) at(path, 'needs vertex and axis');
+      if (!(focal > 0)) at(path, 'needs a positive focal length');
+      return paraboloid(vertex, axis, focal);
+    },
+    hyperboloid: (def, path) => {
+      const { center, axis, radius, semiAxial, sheets = 1 } = def;
+      if (!center || !axis) at(path, 'needs center and axis');
+      if (!(radius > 0) || !(semiAxial > 0)) at(path, 'needs positive radius and semiAxial');
+      if (sheets !== 1 && sheets !== 2) at(path, 'sheets must be 1 or 2');
+      return hyperboloid(center, axis, radius, semiAxial, sheets);
+    },
+    quadric: (def, path) => {
+      const { axis, k_par, k_perp, c, d } = def;
+      if (!axis || !c) at(path, 'needs axis and c');
+      if (typeof k_par !== 'number' || typeof k_perp !== 'number' || typeof d !== 'number') {
+        at(path, 'needs numeric k_par, k_perp and d');
+      }
+      if (k_par === 0 && k_perp === 0 && !c.some((v) => v !== 0)) {
+        at(path, 'is zero everywhere, so it has no surface');
+      }
+      return quadric(axis, k_par, k_perp, c.slice(), d);
+    },
+  };
+
   function primOf(def, path) {
-    let p;
-    if (def.sphere) {
-      const { center, radius } = def.sphere;
-      if (!center || !(radius > 0)) at(`${path}.sphere`, 'needs center and positive radius');
-      p = sphere(center, radius);
-    } else if (def.plane) {
-      const { normal, offset } = def.plane;
-      if (!normal) at(`${path}.plane`, 'needs normal');
-      p = plane(normal, offset ?? 0);
-    } else {
-      at(path, 'needs a sphere or plane');
+    const named = Object.keys(SHAPES).filter((shape) => def[shape] !== undefined);
+    if (named.length === 0) {
+      at(path, `needs a shape: one of ${Object.keys(SHAPES).join(', ')}`);
     }
+    if (named.length > 1) at(path, `has more than one shape: ${named.join(' and ')}`);
+    const shape = named[0];
+    const p = SHAPES[shape](def[shape], `${path}.${shape}`);
     return def.complement ? complement(p) : p;
   }
 
@@ -618,7 +772,7 @@ export function compileScene(spec) {
   // A subtree whose root already confines all of its solid to one ball needs
   // no separate bounding test: the root node is the test.
   const selfBounded = (t) =>
-    t !== EMPTY && t.outside === EMPTY && t.prim.curvature > 0;
+    t !== EMPTY && t.outside === EMPTY && regionBall(t.prim, true) !== null;
 
   // Memoized, so a member landing in two children stays one subtree. The
   // bounding sphere itself is never meant to be individually visible, so
@@ -783,41 +937,49 @@ export function packMaterials(list) {
   return buf;
 }
 
-// 48 bytes per node: vec3 n | f32 a | f32 k | u32 inside | u32 outside |
-//                    i32 material | i32 env | 12 bytes pad.
+// 64 bytes per node: vec3 axis | f32 k_perp | vec3 linear | f32 k_delta |
+//                    f32 const | u32 inside | u32 outside | i32 material |
+//                    i32 env | 12 bytes pad.
+//
+// What goes to the GPU is not quite what a node stores: k_par arrives as
+// curvature_delta = k_par - k_perp, and c arrives doubled, because those are
+// the forms every runtime formula wants (see antisphere-raycast.wgsl's Node
+// and trace()). Both are exactly recoverable, so nothing is lost, and the
+// isotropic case falls out as curvature_delta == 0, which is also what tells
+// the shader the axis can be ignored.
 //
 // inside/outside are 0 or a real index (see flatten()'s doc comment for
 // what 0 means on each side); Int32Array vs. Uint32Array makes no
 // difference here since they only ever hold small non-negative values -
 // only antisphere-raycast.wgsl's own struct declaration needs to say u32.
 //
-// The 9 real words above are only 36 bytes, but WGSL's storage-array
+// The 13 real words above are only 52 bytes, but WGSL's storage-array
 // stride for a struct rounds up to a multiple of the struct's own
 // alignment - 16, inherited from the leading vec3 - so the per-node
-// stride is 48, not 36. Getting this wrong silently corrupts every node
+// stride is 64, not 52. Getting this wrong silently corrupts every node
 // after the first, so if another field ever gets added here, recompute
 // the stride the same way: lay out real words in order, then round the
 // total up to the next multiple of 16.
 export function packNodes(list) {
-  const buf = new ArrayBuffer(list.length * 48);
+  const buf = new ArrayBuffer(list.length * 64);
   const f = new Float32Array(buf), i = new Int32Array(buf);
   list.forEach((nd, j) => {
-    const o = j * 12;
-    const a = nd.prim.p0_dist;
-    const k = nd.prim.curvature;
-    const lin = 1 - 2 * a * k;
-    f[o + 0] = lin * nd.prim.surface_normal[0]; // lift_linear[0]
-    f[o + 1] = lin * nd.prim.surface_normal[1]; // lift_linear[1]
-    f[o + 2] = lin * nd.prim.surface_normal[2]; // lift_linear[2]
-    f[o + 3] = nd.prim.curvature;
-    f[o + 4] = a * a * k - a;     // lift_const
-    i[o + 5] = nd.inside;
-    i[o + 6] = nd.outside;
-    i[o + 7] = nd.material;
-    i[o + 8] = nd.env;
-    // o+9..o+11 are the 12 bytes of trailing pad; left zeroed.
-
-
+    const o = j * 16;
+    const { axis, k_par, k_perp, linear, constant } = nd.prim;
+    f[o + 0] = axis[0];
+    f[o + 1] = axis[1];
+    f[o + 2] = axis[2];
+    f[o + 3] = k_perp;
+    f[o + 4] = 2 * linear[0];       // 2c
+    f[o + 5] = 2 * linear[1];
+    f[o + 6] = 2 * linear[2];
+    f[o + 7] = k_par - k_perp;      // curvature_delta
+    f[o + 8] = constant;
+    i[o + 9] = nd.inside;
+    i[o + 10] = nd.outside;
+    i[o + 11] = nd.material;
+    i[o + 12] = nd.env;
+    // o+13..o+15 are the 12 bytes of trailing pad; left zeroed.
   });
   return buf;
 }
