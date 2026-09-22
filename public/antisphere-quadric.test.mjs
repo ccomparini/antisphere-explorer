@@ -323,3 +323,133 @@ test('a node must name exactly one shape', () => {
   assert.throws(() => packed({ cone: { apex: [0, 0, 0], axis: [0, 0, 1], slope: 0 } }),
                 /positive slope/);
 });
+
+// -- rotation and scale ---------------------------------------------------------------
+
+// Rotating a shape must move its surface exactly: H'(R) = H(R turned back).
+function turnedBack(axis, degrees, pivot, R) {
+  const a = Math.hypot(...axis);
+  const [x, y, z] = axis.map((v) => v / a);
+  const th = -degrees * Math.PI / 180;              // the inverse turn
+  const c = Math.cos(th), s = Math.sin(th);
+  const u = R.map((v, i) => v - pivot[i]);
+  const kdotu = x * u[0] + y * u[1] + z * u[2];
+  const cross = [y * u[2] - z * u[1], z * u[0] - x * u[2], x * u[1] - y * u[0]];
+  return [x, y, z].map((k, i) =>
+    u[i] * c + cross[i] * s + k * kdotu * (1 - c) + pivot[i]);
+}
+
+test('rotation turns the surface and leaves the curvatures alone', () => {
+  const shape = { spheroid: { center: [2, 0, 0], axis: [0, 0, 1],
+                              semiAxial: 3, semiRadial: 1 } };
+  const still = packed(shape);
+  const turned = packed(shape, { rotate: { axis: [0, 1, 0], degrees: 90 } });
+  near(turned.curvature_perp, still.curvature_perp);
+  near(turned.curvature_delta, still.curvature_delta);
+  // The axis was +Z; a quarter turn about +Y takes it to +X.
+  near(Math.abs(turned.axis[0]), 1);
+  for (const R of [[0, 0, 0], [1, 2, 3], [-4, 0, 2], [0.5, -1, 0]]) {
+    near(H(turned, R), H(still, turnedBack([0, 1, 0], 90, [0, 0, 0], R)), 1e-4);
+  }
+});
+
+test('rotation about a pivot turns the shape where it stands', () => {
+  const shape = { cylinder: { center: [4, 0, 0], axis: [0, 0, 1], radius: 1 } };
+  const pivot = [4, 0, 0];
+  const turned = packed(shape, { rotate: { axis: [1, 0, 0], degrees: 90, pivot } });
+  // The axis is now +Y, and the cylinder still runs through its own centre.
+  near(Math.abs(turned.axis[1]), 1);
+  for (const y of [-6, 0, 6]) {
+    onSurface(turned, [5, y, 0]);
+    inside(turned, [4, y, 0]);
+  }
+  // Radians say the same thing as degrees.
+  const inRadians = packed(shape, { rotate: { axis: [1, 0, 0], radians: Math.PI / 2, pivot } });
+  for (const R of [[5, 1, 0], [4, -2, 0.5]]) near(H(inRadians, R), H(turned, R));
+});
+
+test('scale resizes about the origin, or about a pivot', () => {
+  const sphere = packed({ sphere: { center: [2, 0, 0], radius: 1 } }, { scale: 3 });
+  onSurface(sphere, [9, 0, 0]);                     // centre 6, radius 3
+  onSurface(sphere, [3, 0, 0]);
+  inside(sphere, [6, 0, 0]);
+  near(sphere.curvature_perp, 1 / 6);
+
+  const inPlace = packed({ sphere: { center: [2, 0, 0], radius: 1 } },
+                         { scale: { factor: 3, pivot: [2, 0, 0] } });
+  onSurface(inPlace, [5, 0, 0]);                    // centre stays, radius 3
+  onSurface(inPlace, [-1, 0, 0]);
+
+  // A plane keeps its normal and moves its offset; a cone about its apex
+  // doesn't change at all.
+  const plane = packed({ plane: { normal: [0, 0, 1], offset: 2 } }, { scale: 4 });
+  for (const z of [-3, 0, 8, 12]) near(H(plane, [1, 1, z]), z - 8);
+  // A cone about its apex is scale-invariant: same surface, H scaled by 1/s.
+  // Points exactly on it are no test of that - zero times anything is zero -
+  // so compare off it, where the sign has something to say.
+  const shape = { cone: { apex: [0, 0, 0], axis: [0, 0, 1], slope: 0.5 } };
+  const cone = packed(shape), scaled = packed(shape, { scale: 5 });
+  for (const R of [[1, 0, 3], [0, 3, 1], [2, 2, -9], [0.2, 0, 8]]) {
+    assert.notEqual(Math.sign(H(cone, R)), 0, `${R} should be off the surface`);
+    assert.equal(Math.sign(H(scaled, R)), Math.sign(H(cone, R)), `${R}`);
+    near(H(scaled, R) * 5, H(cone, R), 1e-4);
+  }
+});
+
+test('scale, rotate and translate apply in that order', () => {
+  const shape = { sphere: { center: [1, 0, 0], radius: 1 } };
+  const moved = packed(shape, {
+    scale: 2,                                       // centre (2,0,0), radius 2
+    rotate: { axis: [0, 0, 1], degrees: 90 },       // centre (0,2,0)
+    translate: [0, 0, 5],                           // centre (0,2,5)
+  });
+  onSurface(moved, [0, 4, 5]);
+  onSurface(moved, [0, 0, 5]);
+  inside(moved, [0, 2, 5]);
+  near(moved.curvature_perp, 1 / 4);
+
+  // Nesting is how any other order is said.
+  const other = packed({ union: [{ ...shape, translate: [0, 0, 5] }] }, { scale: 2 });
+  onSurface(other, [4, 0, 10]);                     // translated first, then scaled
+});
+
+test('transforms compose through use, and leave a prototype alone', () => {
+  const built = compileScene({
+    materials: {}, lights: [],
+    objects: { bar: { cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 } },
+               tipped: { use: 'bar', rotate: { axis: [1, 0, 0], degrees: 90 },
+                         translate: [0, 0, 3] } },
+    root: { sphere: { center: [0, 0, 0], radius: 40 }, inside: { union: ['bar', 'tipped'] } },
+  });
+  const f = new Float32Array(packNodes(built.nodes));
+  const axisOf = (i) => [f[i * 16], f[i * 16 + 1], f[i * 16 + 2]];
+  const axes = built.nodes.map((_, i) => axisOf(i));
+  assert.ok(axes.some((a) => Math.abs(a[2]) > 0.99), 'the upright bar is still upright');
+  assert.ok(axes.some((a) => Math.abs(a[1]) > 0.99), 'the tipped one lies along Y');
+});
+
+test('bad transforms are refused', () => {
+  const shape = { sphere: { center: [0, 0, 0], radius: 1 } };
+  assert.throws(() => packed(shape, { scale: 0 }), /positive factor/);
+  assert.throws(() => packed(shape, { scale: -2 }), /positive factor/);
+  assert.throws(() => packed(shape, { rotate: { degrees: 90 } }), /needs an axis/);
+  assert.throws(() => packed(shape, { rotate: { axis: [0, 0, 0], degrees: 90 } }), /no direction/);
+  assert.throws(() => packed(shape, { rotate: { axis: [0, 0, 1] } }), /degrees or radians/);
+  assert.throws(() => packed(shape, { rotate: { axis: [0, 0, 1], degrees: 1, radians: 1 } }),
+                /degrees or radians/);
+  assert.throws(() => packed(shape, { rotate: { axis: [0, 0, 1], degrees: 90, pivot: [1, 2] } }),
+                /\[x, y, z\] point/);
+});
+
+test('a rotated group still checks its members and bounds them', () => {
+  const scene = (degrees) => ({
+    materials: {}, lights: [],
+    objects: {
+      a: { spheroid: { center: [-3, 0, 0], axis: [0, 0, 1], semiAxial: 2, semiRadial: 1 } },
+      b: { spheroid: { center: [3, 0, 0], axis: [0, 0, 1], semiAxial: 2, semiRadial: 1 } },
+    },
+    root: { group: ['a', 'b'], rotate: { axis: [0, 1, 0], degrees } },
+  });
+  compileScene(scene(0));
+  compileScene(scene(37));                          // the group is built, then turned
+});

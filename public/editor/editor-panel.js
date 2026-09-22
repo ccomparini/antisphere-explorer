@@ -80,6 +80,13 @@ function describe(def) {
 
   const extras = [];
   if (def.translate) extras.push(`+${v3(def.translate)}`);
+  if (def.rotate) {
+    const turn = def.rotate.degrees ?? ((def.rotate.radians ?? 0) * 180 / Math.PI);
+    extras.push(`↻${+(+turn).toFixed(1)}°`);
+  }
+  if (def.scale !== undefined) {
+    extras.push(`×${+(+(def.scale.factor ?? def.scale)).toFixed(3)}`);
+  }
   if (def.bounds) extras.push('bounded');
   const tail = extras.length ? ` · ${extras.join(' · ')}` : '';
 

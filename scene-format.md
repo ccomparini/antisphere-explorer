@@ -1,7 +1,7 @@
 # Scene JSON format
 
 A scene file describes a camera, a material palette, a set of lights, and a
-CSG tree of antisphere/plane primitives. `compileScene()` in
+CSG tree of quadric primitives. `compileScene()` in
 `public/antisphere-scene.js` turns it into the flat node/material/light
 tables the WGSL raycaster (`public/antisphere-raycast.wgsl`) actually reads.
 See `public/scene.json` for a large worked example, and `public/scene-simple.json`
@@ -83,10 +83,23 @@ A map of name → subtree definition (see "Subtrees" below). Each entry is
 built once and shared by reference wherever it's referred to (by `"use"`, or
 by giving its name as a bare string inside a `"group"`/`"union"` array) — so
 reusing one collapses to a single set of nodes once the scene is flattened.
-The exception is placing it with `"translate"`, which produces genuinely
-different geometry and so can no longer share nodes with the original or
-with other translated instances. An object may not refer to itself, directly
-or through a chain of other objects.
+An object may not refer to itself, directly or through a chain of other
+objects.
+
+Two things break that sharing, both deliberately:
+
+- Placing a subtree with a **transform** (`"translate"`, `"rotate"`,
+  `"scale"`) produces genuinely different geometry, which can no longer
+  share nodes with the original or with other transformed copies.
+- An **instance** — an object whose whole body is a `"use"` of another
+  object — gets nodes of its own even when it isn't transformed, so that a
+  ray hit can say which instance was struck rather than only which prototype.
+  Two instances of the same prototype in the same place are the same
+  geometry twice over, and the compiler warns about it.
+
+That second point is what makes an object key an identity: every selectable
+thing in the editor is a named object, and a hit maps back to the nearest
+named object that owns the node it struck.
 
 ## `root`
 
@@ -101,25 +114,52 @@ Anywhere a subtree is expected, one of the following is valid:
   `{ "use": "<name>" }`. Only valid as a member of a `"group"`/`"union"`
   array.
 - an object with exactly one of `"use"`, `"group"`, or `"union"` (below).
-- an object with a primitive (`"sphere"` or `"plane"`), plus optional
+- an object with exactly one primitive (below), plus optional
   `"inside"`/`"outside"`/material fields — an ordinary CSG node.
 
-Any subtree object may also carry `"translate"` and/or `"bounds"` (below),
-regardless of which of the forms above it uses.
+Any subtree object may also carry `"translate"`, `"rotate"`, `"scale"`
+and/or `"bounds"` (below), regardless of which of the forms above it uses.
 
 ### Primitives
 
-A node (other than `"use"`/`"group"`/`"union"`) needs exactly one of:
+A node (other than `"use"`/`"group"`/`"union"`) needs exactly one of the
+shapes below. Naming none, or more than one, is an error.
 
-- `"sphere"`: `{ "center": [x, y, z], "radius": number > 0 }`
-- `"plane"`: `{ "normal": [x, y, z], "offset": number }` (`"offset"` defaults
-  to `0`; it's the signed distance from the origin to the plane along
-  `normal`)
+Every one of them is a quadric of revolution: a surface with an axis, a
+curvature along that axis and another around it. Internally a node stores
+nine numbers — `n` (unit axis), `k_par`, `k_perp`, `c`, `d` — with the
+implicit function
+
+```
+H(R) = k_perp (R·R) + (k_par - k_perp)(R·n)² + 2 c·R + d
+```
+
+and, as ever, `H(R) < 0` is inside. Sphere and plane are the isotropic case
+of that (`k_par == k_perp`), and behave exactly as they always did; the rest
+of the family is what having an axis buys.
+
+| shape | fields | notes |
+|-------|--------|-------|
+| `"sphere"` | `center`, `radius` > 0 | |
+| `"plane"` | `normal`, `offset` (default `0`) | signed distance from the origin along `normal`; see below |
+| `"spheroid"` | `center`, `axis`, `semiAxial` > 0, `semiRadial` > 0 | ellipsoid of revolution: `semiAxial` along the axis, `semiRadial` around it. Equal values give a sphere |
+| `"cylinder"` | `center`, `axis`, `radius` > 0 | infinite right circular cylinder; `center` is any point on the axis |
+| `"slab"` | `center`, `axis`, `thickness` > 0 | the solid between two parallel planes perpendicular to `axis` |
+| `"cone"` | `apex`, `axis`, `slope` > 0 | double cone; `slope` is radius gained per unit along the axis, so `1` is 45° |
+| `"paraboloid"` | `vertex`, `axis`, `focal` > 0 | opens along `+axis`; the surface is \|R⊥\|² = 4·`focal`·x |
+| `"hyperboloid"` | `center`, `axis`, `radius` > 0, `semiAxial` > 0, `sheets` (`1` or `2`, default `1`) | one sheet has a waist of `radius` about the axis; two sheets open away from `center` along it |
+| `"quadric"` | `axis`, `k_par`, `k_perp`, `c`, `d` | the nine numbers directly, for anything the named shapes don't cover |
+
+`"quadric"` is the way to write shapes with no name of their own — a
+parabolic cylinder, say (`k_par` > 0, `k_perp` = 0, and a `c` with a
+component perpendicular to the axis). All-zero parameters have no surface at
+all and are rejected rather than silently rendering nothing.
 
 `"complement"` (boolean, default `false`) negates the primitive, swapping
 which side of it counts as inside — the standard CSG complement, A → U∖A.
 For a sphere this turns it into a spherical hollow; for a plane it flips
-which half-space is inside.
+which half-space is inside; for a cone it turns the two cups into everything
+around them.
 
 #### Which side of a plane is "inside"
 
@@ -135,13 +175,30 @@ catches people out reliably, so, concretely:
 ```
 
 So a floor occupying everything below `z = 0` is the first of these, and the
-same plane with `"complement": true` is the second. To build a slab or a box,
-intersect half-spaces by nesting each plane in the previous one's `"inside"`,
-with the normals pointing outwards from the solid.
+same plane with `"complement": true` is the second. To build a box, intersect
+half-spaces by nesting each plane in the previous one's `"inside"`, with the
+normals pointing outwards from the solid. A slab needs no nesting: it is a
+primitive in its own right.
+
+#### Which side of the others is "inside"
+
+For the bounded shapes, inside means what you'd expect: within the sphere or
+spheroid, between the slab's two faces, within the cylinder's tube. The
+unbounded ones are worth stating plainly:
+
+- **cone**: inside is the two cups, the region *around* the axis within the
+  half-angle — including both halves, since the apex joins them. A single
+  cup is a cone intersected with a half-space, i.e. a plane in its `inside`.
+- **paraboloid**: inside is the cupped region the surface encloses, opening
+  along `+axis` from the vertex.
+- **hyperboloid, one sheet**: inside is the region around the axis, inside
+  the waist.
+- **hyperboloid, two sheets**: inside is the two cupped regions; the gap
+  between them is outside.
 
 ### `"inside"` / `"outside"`
 
-A primitive node tests its implicit function `f(R)`; rays with `f(R) < 0`
+A primitive node tests its implicit function `H(R)`; rays with `H(R) < 0`
 descend into `"inside"`, everything else into `"outside"`. Both are
 subtrees, and both default to `"empty"` when omitted — but an *unspecified*
 `"inside"` and an *unspecified* `"outside"` mean different things:
@@ -178,9 +235,10 @@ with `"complement": true`).
 { "use": "<object name>" }
 ```
 
-Places a previously-defined `objects` entry inline. Commonly combined with
-`"translate"` to drop multiple copies of the same object at different
-positions without duplicating its definition.
+Places a previously-defined `objects` entry inline. Commonly combined with a
+transform to drop copies of the same object in different places, at
+different sizes and pointing different ways, without duplicating its
+definition.
 
 ### `"group"`
 
@@ -195,9 +253,20 @@ throws rather than silently dropping geometry. In exchange for that
 guarantee, the members are assembled into a BSP-style hierarchy (each split
 also acting as a bounding-volume test) instead of a flat chain, which is
 generally much cheaper to traverse than an equivalent `"union"`. A member
-with no provable bound (e.g. an unbounded half-space) must be given
-`"bounds"` explicitly, or the group fails to compile. Takes no `"inside"`/
-`"outside"` of its own.
+with no provable bound must be given `"bounds"` explicitly, or the group
+fails to compile. Takes no `"inside"`/`"outside"` of its own.
+
+**Only a sphere or a spheroid bounds anything by itself.** Everything else in
+the table above runs off along its axis — a cylinder, cone, paraboloid,
+hyperboloid or slab is unbounded, as is any half-space.
+
+That's about the primitive alone, though, not about the subtree. A bound is
+worked out from the whole subtree, so an unbounded shape carved down by
+something bounded is bounded: a cone with a sphere in its `"inside"` is the
+part of the cone within that sphere, and the sphere's ball bounds it. The
+members that actually need help are the ones with nothing bounded anywhere
+in them — a bare cone, a slab, a `"union"` of unbounded pieces. Give those
+`"bounds"` explicitly, or use `"union"` instead of `"group"`.
 
 ### `"union"`
 
@@ -211,16 +280,70 @@ regions are filled in by whichever member comes after it in the array. Use
 this instead of `"group"` when members might overlap or you can't (or don't
 want to) prove disjointness. Takes no `"inside"`/`"outside"` of its own.
 
+## Transforms
+
+`"translate"`, `"rotate"` and `"scale"` are valid on any subtree form, and
+transform every primitive in the subtree. A transformed subtree is genuinely
+different geometry from its source, so it no longer shares nodes with the
+original (or with other transformed copies) once the scene is flattened.
+
 ### `"translate"`
 
 ```
 "translate": [x, y, z]
 ```
 
-Rigidly translates every primitive in the subtree by the given world-space
-offset. Valid on any subtree form. A translated subtree is genuinely
-different geometry from its source, so it no longer shares nodes with the
-original (or with other translated copies) once the scene is flattened.
+Rigidly translates the subtree by the given world-space offset.
+
+### `"rotate"`
+
+```
+"rotate": { "axis": [x, y, z], "degrees": 90 }
+"rotate": { "axis": [0, 0, 1], "radians": 1.5708, "pivot": [x, y, z] }
+```
+
+Turns the subtree about `axis` — which need not be unit length, but must
+have a direction — by exactly one of `degrees` or `radians`. Rotation is
+right-handed: `+90°` about `[0, 0, 1]` takes `+x` to `+y`. `pivot` is the
+point turned about, defaulting to the origin; give it the object's own
+centre to turn something where it stands.
+
+### `"scale"`
+
+```
+"scale": 2
+"scale": { "factor": 0.5, "pivot": [x, y, z] }
+```
+
+Uniform scale about `pivot` (default the origin) by a positive factor.
+Scaling is uniform only: a subtree's primitives may point any way they like,
+and scaling one axis differently would take most of them outside the family
+of shapes a node can hold. To make a sphere into a spheroid, author a
+`"spheroid"`.
+
+Note that scale is about a point, so `"scale": 2` on an object away from the
+origin moves it as well as enlarging it — usually not what's wanted. Either
+give a `pivot`, or scale before translating (see below).
+
+### Order
+
+When a node carries more than one, they apply as **scale, then rotate, then
+translate** — "make it this big, point it this way, put it here":
+
+```
+{ "use": "bar", "scale": 2, "rotate": { "axis": [1, 0, 0], "degrees": 90 },
+  "translate": [0, 0, 3] }
+```
+
+Any other order is written by nesting, since each level transforms whatever
+the level below it produced:
+
+```
+{ "union": [ { "use": "bar", "translate": [0, 0, 5] } ], "scale": 2 }
+```
+
+translates first, then scales the result — which lands somewhere else
+entirely.
 
 ### `"bounds"`
 
@@ -232,7 +355,10 @@ Declares a bounding sphere for this subtree by hand, overriding whatever
 bound (if any) could otherwise be inferred from its own shape. Needed for
 `"group"` members whose solidity isn't already confined to one ball by their
 own root primitive — most commonly a `"union"` of several primitives, or any
-subtree built from unbounded half-spaces.
+subtree whose root is one of the unbounded shapes.
+
+Bounds are in world space, so they describe the subtree *after* its own
+transforms have been applied.
 
 ## Ambient regions
 
@@ -256,4 +382,6 @@ node —
 
 — loses geometry with no error from the parser and no complaint from the
 compiler. If a piece of geometry goes missing without a diagnostic, check
-for a repeated key before looking anywhere else.
+for a repeated key before looking anywhere else. (Two *different* shapes in
+one node is caught and reported; it's only the repeated key that JSON
+swallows before the compiler ever sees it.)

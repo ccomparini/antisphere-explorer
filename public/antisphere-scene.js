@@ -265,6 +265,48 @@ function translatePrim(prim, t) {
   };
 }
 
+// Rotation by a 3x3 matrix, as rows. Only the two vectors turn: curvature
+// is a property of the shape, not of where it points, and the constant term
+// is about the origin, which rotation fixes.
+function rotatePrim(prim, rows) {
+  const turn = (v) => rows.map((row) => dot3(row, v));
+  return {
+    axis: turn(prim.axis),
+    k_par: prim.k_par,
+    k_perp: prim.k_perp,
+    linear: turn(prim.linear),
+    constant: prim.constant,
+  };
+}
+
+// Uniform scale about the origin by a positive factor. Substituting R/s for
+// R and clearing the 1/s^2 gives k -> k/s, c unchanged, d -> s d, which is
+// the rule a sphere obeys: centre sC and radius sr means k/s, c = -kC as
+// before, and d scaled by s. (Dividing all four by s, as one might expect,
+// only scales H itself - the surface, being where H is zero, would not
+// move at all.)
+function scalePrim(prim, s) {
+  return {
+    axis: prim.axis,
+    k_par: prim.k_par / s,
+    k_perp: prim.k_perp / s,
+    linear: prim.linear,
+    constant: prim.constant * s,
+  };
+}
+
+// Rotation matrix for a turn about a unit axis, by Rodrigues' formula, as
+// rows so rotatePrim can dot with them.
+function rotationRows(axis, radians) {
+  const [x, y, z] = unitVector(axis);
+  const c = Math.cos(radians), s = Math.sin(radians), t = 1 - c;
+  return [
+    [t * x * x + c,     t * x * y - s * z, t * x * z + s * y],
+    [t * x * y + s * z, t * y * y + c,     t * y * z - s * x],
+    [t * x * z - s * y, t * y * z + s * x, t * z * z + c],
+  ];
+}
+
 // Rigid translation of a whole subtree: every node's own primitive moves,
 // recursively, since each one's numbers are in the same global frame (see
 // translatePrim). This is what "translate" (see tree()) rides on to place
@@ -297,6 +339,33 @@ function reown(t, from, to, memo = new Map()) {
            mine ? { ...t.prov, owner: to } : t.prov);
   memo.set(t, out);
   return out;
+}
+
+// Rotation and scale of a whole subtree, about a pivot. Both work the same
+// way as translateTree: every primitive in the subtree is transformed, since
+// each one's numbers are in the same global frame. About a pivot other than
+// the origin they are conjugated with a translation, which is all "rotate
+// this object where it stands" means.
+function rotateTree(t, rows, pivot) {
+  if (t === EMPTY) return t;
+  const back = pivot.map((v) => -v);
+  const turn = (prim) => {
+    const local = translatePrim(prim, back);
+    const turned = rotatePrim(local, rows);
+    return translatePrim(turned, pivot);
+  };
+  const walk = (u) => (u === EMPTY ? u
+    : node(turn(u.prim), walk(u.inside), walk(u.outside), u.material, u.env, u.prov));
+  return walk(t);
+}
+
+function scaleTree(t, factor, pivot) {
+  if (t === EMPTY) return t;
+  const back = pivot.map((v) => -v);
+  const grow = (prim) => translatePrim(scalePrim(translatePrim(prim, back), factor), pivot);
+  const walk = (u) => (u === EMPTY ? u
+    : node(grow(u.prim), walk(u.inside), walk(u.outside), u.material, u.env, u.prov));
+  return walk(t);
 }
 
 // Resolves material and ambient-env inheritance once, here, instead of
@@ -565,6 +634,37 @@ export function compileScene(spec) {
       return { material: NO_MATERIAL, env: 0 };
     }
     return resolveMaterialName(def.paint, `${path}.paint`);
+  }
+
+  function pivotOf(def, path) {
+    if (def.pivot === undefined) return [0, 0, 0];
+    if (!Array.isArray(def.pivot) || def.pivot.length !== 3) {
+      at(`${path}.pivot`, 'needs a [x, y, z] point');
+    }
+    return def.pivot;
+  }
+
+  // "scale": 2, or { "factor": 2, "pivot": [x, y, z] }. Uniform only: a
+  // subtree's primitives can point any way they like, and scaling one axis
+  // differently would leave most of them outside the family of revolution
+  // quadrics a node can hold.
+  function scaleSpec(def, path) {
+    const spec = typeof def === 'number' ? { factor: def } : def;
+    const factor = spec?.factor;
+    if (!(factor > 0)) at(path, 'needs a positive factor, as a number or { factor, pivot }');
+    return { factor, pivot: pivotOf(spec, path) };
+  }
+
+  // "rotate": { "axis": [x, y, z], "degrees": 90 }, or "radians", and an
+  // optional pivot to turn about something other than the origin.
+  function rotateSpec(def, path) {
+    if (!def || !Array.isArray(def.axis)) at(path, 'needs an axis: { axis: [x, y, z], degrees }');
+    if (!(Math.hypot(...def.axis) > 1e-12)) at(`${path}.axis`, 'has no direction');
+    const hasDegrees = typeof def.degrees === 'number';
+    const hasRadians = typeof def.radians === 'number';
+    if (hasDegrees === hasRadians) at(path, 'needs exactly one of degrees or radians');
+    const radians = hasDegrees ? def.degrees * Math.PI / 180 : def.radians;
+    return { rows: rotationRows(def.axis, radians), pivot: pivotOf(def, path) };
   }
 
   // Every shape a node can be. Each is stated the way an author thinks of
@@ -883,11 +983,26 @@ export function compileScene(spec) {
       out = node(primOf(def, path), insideTree, outsideTree, material, env, provOf(where));
     }
 
-    // Positions a subtree in world space by translating every primitive in
-    // it - see translateTree(). Works on any of the branches above, so an
-    // object built once under "objects" can be dropped wherever it's
-    // needed via { "use": "name", "translate": [x, y, z] }, instead of
-    // being copied and hand-edited per instance.
+    // Places a subtree in the world by transforming every primitive in it -
+    // see translateTree() and friends. These work on any of the branches
+    // above, so an object built once under "objects" can be dropped wherever
+    // it's needed via { "use": "name", "rotate": ..., "translate": ... }
+    // rather than being copied and hand-edited per instance.
+    //
+    // When a node carries more than one, they apply in the order scale,
+    // rotate, translate, which is what "make it this big, point it this way,
+    // put it here" means. Anything else is expressible by nesting, since
+    // each level transforms whatever the level below produced.
+    if (def.scale !== undefined) {
+      const { factor, pivot } = scaleSpec(def.scale, `${path}.scale`);
+      out = scaleTree(out, factor, pivot);
+    }
+
+    if (def.rotate !== undefined) {
+      const { rows, pivot } = rotateSpec(def.rotate, `${path}.rotate`);
+      out = rotateTree(out, rows, pivot);
+    }
+
     if (def.translate !== undefined) {
       if (!Array.isArray(def.translate) || def.translate.length !== 3) {
         at(`${path}.translate`, 'needs a [x, y, z] offset');

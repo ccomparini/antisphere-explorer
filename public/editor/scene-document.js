@@ -123,20 +123,27 @@ function pruneAggregates(spec) {
   }
 }
 
-// Sum of the translates on the way from `body` down `segments`, including the
-// node at the end. Translations compose by addition; this is where rotation
-// will need a real transform once it exists.
+// Sum of the translates on the way from `body` down `segments`, including
+// the node at the end. Translations compose by addition, so a frame is just
+// an offset — until something rotates or scales, which needs a real
+// transform. Rather than answer wrongly, this gives up (null) the moment it
+// meets one, and every caller reports the frame as unknown.
 function pathTranslate(body, segments) {
   let total = [...ZERO];
   let node = body;
-  const take = (n) => { if (isObject(n) && n.translate) total = add3(total, n.translate); };
+  let transformed = false;
+  const take = (n) => {
+    if (!isObject(n)) return;
+    if (n.rotate !== undefined || n.scale !== undefined) transformed = true;
+    if (n.translate) total = add3(total, n.translate);
+  };
   take(node);
   for (const seg of segments) {
     if (node === null || typeof node !== 'object') return null;
     node = node[seg];
     take(node);
   }
-  return node === undefined ? null : total;
+  return (node === undefined || transformed) ? null : total;
 }
 
 export class SceneDocument {
@@ -506,9 +513,11 @@ export class SceneDocument {
    * node's own coordinates to get world coordinates. Includes the node's own
    * translate, the instancing chain, and wherever the owner is placed.
    *
-   * Null when the frame is ambiguous: an object placed in more than one spot,
-   * or a definition used by several instances, has no single world position.
-   * Picking resolves that by knowing which placement was clicked.
+   * Null when the frame isn't a plain offset: an object placed in more than
+   * one spot, or a definition used by several instances, has no single world
+   * position, and anything rotated or scaled along the way needs a real
+   * transform rather than an offset. Picking resolves the first of those by
+   * knowing which placement was clicked.
    */
   worldOffset(owner, path = '') {
     const frame = this.#frameOf(owner, 0);
@@ -521,8 +530,10 @@ export class SceneDocument {
       let key = owner;
       for (let n = 0; isUseBody(this.#spec.objects?.[key]); n++) {
         if (n >= MAX_CHAIN) return null;
-        total = add3(total, this.#spec.objects[key].translate ?? ZERO);
-        key = this.#spec.objects[key].use;
+        const body = this.#spec.objects[key];
+        if (body.rotate !== undefined || body.scale !== undefined) return null;
+        total = add3(total, body.translate ?? ZERO);
+        key = body.use;
       }
       body = this.#spec.objects?.[key];
       if (body === undefined) return null;
@@ -556,7 +567,9 @@ export class SceneDocument {
     if (ref.isBody) {
       // Used as a prototype by exactly one instance: that instance's body,
       // translate included, is where this definition lands.
-      return add3(base, this.#spec.objects[ref.owner].translate ?? ZERO);
+      const body = this.#spec.objects[ref.owner];
+      if (body.rotate !== undefined || body.scale !== undefined) return null;
+      return add3(base, body.translate ?? ZERO);
     }
     const ownerBody = ref.owner === ROOT ? this.#spec.root : this.#spec.objects[ref.owner];
     const along = pathTranslate(ownerBody, ref.segments);
