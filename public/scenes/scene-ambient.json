@@ -255,7 +255,6 @@
           "radius": 1.12
         },
         "paint": "bare",
-        "inside": "empty",
         "outside": {
           "sphere": {
             "center": [
