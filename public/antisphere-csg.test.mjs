@@ -20,23 +20,56 @@ function H(prim, R) {
        + 2 * dot(prim.linear, R) + prim.constant;
 }
 
-/** Where a point lands: { solid, material }, by the traversal rules. */
+/**
+ * Where a point lands: { solid, material, node }, by trace()'s own rules.
+ *
+ * Descending into a node's inside with a solid material starts a hit if none
+ * is open, which is why the node reported is the *outermost* of a run of
+ * solid regions rather than the innermost; anything non-solid, and going
+ * outside a node, clears it again. Solidity is then just whether a hit is
+ * open when the descent runs out.
+ *
+ * One thing this can't model: trace() establishes that hit as the ray
+ * crosses boundaries, so which node a surface reports depends on where the
+ * ray came from. A ray reaching this region from outside the object reports
+ * the outer node; one arriving through a cut, having had its hit cleared
+ * inside the cutter, reports the cutter's. That's what makes a cut face show
+ * the cutter's material while the object keeps its own.
+ */
 function at(built, R) {
   let index = 1;                       // node 1 is always the root
+  let found = 0;
   for (let step = 0; step < 500; step++) {
     const nd = built.nodes[index];
-    const insideSide = H(nd.prim, R) < 0;
-    const child = insideSide ? nd.inside : nd.outside;
-    if (child === 0) {
-      return { solid: insideSide && !!built.materials[nd.material].solid,
-               material: nd.material };
+    if (H(nd.prim, R) < 0) {
+      if (built.materials[nd.material].solid) { if (!found) found = index; }
+      else found = 0;
+      index = nd.inside;
+    } else {
+      found = 0;
+      index = nd.outside;
     }
-    index = child;
+    if (index === 0) {
+      return { solid: found !== 0, node: found,
+               material: found ? built.nodes[found].material : 0 };
+    }
   }
   throw new Error('traversal did not terminate');
 }
 
-const solidAt = (built, R) => at(built, R).solid;
+const solidAt = (built, R) => at(built, R).solid;   // i.e. a ray stops here
+
+/** The nodes whose inside a point lies within, outermost first. */
+function entered(built, R) {
+  const chain = [];
+  let index = 1;
+  for (let step = 0; step < 500 && index !== 0; step++) {
+    const nd = built.nodes[index];
+    if (H(nd.prim, R) < 0) { chain.push(index); index = nd.inside; }
+    else index = nd.outside;
+  }
+  return chain;
+}
 
 // A scene of one subtree, with a shell of vacuum around it so the root is an
 // ordinary sphere and the subtree under test is all there is inside it.
@@ -120,7 +153,7 @@ test('one operand is just that operand', () => {
 test('cutting with something that contains the whole thing leaves nothing', () => {
   const big = { sphere: { center: [0, 0, 0], radius: 10 }, material: 'sky' };
   const built = build({ difference: [A, big] });
-  for (const R of CLEAR) assert.equal(solidAt(built, R), false, `${R} should be empty`);
+  for (const R of CLEAR) assert.equal(solidAt(built, R), false, `${R} should hit nothing`);
 });
 
 test('cutting with something that misses leaves it whole', () => {
@@ -128,10 +161,10 @@ test('cutting with something that misses leaves it whole', () => {
   agrees(build({ difference: [A, far] }), inA, 'difference with a miss');
 });
 
-test('difference with "empty" changes nothing, and of "empty" is nothing', () => {
-  agrees(build({ difference: [A, 'empty'] }), inA, 'A minus nothing');
-  const nothing = build({ difference: ['empty', A] });
-  for (const R of CLEAR) assert.equal(solidAt(nothing, R), false, `${R} should be empty`);
+test('difference with null changes nothing, and of null is nothing', () => {
+  agrees(build({ difference: [A, null] }), inA, 'A minus nothing');
+  const nothing = build({ difference: [null, A] });
+  for (const R of CLEAR) assert.equal(solidAt(nothing, R), false, `${R} should hit nothing`);
 });
 
 test('a half-space cutter slices cleanly', () => {
@@ -210,22 +243,36 @@ test('a difference can be a group member, and is bounded by what it cuts', () =>
 
 // -- materials and provenance ------------------------------------------------------
 
-test('a cut face shows the material of the thing that was cut', () => {
+test('what survives a difference keeps its own material', () => {
   const built = build({ difference: [A, B] });
   const clay = built.materials.findIndex((m) => m.albedo[0] === 0.7);
-  // Well inside A and clear of B: the surviving material is A's.
+  // The cutter is the innermost node over this region, but a ray arriving
+  // from outside enters A first, so what it reports is A's.
   for (const R of [[-1.2, 0, 0], [-0.5, 0.5, 0], [-0.9, 0.3, 0.2]]) {
     const hit = at(built, R);
     assert.ok(hit.solid, `${R} should be solid`);
-    assert.equal(hit.material, clay, `${R} should be clay, not the cutter's material`);
+    assert.equal(hit.material, clay, `${R} should report A's material`);
   }
 });
 
 test("an intersection keeps both operands' materials where they are named", () => {
   const built = build({ intersect: [A, B] });
-  const materials = new Set(CLEAR.filter((R) => solidAt(built, R)).map((R) => at(built, R).material));
   const sky = built.materials.findIndex((m) => m.albedo[2] === 0.2);
-  assert.ok(materials.has(sky), 'the second operand names its own material and keeps it');
+  const clay = built.materials.findIndex((m) => m.albedo[0] === 0.7);
+
+  // Which node a surface reports depends on which one the ray crosses, and
+  // a point walk only sees the nesting - so look at the nesting itself. Over
+  // the lens, A encloses B: a ray reaching it from outside reports A, and
+  // one crossing B's own surface reports B, each with its own material.
+  const lens = [0, 0, 0];
+  assert.ok(inA(lens) && inB(lens));
+  assert.equal(built.materials[at(built, lens).material], built.materials[clay],
+               'from outside, the first thing entered is A');
+  // The vacuum shell build() wraps everything in is entered first; being
+  // non-solid it clears any hit, which is why `at` above still reports A.
+  const vacuum = 0;
+  assert.deepEqual(entered(built, lens).map((i) => built.nodes[i].material),
+                   [vacuum, clay, sky], 'A then B, each keeping the material it named');
 });
 
 test('a cut face belongs to the object that cut it', () => {
@@ -248,7 +295,7 @@ test('the operators are checked like union is', () => {
   for (const op of ['intersect', 'difference']) {
     assert.throws(() => build({ [op]: [] }), /at least one operand/, op);
     assert.throws(() => build({ [op]: A }), /takes an array/, op);
-    assert.throws(() => build({ [op]: [A], inside: 'empty' }),
+    assert.throws(() => build({ [op]: [A], inside: { sphere: { center: [0, 0, 0], radius: 1 } } }),
                   /takes no inside or outside/, op);
   }
 });

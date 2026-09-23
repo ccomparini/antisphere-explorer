@@ -109,7 +109,7 @@ The scene's top-level subtree. Required. Same format as any other subtree.
 
 Anywhere a subtree is expected, one of the following is valid:
 
-- the string `"empty"` — nothing here.
+- `null`, or the field simply left out — no subdivision here.
 - a bare string naming an entry under `"objects"` — shorthand for
   `{ "use": "<name>" }`. Only valid as a member of a `"group"`/`"union"`
   array.
@@ -198,18 +198,21 @@ unbounded ones are worth stating plainly:
 
 ### `"inside"` / `"outside"`
 
-A primitive node tests its implicit function `H(R)`; rays with `H(R) < 0`
-descend into `"inside"`, everything else into `"outside"`. Both are
-subtrees, and both default to `"empty"` when omitted — but an *unspecified*
-`"inside"` and an *unspecified* `"outside"` mean different things:
+A node divides space in two. Its implicit function `H(R)` is negative on one
+side and positive on the other; rays with `H(R) < 0` descend into
+`"inside"`, everything else into `"outside"`. Both are subtrees, and both
+mean the same thing when omitted or `null`: no further subdivision of that
+region.
 
-- an omitted `"outside"` always means plain void.
-- an omitted `"inside"` means "no further carving — this whole region is
-  solid using this node's own `"material"`" (which may itself be non-solid,
-  if that material's `"solid"` is `false`).
+What fills an undivided region is decided by materials, not by the shape:
+the node's own `"material"` applies to its `"inside"`, so an undivided
+inside is a region of that material, while an undivided outside is left to
+whatever encloses it. A material with `"solid": false` — vacuum among them —
+is a region a ray passes through.
 
-A bare primitive with neither field is just a simple solid shape (or hollow,
-with `"complement": true`).
+A bare primitive with neither field is therefore just the shape, made of
+whatever material the node names (or inherits), and with `"complement":
+true` it is the same shape turned inside out.
 
 ### `"material"` / `"paint"`
 
@@ -268,17 +271,47 @@ members that actually need help are the ones with nothing bounded anywhere
 in them — a bare cone, a slab, a `"union"` of unbounded pieces. Give those
 `"bounds"` explicitly, or use `"union"` instead of `"group"`.
 
-### `"union"`
+### `"union"`, `"intersect"`, `"difference"`
 
 ```
-{ "union": [ <subtree-or-name>, ... ] }
+{ "union":      [ <subtree-or-name>, ... ] }
+{ "intersect":  [ <subtree-or-name>, ... ] }
+{ "difference": [ <subtree-or-name>, ... ] }
 ```
 
-A general CSG union, correct for any pair of subtrees regardless of overlap:
-every solid region of each member stays solid, and each member's empty
-regions are filled in by whichever member comes after it in the array. Use
-this instead of `"group"` when members might overlap or you can't (or don't
-want to) prove disjointness. Takes no `"inside"`/`"outside"` of its own.
+The three general CSG combinations, each an array of subtrees folded left to
+right, each correct for any operands regardless of overlap, and each taking
+no `"inside"`/`"outside"` of its own. One operand means just that operand.
+
+- `"union"` — solid wherever any operand is solid. Use this instead of
+  `"group"` when members might overlap or you can't (or don't want to) prove
+  disjointness.
+- `"intersect"` — solid only where every operand is.
+- `"difference"` — the first operand, minus every operand after it.
+
+Every operand keeps its own materials, and one that names none inherits
+whatever is in scope where it lands. Which material a surface then shows
+depends on which operand's surface a ray crosses to reach it:
+
+- The outside of a **difference** is the original object's surface, so it
+  shows the original's material; a **cut face** is the cutter's surface, so
+  it shows the cutter's. Give the cutter no material of its own and the cut
+  face inherits what it cut into, so the object looks solid through.
+- An **intersection** works the same way: each operand's own surfaces show
+  its own material.
+
+Selecting a cut face in the editor picks the object that did the cutting,
+which is usually what you want to drag.
+
+One thing a cutter's material can't do is make the region it carves
+invisible: a material with `"solid": false` there stops the whole region
+registering as a hit, rather than revealing what was cut.
+
+Nesting is how anything more complicated is said:
+
+```
+{ "difference": [ { "union": ["hull", "fin"] }, "bore" ] }
+```
 
 ## Transforms
 

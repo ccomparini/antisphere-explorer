@@ -228,80 +228,51 @@ function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = nul
   return { prim, inside, outside, material, env, prov };
 }
 
-//
-// Union: returns a new tree whose interior space is the union of the interiors
-// of the trees passed.
-// 
-// Correct for any pair, and the shared subtree is deduplicated when
-// the tree is flattened.
+// Union: returns a tree whose interior is the union of both interiors. A
+// null child means no further subdivision, so on the inside it is a region
+// in its own right and stays; on the outside it is where `other` goes.
 function union(t, other) {
-  if (!t) {
-    // nothing union (something or nothing) is just the
-    // "something or nothing" on the right side:
-    return other;
-  }
-
+  if (!t) return other;
   return node(
-     t.prim,
-     t.inside ? union(t.inside, other) : null,
-     union(t.outside, other),
-     t.material, t.env, t.prov
-  );
-}
-
-// A primitive whose implicit function is -1 everywhere, so every point is
-// inside it: the one-node way to write "internal here" in a slot where an
-// absent child would mean void instead. Costs a node visit and no roots -
-// trace()'s degenerate guard catches A and B both being zero and leaves the
-// segment whole, and the midpoint test then takes the inside child.
-//const ALWAYS_INSIDE = { axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: -1 };
-
-
-//
-// Intersection:  returns a new tree whose interior is the intersection of the
-// interiors of the trees passed.
-//
-function intersect(t, other) {
-  // https://en.wikipedia.org/wiki/De_Morgan%27s_laws
-  // This is not the most efficient solution (makes extra
-  // copies etc) but it's simple and robust. optimize later if 
-  // scene loads are too slow.
-  return complement(complement(t), complement(other));
-}
-
-//
-// Returns the tree whose interior is the complement of the interior of
-// that of the tree passed.
-//
-// The tree's materials are kept.  So, for example, if the resulting
-// tree is to be used as a "cutter", you can get neat effects like
-// you see in the "bitten" object in scene-simple.json where different
-// parts which were cut out get different materials (though, as of this
-// writing, "bitten" is cut "by hand" and not via a complemented shape),
-// or, if (say) the region is being complemented merely to represent
-// some interior space (a room or whatever) it gets the expected material(s).
-//
-// I believe that by using the 0/null material you can use a complemented
-// tree to cut in a way which reveals the interior of the thing which was
-// cut, but I haven't tried that.
-//
-// Provenance is kept as well, so clicking a cut face still selects the
-// object that did the cutting (and you can select complemented objects
-// in general).
-//
-function complementTree(t) {
-  if (!t) return t;
-  return node(
-    complement(t.prim),
-    complementTree(t.outside),
-    complementTree(t.inside),
+    t.prim,
+    t.inside ? union(t.inside, other) : null,
+    union(t.outside, other),
     t.material, t.env, t.prov
   );
 }
 
-// Difference: returns a new tree whose interior is the interior
-// of t minus the interior of other.
+// Intersection: by De Morgan, what is inside both is what is outside
+// neither. Not the most direct construction - it builds three intermediate
+// trees - but it needs no case analysis of its own, and scene compilation is
+// not where the time goes.
+function intersect(t, other) {
+  // A null tree is "no subdivision", which reads as the empty region here -
+  // but its complement, everything, has no null of its own to be written as,
+  // so De Morgan can't be trusted with one. Both identities are direct.
+  if (!t || !other) return null;
+  return complementTree(union(complementTree(t), complementTree(other)));
+}
+
+// The tree whose interior is the complement of this one's. A node's region
+// is (P_in and I) or (P_out and O), so its complement is the same node with
+// both children complemented - and complementing the node's own primitive as
+// well swaps which slot each child sits in, which is all it takes: a null
+// child means "no further subdivision here" on either side, so it
+// complements to itself.
+//
+// Materials and provenance are kept, so a complemented region carries its
+// own look, and clicking a cut face still selects whatever cut it.
+function complementTree(t) {
+  if (!t) return t;
+  return node(complement(t.prim),
+              complementTree(t.outside),
+              complementTree(t.inside),
+              t.material, t.env, t.prov);
+}
+
+// Difference: what is interior to t and not to other.
 function difference(t, other) {
+  if (!other) return t;                  // nothing taken away
   return intersect(t, complementTree(other));
 }
 
@@ -566,7 +537,6 @@ function ballJoin(A, B) {
 // `table` (the compiled materials list, in scope from compileScene()) is
 // what lets this tell a genuinely empty default "inside" (a node whose own
 // material happens to be non-solid) apart from an ordinary solid one.
-// XXX ^^ not sure how to interpret this
 function boundOf(t, declared, memo, table) {
   if (declared.has(t)) return declared.get(t);
   if (!t) return NO_SOLID;
@@ -811,6 +781,10 @@ export function compileScene(spec) {
     def !== null && typeof def === 'object' && typeof def.use === 'string';
 
   // Named objects are memoized so repeated use shares one subtree.
+  // Distinct from null, which is a perfectly good tree meaning "no
+  // subdivision here": an object may legitimately compile to one, and
+  // reporting that as a cycle would be a puzzling error.
+  const BUILDING = Symbol('building');
   const built = new Map();
   const declared = new Map();     // subtree -> author-declared bounding ball
   const boundMemo = new Map();
@@ -820,12 +794,12 @@ export function compileScene(spec) {
     if (built.has(name)) return built.get(name);
     const def = (spec.objects || {})[name];
     if (!def) at(path, `unknown object "${name}"`);
-    built.set(name, null);                       // cycle guard
+    built.set(name, BUILDING);                   // cycle guard
     let t = tree(def, `objects.${name}`, { owner: name, segments: [] });
 
     // An instance gets nodes of its own, attributed to it, so a hit can say
     // which instance was struck (see the Provenance comment up top).
-    if (isUseBody(def) && t !== null) {
+    if (isUseBody(def) && t) {
       t = reown(t, def.use, name);
       // Two instances with the same prototype and offset are the same
       // geometry in the same place: never what anyone means.
@@ -843,7 +817,7 @@ export function compileScene(spec) {
   }
 
   function operand(d, path, where) {
-    if (!d) return d;
+    if (!d) return null;
     return typeof d === 'string' ? named(d, path) : tree(d, path, where);
   }
 
@@ -982,7 +956,7 @@ export function compileScene(spec) {
       const p = `${path}.group[${i}]`;
       const label = typeof d === 'string' ? `"${d}"` : p;
       const t = operand(d, p, below(where, 'group', String(i)));
-      if (t === null) at(p, `object ${label} refers to itself`);
+      if (t === BUILDING) at(p, `object ${label} refers to itself`);
       const b = boundOf(t, declared, boundMemo, table);
       if (b === NO_SOLID) return;                  // contributes nothing
       if (b === UNBOUNDED) {
@@ -1020,7 +994,7 @@ export function compileScene(spec) {
   const COMBINER_HELP = {
     union: 'keep everything inside both regions',
     intersect: 'keep only what\'s interior to both regions',
-    difference: 'from the first operand, remove the interior of every following operand',
+    difference: 'the first operand, minus every operand after it',
   };
 
   function buildCombination(def, path, where) {
@@ -1040,18 +1014,22 @@ export function compileScene(spec) {
   }
 
   function tree(def, path, where) {
-    if (!def) return def;
+    // Null, absent, or the word scene files already write: no subdivision.
+    if (!def) return null;
     if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
 
     let out;
     if (def.use !== undefined) {
       out = named(def.use, path);
-      if (out === null) at(path, `object "${def.use}" refers to itself`);
+      if (out === BUILDING) at(path, `object "${def.use}" refers to itself`);
     } else if (def.group !== undefined) {
       out = buildGroup(def, path, where);
     } else if (Object.keys(COMBINERS).some((op) => def[op] !== undefined)) {
       out = buildCombination(def, path, where);
     } else {
+      // Both children default to null when unspecified - no further
+      // subdivision - which the two slots still read differently: see
+      // flatten()'s doc comment.
       const insideTree = tree(def.inside, `${path}.inside`, below(where, 'inside'));
       const outsideTree = tree(def.outside, `${path}.outside`, below(where, 'outside'));
       const { material, env } = materialAndEnvOf(def, path);
