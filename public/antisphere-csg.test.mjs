@@ -299,3 +299,46 @@ test('the operators are checked like union is', () => {
                   /takes no inside or outside/, op);
   }
 });
+
+// -- complement, as a scene file writes it ---------------------------------------------
+
+test('complement turns a whole subtree inside out, children and all', () => {
+  // A ball with a bite out of it, and the same thing complemented: what was
+  // interior is now exterior, everywhere.
+  const bitten = {
+    sphere: { center: [0, 0, 0], radius: 1 }, material: 'clay',
+    inside: { sphere: { center: [0.8, 0, 0], radius: 0.5 }, complement: true, material: 'clay' },
+  };
+  const solidThere = (R) => dot(R, R) < 1 && (R[0] - 0.8) ** 2 + R[1] ** 2 + R[2] ** 2 > 0.25;
+  const clear = clearOf(ballAt([0, 0, 0], 1), ballAt([0.8, 0, 0], 0.5));
+
+  agrees(build(bitten), solidThere, 'the bitten ball', clear);
+  agrees(build({ ...bitten, complement: true }), (R) => !solidThere(R),
+         'and its complement', clear);
+});
+
+test('complement of a bare primitive is what it always was', () => {
+  const hollow = build({ sphere: { center: [0, 0, 0], radius: 1 },
+                         complement: true, material: 'clay' });
+  agrees(hollow, (R) => dot(R, R) > 1, 'a hollow', clearOf(ballAt([0, 0, 0], 1)));
+});
+
+test('complement applies to any subtree form, not just primitives', () => {
+  const both = (R) => inA(R) || inB(R);
+  agrees(build({ union: [A, B], complement: true }), (R) => !both(R), 'a complemented union');
+  agrees(build({ intersect: [A, B], complement: true }), (R) => !(inA(R) && inB(R)),
+         'a complemented intersection');
+  agrees(build({ difference: [A, B], complement: true }), (R) => !(inA(R) && !inB(R)),
+         'a complemented difference');
+
+  // Through a reference, and with a transform on the same node.
+  const objects = { ball: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'clay' } };
+  const shifted = build({ use: 'ball', complement: true, translate: [0.5, 0, 0] }, objects);
+  agrees(shifted, (R) => (R[0] - 0.5) ** 2 + R[1] ** 2 + R[2] ** 2 > 1,
+         'a complemented, translated object', clearOf(ballAt([0.5, 0, 0], 1)));
+});
+
+test('complementing twice gets back to where it started', () => {
+  const once = { union: [A, B], complement: true };
+  agrees(build({ union: [once], complement: true }), (R) => inA(R) || inB(R), 'there and back');
+});

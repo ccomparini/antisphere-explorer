@@ -155,11 +155,8 @@ parabolic cylinder, say (`k_par` > 0, `k_perp` = 0, and a `c` with a
 component perpendicular to the axis). All-zero parameters have no surface at
 all and are rejected rather than silently rendering nothing.
 
-`"complement"` (boolean, default `false`) negates the primitive, swapping
-which side of it counts as inside — the standard CSG complement, A → U∖A.
-For a sphere this turns it into a spherical hollow; for a plane it flips
-which half-space is inside; for a cone it turns the two cups into everything
-around them.
+See `"complement"` under Transforms for turning a shape — or a whole
+subtree — inside out.
 
 #### Which side of a plane is "inside"
 
@@ -315,10 +312,32 @@ Nesting is how anything more complicated is said:
 
 ## Transforms
 
-`"translate"`, `"rotate"` and `"scale"` are valid on any subtree form, and
-transform every primitive in the subtree. A transformed subtree is genuinely
+`"complement"`, `"translate"`, `"rotate"` and `"scale"` are valid on any
+subtree form, and apply to everything in the subtree. A transformed subtree is genuinely
 different geometry from its source, so it no longer shares nodes with the
 original (or with other transformed copies) once the scene is flattened.
+
+### `"complement"`
+
+```
+"complement": true
+```
+
+Turns the subtree inside out: what was interior becomes exterior and the
+other way about — the standard CSG complement, A → U∖A. On a bare sphere
+that is a spherical hollow; on a plane it is the other half-space; on a cone
+it is everything around the two cups.
+
+It applies to the **whole subtree**, not just the shape on the node that
+carries it. A node with children is complemented along with its children, and
+so is a `"use"`, `"group"`, `"union"`, `"intersect"` or `"difference"` — so
+`{ "union": ["hull", "fin"], "complement": true }` is everything those two
+don't occupy. (On a node with no children the two readings coincide, which is
+the usual case.)
+
+Complementing twice returns the original, and complement commutes with the
+transforms below, so it doesn't matter whether a region is moved and then
+turned inside out or the other way round.
 
 ### `"translate"`
 
@@ -360,8 +379,8 @@ give a `pivot`, or scale before translating (see below).
 
 ### Order
 
-When a node carries more than one, they apply as **scale, then rotate, then
-translate** — "make it this big, point it this way, put it here":
+When a node carries more than one, they apply as **complement, then scale,
+then rotate, then translate** — "make it this big, point it this way, put it here":
 
 ```
 { "use": "bar", "scale": 2, "rotate": { "axis": [1, 0, 0], "degrees": 90 },
