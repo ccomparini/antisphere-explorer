@@ -30,7 +30,7 @@
 //     opposite signs       hyperboloid of one or two sheets, or, where the
 //                          surface passes through its own centre, a cone
 //
-//   Only sphere and spheroid enclose a bounded solid, which is why
+//   Only sphere and spheroid enclose a bounded region, which is why
 //   regionBall() checks the signs rather than just whether K inverts.
 // ---------------------------------------------------------------------------
 
@@ -91,7 +91,7 @@ function cylinder(centre, axis, radius) {
   return about(axis, 0, 1 / (radius * radius), centre, [0, 0, 0], -1);
 }
 
-// The solid between two parallel planes, `thickness` apart, centred on
+// The region between two parallel planes, `thickness` apart, centred on
 // `centre` and perpendicular to the axis.
 function slab(centre, axis, thickness) {
   const half = thickness / 2;
@@ -222,28 +222,87 @@ export const ROOT_OWNER = '@root';
 // ---------------------------------------------------------------------------
 
 // A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
+// prov is "provenance" and used to determine which object this node is
+// part of.
 function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = null) {
   return { prim, inside, outside, material, env, prov };
 }
 
-const EMPTY = 'empty';
-
-// Union: everything solid in `t` stays solid; every empty region of `t`
-// is handed to `other`. Correct for any pair, and the shared subtree is
-// deduplicated when the tree is flattened.
 //
-// `t.inside === EMPTY` and `t.outside === EMPTY` are not interchangeable
-// here (see flatten()'s doc comment): an empty *inside* already means "no
-// further carving, this region is unconditionally solid via t's own
-// material" - `other` can't win against that regardless of what it is, so
-// it's left alone rather than substituted in. An empty *outside* still
-// means plain void, so `other` fills it exactly as before.
+// Union: returns a new tree whose interior space is the union of the interiors
+// of the trees passed.
+// 
+// Correct for any pair, and the shared subtree is deduplicated when
+// the tree is flattened.
 function union(t, other) {
-  if (t === EMPTY) return other;
-  return node(t.prim,
-              t.inside === EMPTY ? EMPTY : union(t.inside, other),
-              union(t.outside, other),
-              t.material, t.env, t.prov);
+  if (!t) {
+    // nothing union (something or nothing) is just the
+    // "something or nothing" on the right side:
+    return other;
+  }
+
+  return node(
+     t.prim,
+     t.inside ? union(t.inside, other) : null,
+     union(t.outside, other),
+     t.material, t.env, t.prov
+  );
+}
+
+// A primitive whose implicit function is -1 everywhere, so every point is
+// inside it: the one-node way to write "internal here" in a slot where an
+// absent child would mean void instead. Costs a node visit and no roots -
+// trace()'s degenerate guard catches A and B both being zero and leaves the
+// segment whole, and the midpoint test then takes the inside child.
+//const ALWAYS_INSIDE = { axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: -1 };
+
+
+//
+// Intersection:  returns a new tree whose interior is the intersection of the
+// interiors of the trees passed.
+//
+function intersect(t, other) {
+  // https://en.wikipedia.org/wiki/De_Morgan%27s_laws
+  // This is not the most efficient solution (makes extra
+  // copies etc) but it's simple and robust. optimize later if 
+  // scene loads are too slow.
+  return complement(complement(t), complement(other));
+}
+
+//
+// Returns the tree whose interior is the complement of the interior of
+// that of the tree passed.
+//
+// The tree's materials are kept.  So, for example, if the resulting
+// tree is to be used as a "cutter", you can get neat effects like
+// you see in the "bitten" object in scene-simple.json where different
+// parts which were cut out get different materials (though, as of this
+// writing, "bitten" is cut "by hand" and not via a complemented shape),
+// or, if (say) the region is being complemented merely to represent
+// some interior space (a room or whatever) it gets the expected material(s).
+//
+// I believe that by using the 0/null material you can use a complemented
+// tree to cut in a way which reveals the interior of the thing which was
+// cut, but I haven't tried that.
+//
+// Provenance is kept as well, so clicking a cut face still selects the
+// object that did the cutting (and you can select complemented objects
+// in general).
+//
+function complementTree(t) {
+  if (!t) return t;
+  return node(
+    complement(t.prim),
+    complementTree(t.outside),
+    complementTree(t.inside),
+    t.material, t.env, t.prov
+  );
+}
+
+// Difference: returns a new tree whose interior is the interior
+// of t minus the interior of other.
+function difference(t, other) {
+  return intersect(t, complementTree(other));
 }
 
 // Rigid translation of a primitive by a world-space offset. Substituting
@@ -315,7 +374,7 @@ function rotationRows(axis, radians) {
 // translated copy is genuinely different geometry from the original, so
 // unlike a plain "use" it can't share nodes with it once flattened.
 function translateTree(t, offset) {
-  if (t === EMPTY) return t;
+  if (!t) return t;
   return node(translatePrim(t.prim, offset),
               translateTree(t.inside, offset),
               translateTree(t.outside, offset),
@@ -328,7 +387,7 @@ function translateTree(t, offset) {
 // Provenance comment above). Memoized, so shared structure stays shared
 // within the copy.
 function reown(t, from, to, memo = new Map()) {
-  if (t === EMPTY) return t;
+  if (!t) return t;
   if (memo.has(t)) return memo.get(t);
   const inside = reown(t.inside, from, to, memo);
   const outside = reown(t.outside, from, to, memo);
@@ -347,23 +406,23 @@ function reown(t, from, to, memo = new Map()) {
 // the origin they are conjugated with a translation, which is all "rotate
 // this object where it stands" means.
 function rotateTree(t, rows, pivot) {
-  if (t === EMPTY) return t;
+  if (!t) return t;
   const back = pivot.map((v) => -v);
   const turn = (prim) => {
     const local = translatePrim(prim, back);
     const turned = rotatePrim(local, rows);
     return translatePrim(turned, pivot);
   };
-  const walk = (u) => (u === EMPTY ? u
+  const walk = (u) => (!u ? u
     : node(turn(u.prim), walk(u.inside), walk(u.outside), u.material, u.env, u.prov));
   return walk(t);
 }
 
 function scaleTree(t, factor, pivot) {
-  if (t === EMPTY) return t;
+  if (!t) return t;
   const back = pivot.map((v) => -v);
   const grow = (prim) => translatePrim(scalePrim(translatePrim(prim, back), factor), pivot);
-  const walk = (u) => (u === EMPTY ? u
+  const walk = (u) => (!u ? u
     : node(grow(u.prim), walk(u.inside), walk(u.outside), u.material, u.env, u.prov));
   return walk(t);
 }
@@ -392,7 +451,7 @@ function scaleTree(t, factor, pivot) {
 function bakeScopes(tree) {
   const memo = new Map();   // "matScope:envScope" -> (subtree -> baked)
   const resolve = (t, matScope, envScope) => {
-    if (t === EMPTY) return t;
+    if (!t) return t;
     const key = `${matScope}:${envScope}`;
     let byScope = memo.get(key);
     if (!byScope) { byScope = new Map(); memo.set(key, byScope); }
@@ -413,20 +472,18 @@ function bakeScopes(tree) {
 // trace() special-cases it before ever touching a node's geometry. It's
 // never a real node, so its own fields are dead weight, zeroed here.
 //
-// "inside" and "outside" mean different things when they're left empty:
-// an unspecified "outside" is always void, unconditionally. An
-// unspecified "inside" instead means "no further carving - the whole
-// region uses this node's own material" (which may itself be non-solid;
-// materials[material].solid is what actually decides that, in
-// trace()). That's the same default a bare primitive with neither
-// specified already had ("inside" solid, "outside" empty); it just
-// no longer needs a placeholder leaf material to say so.
+// Clarification on "inside" and "outside":  a node can be looked at
+// as a partition of space into 2 regions:  the "inside" region (which
+// the node is concerned with) and everything else ("outside").  Both
+// regions may have further partitions. If the node's "inside" has no
+// further partitions, that node's material pertains to the space
+// inside that node.
 function flatten(tree) {
   const out = [{ prim: { axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: 0 },
                  material: 0, env: 0, inside: 0, outside: 0, prov: null }];
   const memo = new Map();
   const walk = (t) => {
-    if (t === EMPTY) return 0;
+    if (!t) return 0;
     if (memo.has(t)) return memo.get(t);
     const idx = out.length;
     out.push(null);
@@ -442,7 +499,7 @@ function flatten(tree) {
 // ---------------------------------------------------------------------------
 // Bounds
 //
-// The bounding sphere of a subtree's solid region, used by "group" to check
+// The bounding sphere of a subtree's interior region, used by "group" to check
 // the author's disjointness claim and to build the early-out tests. A node's
 // own numbers already describe a ball whenever that side of it is bounded:
 // the inside for positive curvature, the outside for negative. A half-space
@@ -509,17 +566,18 @@ function ballJoin(A, B) {
 // `table` (the compiled materials list, in scope from compileScene()) is
 // what lets this tell a genuinely empty default "inside" (a node whose own
 // material happens to be non-solid) apart from an ordinary solid one.
+// XXX ^^ not sure how to interpret this
 function boundOf(t, declared, memo, table) {
   if (declared.has(t)) return declared.get(t);
-  if (t === EMPTY) return NO_SOLID;
+  if (!t) return NO_SOLID;
   if (memo.has(t)) return memo.get(t);
   memo.set(t, UNBOUNDED);                          // conservative cycle guard
-  // A side left empty either means "void" (outside) or "solid, using this
-  // node's own material" (inside) - see flatten()'s doc comment - rather
-  // than always meaning "bounded by this node's own ball" the way a solid
-  // leaf used to.
+  // A null side means there's no further spacial subdivision on that side.
+  // If the null side is "inside", the node's material applies to rays
+  // crossing the surface of the node. If the null side is "outside",
+  // this node doesn't care.
   const sideBound = (child, insideSide) => {
-    if (child === EMPTY) {
+    if (!child) {
       if (!insideSide) return NO_SOLID;
       // A material still pending inheritance (INHERIT_MATERIAL) isn't
       // resolved yet at this point in compilation - assume solid, since
@@ -559,8 +617,8 @@ function boundOf(t, declared, memo, table) {
 export function compileScene(spec) {
   const at = (path, msg) => { throw new Error(`scene.json ${path}: ${msg}`); };
 
-  // Material 0 is vacuum: never shaded, and - unlike every authored
-  // material - not solid. trace() reads materials[material].solid
+  // Material 0 is vacuum: never shaded, and not solid.
+  //  trace() reads materials[material].solid
   // directly wherever a node's own default (unspecified) "inside" is what
   // decides solid-or-not (see flatten()'s doc comment), so an author-set
   // solid: false (water/glass, or a purely spatial-subdivision material)
@@ -785,7 +843,7 @@ export function compileScene(spec) {
   }
 
   function operand(d, path, where) {
-    if (d === EMPTY) return EMPTY;
+    if (!d) return d;
     return typeof d === 'string' ? named(d, path) : tree(d, path, where);
   }
 
@@ -869,10 +927,11 @@ export function compileScene(spec) {
     return best;
   }
 
-  // A subtree whose root already confines all of its solid to one ball needs
-  // no separate bounding test: the root node is the test.
+  // If the root of the tree has no "outside" geomeetry and encloses no
+  // points at infinity (i.e. it's a sphere or ellipsoid, in our system),
+  // the tree is (trivially) self-bounded:
   const selfBounded = (t) =>
-    t !== EMPTY && t.outside === EMPTY && regionBall(t.prim, true) !== null;
+    t && !t.outside && regionBall(t.prim, true) !== null;
 
   // Memoized, so a member landing in two children stays one subtree. The
   // bounding sphere itself is never meant to be individually visible, so
@@ -883,17 +942,17 @@ export function compileScene(spec) {
     if (!it.wrapped) {
       it.wrapped = selfBounded(it.tree)
         ? it.tree
-        : node(sphere(it.ball.c, it.ball.r), it.tree, EMPTY);
+        : node(sphere(it.ball.c, it.ball.r), it.tree, null);
     }
     return it.wrapped;
   }
 
   function partition(items) {
-    if (!items.length) return EMPTY;
+    if (!items.length) return null;
     if (items.length === 1) return wrap(items[0]);
     const s = chooseSplit(items);
     if (!s) {                                      // no split makes progress
-      let acc = EMPTY;
+      let acc = null;
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i];
         acc = selfBounded(it.tree)
@@ -949,8 +1008,39 @@ export function compileScene(spec) {
     return partition(parts);
   }
 
+  // The CSG combinations, all of them arrays of subtrees and all built the
+  // same way: fold the operands together with the matching operator.
+  // "group" is separate, being a union plus a disjointness claim.
+  const COMBINERS = {
+    union,
+    intersect,
+    difference,
+  };
+
+  const COMBINER_HELP = {
+    union: 'keep everything inside both regions',
+    intersect: 'keep only what\'s interior to both regions',
+    difference: 'from the first operand, remove the interior of every following operand',
+  };
+
+  function buildCombination(def, path, where) {
+    const op = Object.keys(COMBINERS).find((name) => def[name] !== undefined);
+    const operands = def[op];
+    if (!Array.isArray(operands)) {
+      at(path, `${op} takes an array of subtrees, or names of entries under ` +
+               `"objects": ${COMBINER_HELP[op]}`);
+    }
+    if (def.inside !== undefined || def.outside !== undefined) {
+      at(path, `${op} is a whole subtree, so it takes no inside or outside`);
+    }
+    if (!operands.length) at(path, `${op} needs at least one operand`);
+    return operands
+      .map((d, i) => operand(d, `${path}.${op}[${i}]`, below(where, op, String(i))))
+      .reduce(COMBINERS[op]);
+  }
+
   function tree(def, path, where) {
-    if (def === 'empty') return EMPTY;
+    if (!def) return def;
     if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
 
     let out;
@@ -959,26 +1049,11 @@ export function compileScene(spec) {
       if (out === null) at(path, `object "${def.use}" refers to itself`);
     } else if (def.group !== undefined) {
       out = buildGroup(def, path, where);
-    } else if (def.union !== undefined) {
-      if (!Array.isArray(def.union)) {
-        at(path, 'union takes an array of subtrees, each with its own inside ' +
-                 'and outside, or names of entries under "objects"');
-      }
-      if (def.inside !== undefined || def.outside !== undefined) {
-        at(path, 'union is a whole subtree, so it takes no inside or outside');
-      }
-      if (!def.union.length) at(path, 'union needs at least one operand');
-      out = def.union
-        .map((d, i) => operand(d, `${path}.union[${i}]`, below(where, 'union', String(i))))
-        .reduce((acc, p) => union(acc, p));
+    } else if (Object.keys(COMBINERS).some((op) => def[op] !== undefined)) {
+      out = buildCombination(def, path, where);
     } else {
-      // "inside" and "outside" both default to EMPTY when unspecified, but
-      // mean different things there - see flatten()'s doc comment. A bare
-      // primitive with neither specified is just a simple solid shape.
-      const insideTree = tree(def.inside !== undefined ? def.inside : 'empty',
-                              `${path}.inside`, below(where, 'inside'));
-      const outsideTree = tree(def.outside !== undefined ? def.outside : 'empty',
-                               `${path}.outside`, below(where, 'outside'));
+      const insideTree = tree(def.inside, `${path}.inside`, below(where, 'inside'));
+      const outsideTree = tree(def.outside, `${path}.outside`, below(where, 'outside'));
       const { material, env } = materialAndEnvOf(def, path);
       out = node(primOf(def, path), insideTree, outsideTree, material, env, provOf(where));
     }
