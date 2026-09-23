@@ -12,8 +12,9 @@ import { SceneDocument, ROOT } from './scene-document.js';
 function validate(spec) {
   const objects = spec.objects ?? {};
   const check = (def, where) => {
+    if (!def) return;                    // null: no further subdivision
     if (typeof def === 'string') {
-      if (def !== 'empty' && !(def in objects)) throw new Error(`${where}: unknown object "${def}"`);
+      if (!(def in objects)) throw new Error(`${where}: unknown object "${def}"`);
       return;
     }
     if (def.use !== undefined) {
@@ -213,7 +214,7 @@ test('paths do not descend through a reference', () => {
   assert.equal(doc.resolve(ROOT, 'inside/union/0/inside'), null);
 });
 
-test('selection is dropped when its object goes, and trimmed when its node does', () => {
+test('a node deleted to null no longer counts as selected', () => {
   const { doc } = make();
   doc.select('bead-1', 'inside');
   doc.deleteNode('bead-1', 'inside');
@@ -298,9 +299,9 @@ test('deleting placements prunes emptied aggregates', () => {
   assert.deepEqual(doc.spec.root.inside.union, ['bead-2', 'lamp']);
   doc.deleteObject('bead-2');
   doc.deleteObject('lamp');
-  // The union is gone and the slot holds an explicit empty, not solid.
-  assert.equal(doc.spec.root.inside, 'empty');
-  assert.equal(scene.spec.root.inside, 'empty');
+  // The union is gone and the slot is explicitly null: no subdivision there.
+  assert.equal(doc.spec.root.inside, null);
+  assert.equal(scene.spec.root.inside, null);
   doc.undo(); doc.undo(); doc.undo();
   assert.deepEqual(doc.spec.root.inside.union, ['bead-1', 'bead-2', 'lamp']);
 });
@@ -326,7 +327,7 @@ test('creating an object places it; deleting it leaves no trace', () => {
 
 test('names are checked', () => {
   const { doc } = make();
-  for (const bad of ['lamp', 'empty', '@thing', '']) {
+  for (const bad of ['lamp', '@thing', '']) {
     const r = doc.createObject({ sphere: { center: [0, 0, 0], radius: 1 } }, { name: bad });
     assert.equal(r.ok, false, `"${bad}" should be refused`);
   }
@@ -463,4 +464,18 @@ test('a transaction that fails part way leaves nothing behind', () => {
   assert.deepEqual(doc.spec, before);
   assert.equal(scene.compiles, compiles);
   assert.equal(doc.canUndo, false);
+});
+
+test('a frame with a rotation or a scale in it is not just an offset', () => {
+  const spec = baseSpec();
+  spec.objects['bead-1'] = { use: 'bead', translate: [3, 0, 0],
+                             rotate: { axis: [0, 0, 1], degrees: 30 } };
+  spec.objects.lamp.scale = 2;
+  spec.objects.tilted = { use: 'bead', translate: [0, 4, 0] };
+  spec.root.inside.union = ['bead-1', 'bead-2', 'lamp', 'tilted'];
+  const { doc } = make(spec);
+  assert.equal(doc.worldOffset('bead-1', 'inside'), null);   // rotated instance
+  assert.equal(doc.worldOffset('lamp'), null);               // scaled definition
+  assert.deepEqual(doc.worldOffset('tilted'), [0, 4, 0]);    // still a plain offset
+  assert.equal(doc.toLocal('bead-1', 'inside', [1, 2, 3]), null);
 });

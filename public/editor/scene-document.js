@@ -59,7 +59,7 @@ const isUseBody = (def) => isObject(def) && typeof def.use === 'string';
 
 /** The object a subtree refers to by name, or null if it isn't a reference. */
 function refName(def) {
-  if (typeof def === 'string') return def === 'empty' ? null : def;
+  if (typeof def === 'string') return def;
   return isUseBody(def) ? def.use : null;
 }
 
@@ -90,8 +90,7 @@ function walkSpec(spec, visit) {
 
 // Remove subtrees in place. Array members are spliced out, highest index
 // first so earlier removals don't shift later ones; anything in a named slot
-// becomes 'empty'. An explicit 'empty' matters for `inside`, where an omitted
-// value would mean solid.
+// becomes null, which is what the compiler reads as no further subdivision.
 function removeAll(places) {
   const byArray = new Map();
   for (const p of places) {
@@ -99,7 +98,7 @@ function removeAll(places) {
       if (!byArray.has(p.parent)) byArray.set(p.parent, []);
       byArray.get(p.parent).push(Number(p.slot));
     } else {
-      p.parent[p.slot] = 'empty';
+      p.parent[p.slot] = null;
     }
   }
   for (const [array, indices] of byArray) {
@@ -107,7 +106,7 @@ function removeAll(places) {
   }
 }
 
-// Replace every group or union with no members by 'empty', repeatedly, since
+// Replace every group or union with no members by null, repeatedly, since
 // emptying one can empty its parent.
 function pruneAggregates(spec) {
   for (;;) {
@@ -420,8 +419,8 @@ export class SceneDocument {
 
   // After an edit or an undo, drop whatever part of the selection no longer
   // exists: the object if it's gone, just the path if only the node is. A
-  // deleted node leaves an explicit 'empty' in its slot, so the path still
-  // resolves; that counts as gone too.
+  // deleted node leaves a null in its slot, so the path still resolves;
+  // that counts as gone too.
   #validateSelection() {
     const kept = [];
     for (const entry of this.#selected) {
@@ -429,7 +428,7 @@ export class SceneDocument {
       let next = entry;
       if (entry.path) {
         const found = this.resolve(entry.owner, entry.path);
-        if (!found || found.node === 'empty') next = { owner: entry.owner, path: '' };
+        if (!found || !found.node) next = { owner: entry.owner, path: '' };
       }
       // Trimming can make two entries the same; keep the later, so the
       // primary stays primary.
@@ -497,8 +496,8 @@ export class SceneDocument {
     }
     let node = parent[slot];
     for (const seg of splitPath(path)) {
-      // A reference has no children of its own; its contents belong to
-      // another object, which is selected as that object.
+      // A null child has nothing below it, and neither has a reference:
+      // its contents belong to another object, selected as that object.
       if (node === null || typeof node !== 'object' || isUseBody(node)) return null;
       parent = node; slot = seg; node = node[seg];
       if (node === undefined) return null;
@@ -586,7 +585,7 @@ export class SceneDocument {
 
   #checkNewName(name) {
     if (typeof name !== 'string' || !name) throw new Error('an object needs a name');
-    if (name === 'empty' || name.startsWith('@')) throw new Error(`"${name}" is a reserved name`);
+    if (name.startsWith('@')) throw new Error(`"${name}" is a reserved name`);
     if (this.has(name)) throw new Error(`an object called "${name}" already exists`);
   }
 
@@ -653,13 +652,14 @@ export class SceneDocument {
     });
   }
 
-  // A group or union left with no members won't compile, so it becomes
-  // 'empty' in turn, and so on up. An emptied editor container is removed
-  // outright and the root unwrapped again, so creating and deleting an object
-  // leaves no trace.
+  // A group or union left with no members won't compile, so it becomes null
+  // in turn, and so on up. An emptied editor container is removed outright
+  // and the root unwrapped again, so creating and deleting an object leaves
+  // no trace.
   #prune(spec) {
     pruneAggregates(spec);
-    if (spec.objects?.[this.containerKey] !== 'empty') return;
+    const holder = spec.objects ?? {};
+    if (!Object.hasOwn(holder, this.containerKey) || holder[this.containerKey] !== null) return;
     removeAll(this.referencesTo(this.containerKey));
     delete spec.objects[this.containerKey];
     pruneAggregates(spec);
@@ -759,7 +759,7 @@ export class SceneDocument {
       }
       const found = this.resolve(owner, path);
       if (!found) throw new Error(`nothing at ${owner}/${path}`);
-      if (found.node === 'empty') throw new Error('there is nothing there to promote');
+      if (!found.node) throw new Error('there is nothing there to promote');
       if (refName(found.node)) throw new Error('that is already a reference to an object');
       this.#checkNewName(name);
       (spec.objects ??= {})[name] = found.node;

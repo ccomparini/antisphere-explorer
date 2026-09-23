@@ -68,13 +68,13 @@ const isObject = (x) => x !== null && typeof x === 'object' && !Array.isArray(x)
 const v3 = (v) => `(${v.map((x) => +(+x).toFixed(2)).join(', ')})`;
 
 function refName(def) {
-  if (typeof def === 'string') return def === 'empty' ? null : def;
+  if (typeof def === 'string') return def;
   return isObject(def) && typeof def.use === 'string' ? def.use : null;
 }
 
 // A row's label, and its children as [display name, path segments, subtree].
 function describe(def) {
-  if (def === 'empty') return { label: '∅', kids: [] };
+  if (!def) return { label: '∅', kids: [] };        // no further subdivision
   if (typeof def === 'string') return { label: `→ ${def}`, kids: [] };
   if (!isObject(def)) return { label: '?', kids: [] };
 
@@ -291,7 +291,7 @@ export function createPanel(root, ctx) {
       const cur = current();
       if (!cur) return '';
       const node = cur.node;
-      const type = typeof node === 'string' ? (node === 'empty' ? 'empty' : 'reference')
+      const type = !node ? 'nothing' : typeof node === 'string' ? 'reference'
         : node.sphere ? 'sphere' : node.plane ? 'plane'
         : node.group ? 'group' : node.union ? 'union' : node.use ? 'reference' : '?';
       if (cur.owner === ROOT) return type;
