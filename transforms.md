@@ -42,11 +42,19 @@ TRANSLATION by t (A=I):
 
 UNIFORM SCALE by s about origin (A=s*I):
     K' = K/s   (spheroid: k_par'=k_par/s, k_perp'=k_perp/s, n unchanged)
-    c' = c/s
-    d' = d/s   (or leave d unnormalized -- see overall-scale-ambiguity note in the
-                spheroid summary; d only matters up to the same positive multiple as K,c)
+    c' = c                          (UNCHANGED -- see below)
+    d' = s*d
 
-COMPLEMENT: negate all of {K, c, d} (equivalently, negate Q entirely).
+    Only the ratios matter: H and any positive multiple of it have the same
+    surface and the same sign everywhere, so {K/s, c, s*d} and the congruence
+    result {K/s^2, c/s, d} are the same quadric. What is NOT the same is
+    dividing all three by s: that scales H uniformly and moves nothing at all.
+    Section 1's {n,a,k} rule (a'=s*a, k'=k/s) is the one to check against --
+    for a sphere it gives centre s*C and radius s*r, i.e. exactly K/s, c, s*d.
+
+COMPLEMENT: negate all of {K, c, d} (equivalently, negate Q entirely). Not the
+same as scaling by -1, which by the rule above reflects through the origin as
+well: s=-1 gives H'(R) = -H(-R).
     H'(R) = -H(R), exact, for ANY symmetric K -- proven more general than the
     {n,a,k}-only version above, and reduces to it exactly when K=k*I.
 
@@ -146,8 +154,8 @@ route: identical A,B,C both ways, as required.
 |--------------|-------------------|------------------|-------------------|
 | {n,a,k}      | n'=Rot n          | k unchanged;     | n unchanged;      |
 |              | a,k unchanged     | n,a via V-formula| a'=sa, k'=k/s     |
-| {K,c,d}      | K'=Rot K Rot^T    | K unchanged;     | K'=K/s, c'=c/s,   |
-|              | c'=Rot c          | c'=c-Kt, d' below| d'=d/s            |
+| {K,c,d}      | K'=Rot K Rot^T    | K unchanged;     | K'=K/s, c unchanged,|
+|              | c'=Rot c          | c'=c-Kt, d' below| d'=s*d              |
 | Q (4x4)      | Q'=M^-T Q M^-1, same rule in every case, M built from the above         |
 | R-lift/S-lift| S-lift'=L(M)^-T S-lift, same L(M)-congruence rule in every case         |
 

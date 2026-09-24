@@ -203,12 +203,25 @@ t is a 3-vector translation (x, y, z)
 - $ d' = d - 2(c \cdot t) + [k\_perp*(t \cdot t) + (k\_par-k\_perp)*(n \cdot t)^2] $
 
 ### SCALE
-s is scalar - we scale all axes uniformly
+s is a positive scalar - we scale all axes uniformly about the origin
 - $ n' = n $         (unchanged)
 - $ k\_par' = k\_par/s $
 - $ k\_perp' = k\_perp/s $
-- $ c' = c/s $
-- $ d' = d/s $
+- $ c' = c $         (unchanged)
+- $ d' = s\,d $
+
+Substituting $R/s$ for $R$ gives $H(R/s) = k\_perp (R \cdot R)/s^2 + \ldots + 2(c
+\cdot R)/s + d$; clearing the leading $1/s^2$ is where $c$ stays put and $d$ picks
+up the $s$.
+
+Dividing all four by $s$ - as this section used to say - scales $H$ itself and
+leaves the surface exactly where it was, since the surface is where $H$ vanishes.
+That no-op is invisible to any check that only looks at signs, so it is worth
+stating plainly.
+
+Sanity check on a sphere of centre $C$ and radius $r$, where $k = 1/2r$, $c = -kC$
+and $d = k(|C|^2 - r^2)$: scaling it to centre $sC$ and radius $sr$ gives exactly
+$k/s$, the same $c$, and $s\,d$.
 
 ## COMPLEMENT
 - $ n' = n $         (unchanged)
@@ -217,7 +230,10 @@ s is scalar - we scale all axes uniformly
 - $ c' = -c $
 - $ d' = -d $
 
-Note: complement is the same as scaling by -1.
+Note: complement is NOT scaling by -1, though it looks that way if the scale
+rule above is misread as dividing everything by $s$. Under the rule as stated,
+$s = -1$ gives $H'(R) = -H(-R)$: the shape reflected through the origin *and*
+complemented. The complement on its own is the negation above.
 
 Net result: revolution quadrics need no new transform math at all — every rule already
 derived for the spheroid case works.
