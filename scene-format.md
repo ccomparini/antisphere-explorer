@@ -323,13 +323,15 @@ original (or with other transformed copies) once the scene is flattened.
 "complement": true
 ```
 
-Turns the subtree inside out: what was interior becomes exterior and the
+If specified in a primitive, turns that primitive inside out;  otherwise,
+turns the subtree inside out: what was interior becomes exterior and the
 other way about — the standard CSG complement, A → U∖A. On a bare sphere
 that is a spherical hollow; on a plane it is the other half-space; on a cone
 it is everything around the two cups.
 
-It applies to the **whole subtree**, not just the shape on the node that
-carries it. A node with children is complemented along with its children, and
+Unless specified within the primitive (eg "sphere": { ... "complement":true}
+it applies to the **whole subtree**.
+A node with children is complemented along with its children, and
 so is a `"use"`, `"group"`, `"union"`, `"intersect"` or `"difference"` — so
 `{ "union": ["hull", "fin"], "complement": true }` is everything those two
 don't occupy. (On a node with no children the two readings coincide, which is
