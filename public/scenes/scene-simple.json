@@ -98,11 +98,11 @@
   "root": {
     "sphere": {
       "complement": true,
-      "center": [0, 0, 0], "radius": 25
+      "radius": 25
     },
     "material": "shell",
     "outside": {
-      "plane": { "normal": [0, 0, 1], "offset": -1.0 },
+      "plane": { "offset": -1.0 },
       "material": "floor",
       "outside": { "group": ["bitten", "lens", "marbles"] }
     }

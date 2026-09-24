@@ -589,7 +589,8 @@ function boundOf(t, declared, memo, table) {
 // ---------------------------------------------------------------------------
 
 export function compileScene(spec) {
-  const at = (path, msg) => { throw new Error(`scene.json ${path}: ${msg}`); };
+  const at = (path, msg) => { throw new Error(`scene cmpilation: ${path}: ${msg}`); };
+  const warn = (path, msg) => { console.warn(`warning: ${path}: ${msg}`); };
 
   // Material 0 is vacuum: never shaded, and not solid.
   //  trace() reads materials[material].solid
@@ -703,54 +704,94 @@ export function compileScene(spec) {
   // it - a centre, an axis, some lengths - and turned into the nine numbers
   // by the constructors up top. "quadric" is the way out for anything the
   // named shapes don't cover, a parabolic cylinder for instance.
+  // NOTE:  These may mutate the def passed in order to set defaults in
+  // a way such that scene editors and such can see them.
   const SHAPES = {
     sphere: (def, path) => {
-      const { center, radius } = def;
-      if (!center || !(radius > 0)) at(path, 'needs center and positive radius');
-      return sphere(center, radius);
+      // default is a unit sphere at 0,0,0:
+      if (!def.center) def.center = [ 0.0, 0.0, 0.0 ];
+      if (!Number.isFinite(def.radius))
+        def.radius = 1.0; // note we're not explicitly disallowing negative radius
+      return sphere(def.center, def.radius);
     },
     plane: (def, path) => {
-      if (!def.normal) at(path, 'needs normal');
-      return plane(def.normal, def.offset ?? 0);
+      if (!def.normal) def.normal = [ 0.0, 0.0, 1.0 ];
+      if (!def.offset) def.offset = 0.0;
+      // default normal is up; so default is a sort of "ground" plane
+      return plane(def.normal, def.offset);
     },
     spheroid: (def, path) => {
-      const { center, axis, semiAxial, semiRadial } = def;
-      if (!center || !axis) at(path, 'needs center and axis');
-      if (!(semiAxial > 0) || !(semiRadial > 0)) {
-        at(path, 'needs positive semiAxial (along the axis) and semiRadial (around it)');
+      // default actually is also a unit sphere at 0,0,0 but
+      // presumably usually at least some parameter will have
+      // been provided.
+      def.center     ??= [ 0.0, 0.0, 0.0 ];
+      def.axis       ??= [ 0.0, 1.0, 0.0 ];
+      def.semiAxial  ??= 1.0;
+      def.semiRadial ??= 1.0;
+      // we expect but do not require that semiAxial and semiRadial
+      // are both > 0; warn, but let the user see what comes out.
+      // (would it be more intuitive to do each of these in terms of radii?)
+      const bads = [ ];
+      if (def.semiAxial <= 0)  bads.push('semiAxial');
+      if (def.semiRadial <= 0) bads.push('semiRadial');
+      if (bads) {
+        const badstr = bads.map(bad => bad + " == " + def[bad]).join(',');
+        warn(path, `not a sphereoid: ${badstr} should ${bads.length > 1?'all ':''}be > 0`);
       }
-      return spheroid(center, axis, semiAxial, semiRadial);
+      return spheroid(def.center, def.axis, def.semiAxial, def.semiRadial);
     },
     cylinder: (def, path) => {
-      const { center, axis, radius } = def;
-      if (!center || !axis) at(path, 'needs center (a point on the axis) and axis');
-      if (!(radius > 0)) at(path, 'needs a positive radius');
-      return cylinder(center, axis, radius);
+      // default is vertical, centered on x,y plane origin, radius 1.0::
+      def.center ??= [ 0.0, 0.0, 0.0 ];
+      def.axis   ??= [ 0.0, 0.0, 1.0 ];
+      def.radius ??= 1.0;
+
+      if (def.radius <= 0)
+        warn(path, `cylinder has radius ${def.radius} which might cause surprises`);
+
+      return cylinder(def.center, def.axis, def.radius);
     },
     slab: (def, path) => {
-      const { center, axis, thickness } = def;
-      if (!center || !axis) at(path, 'needs center and axis');
-      if (!(thickness > 0)) at(path, 'needs a positive thickness');
-      return slab(center, axis, thickness);
+      // default slab is flat on the ground, like a plane, I guess.
+      def.center    ??= [ 0.0, 0.0, 0.0 ];
+      def.axis      ??= [ 0.0, 0.0, 1.0 ];
+      def.thickness ??= 0.3;
+      if (def.thickness <= 0) warn(path, 'needs a positive thickness');
+      return slab(def.center, def.axis, def.thickness);
     },
     cone: (def, path) => {
-      const { apex, axis, slope } = def;
-      if (!apex || !axis) at(path, 'needs apex and axis');
-      if (!(slope > 0)) at(path, 'needs a positive slope: radius gained per unit along the axis');
-      return cone(apex, axis, slope);
+      // default cone is vertical and.. well, this should be visible
+      // in a scene where the camera is looking near the origin.
+      def.apex  ??= [ 0.0, 0.0, 1.0 ];
+      def.axis  ??= [ 0.0, 0.0, 1.0 ];
+      def.slope ??= 0.25;
+
+      if (def.slope <= 0)
+        warn(path, 'needs a positive slope: radius gained per unit along the axis');
+      return cone(def.apex, def.axis, def.slope);
     },
     paraboloid: (def, path) => {
-      const { vertex, axis, focal } = def;
-      if (!vertex || !axis) at(path, 'needs vertex and axis');
-      if (!(focal > 0)) at(path, 'needs a positive focal length');
-      return paraboloid(vertex, axis, focal);
+      // this is analogous to the cone defaults:
+      def.vertex ??= [ 0.0, 0.0, 1.0 ];
+      def.axis   ??= [ 0.0, 0.0, 1.0 ];
+      def.focal  ??= .25;
+
+      if (def.focal <= 0) warn(path, 'needs a positive focal length');
+      return paraboloid(def.vertex, def.axis, def.focal);
     },
     hyperboloid: (def, path) => {
-      const { center, axis, radius, semiAxial, sheets = 1 } = def;
-      if (!center || !axis) at(path, 'needs center and axis');
-      if (!(radius > 0) || !(semiAxial > 0)) at(path, 'needs positive radius and semiAxial');
-      if (sheets !== 1 && sheets !== 2) at(path, 'sheets must be 1 or 2');
-      return hyperboloid(center, axis, radius, semiAxial, sheets);
+      def.center    ??= [ 0.0, 0.0, 0.0 ];
+      def.axis      ??= [ 0.0, 0.0, 1.0 ];
+      def.radius    ??= 1.0;
+      def.semiAxial ??= 1.0;
+      def.sheets    ??= 1;
+
+      if (def.radius <= 0)    warn(path, `needs positive radius (got ${def.radius})`);
+      if (def.semiAxial <= 0) warn(path, `needs positive semiAxial (got ${def.semiAxial})`);
+
+      // well, this one in a hard error:
+      if (def.sheets !== 1 && def.sheets !== 2) at(path, 'sheets must be 1 or 2');
+      return hyperboloid(def.center, def.axis, def.radius, def.semiAxial, def.sheets);
     },
     quadric: (def, path) => {
       const { axis, k_par, k_perp, c, d } = def;
@@ -772,6 +813,7 @@ export function compileScene(spec) {
     }
     if (named.length > 1) at(path, `has more than one shape: ${named.join(' and ')}`);
     const shape = named[0];
+    // NOTE: this can mutate def[shape] (in order to set defaults)
     var prim = SHAPES[shape](def[shape], `${path}.${shape}`);
     if (def[shape].complement) {
       // "complement" specified within the shape complements just the shape

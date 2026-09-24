@@ -1,0 +1,269 @@
+{
+  "_comment": [
+    "A gallery of every primitive the compiler knows, one per pedestal, with",
+    "the CSG operators and transforms doing the work of making the unbounded",
+    "ones into finite objects. Two rows of six, front row nearest the camera.",
+    "",
+    "Most of the shapes here run off to infinity on their own - a cylinder, a",
+    "cone, a paraboloid, a hyperboloid, a slab, a parabolic cylinder - so each",
+    "is cut to size by intersecting it with something bounded. That is also",
+    "why every group member carries explicit bounds: a group has to be able to",
+    "prove its members are mutually exterior, and it works that out from each",
+    "member's own root primitive, which here is usually an unbounded one."
+  ],
+
+  "camera": { "target": [0, 0, 1.4], "yaw": 1.05, "pitch": 0.32, "distance": 26 },
+
+  "materials": {
+    "sky":     { "kind": "unlit", "albedo": [0.07, 0.09, 0.14] },
+    "floor":   { "albedo": [0.30, 0.31, 0.34], "albedo2": [0.17, 0.18, 0.21],
+                 "pattern": "checker", "scale": 0.5 },
+    "stone":   { "albedo": [0.42, 0.40, 0.38] },
+    "clay":    { "albedo": [0.72, 0.45, 0.32] },
+    "moss":    { "albedo": [0.35, 0.52, 0.32] },
+    "steel":   { "kind": "glossy", "albedo": [0.55, 0.58, 0.62],
+                 "shininess": 64, "specular": 0.8 },
+    "brass":   { "kind": "glossy", "albedo": [0.72, 0.58, 0.25],
+                 "shininess": 28, "specular": 0.6 },
+    "ember":   { "kind": "emissive", "albedo": [0.95, 0.55, 0.25], "emission": 2.5 },
+    "warmair": { "kind": "ambient", "albedo": [0.32, 0.20, 0.12] }
+  },
+
+  "lights": [
+    { "pos": [14, -18, 22], "color": [900, 850, 760] },
+    { "pos": [-16, -10, 14], "color": [320, 340, 420] },
+    { "pos": [0, 16, 10], "color": [260, 240, 220] }
+  ],
+
+  "objects": {
+    "_comment_pedestal": "A disc: an infinite cylinder cut by a slab.",
+    "pedestal": {
+      "intersect": [
+        { "cylinder": { },
+          "material": "stone" },
+        { "slab": { "center": [0, 0, 0.15], "thickness": 0.3 } }
+      ]
+    },
+
+    "_comment_rod": "A rod through the origin, used three ways by the drilled ball.",
+    "rod": {
+      "intersect": [
+        { "cylinder": { "axis": [0, 0, 1], "radius": 0.26 } },
+        { "slab": { "thickness": 4 } }
+      ]
+    },
+
+    "unit-ball": { "sphere": { "center": [0, 0, 1], "radius": 1 }, "material": "clay" },
+
+    "_comment_1": "sphere, by way of use and scale: a unit ball at 0.8 size.",
+    "exhibit-sphere": {
+      "union": [
+        "pedestal",
+        { "use": "unit-ball", "scale": { "factor": 0.8, "pivot": [0, 0, 0.375] } }
+      ]
+    },
+
+    "_comment_2": "spheroid: prolate, twice as tall as it is wide.",
+    "exhibit-spheroid": {
+      "union": [
+        "pedestal",
+        { "spheroid": { "center": [0, 0, 1.3], "axis": [0, 0, 1],
+                        "semiAxial": 1.0, "semiRadial": 0.5 },
+          "material": "moss" }
+      ]
+    },
+
+    "_comment_3": "cylinder: infinite, cut to a rod by a slab, and leaning.",
+    "exhibit-cylinder": {
+      "union": [
+        "pedestal",
+        { "intersect": [
+            { "cylinder": { "radius": 0.4 },
+              "material": "steel" },
+            { "slab": { "center": [0, 0, 1.2], "thickness": 1.8 } }
+          ],
+          "rotate": { "axis": [0, 1, 0], "degrees": 12, "pivot": [0, 0, 0.3] } }
+      ]
+    },
+
+    "_comment_4": "slab: a wafer standing on edge, cut round by a sphere.",
+    "exhibit-slab": {
+      "union": [
+        "pedestal",
+        { "intersect": [
+            { "slab": { "axis": [1, 0, 0], "thickness": 0.22 },
+              "material": "brass" },
+            { "sphere": { "center": [0, 0, 1.2], "radius": 0.9 } }
+          ] }
+      ]
+    },
+
+    "_comment_5": "cone: apex up, default slope, cut off at the pedestal. The other nappe is",
+    "_comment_5b": "above the apex, so the slab removes it as well.",
+    "exhibit-cone": {
+      "union": [
+        "pedestal",
+        { "intersect": [
+            { "cone": { "apex": [0, 0, 2.2] },
+              "material": "clay" },
+            { "slab": { "center": [0, 0, 1.25], "axis": [0, 0, 1], "thickness": 1.9 } }
+          ] }
+      ]
+    },
+
+    "_comment_6": "paraboloid: two of them, the inner one subtracted, making a dish.",
+    "exhibit-paraboloid": {
+      "union": [
+        "pedestal",
+        { "difference": [
+            { "intersect": [
+                { "paraboloid": { "vertex": [0, 0, 0.35], "focal": 0.2 },
+                  "material": "steel" },
+                { "slab": { "center": [0, 0, 1.0], "thickness": 1.3 } }
+              ] },
+            { "paraboloid": { "vertex": [0, 0, 0.5], "axis": [0, 0, 1], "focal": 0.2 } }
+          ] }
+      ]
+    },
+
+    "_comment_7": "hyperboloid of one sheet: a waist, flaring both ways.",
+    "exhibit-hyperboloid-1": {
+      "union": [
+        "pedestal",
+        { "intersect": [
+            { "hyperboloid": { "center": [0, 0, 1.2],
+                               "radius": 0.34, "semiAxial": 0.8 },
+              "material": "brass" },
+            { "slab": { "center": [0, 0, 1.2], "thickness": 1.8 } }
+          ] }
+      ]
+    },
+
+    "_comment_8": "hyperboloid of two sheets: tips facing each other across a gap.",
+    "exhibit-hyperboloid-2": {
+      "union": [
+        "pedestal",
+        { "intersect": [
+            { "hyperboloid": { "center": [0, 0, 1.25],
+                               "radius": 0.5, "semiAxial": 0.45, "sheets": 2 },
+              "material": "moss" },
+            { "slab": { "center": [0, 0, 1.25], "thickness": 1.9 } }
+          ] }
+      ]
+    },
+
+    "_comment_9": "quadric: a parabolic cylinder, which has no name of its own.",
+    "_comment_9b": "Curvature along the axis only, and a c with a component off it:",
+    "_comment_9c": "H = x^2 - 0.8 z + 0.4, a parabola in x and z extruded along y.",
+    "exhibit-quadric": {
+      "union": [
+        "pedestal",
+        { "intersect": [
+            { "quadric": { "axis": [1, 0, 0], "k_par": 1, "k_perp": 0,
+                           "c": [0, 0, -0.4], "d": 0.4 },
+              "material": "clay" },
+            { "sphere": { "center": [0, 0, 1.15], "radius": 0.92 } }
+          ] }
+      ]
+    },
+
+    "_comment_10": "difference, union, rotate and use together: a ball bored",
+    "_comment_10b": "through on all three axes by one rod, placed three ways.",
+    "exhibit-drilled": {
+      "union": [
+        "pedestal",
+        { "difference": [
+            { "sphere": { "center": [0, 0, 1.2], "radius": 0.85 }, "material": "steel" },
+            { "union": [
+                { "use": "rod", "translate": [0, 0, 1.2] },
+                { "use": "rod", "rotate": { "axis": [0, 1, 0], "degrees": 90 },
+                  "translate": [0, 0, 1.2] },
+                { "use": "rod", "rotate": { "axis": [1, 0, 0], "degrees": 90 },
+                  "translate": [0, 0, 1.2] }
+              ] }
+          ] }
+      ]
+    },
+
+    "_comment_11": "complement: a shell, made by intersecting a ball with the",
+    "_comment_11b": "outside of a smaller one, then sliced open by the outside",
+    "_comment_11c": "of a slab so the hollow shows.",
+    "exhibit-complement": {
+      "union": [
+        "pedestal",
+        { "intersect": [
+            { "sphere": { "center": [0, 0, 1.25], "radius": 0.9 }, "material": "brass" },
+            { "sphere": { "center": [0, 0, 1.25], "radius": 0.66 }, "complement": true },
+            { "slab": { "center": [0, 0, 1.25], "axis": [0.4, -1, 0.35], "thickness": 0.9 },
+              "complement": true }
+          ] }
+      ]
+    },
+
+    "_comment_12": "ambient: the sphere is a region, not a substance - its",
+    "_comment_12b": "albedo becomes the ambient light inside it, where an",
+    "_comment_12c": "emissive bead sits.",
+    "exhibit-ambient": {
+      "union": [
+        "pedestal",
+        { "sphere": { "center": [0, 0, 1.3], "radius": 1.05 },
+          "material": "warmair",
+          "inside": { "sphere": { "center": [0, 0, 1.15], "radius": 0.34 },
+                      "material": "ember" } }
+      ]
+    }
+  },
+
+  "_comment_root": [
+    "The sky is a childless complemented sphere: its interior is everything",
+    "beyond radius 399, and that is where the unlit backdrop material lives.",
+    "It is unioned with the gallery rather than wrapped around it, because a",
+    "complement now applies to a whole subtree - a node that complements its",
+    "own surface while keeping children in their slots is no longer a thing",
+    "one can write, and the union says what was meant more plainly anyway."
+  ],
+
+  "root": {
+    "sphere": { "center": [0, 0, 0], "radius": 400 },
+
+    "inside": {
+      "plane": { "normal": [0, 0, 1], "offset": 0 },
+      "material": "floor",
+
+      "outside": {
+        "union": [
+          { "group": [
+              { "use": "exhibit-sphere",        "translate": [-12.5, -2.5, 0],
+                "bounds": { "center": [-12.5, -2.5, 1.2], "radius": 2.2 } },
+              { "use": "exhibit-spheroid",      "translate": [-7.5, -2.5, 0],
+                "bounds": { "center": [-7.5, -2.5, 1.2], "radius": 2.2 } },
+              { "use": "exhibit-cylinder",      "translate": [-2.5, -2.5, 0],
+                "bounds": { "center": [-2.5, -2.5, 1.2], "radius": 2.2 } },
+              { "use": "exhibit-slab",          "translate": [2.5, -2.5, 0],
+                "bounds": { "center": [2.5, -2.5, 1.2], "radius": 2.2 } },
+              { "use": "exhibit-cone",          "translate": [7.5, -2.5, 0],
+                "bounds": { "center": [7.5, -2.5, 1.2], "radius": 2.2 } },
+              { "use": "exhibit-paraboloid",    "translate": [12.5, -2.5, 0],
+                "bounds": { "center": [12.5, -2.5, 1.2], "radius": 2.2 } },
+
+              { "use": "exhibit-hyperboloid-1", "translate": [-12.5, 2.5, 0],
+                "bounds": { "center": [-12.5, 2.5, 1.2], "radius": 2.2 } },
+              { "use": "exhibit-hyperboloid-2", "translate": [-7.5, 2.5, 0],
+                "bounds": { "center": [-7.5, 2.5, 1.2], "radius": 2.2 } },
+              { "use": "exhibit-quadric",       "translate": [-2.5, 2.5, 0],
+                "bounds": { "center": [-2.5, 2.5, 1.2], "radius": 2.2 } },
+              { "use": "exhibit-drilled",       "translate": [2.5, 2.5, 0],
+                "bounds": { "center": [2.5, 2.5, 1.2], "radius": 2.2 } },
+              { "use": "exhibit-complement",    "translate": [7.5, 2.5, 0],
+                "bounds": { "center": [7.5, 2.5, 1.2], "radius": 2.2 } },
+              { "use": "exhibit-ambient",       "translate": [12.5, 2.5, 0],
+                "bounds": { "center": [12.5, 2.5, 1.2], "radius": 2.2 } }
+            ] },
+
+          { "sphere": { "center": [0, 0, 0], "radius": 399 },
+            "complement": true, "material": "sky" }
+        ]
+      }
+    }
+  }
+}
