@@ -199,6 +199,12 @@ export class ASRenderer {
     floats.set(forward, 12);  enums[15] = overrides.debugView ?? this.debugView;
     enums[16] = overrides.ablate ?? 2;                      // 2 = full shading path
     enums[17] = this.scene ? this.scene.lights.length : 0;
+    // Perspective fans the directions from one origin; orthographic runs
+    // them parallel and spreads the origins, so it needs a size in world
+    // units rather than an angle. See main() in antisphere-raycast.wgsl.
+    const ortho = (overrides.projection ?? this.camera.projection) === 'orthographic';
+    enums[18] = ortho ? 1 : 0;
+    floats[19] = ortho ? this.camera.halfHeight() : 0;
     this.context.device.queue.writeBuffer(buffer, 0, host);
   }
 

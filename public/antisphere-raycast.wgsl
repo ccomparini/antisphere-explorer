@@ -114,10 +114,26 @@ struct Camera {
   fwd     : vec3<f32>,
   debug   : u32,   // DEBUG_ view, 0 = shaded
   ablate  : u32,   // ABLATE_ level, for the profiler's ablation ladder
-  pad3    : u32,
-  pad4    : u32,
-  pad5    : u32,
+
+  // Written by the renderer, but the light loop uses arrayLength() instead,
+  // so nothing here reads it. Named rather than padded so the two sides of
+  // the uniform agree about what lives where.
+  light_count : u32,
+
+  // How rays are cast (see PROJECTION_ below and main()). Under an
+  // orthographic projection every ray runs along fwd and it is the origin
+  // that moves across the image plane, so the pixel scale can't come from
+  // an angle: ortho_half_height is half the visible height, in world units.
+  projection       : u32,
+  ortho_half_height : f32,
 };
+
+// A point of view with rays fanning out from it, or a direction with rays
+// running parallel to it. A ray caster has no projection matrix to swap, so
+// this is the whole difference: which of the origin and the direction the
+// pixel moves.
+const PROJECTION_PERSPECTIVE  : u32 = 0u;
+const PROJECTION_ORTHOGRAPHIC : u32 = 1u;
 
 // Rungs of the ablation ladder. Each level adds one stage back, and the
 // differences between consecutive pass times give the stage costs. Shadow
@@ -583,9 +599,25 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
 
   let uv = (vec2<f32>(gid.xy) + 0.5) / vec2<f32>(dims);
   let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-  let dir = normalize(cam.fwd
-    + cam.right * (ndc.x * cam.aspect * cam.tanHalf)
-    + cam.up    * (ndc.y * cam.tanHalf));
+
+  var origin = cam.origin;
+  var dir = cam.fwd;
+  // Where the ray may start. A perspective eye is a point, and anything
+  // behind it is behind the viewer; an orthographic "eye" is a plane, and
+  // the geometry on the near side of it is exactly what an editor view is
+  // usually looking for, so the ray is allowed to begin well behind.
+  var tMin = 1e-3;
+
+  if (cam.projection == PROJECTION_ORTHOGRAPHIC) {
+    origin = cam.origin
+      + cam.right * (ndc.x * cam.aspect * cam.ortho_half_height)
+      + cam.up    * (ndc.y * cam.ortho_half_height);
+    tMin = -1e4;
+  } else {
+    dir = normalize(cam.fwd
+      + cam.right * (ndc.x * cam.aspect * cam.tanHalf)
+      + cam.up    * (ndc.y * cam.tanHalf));
+  }
 
   // Ablation - used for profiling separate stages of the render.
   // Each stage's output has to stay live or the compiler will delete
@@ -593,7 +625,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // from what it computed.
   var found = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
-    found = trace(cam.origin, dir, 1e-3, 1e4);
+    found = trace(origin, dir, tMin, 1e4);
   }
 
   var col = vec3<f32>(0.0);
@@ -608,7 +640,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     let nd = nodes[found.node];
     var hit : Hit;
     hit.node = found.node;
-    hit.position = cam.origin + found.t0 * dir;
+    hit.position = origin + found.t0 * dir;
     hit.normal = normalize(gradAt(nd, hit.position));
     if (dot(hit.normal, dir) > 0.0) { hit.normal = -hit.normal; }   // face the ray
     hit.toViewer = -dir;

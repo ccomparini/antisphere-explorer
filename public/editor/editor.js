@@ -117,16 +117,20 @@ async function main() {
   function frameViews() {
     const centre = scene.camera?.target ?? [0, 0, 0];
     const far = (scene.camera?.distance ?? 8) * 1.2;
+    // The axis views are orthographic: parallel rays are what make a
+    // drawing you can measure against, and what stops near geometry from
+    // hiding what is behind it.
     const layouts = [
       null,
-      { yaw: 0,           pitch: 0,    distance: far },
-      { yaw: Math.PI / 2, pitch: 0,    distance: far },
-      { yaw: 0,           pitch: 1.35, distance: far },
+      { yaw: 0,           pitch: 0,       distance: far, projection: 'orthographic' },
+      { yaw: Math.PI / 2, pitch: 0,       distance: far, projection: 'orthographic' },
+      { yaw: 0,           pitch: Math.PI / 2 - 1e-3, distance: far, projection: 'orthographic' },
     ];
     views.forEach((v, i) => {
       v.controls.setMode('orbit');
       if (i === 0) { v.camera.setFromSpec(scene.camera ?? { target: centre }); return; }
       v.camera.target = centre.slice();
+      v.camera.orthoHeight = null;          // framed from the orbit distance
       Object.assign(v.camera, layouts[i]);
     });
   }
@@ -165,8 +169,8 @@ async function main() {
       return;
     }
     const rect = view.pane.querySelector('canvas').getBoundingClientRect();
-    const { origin, direction } = rayThroughPixel(view.camera, rect, event.clientX, event.clientY);
-    const hit = await scene.pick(origin, direction);
+    const { origin, direction, tMin } = rayThroughPixel(view.camera, rect, event.clientX, event.clientY);
+    const hit = await scene.pick(origin, direction, tMin === undefined ? {} : { tMin });
     if (!hit) { if (!add) doc.clearSelection(); return; }
     const target = selectionForHit(scene.provenance, hit.node, { deep });
     if (!target) { note('nothing selectable there'); return; }

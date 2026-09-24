@@ -36,7 +36,26 @@ export class ASCamera {
     this.freePitch = this.pitch;
 
     this.fovY = opts.fovY ?? 0.9;      // radians
+
+    // Perspective or orthographic. A ray caster has no projection matrix, so
+    // this only decides how the renderer lays out the rays; the eye,
+    // orientation and modes above are the same either way.
+    this.projection = opts.projection ?? 'perspective';
+    // Half the visible height in world units, for orthographic views. Null
+    // means "match the perspective framing", which keeps whatever sits at
+    // the orbit target the same size across a switch.
+    this.orthoHeight = opts.orthoHeight ?? null;
     this.fallVelocity = 0;             // walk mode only
+  }
+
+  /**
+   * Half the visible height, in world units, for an orthographic view.
+   * Derived from the field of view and the orbit distance unless set, so
+   * toggling projection leaves the framing at the target alone.
+   */
+  halfHeight() {
+    if (this.orthoHeight !== null) return this.orthoHeight;
+    return Math.tan(0.5 * this.fovY) * (this.distance ?? 8);
   }
 
   /** Eye position and orientation for whichever mode is active. */
@@ -119,14 +138,20 @@ export class ASCamera {
     if (spec.pitch !== undefined) this.pitch = spec.pitch;
     if (spec.distance !== undefined) this.distance = spec.distance;
     if (spec.mode) this.setMode(spec.mode);
+    if (spec.projection) this.projection = spec.projection;
+    if (spec.orthoHeight !== undefined) this.orthoHeight = spec.orthoHeight;
   }
 
   /** A plain object suitable for a scene file's `camera` block. */
   toSpec() {
-    return {
+    const spec = {
       target: this.target.slice(),
       yaw: this.yaw, pitch: this.pitch, distance: this.distance,
     };
+    // Only when it isn't the default, so an ordinary scene file stays plain.
+    if (this.projection !== 'perspective') spec.projection = this.projection;
+    if (this.orthoHeight !== null) spec.orthoHeight = this.orthoHeight;
+    return spec;
   }
 }
 

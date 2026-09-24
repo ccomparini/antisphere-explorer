@@ -213,7 +213,10 @@ export function createPanel(root, ctx) {
   const camera = {
     cameraModes: CAMERA_MODES,
     debugViews: DEBUG_VIEWS,
+    projections: ['perspective', 'orthographic'],
     get viewName() { return edited()?.name ?? ''; },
+    get projection() { return edited().camera.projection; },
+    set projection(v) { edited().camera.projection = v; },
     get mode() { return edited().camera.mode; },
     set mode(v) { edited().controls.setMode(v); },
     get shadows() { return edited().renderer.shadows; },
