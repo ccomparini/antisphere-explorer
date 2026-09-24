@@ -612,7 +612,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     origin = cam.origin
       + cam.right * (ndc.x * cam.aspect * cam.ortho_half_height)
       + cam.up    * (ndc.y * cam.ortho_half_height);
-    tMin = -1e4;
+    //tMin = -1e4; // cmc this seems to make it show all grey in default scene
   } else {
     dir = normalize(cam.fwd
       + cam.right * (ndc.x * cam.aspect * cam.tanHalf)
