@@ -33,7 +33,7 @@ const NEW_SCENE = {
   root: {
     sphere: { center: [0, 0, 0], radius: 40 },
     inside: {
-      sphere: { center: [0, 0, 0], radius: 39 }, complement: true, material: 'sky',
+      sphere: { center: [0, 0, 0], radius: 39, complement: true }, material: 'sky',
       outside: {
         plane: { normal: [0, 0, 1], offset: 0 }, material: 'floor',
         outside: { sphere: { center: [0, 0, 0.5], radius: 0.5 }, material: 'clay' },

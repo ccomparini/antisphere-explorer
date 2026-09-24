@@ -262,10 +262,10 @@
               1.6,
               0.9
             ],
-            "radius": 0.95
+            "radius": 0.95,
+            "complement": true
           },
-          "material": "core",
-          "complement": true
+          "material": "core"
         }
       }
     },
@@ -496,9 +496,9 @@
         0,
         0
       ],
-      "radius": 25
+      "radius": 25,
+      "complement": true
     },
-    "complement": true,
     "paint": "partition",
     "outside": {
       "sphere": {

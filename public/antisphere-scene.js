@@ -118,8 +118,15 @@ function hyperboloid(centre, axis, radius, semiAxial, sheets) {
                centre, [0, 0, 0], sheets === 2 ? 1 : -1);
 }
 
-// CSG complement: negate everything but the axis, which has no side.
-function complement(prim) {
+// XXX OOPS CHRIS YOU LIED TO CLAUDE
+//  At the very least the bounding sphere roots wanted the division definition
+//  of complement!!!!
+
+// Turns a single surface inside out: negate everything but the axis, which
+// has no side to swap. One node's own geometry only - complement(), below,
+// is what turns a whole region inside out, and is what a scene file's
+// "complement" means.
+function complementSurface(prim) {
   return {
     axis: prim.axis,
     k_par: -prim.k_par,
@@ -233,12 +240,10 @@ function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = nul
 // in its own right and stays; on the outside it is where `other` goes.
 function union(t, other) {
   if (!t) return other;
-  return node(
-    t.prim,
-    t.inside ? union(t.inside, other) : null,
-    union(t.outside, other),
-    t.material, t.env, t.prov
-  );
+  return node(t.prim,
+              t.inside ? union(t.inside, other) : null,
+              union(t.outside, other),
+              t.material, t.env, t.prov);
 }
 
 // Intersection: by De Morgan, what is inside both is what is outside
@@ -250,30 +255,33 @@ function intersect(t, other) {
   // but its complement, everything, has no null of its own to be written as,
   // so De Morgan can't be trusted with one. Both identities are direct.
   if (!t || !other) return null;
-  return complementTree(union(complementTree(t), complementTree(other)));
+  return complement(union(complement(t), complement(other)));
 }
 
-// The tree whose interior is the complement of this one's. A node's region
-// is (P_in and I) or (P_out and O), so its complement is the same node with
-// both children complemented - and complementing the node's own primitive as
-// well swaps which slot each child sits in, which is all it takes: a null
-// child means "no further subdivision here" on either side, so it
-// complements to itself.
+// The tree whose interior is the complement of this one's, and what a scene
+// file's "complement" applies. A node's region is (P_in and I) or
+// (P_out and O), so its complement is the same node with both children
+// complemented - and complementing the node's own surface as well swaps
+// which slot each child sits in, which is all it takes: a null child means
+// "no further subdivision here" on either side, so it complements to itself.
+//
+// On a node with no children the two coincide, which is why scene files
+// that only ever complemented bare primitives read as they always did.
 //
 // Materials and provenance are kept, so a complemented region carries its
 // own look, and clicking a cut face still selects whatever cut it.
-function complementTree(t) {
+function complement(t) {
   if (!t) return t;
-  return node(complement(t.prim),
-              complementTree(t.outside),
-              complementTree(t.inside),
+  return node(complementSurface(t.prim),
+              complement(t.outside),
+              complement(t.inside),
               t.material, t.env, t.prov);
 }
 
 // Difference: what is interior to t and not to other.
 function difference(t, other) {
   if (!other) return t;                  // nothing taken away
-  return intersect(t, complementTree(other));
+  return intersect(t, complement(other));
 }
 
 // Rigid translation of a primitive by a world-space offset. Substituting
@@ -768,8 +776,12 @@ export function compileScene(spec) {
     }
     if (named.length > 1) at(path, `has more than one shape: ${named.join(' and ')}`);
     const shape = named[0];
-    const p = SHAPES[shape](def[shape], `${path}.${shape}`);
-    return def.complement ? complement(p) : p;
+    var prim = SHAPES[shape](def[shape], `${path}.${shape}`);
+    if (def[shape].complement) {
+      // "complement" specified within the shape complements just the shape
+      prim = complementSurface(prim);
+    }
+    return prim;
   }
 
   // Where a subtree sits for provenance: its owner, and the literal keys
@@ -1014,7 +1026,7 @@ export function compileScene(spec) {
   }
 
   function tree(def, path, where) {
-    // Null, absent, or the word scene files already write: no subdivision.
+    // Null or absent: no subdivision here.
     if (!def) return null;
     if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
 
@@ -1035,6 +1047,16 @@ export function compileScene(spec) {
       const { material, env } = materialAndEnvOf(def, path);
       out = node(primOf(def, path), insideTree, outsideTree, material, env, provOf(where));
     }
+
+    // "complement" turns the whole subtree inside out: what was interior
+    // becomes exterior and the other way about. Applied before any
+    // transform, though the two commute - moving a region and then turning
+    // it inside out is the same as doing it the other way round.
+    //
+    // On a bare primitive this is its own surface flipped, which is all it
+    // used to do; on a node with children, or on a use, group, union,
+    // intersect or difference, it now means what it says.
+    if (def.complement) out = complement(out);
 
     // Places a subtree in the world by transforming every primitive in it -
     // see translateTree() and friends. These work on any of the branches

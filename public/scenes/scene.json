@@ -2248,10 +2248,10 @@
               -0.3891,
               -0.272
             ],
-            "radius": 0.308
+            "radius": 0.308,
+            "complement": true
           },
-          "material": "core",
-          "complement": true
+          "material": "core"
         }
       }
     },
@@ -2331,16 +2331,16 @@
       "inside": {
         "sphere": {
           "center": [ 3.4, 2.6, 0.35 ],
-          "radius": 1.12
+          "radius": 1.12,
+          "complement": true
         },
-        "complement": true,
         "inside": {
           "sphere": {
             "center": [ 2.5, 1.6, 0.9 ],
-            "radius": 0.95
+            "radius": 0.95,
+            "complement": true
           },
-          "material": "core",
-          "complement": true
+          "material": "core"
         }
       }
     },
@@ -2496,9 +2496,9 @@
         0,
         0
       ],
-      "radius": 25
+      "radius": 25,
+      "complement": true
     },
-    "complement": true,
     "material": "shell",
     "outside": {
       "plane": {

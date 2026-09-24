@@ -19,8 +19,10 @@
   "root": {
     "sphere": { "center": [0, 0, 0], "radius": 40 },
     "inside": {
-      "sphere": { "center": [0, 0, 0], "radius": 39 },
-      "complement": true,
+      "sphere": {
+        "complement": true,
+        "center": [0, 0, 0], "radius": 39
+      },
       "material": "sky",
       "outside": {
         "sphere": { "center": [0, 0, -325], "radius": 325 },

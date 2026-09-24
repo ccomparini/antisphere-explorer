@@ -169,9 +169,9 @@
         "inside": {
           "sphere": {
             "center": [ -0.476, 0.0, 0.168],
-            "radius": 0.308
+            "radius": 0.308,
+            "complement": true
           },
-          "complement": true,
           "material": "alabaster"
         }
       }
@@ -242,9 +242,9 @@
         0,
         0
       ],
-      "radius": 25
+      "radius": 25,
+      "complement": true
     },
-    "complement": true,
     "material": "shell",
     "outside": { "use":  "world" }
   }

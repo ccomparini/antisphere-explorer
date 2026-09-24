@@ -38,7 +38,7 @@
   ],
 
   "objects": {
-    "bitten": {
+    "house": {
       "plane": { "normal": [0, 0, 1], "offset": 0.95 },
       "material": "brass",
       "inside": {
@@ -48,8 +48,10 @@
           "plane": { "normal": [0, 0, 1], "offset": 0.95 },
           "material": "brass",
           "inside": {
-            "sphere": { "center": [-0.75, 0.8, 0.2], "radius": 0.6 },
-            "complement": true,
+            "sphere": {
+              "center": [-0.75, 0.8, 0.2], "radius": 0.6,
+              "complement": true
+            },
             "material": "brass"
           },
           "outside": {
@@ -98,6 +100,13 @@
   "root": {
     "sphere": { "center": [0, 0, -500], "radius": 500 },
     "material": "shell",
-    "outside": { "group": ["bitten", "lens", "marbles"] }
+    "outside": {
+      "group": [
+        { "use": "house", "scale": 2.3, "translate": [ -1.2, 0, 0 ] },
+        { "use": "house", "scale": 2.3, "translate": [ 2, -12, 0 ], "rotate": { "axis": [ 0, 0, 1], "degrees": 75 } },
+        "lens",
+        "marbles"
+       ]
+    }
   }
 }
