@@ -31,12 +31,12 @@ const NEW_SCENE = {
   lights: [{ pos: [3, -4, 5], color: [40, 36, 30] }],
   objects: {},
   root: {
-    sphere: { center: [0, 0, 0], radius: 40 },
-    inside: {
-      sphere: { center: [0, 0, 0], radius: 39, complement: true }, material: 'sky',
+    plane: { normal: [0, 0, 1], offset: 0 }, material: 'floor',
+    outside: {
+      sphere: { radius: 40, complement: true },
+      material: 'sky',
       outside: {
-        plane: { normal: [0, 0, 1], offset: 0 }, material: 'floor',
-        outside: { sphere: { center: [0, 0, 0.5], radius: 0.5 }, material: 'clay' },
+        sphere: { center: [0, 0, 0.5], radius: 0.5 }, material: 'clay',
       },
     },
   },
