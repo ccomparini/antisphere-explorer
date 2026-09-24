@@ -118,10 +118,6 @@ function hyperboloid(centre, axis, radius, semiAxial, sheets) {
                centre, [0, 0, 0], sheets === 2 ? 1 : -1);
 }
 
-// XXX OOPS CHRIS YOU LIED TO CLAUDE
-//  At the very least the bounding sphere roots wanted the division definition
-//  of complement!!!!
-
 // Turns a single surface inside out: negate everything but the axis, which
 // has no side to swap. One node's own geometry only - complement(), below,
 // is what turns a whole region inside out, and is what a scene file's
