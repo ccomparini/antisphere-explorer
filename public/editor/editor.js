@@ -169,8 +169,8 @@ async function main() {
       return;
     }
     const rect = view.pane.querySelector('canvas').getBoundingClientRect();
-    const { origin, direction, tMin } = rayThroughPixel(view.camera, rect, event.clientX, event.clientY);
-    const hit = await scene.pick(origin, direction, tMin === undefined ? {} : { tMin });
+    const { origin, direction } = rayThroughPixel(view.camera, rect, event.clientX, event.clientY);
+    const hit = await scene.pick(origin, direction);
     if (!hit) { if (!add) doc.clearSelection(); return; }
     const target = selectionForHit(scene.provenance, hit.node, { deep });
     if (!target) { note('nothing selectable there'); return; }

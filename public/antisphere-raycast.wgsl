@@ -122,8 +122,8 @@ struct Camera {
 
   // How rays are cast (see PROJECTION_ below and main()). Under an
   // orthographic projection every ray runs along fwd and it is the origin
-  // that moves across the image plane, so the pixel scale can't come from
-  // an angle: ortho_half_height is half the visible height, in world units.
+  // that moves across the eye plane, so the pixel scale can't come from an
+  // angle: ortho_half_height is half the visible height, in world units.
   projection       : u32,
   ortho_half_height : f32,
 };
@@ -602,17 +602,18 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
 
   var origin = cam.origin;
   var dir = cam.fwd;
-  // Where the ray may start. A perspective eye is a point, and anything
-  // behind it is behind the viewer; an orthographic "eye" is a plane, and
-  // the geometry on the near side of it is exactly what an editor view is
-  // usually looking for, so the ray is allowed to begin well behind.
-  var tMin = 1e-3;
 
   if (cam.projection == PROJECTION_ORTHOGRAPHIC) {
+    // Every ray starts on the eye plane - the plane through cam.origin with
+    // cam.fwd as its normal - and runs along fwd. A perspective eye is a
+    // point and an orthographic one is that plane, but the rule is the same
+    // either way: nothing behind the eye is seen. So an eye plane that has
+    // sunk into something shows the inside of it, and a caller that cares
+    // can find out by tracing from cam.origin, the way walk mode finds the
+    // ground.
     origin = cam.origin
       + cam.right * (ndc.x * cam.aspect * cam.ortho_half_height)
       + cam.up    * (ndc.y * cam.ortho_half_height);
-    //tMin = -1e4; // cmc this seems to make it show all grey in default scene
   } else {
     dir = normalize(cam.fwd
       + cam.right * (ndc.x * cam.aspect * cam.tanHalf)
@@ -625,7 +626,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // from what it computed.
   var found = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
-    found = trace(origin, dir, tMin, 1e4);
+    found = trace(origin, dir, 1e-3, 1e4);
   }
 
   var col = vec3<f32>(0.0);

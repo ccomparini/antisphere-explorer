@@ -10,9 +10,9 @@ const ROOT_OWNER = '@root';     // antisphere-scene.js's name for the root subtr
 /**
  * The ray through a point on a pane, laid out exactly as main() lays out the
  * ray for that pixel — which is the whole of what a projection is here.
- * Perspective fans directions from the eye; orthographic keeps one
- * direction and moves the origin across the image plane, and starts behind
- * the eye plane so that nothing on the camera's own side is missed.
+ * Perspective fans directions from the eye; orthographic keeps one direction
+ * and moves the origin across the eye plane - the plane through the eye with
+ * the view direction as its normal. Neither sees anything behind the eye.
  *
  * @param {ASCamera} camera   needs basis(), fovY, projection and halfHeight()
  * @param {DOMRect} rect      the canvas's bounding rectangle
@@ -28,7 +28,6 @@ export function rayThroughPixel(camera, rect, clientX, clientY) {
     return {
       origin: eye.map((v, i) => v + right[i] * x * aspect * half + up[i] * y * half),
       direction: forward.slice(),
-      tMin: -1e4,
     };
   }
 
