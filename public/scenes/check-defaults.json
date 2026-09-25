@@ -68,7 +68,7 @@
       "union": [
         "pedestal",
         { "spheroid": { "center": [0, 0, 1.3], "axis": [0, 0, 1],
-                        "semiAxial": 1.0, "semiRadial": 0.5 },
+                        "height": 2.0, "radius": 0.5 },
           "material": "moss" }
       ]
     },

@@ -41,15 +41,26 @@ test('plane, including an unnormalized normal', () => {
 });
 
 test('spheroid, prolate and oblate', () => {
-  for (const [axial, radial] of [[2, 0.7], [0.6, 1.9]]) {
+  for (const [height, radius] of [[4, 0.7], [1.2, 1.9]]) {
     const got = invert(fromSpheroid, primOf({ spheroid: {
-      center: [0, 1, -1], axis: [0, 1, 1], semiAxial: axial, semiRadial: radial } }));
-    assert.equal(got.inverseOk, true, `${axial} by ${radial}`);
+      center: [0, 1, -1], axis: [0, 1, 1], height, radius } }));
+    assert.equal(got.inverseOk, true, `${height} tall by ${radius} across`);
     closeVec(got.centre, [0, 1, -1]);
     closeAxis(got.axis, [0, Math.SQRT1_2, Math.SQRT1_2]);
-    close(got.semiAxial, axial);
-    close(got.semiRadial, radial);
+    close(got.height, height);
+    close(got.radius, radius);
   }
+});
+
+test('a spheroid as tall as it is wide is a sphere', () => {
+  const got = invert(fromSpheroid, primOf({ spheroid: {
+    center: [0, 0, 0], axis: [0, 0, 1], height: 3, radius: 1.5 } }));
+  close(got.height, 3);
+  close(got.radius, 1.5);
+  const asSphere = invert(fromSphere, primOf({ spheroid: {
+    center: [1, 0, 0], axis: [0, 0, 1], height: 3, radius: 1.5 } }));
+  assert.equal(asSphere.inverseOk, true, 'and inverts as one');
+  close(asSphere.radius, 1.5);
 });
 
 test('cylinder', () => {

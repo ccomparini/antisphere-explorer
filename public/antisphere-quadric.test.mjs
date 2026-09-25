@@ -149,7 +149,7 @@ test('a quadric that is zero everywhere is refused', () => {
 
 test('spheroid: semi-axes along and around the axis', () => {
   const nd = packed({ spheroid: { center: [0, 0, 1], axis: [0, 0, 1],
-                                  semiAxial: 3, semiRadial: 1 } });   // prolate
+                                  height: 3 * 2, radius: 1 } });   // prolate
   onSurface(nd, [0, 0, 4]);
   onSurface(nd, [0, 0, -2]);
   onSurface(nd, [1, 0, 1]);
@@ -196,7 +196,7 @@ test('translation moves every shape exactly', () => {
   const t = [1, -2, 0.5];
   const shapes = [
     { sphere: { center: [0, 0, 0], radius: 2 } },
-    { spheroid: { center: [1, 0, 0], axis: [0, 1, 1], semiAxial: 2, semiRadial: 1 } },
+    { spheroid: { center: [1, 0, 0], axis: [0, 1, 1], height: 2 * 2, radius: 1 } },
     { cone: { apex: [0, 0, 0], axis: [0, 0, 1], slope: 1 } },
     { cylinder: { center: [0, 0, 0], axis: [1, 1, 0], radius: 1 } },
     { plane: { normal: [1, 2, 3], offset: 1 } },
@@ -222,7 +222,7 @@ test('complement negates the function everywhere', () => {
 
 test('the ray polynomial agrees with H along the ray', () => {
   const nd = packed({ spheroid: { center: [1, 0, 2], axis: [0, 1, 1],
-                                  semiAxial: 2, semiRadial: 1 } });
+                                  height: 2 * 2, radius: 1 } });
   const O = [-4, 1, 0];
   const D = (([x, y, z]) => { const L = Math.hypot(x, y, z); return [x / L, y / L, z / L]; })([1, 0.2, 0.4]);
   const { A, B, C } = abc(nd, O, D);
@@ -258,7 +258,7 @@ test('a spheroid bounds a group member; unbounded shapes do not', () => {
     root: { group: ['thing', 'ball'] },
   });
   // Bounded: sphere and spheroid.
-  group({ spheroid: { center: [0, 0, 0], axis: [0, 0, 1], semiAxial: 3, semiRadial: 1 } });
+  group({ spheroid: { center: [0, 0, 0], axis: [0, 0, 1], height: 3 * 2, radius: 1 } });
   group({ sphere: { center: [0, 0, 0], radius: 1 } });
   // Unbounded: everything with an axis it runs off along.
   for (const shape of [
@@ -276,9 +276,9 @@ test('a spheroid group is partitioned, and overlap is still caught', () => {
   const members = (dx) => ({
     materials: { clay: {} }, lights: [],
     objects: {
-      a: { spheroid: { center: [0, 0, 0], axis: [0, 0, 1], semiAxial: 2, semiRadial: 1 },
+      a: { spheroid: { center: [0, 0, 0], axis: [0, 0, 1], height: 2 * 2, radius: 1 },
            material: 'clay' },
-      b: { spheroid: { center: [dx, 0, 0], axis: [0, 0, 1], semiAxial: 2, semiRadial: 1 },
+      b: { spheroid: { center: [dx, 0, 0], axis: [0, 0, 1], height: 2 * 2, radius: 1 },
            material: 'clay' },
     },
     root: { group: ['a', 'b'] },
@@ -295,7 +295,7 @@ test('a scene of every shape compiles, packs and keeps its provenance', () => {
     materials: { clay: {} },
     lights: [{ pos: [0, 0, 5], color: [10, 10, 10] }],
     objects: {
-      pod:   { spheroid: { center: [0, 0, 1], axis: [0, 0, 1], semiAxial: 2, semiRadial: 1 } },
+      pod:   { spheroid: { center: [0, 0, 1], axis: [0, 0, 1], height: 2 * 2, radius: 1 } },
       pipe:  { cylinder: { center: [3, 0, 0], axis: [0, 0, 1], radius: 0.5 } },
       floor: { slab: { center: [0, 0, -1], axis: [0, 0, 1], thickness: 0.5 } },
       spike: { cone: { apex: [-3, 0, 0], axis: [0, 0, 1], slope: 0.5 } },
@@ -360,7 +360,7 @@ function turnedBack(axis, degrees, pivot, R) {
 
 test('rotation turns the surface and leaves the curvatures alone', () => {
   const shape = { spheroid: { center: [2, 0, 0], axis: [0, 0, 1],
-                              semiAxial: 3, semiRadial: 1 } };
+                              height: 3 * 2, radius: 1 } };
   const still = packed(shape);
   const turned = packed(shape, { rotate: { axis: [0, 1, 0], degrees: 90 } });
   near(turned.curvature_perp, still.curvature_perp);
@@ -464,8 +464,8 @@ test('a rotated group still checks its members and bounds them', () => {
   const scene = (degrees) => ({
     materials: {}, lights: [],
     objects: {
-      a: { spheroid: { center: [-3, 0, 0], axis: [0, 0, 1], semiAxial: 2, semiRadial: 1 } },
-      b: { spheroid: { center: [3, 0, 0], axis: [0, 0, 1], semiAxial: 2, semiRadial: 1 } },
+      a: { spheroid: { center: [-3, 0, 0], axis: [0, 0, 1], height: 2 * 2, radius: 1 } },
+      b: { spheroid: { center: [3, 0, 0], axis: [0, 0, 1], height: 2 * 2, radius: 1 } },
     },
     root: { group: ['a', 'b'], rotate: { axis: [0, 1, 0], degrees } },
   });

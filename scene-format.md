@@ -142,7 +142,7 @@ of the family is what having an axis buys.
 |-------|--------|-------|
 | `"sphere"` | `center`, `radius` > 0 | |
 | `"plane"` | `normal`, `offset` (default `0`) | signed distance from the origin along `normal`; see below |
-| `"spheroid"` | `center`, `axis`, `semiAxial` > 0, `semiRadial` > 0 | ellipsoid of revolution: `semiAxial` along the axis, `semiRadial` around it. Equal values give a sphere |
+| `"spheroid"` | `center`, `axis`, `height` > 0, `radius` > 0 | ellipsoid of revolution: `height` end to end along the axis, `radius` around it, as for a cylinder. `height` = 2 × `radius` gives a sphere |
 | `"cylinder"` | `center`, `axis`, `radius` > 0 | infinite right circular cylinder; `center` is any point on the axis |
 | `"slab"` | `center`, `axis`, `thickness` > 0 | the solid between two parallel planes perpendicular to `axis` |
 | `"cone"` | `apex`, `axis`, `slope` > 0 | double cone; `slope` is radius gained per unit along the axis, so `1` is 45° |

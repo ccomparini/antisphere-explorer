@@ -79,10 +79,13 @@ function plane(normal, offset) {
   return quadric(n, 0, 0, n.map((v) => v / 2), -offset / Math.hypot(normal[0], normal[1], normal[2]));
 }
 
-// Rotationally symmetric ellipsoid: semiAxial along the axis, semiRadial
-// around it. Equal semi-axes give a sphere back.
-function spheroid(centre, axis, semiAxial, semiRadial) {
-  return about(axis, 1 / (semiAxial * semiAxial), 1 / (semiRadial * semiRadial),
+// Rotationally symmetric ellipsoid: `height` end to end along the axis, and
+// `radius` around it - measured the way a cylinder's radius and a slab's
+// thickness are, so height is the whole extent and radius is half of one.
+// height = 2 * radius gives a sphere back.
+function spheroid(centre, axis, height, radius) {
+  const semiAxial = height / 2;
+  return about(axis, 1 / (semiAxial * semiAxial), 1 / (radius * radius),
                centre, [0, 0, 0], -1);
 }
 
@@ -183,7 +186,7 @@ export function fromPlane(axis, k_par, k_perp, linear, constant) {
   };
 }
 
-/** spheroid(centre, axis, semiAxial, semiRadial) */
+/** spheroid(centre, axis, height, radius) */
 export function fromSpheroid(axis, k_par, k_perp, linear, constant) {
   const scale = primScale(k_par, k_perp, linear, constant);
   const closed = !nearZero(k_par, scale) && !nearZero(k_perp, scale)
@@ -193,8 +196,8 @@ export function fromSpheroid(axis, k_par, k_perp, linear, constant) {
   return {
     centre,
     axis: axis.slice(),
-    semiAxial: Math.sqrt(Math.abs(E / k_par)),
-    semiRadial: Math.sqrt(Math.abs(E / k_perp)),
+    height: 2 * Math.sqrt(Math.abs(E / k_par)),
+    radius: Math.sqrt(Math.abs(E / k_perp)),
     inverseOk: closed && E / k_perp > 0,
   };
 }
@@ -899,24 +902,23 @@ export function compileScene(spec) {
       return plane(def.normal, def.offset);
     },
     spheroid: (def, path) => {
-      // default actually is also a unit sphere at 0,0,0 but
-      // presumably usually at least some parameter will have
-      // been provided.
-      def.center     ??= [ 0.0, 0.0, 0.0 ];
-      def.axis       ??= [ 0.0, 1.0, 0.0 ];
-      def.semiAxial  ??= 1.0;
-      def.semiRadial ??= 1.0;
-      // we expect but do not require that semiAxial and semiRadial
-      // are both > 0; warn, but let the user see what comes out.
-      // (would it be more intuitive to do each of these in terms of radii?)
+      // Same words as a cylinder where they mean the same thing: radius is
+      // around the axis, height is end to end along it. The default is the
+      // unit sphere, though presumably some parameter will be given.
+      def.center ??= [ 0.0, 0.0, 0.0 ];
+      def.axis   ??= [ 0.0, 1.0, 0.0 ];
+      def.height ??= 2.0;
+      def.radius ??= 1.0;
+      // We expect but do not require both to be > 0; warn, and let the author
+      // see what comes out.
       const bads = [ ];
-      if (def.semiAxial <= 0)  bads.push('semiAxial');
-      if (def.semiRadial <= 0) bads.push('semiRadial');
-      if (bads) {
-        const badstr = bads.map(bad => bad + " == " + def[bad]).join(',');
-        warn(path, `not a sphereoid: ${badstr} should ${bads.length > 1?'all ':''}be > 0`);
+      if (def.height <= 0) bads.push('height');
+      if (def.radius <= 0) bads.push('radius');
+      if (bads.length) {
+        const badstr = bads.map(bad => bad + " == " + def[bad]).join(', ');
+        warn(path, `not a spheroid: ${badstr} should ${bads.length > 1 ? 'all ' : ''}be > 0`);
       }
-      return spheroid(def.center, def.axis, def.semiAxial, def.semiRadial);
+      return spheroid(def.center, def.axis, def.height, def.radius);
     },
     cylinder: (def, path) => {
       // default is vertical, centered on x,y plane origin, radius 1.0::
