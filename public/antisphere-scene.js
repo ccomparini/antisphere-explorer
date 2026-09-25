@@ -767,7 +767,7 @@ function boundOf(t, declared, memo, table) {
 // ---------------------------------------------------------------------------
 
 export function compileScene(spec) {
-  const at = (path, msg) => { throw new Error(`scene cmpilation: ${path}: ${msg}`); };
+  const at = (path, msg) => { throw new Error(`scene compilation: ${path}: ${msg}`); };
   const warn = (path, msg) => { console.warn(`warning: ${path}: ${msg}`); };
 
   // Material 0 is vacuum: never shaded, and not solid.
