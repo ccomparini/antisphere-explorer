@@ -118,6 +118,184 @@ function hyperboloid(centre, axis, radius, semiAxial, sheets) {
                centre, [0, 0, 0], sheets === 2 ? 1 : -1);
 }
 
+// ---------------------------------------------------------------------------
+// Inverses
+//
+// Each constructor above turns an author's description into the nine numbers;
+// each function here turns the nine numbers back into that description, which
+// is what a property editor, a scene writer or a debug print needs. They take
+// the numbers positionally - the fields of a prim - and return the arguments
+// their constructor takes, plus `inverseOk`.
+//
+// `inverseOk` says whether the numbers really describe a shape of that kind,
+// not whether they are the exact numbers the constructor would have written.
+// H is only defined up to a positive multiple, so a shape that has been scaled
+// - or complemented, or built by hand as a "quadric" - still inverts, and
+// still gives back the lengths you would measure on it. A false means the
+// values are a best effort at something that is not really that shape: the
+// axis of a sphere, the radius of a cone.
+//
+// Where a shape is written about a centre, the centre is recovered as
+// -K^-1 c, and the size from E = -(c.C + d), which is what the surface
+// u K u = E has to say about how big it is.
+// ---------------------------------------------------------------------------
+
+// How big the numbers are, so "close enough to zero" can mean something.
+function primScale(k_par, k_perp, linear, constant) {
+  return Math.max(Math.abs(k_par), Math.abs(k_perp), Math.abs(constant),
+                  Math.abs(linear[0]), Math.abs(linear[1]), Math.abs(linear[2]), 1e-30);
+}
+
+const nearZero = (v, scale) => Math.abs(v) <= 1e-9 * scale;
+
+// The centre of a shape written about one: K C = -c, solved with
+// K^-1 = (1/k_perp) I + (1/k_par - 1/k_perp) n(x)n. Needs both curvatures.
+function centreOf(axis, k_par, k_perp, linear) {
+  const along = dot3(linear, axis);
+  return linear.map((v, i) =>
+    -(v / k_perp + (1 / k_par - 1 / k_perp) * along * axis[i]));
+}
+
+/** sphere(center, radius) */
+export function fromSphere(axis, k_par, k_perp, linear, constant) {
+  const scale = primScale(k_par, k_perp, linear, constant);
+  const k = k_perp;
+  const isotropic = nearZero(k_par - k_perp, scale);
+  const center = nearZero(k, scale) ? [0, 0, 0] : linear.map((v) => -v / k);
+  const E = -(dot3(linear, center) + constant);
+  const squared = E / k;
+  return {
+    center,
+    radius: Math.sqrt(Math.abs(squared)),
+    inverseOk: isotropic && !nearZero(k, scale) && squared > 0,
+  };
+}
+
+/** plane(normal, offset) */
+export function fromPlane(axis, k_par, k_perp, linear, constant) {
+  const scale = primScale(k_par, k_perp, linear, constant);
+  const length = 2 * Math.hypot(linear[0], linear[1], linear[2]);
+  const flat = nearZero(k_par, scale) && nearZero(k_perp, scale);
+  return {
+    normal: length > 0 ? linear.map((v) => 2 * v / length) : axis.slice(),
+    offset: length > 0 ? -constant / length : 0,
+    inverseOk: flat && length > 0,
+  };
+}
+
+/** spheroid(centre, axis, semiAxial, semiRadial) */
+export function fromSpheroid(axis, k_par, k_perp, linear, constant) {
+  const scale = primScale(k_par, k_perp, linear, constant);
+  const closed = !nearZero(k_par, scale) && !nearZero(k_perp, scale)
+                 && (k_par > 0) === (k_perp > 0);
+  const centre = closed ? centreOf(axis, k_par, k_perp, linear) : [0, 0, 0];
+  const E = -(dot3(linear, centre) + constant);
+  return {
+    centre,
+    axis: axis.slice(),
+    semiAxial: Math.sqrt(Math.abs(E / k_par)),
+    semiRadial: Math.sqrt(Math.abs(E / k_perp)),
+    inverseOk: closed && E / k_perp > 0,
+  };
+}
+
+/** cylinder(centre, axis, radius) */
+export function fromCylinder(axis, k_par, k_perp, linear, constant) {
+  const scale = primScale(k_par, k_perp, linear, constant);
+  const along = dot3(linear, axis);
+  const across = linear.map((v, i) => v - along * axis[i]);
+  // No curvature along the axis, and nothing pulling the centre along it.
+  const straight = nearZero(k_par, scale) && !nearZero(k_perp, scale)
+                   && nearZero(along, scale);
+  const centre = nearZero(k_perp, scale) ? [0, 0, 0] : across.map((v) => -v / k_perp);
+  const E = dot3(across, across) / k_perp - constant;
+  return {
+    centre,
+    axis: axis.slice(),
+    radius: Math.sqrt(Math.abs(E / k_perp)),
+    inverseOk: straight && E / k_perp > 0,
+  };
+}
+
+/** slab(centre, axis, thickness) */
+export function fromSlab(axis, k_par, k_perp, linear, constant) {
+  const scale = primScale(k_par, k_perp, linear, constant);
+  const along = dot3(linear, axis);
+  const across = linear.map((v, i) => v - along * axis[i]);
+  const flatAcross = nearZero(k_perp, scale) && !nearZero(k_par, scale)
+                     && nearZero(Math.hypot(across[0], across[1], across[2]), scale);
+  // Along the axis this is k_par x^2 + 2(c.n)x + d: two parallel faces where
+  // it vanishes, so the gap between them is what the discriminant measures.
+  const discriminant = along * along - k_par * constant;
+  const midpoint = nearZero(k_par, scale) ? 0 : -along / k_par;
+  return {
+    centre: axis.map((v) => v * midpoint),
+    axis: axis.slice(),
+    thickness: 2 * Math.sqrt(Math.abs(discriminant)) / Math.abs(k_par || 1),
+    inverseOk: flatAcross && discriminant > 0,
+  };
+}
+
+/** cone(apex, axis, slope) */
+export function fromCone(axis, k_par, k_perp, linear, constant) {
+  const scale = primScale(k_par, k_perp, linear, constant);
+  const opposed = !nearZero(k_par, scale) && !nearZero(k_perp, scale)
+                  && (k_par > 0) !== (k_perp > 0);
+  const apex = opposed ? centreOf(axis, k_par, k_perp, linear) : [0, 0, 0];
+  // A cone is the hyperboloid whose surface passes through its own centre.
+  const E = -(dot3(linear, apex) + constant);
+  return {
+    apex,
+    axis: axis.slice(),
+    slope: Math.sqrt(Math.abs(k_par / k_perp)),
+    inverseOk: opposed && k_perp > 0 && nearZero(E, scale),
+  };
+}
+
+/** paraboloid(vertex, axis, focal) */
+export function fromParaboloid(axis, k_par, k_perp, linear, constant) {
+  const scale = primScale(k_par, k_perp, linear, constant);
+  const along = dot3(linear, axis);
+  const across = linear.map((v, i) => v - along * axis[i]);
+  const open = nearZero(k_par, scale) && !nearZero(k_perp, scale)
+               && !nearZero(along, scale);
+  // |u_perp|^2 = 4 focal x, so the linear term along the axis is what opens
+  // it, and the perpendicular part only says where its axis sits.
+  const focal = -along / (2 * k_perp);
+  const acrossCentre = across.map((v) => -v / k_perp);
+  const acrossSquared = dot3(across, across) / k_perp;
+  // |u_perp|^2 = (-2 c.n / k_perp)(x - x0), so the vertex sits along the axis
+  // at x0 = (|c_perp|^2/k_perp - d) / (2 c.n). Writing that in terms of focal
+  // instead would drop a factor of k_perp, which is 1 only before scaling.
+  const vertexAlong = open ? (acrossSquared - constant) / (2 * along) : 0;
+  return {
+    vertex: acrossCentre.map((v, i) => v + vertexAlong * axis[i]),
+    axis: axis.slice(),
+    focal,
+    inverseOk: open && k_perp > 0 && focal > 0,
+  };
+}
+
+/** hyperboloid(centre, axis, radius, semiAxial, sheets) */
+export function fromHyperboloid(axis, k_par, k_perp, linear, constant) {
+  const scale = primScale(k_par, k_perp, linear, constant);
+  const opposed = !nearZero(k_par, scale) && !nearZero(k_perp, scale)
+                  && (k_par > 0) !== (k_perp > 0);
+  const centre = opposed ? centreOf(axis, k_par, k_perp, linear) : [0, 0, 0];
+  const E = -(dot3(linear, centre) + constant);
+  // E is what the surface u K u = E is worth: positive leaves a waist about
+  // the axis, negative leaves two cups facing each other, and zero is the
+  // cone between the two cases.
+  return {
+    centre,
+    axis: axis.slice(),
+    radius: Math.sqrt(Math.abs(E / k_perp)),
+    semiAxial: Math.sqrt(Math.abs(E / k_par)),
+    sheets: E > 0 ? 1 : 2,
+    inverseOk: opposed && k_perp > 0 && !nearZero(E, scale),
+  };
+}
+
 // Turns a single surface inside out: negate everything but the axis, which
 // has no side to swap. One node's own geometry only - complement(), below,
 // is what turns a whole region inside out, and is what a scene file's
