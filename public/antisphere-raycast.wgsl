@@ -399,6 +399,161 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   rayResults[i] = trace(q.o, q.d, q.tMin, q.tMax);
 }
 
+// ---------------------------------------------------------------------------
+// Overlap queries
+//
+// Do two regions share any interior? A region is a node and a sign: the
+// inside of a node (sigma = +1) or its outside (sigma = -1), so the question
+// is whether sigma_a H_a(R) < 0 and sigma_b H_b(R) < 0 can hold at once.
+//
+// Writing each as its 4x4 homogeneous matrix Q - H(R) = X^T Q X with
+// X = (R, 1) - the answer has a certificate:
+//
+//   the interiors are disjoint  <=>  there is a mu >= 0 with Q_b + mu Q_a
+//   positive semidefinite
+//
+// because then H_b + mu H_a >= 0 everywhere, and wherever H_a <= 0 the second
+// term is <= 0, leaving H_b >= 0 there. This is the S-procedure, exact for
+// two quadratics with no convexity needed, which is why cones, hyperboloids
+// and complements are no harder here than spheres.
+//
+// Finding mu is a one-dimensional problem: the positive semidefinite matrices
+// are convex and Q_b + mu Q_a is a line through them, so the feasible mu form
+// an interval, and the smallest eigenvalue of the pencil is concave in mu.
+// Hence the ternary search below.
+//
+// overlap.js is the same algorithm in JS, and is the oracle this was checked
+// against; keep the two in step.
+// ---------------------------------------------------------------------------
+
+struct OverlapQuery {
+  node_a  : u32,
+  node_b  : u32,
+  sign_a  : f32,   // +1 for the node's inside, -1 for its outside
+  sign_b  : f32,
+};
+
+struct OverlapResult {
+  margin : f32,    // > 0 proved apart, ~0 touching, < 0 no certificate
+  mu     : f32,    // the multiplier that proved it
+};
+
+@group(0) @binding(7) var<storage, read> overlapQueries : array<OverlapQuery>;
+@group(0) @binding(8) var<storage, read_write> overlapResults : array<OverlapResult>;
+
+// The homogeneous matrix of a node's region, as four columns.
+fn regionMatrix(nd : Node, sign : f32) -> mat4x4<f32> {
+  let c = 0.5 * nd.linear;                    // the node stores 2c
+  let n = nd.axis;
+  let dk = nd.curvature_delta;
+  let k = nd.curvature_perp;
+  let K0 = vec3<f32>(k + dk * n.x * n.x, dk * n.x * n.y, dk * n.x * n.z);
+  let K1 = vec3<f32>(dk * n.y * n.x, k + dk * n.y * n.y, dk * n.y * n.z);
+  let K2 = vec3<f32>(dk * n.z * n.x, dk * n.z * n.y, k + dk * n.z * n.z);
+  return mat4x4<f32>(
+    sign * vec4<f32>(K0, c.x),
+    sign * vec4<f32>(K1, c.y),
+    sign * vec4<f32>(K2, c.z),
+    sign * vec4<f32>(c, nd.const_term));
+}
+
+fn largestEntry(m : mat4x4<f32>) -> f32 {
+  var most = 0.0;
+  for (var i = 0; i < 4; i = i + 1) {
+    most = max(most, max(max(abs(m[i].x), abs(m[i].y)), max(abs(m[i].z), abs(m[i].w))));
+  }
+  return max(most, 1e-30);
+}
+
+// The smallest eigenvalue of a symmetric 4x4, by Newton from below on the
+// characteristic polynomial. Left of the smallest root the polynomial is
+// positive, decreasing and convex - every factor (x - lambda_i) is negative
+// there, so any product of two is positive - so Newton started below every
+// root climbs to it monotonically, with no case analysis. Gershgorin gives
+// that starting point.
+fn smallestEigenvalue(m : mat4x4<f32>) -> f32 {
+  // Sums of the principal minors: the coefficients of
+  // x^4 - e1 x^3 + e2 x^2 - e3 x + e4.
+  let e1 = m[0].x + m[1].y + m[2].z + m[3].w;
+
+  var e2 = 0.0;
+  for (var i = 0; i < 4; i = i + 1) {
+    for (var j = i + 1; j < 4; j = j + 1) {
+      e2 = e2 + m[i][i] * m[j][j] - m[i][j] * m[j][i];
+    }
+  }
+
+  var e3 = 0.0;
+  for (var i = 0; i < 4; i = i + 1) {
+    for (var j = i + 1; j < 4; j = j + 1) {
+      for (var k = j + 1; k < 4; k = k + 1) {
+        e3 = e3
+          + m[i][i] * (m[j][j] * m[k][k] - m[j][k] * m[k][j])
+          - m[i][j] * (m[j][i] * m[k][k] - m[j][k] * m[k][i])
+          + m[i][k] * (m[j][i] * m[k][j] - m[j][j] * m[k][i]);
+      }
+    }
+  }
+
+  let e4 = determinant(m);
+
+  var start = 1e30;
+  for (var i = 0; i < 4; i = i + 1) {
+    var radius = 0.0;
+    for (var j = 0; j < 4; j = j + 1) {
+      if (j != i) { radius = radius + abs(m[i][j]); }
+    }
+    start = min(start, m[i][i] - radius);
+  }
+
+  var x = start;
+  for (var step = 0; step < 40; step = step + 1) {
+    let p = (((x - e1) * x + e2) * x - e3) * x + e4;
+    let dp = ((4.0 * x - 3.0 * e1) * x + 2.0 * e2) * x - e3;
+    if (dp == 0.0) { break; }
+    let next = x - p / dp;
+    if (!(next > x)) { break; }               // converged, or stuck
+    x = next;
+  }
+  return x;
+}
+
+// The margin of the best certificate: positive is proved apart.
+fn overlapMargin(qa : mat4x4<f32>, qb : mat4x4<f32>, muOut : ptr<function, f32>) -> f32 {
+  let a = qa * (1.0 / largestEntry(qa));
+  let b = qb * (1.0 / largestEntry(qb));
+
+  var lo = 0.0;
+  var hi = 1.0 - 1e-7;                        // t in [0,1) maps to mu in [0, inf)
+  for (var i = 0; i < 48; i = i + 1) {
+    let third = (hi - lo) / 3.0;
+    let t1 = lo + third;
+    let t2 = hi - third;
+    let m1 = b + a * (t1 / (1.0 - t1));
+    let m2 = b + a * (t2 / (1.0 - t2));
+    let v1 = smallestEigenvalue(m1) / max(1.0, largestEntry(m1));
+    let v2 = smallestEigenvalue(m2) / max(1.0, largestEntry(m2));
+    if (v1 < v2) { lo = t1; } else { hi = t2; }
+  }
+  let t = 0.5 * (lo + hi);
+  let mu = t / (1.0 - t);
+  *muOut = mu;
+  let best = b + a * mu;
+  return smallestEigenvalue(best) / max(1.0, largestEntry(best));
+}
+
+@compute @workgroup_size(64)
+fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= arrayLength(&overlapQueries)) { return; }
+  let q = overlapQueries[i];
+  var mu = 0.0;
+  let margin = overlapMargin(regionMatrix(nodes[q.node_a], q.sign_a),
+                             regionMatrix(nodes[q.node_b], q.sign_b),
+                             &mu);
+  overlapResults[i] = OverlapResult(margin, mu);
+}
+
 // Surface parameterization from the node's own numbers. A plane gets a
 // tangent basis; a sphere gets longitude and latitude about its centre; and
 // anything with a real axis - spheroid, cylinder, cone, paraboloid,

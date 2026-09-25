@@ -12,13 +12,14 @@
 
 import {
   loadText, requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage,
-  createTraceBuffers,
+  createTraceBuffers, createOverlapBuffers,
 } from './gpu-setup.js';
 import {
   compileScene, packNodes, packMaterials, packLights,
 } from './antisphere-scene.js';
 
 const MAX_TRACE_RAYS = 16;
+const MAX_OVERLAP_PAIRS = 1024;
 
 // One ray query's result, as traceFrom() writes it: the Seg that the
 // shader's trace() returns.
@@ -71,6 +72,7 @@ export class ASContext {
 
     this._live = { compute: null, blit: null };
     this._rayQuery = createTraceBuffers(device, MAX_TRACE_RAYS, RAY_HIT_BYTES);
+    this._overlapQuery = createOverlapBuffers(device, MAX_OVERLAP_PAIRS);
     // Ray queries share one set of buffers, so they take turns: a pick
     // arriving while walk mode's ground probe is still mapped would
     // otherwise fail with the read buffer already in use.
@@ -310,6 +312,71 @@ export class ASScene {
   async traceRay(origin, direction, opts = {}) {
     const [t] = await this.traceRays([{ origin, direction, ...opts }]);
     return t ?? -1;
+  }
+
+  /**
+   * Do these pairs of regions share any interior?
+   *
+   * Each pair is { a, b } node indices, with optional signs (+1 for a node's
+   * inside, the default, -1 for its outside). Resolves to a Float32Array of
+   * margins, one per pair: positive means proved apart, around zero means
+   * touching, negative means they meet. overlap.js does the same thing on the
+   * CPU and documents the certificate behind it.
+   *
+   * Takes its turn with the ray queries, since both map a readback buffer.
+   */
+  overlapPairs(pairs) {
+    const context = this.context;
+    const run = () => this._overlap(pairs);
+    const result = context._rayQueue.then(run, run);
+    context._rayQueue = result.then(() => {}, () => {});
+    return result;
+  }
+
+  async _overlap(pairs) {
+    const { device, pipelines, _overlapQuery: buffers } = this.context;
+    if (!pipelines || pairs.length === 0 || !this.nodeBuf) return new Float32Array(0);
+    if (pairs.length > buffers.maxPairs) {
+      throw new Error(`overlapPairs: ${pairs.length} pairs, capacity is ${buffers.maxPairs}`);
+    }
+
+    const packed = new ArrayBuffer(pairs.length * 16);
+    const words = new Uint32Array(packed), floats = new Float32Array(packed);
+    pairs.forEach((pair, i) => {
+      words[i * 4 + 0] = pair.a;
+      words[i * 4 + 1] = pair.b;
+      floats[i * 4 + 2] = pair.signA ?? 1;
+      floats[i * 4 + 3] = pair.signB ?? 1;
+    });
+    device.queue.writeBuffer(buffers.queryBuf, 0, packed);
+
+    const bindGroup = device.createBindGroup({
+      layout: pipelines.overlapFrom.getBindGroupLayout(0),
+      entries: [
+        { binding: 1, resource: { buffer: this.nodeBuf } },
+        { binding: 7, resource: { buffer: buffers.queryBuf } },
+        { binding: 8, resource: { buffer: buffers.resultBuf } },
+      ],
+    });
+
+    const bytes = pairs.length * 8;
+    const enc = device.createCommandEncoder();
+    const pass = enc.beginComputePass();
+    pass.setPipeline(pipelines.overlapFrom);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(Math.ceil(pairs.length / 64));
+    pass.end();
+    enc.copyBufferToBuffer(buffers.resultBuf, 0, buffers.readBuf, 0, bytes);
+    device.queue.submit([enc.finish()]);
+
+    await buffers.readBuf.mapAsync(GPUMapMode.READ, 0, bytes);
+    const raw = buffers.readBuf.getMappedRange(0, bytes).slice(0);
+    buffers.readBuf.unmap();
+
+    const all = new Float32Array(raw);
+    const margins = new Float32Array(pairs.length);
+    for (let i = 0; i < pairs.length; i++) margins[i] = all[i * 2];
+    return margins;
   }
 
   /**

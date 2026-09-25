@@ -135,13 +135,20 @@ export async function buildPipelines(device, format, computeSrc, blitSrc) {
     layout: 'auto',
     compute: { module: computeMod, entryPoint: 'traceFrom' },
   });
+  // Likewise overlapFrom(), which answers "do these two regions share any
+  // interior" for a batch of node pairs. It reads the same node buffer and
+  // nothing else of the scene.
+  const overlapFrom = device.createComputePipeline({
+    layout: 'auto',
+    compute: { module: computeMod, entryPoint: 'overlapFrom' },
+  });
   const err = await device.popErrorScope();
   if (err) {
     console.error(err.message);
     return { error: 'pipeline validation failed' };
   }
 
-  return { pipelines: { compute, computeDirect, blit, traceFrom } };
+  return { pipelines: { compute, computeDirect, blit, traceFrom, overlapFrom } };
 }
 
 /** A STORAGE | COPY_DST buffer holding `data`. */
@@ -197,6 +204,31 @@ export function createTraceBuffers(device, maxRays) {
     }),
     readBuf: device.createBuffer({
       size: maxRays * 12,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    }),
+  };
+}
+
+/**
+ * Buffers for overlapFrom(), the batch overlap test.
+ *
+ * A query is two node indices and two signs (16 bytes); a result is a margin
+ * and the multiplier that earned it (8 bytes). Sized for a good handful of
+ * pairs at a time, since the point of doing this on the GPU is the batch.
+ */
+export function createOverlapBuffers(device, maxPairs) {
+  return {
+    maxPairs,
+    queryBuf: device.createBuffer({
+      size: maxPairs * 16,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    }),
+    resultBuf: device.createBuffer({
+      size: maxPairs * 8,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    }),
+    readBuf: device.createBuffer({
+      size: maxPairs * 8,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     }),
   };
