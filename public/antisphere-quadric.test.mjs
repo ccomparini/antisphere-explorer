@@ -320,8 +320,27 @@ test('a node must name exactly one shape', () => {
   assert.throws(() => packed({ sphere: { center: [0, 0, 0], radius: 1 },
                                cone: { apex: [0, 0, 0], axis: [0, 0, 1], slope: 1 } }),
                 /more than one shape/);
-  assert.throws(() => packed({ cone: { apex: [0, 0, 0], axis: [0, 0, 1], slope: 0 } }),
-                /positive slope/);
+});
+
+test('a shape fills in what it was not told, rather than refusing', () => {
+  // Which shape a node is has to be unambiguous, since nothing can guess it.
+  // The numbers are another matter: most of this is looked at rather than
+  // measured, and a scene that will not compile is no use to someone trying
+  // things out. So missing parameters take a default and degenerate ones are
+  // allowed through.
+  const unit = packed({ sphere: {} });
+  near(unit.curvature_perp, 0.5);                 // a unit sphere at the origin
+  near(unit.linear[0], 0);
+
+  for (const shape of [
+    { sphere: { center: [1, 0, 0] } },            // no radius
+    { cone: { apex: [0, 0, 0], axis: [0, 0, 1], slope: 0 } },   // a degenerate cone
+    { cone: { apex: [0, 0, 0], axis: [0, 0, 1] } },             // no slope at all
+    { cylinder: { axis: [0, 0, 1] } },
+    { spheroid: { axis: [0, 0, 1] } },
+  ]) {
+    assert.doesNotThrow(() => packed(shape), Object.keys(shape)[0]);
+  }
 });
 
 // -- rotation and scale ---------------------------------------------------------------
