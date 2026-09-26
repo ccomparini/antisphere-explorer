@@ -632,3 +632,39 @@ test('duplicating an instance still shares the prototype', () => {
   assert.deepEqual(doc.spec.objects[r.name], { use: 'robot', translate: [3, 5, 0] });
   assert.deepEqual(doc.instancesOf('robot').sort(), ['robot-1', 'robot-2', r.name].sort());
 });
+
+test('deleting an object takes the parts that were only its', () => {
+  const { doc } = make(partsSpec());
+  // robot-1 and robot-2 both use `robot`, so neither can be deleted alone
+  // without the other losing its parts: delete one instance first.
+  doc.deleteObject('robot-1');
+  assert.ok(doc.has('robot') && doc.has('arm'), 'robot-2 still needs them');
+
+  doc.deleteObject('robot-2');
+  assert.equal(doc.has('robot'), false, 'nothing refers to the prototype now');
+  assert.equal(doc.has('arm'), false, 'nor to its parts');
+  assert.equal(doc.has('leg'), false);
+});
+
+test('a part still used elsewhere survives the deletion', () => {
+  const spec = partsSpec();
+  // The arm is also placed in the scene in its own right.
+  spec.root.inside.union.push('arm');
+  const { doc } = make(spec);
+  doc.deleteObject('robot-1');
+  doc.deleteObject('robot-2');
+  assert.equal(doc.has('robot'), false);
+  assert.equal(doc.has('leg'), false, 'the leg was only the robot\'s');
+  assert.ok(doc.has('arm'), 'the arm is placed in the scene too');
+  assert.deepEqual(doc.spec.root.inside.union, ['arm']);
+});
+
+test('deleting one of a combination leaves the other alone', () => {
+  const { doc } = make();
+  doc.combine('union', ['bead-1', 'lamp']);
+  doc.deleteObject('union');
+  assert.equal(doc.has('union'), false);
+  assert.equal(doc.has('lamp'), false, 'a part of it, used nowhere else');
+  assert.ok(doc.has('bead'), 'the prototype behind bead-1 is still used by bead-2');
+  assert.ok(doc.has('bead-2'));
+});

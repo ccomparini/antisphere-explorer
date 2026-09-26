@@ -693,8 +693,17 @@ export class SceneDocument {
   }
 
   /**
-   * Remove an object and every placement of it. Refused for a prototype that
-   * still has instances, since deleting it would take them with it silently.
+   * Remove an object, every placement of it, and any of its parts that
+   * nothing else still uses.
+   *
+   * An object is its whole subtree, so deleting one should not leave its
+   * pieces behind as unplaced clutter. But parts are ordinary objects and
+   * may be shared - with another combination, with the scene at large - so
+   * only those left with no references at all go. Anything still in use
+   * stays where it is and keeps working.
+   *
+   * Refused for a prototype that still has instances, since deleting it
+   * would take them with it silently.
    */
   deleteObject(key) {
     return this.edit(`Delete ${key}`, (spec) => {
@@ -704,9 +713,19 @@ export class SceneDocument {
         throw new Error(`"${key}" is the prototype of ${instances.join(', ')}; ` +
                         'delete those or make them unique first');
       }
+      const parts = this.reachableObjects(key);
       removeAll(this.referencesTo(key));
       delete spec.objects[key];
       this.#prune(spec);
+
+      // Whatever the deletion orphaned goes too, and whatever that orphans
+      // in turn - but nothing another object still refers to.
+      for (let round = 0; round < MAX_CHAIN; round++) {
+        const orphans = [...parts].filter((part) =>
+          this.has(part) && this.referencesTo(part).length === 0);
+        if (!orphans.length) break;
+        for (const orphan of orphans) delete spec.objects[orphan];
+      }
     });
   }
 
