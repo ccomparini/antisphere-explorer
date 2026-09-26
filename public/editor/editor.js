@@ -281,9 +281,9 @@ async function main() {
     },
   });
 
-  function run(name) {
+  function run(name, argument) {
     const command = commands[name];
-    if (command) command();
+    if (command) command(argument);
     else note(`unknown command: ${name}`, true);
   }
 

@@ -22,6 +22,7 @@
 import { DEBUG_VIEWS } from '../as-renderer.js';
 import { CAMERA_MODES } from '../as-camera.js';
 import { ROOT, joinPath } from './scene-document.js';
+import { SHAPES } from './editor-commands.js';
 
 /**
  * True for controls that consume ordinary keystrokes. The editor's shortcuts
@@ -186,6 +187,10 @@ export function createPanel(root, ctx) {
   // -- header ------------------------------------------------------------------
 
   const header = {
+    // The shapes the Add row offers, keyed by the name the create command
+    // takes, so a button's value says which one it is.
+    shapes: Object.fromEntries(
+      Object.entries(SHAPES).map(([name, shape]) => [name, { label: shape.label }])),
     get title() { return doc.fileName; },
     get dirty() { return doc.dirty; },
     get error() { return doc.error ?? ''; },
@@ -524,6 +529,9 @@ export function createPanel(root, ctx) {
         refresh('structure');
         break;
       }
+      case 'create':
+        ctx.command('create', button.value);
+        break;
       case 'add-light':
         doc.addLight();
         break;

@@ -16,25 +16,94 @@ import { ROOT } from './scene-document.js';
 // `translate`, so moving one later is a single field, and the gizmos will
 // have one thing to drag.
 
-const FACES = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+// ---------------------------------------------------------------------------
+// The shapes the editor can make
+//
+// Each is built at the origin of its own frame and placed with `translate`,
+// so moving one later is a single field - and so the gizmos will have one
+// thing to drag.
+//
+// Most of these shapes run off along their axis on their own, so they are cut
+// to size by nesting a slab in the primitive's `inside`: the region is then
+// "inside the shape and inside the slab", which is two nodes rather than the
+// several an `intersect` would fold out to.
+//
+// Sizes are around a unit: big enough to see, small enough not to swallow
+// whatever is already there.
+// ---------------------------------------------------------------------------
 
-/** A cube of half-width `half`: six planes, each nested inside the last. */
-export function boxDef(half, material) {
-  let node;
-  for (const normal of [...FACES].reverse()) {
-    const face = { plane: { normal, offset: half } };
-    if (node) face.inside = node;        // the innermost face's inside is solid
-    node = face;
-  }
-  if (material) node.material = material;
-  return node;
+const UP = [0, 0, 1];
+
+/** Cap a shape to `height` along its axis, by nesting a slab inside it. */
+function capped(def, height, material) {
+  const shape = { ...def, material };
+  shape.inside = { slab: { center: [0, 0, 0], axis: UP, thickness: height } };
+  return shape;
 }
 
-export function sphereDef(radius, material) {
-  const def = { sphere: { center: [0, 0, 0], radius } };
-  if (material) def.material = material;
-  return def;
-}
+export const SHAPES = {
+  sphere: {
+    label: 'Sphere',
+    make: (material) => ({ sphere: { center: [0, 0, 0], radius: 0.5 }, material }),
+  },
+
+  // Three slabs, one per axis, each nested in the last: a box is the region
+  // inside all three. Six planes would say the same thing with twice the
+  // nodes, since a slab is already a pair of parallel faces.
+  box: {
+    label: 'Box',
+    make: (material, size = [1, 1, 1]) => ({
+      slab: { center: [0, 0, 0], axis: [1, 0, 0], thickness: size[0] },
+      material,
+      inside: {
+        slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: size[1] },
+        inside: { slab: { center: [0, 0, 0], axis: UP, thickness: size[2] } },
+      },
+    }),
+  },
+
+  cylinder: {
+    label: 'Cylinder',
+    make: (material) =>
+      capped({ cylinder: { center: [0, 0, 0], axis: UP, radius: 0.4 } }, 1.2, material),
+  },
+
+  cone: {
+    label: 'Cone',
+    make: (material) =>
+      // Apex at the top of the cap, so the cap leaves one cone rather than
+      // two: the other nappe is above the apex and gets cut away.
+      capped({ cone: { apex: [0, 0, 0.6], axis: UP, slope: 0.5 } }, 1.2, material),
+  },
+
+  spheroid: {
+    label: 'Spheroid',
+    make: (material) => ({
+      spheroid: { center: [0, 0, 0], axis: UP, height: 1.2, radius: 0.4 }, material,
+    }),
+  },
+
+  paraboloid: {
+    label: 'Paraboloid',
+    make: (material) =>
+      capped({ paraboloid: { vertex: [0, 0, -0.6], axis: UP, focal: 0.12 } }, 1.2, material),
+  },
+
+  hyperboloid: {
+    label: 'Hyperboloid',
+    make: (material) =>
+      capped({ hyperboloid: { center: [0, 0, 0], axis: UP, radius: 0.3, slope: 0.6 } },
+             1.2, material),
+  },
+
+  // Unbounded across the axis, which is the point of it: a plate, a floor, a
+  // wall. It goes in the editor's union container, which asks nothing of its
+  // members' bounds.
+  slab: {
+    label: 'Slab',
+    make: (material) => ({ slab: { center: [0, 0, 0], axis: UP, thickness: 0.3 }, material }),
+  },
+};
 
 // A material that makes a new object visible: something shaded, preferring a
 // plain one over a patterned floor.
@@ -100,11 +169,12 @@ export function createCommands({ doc, getActive, note, ask = globalThis.prompt, 
     return name;
   }
 
-  function create(kind) {
-    const material = ensureMaterial();
-    const def = kind === 'box' ? boxDef(0.5, material) : sphereDef(0.5, material);
+  function create(shape) {
+    const known = SHAPES[shape];
+    if (!known) { note(`no such shape: ${shape}`, true); return; }
+    const def = known.make(ensureMaterial());
     def.translate = placement();
-    const result = doc.createObject(def, { base: kind });
+    const result = doc.createObject(def, { base: shape });
     report(result, result.ok && `created ${result.name}`);
   }
 
@@ -113,8 +183,8 @@ export function createCommands({ doc, getActive, note, ask = globalThis.prompt, 
     redo() { if (!doc.redo()) note('nothing to redo'); },
     deselect() { doc.clearSelection(); },
 
-    'create-sphere': () => create('sphere'),
-    'create-box': () => create('box'),
+    // One command for every shape; the panel passes the name.
+    create,
 
     // Deletes everything selected, as one undo step: if any part of it is
     // refused, none of it happens.

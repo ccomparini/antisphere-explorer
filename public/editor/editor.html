@@ -63,6 +63,8 @@
   .err { color: #f87171; white-space: pre-wrap; }
   .toolbar { display: flex; gap: 4px; margin: 6px 0; flex-wrap: wrap; align-items: center; }
   .toolbar .gap { width: 8px; }
+  .toolbar.shapes { gap: 3px; }
+  .toolbar.shapes button { padding: 2px 5px; }
   .stats, .dim { color: #5b6573; }
 
   .sec { border-bottom: 1px solid var(--line); }
@@ -154,9 +156,11 @@
       <div class="toolbar">
         <button data-action="undo" data-class-if="off:!canUndo" title="⌘Z">Undo</button>
         <button data-action="redo" data-class-if="off:!canRedo" title="⇧⌘Z">Redo</button>
-        <span class="gap"></span>
-        <button data-action="create-sphere">+ Sphere</button>
-        <button data-action="create-box">+ Box</button>
+      </div>
+      <div class="toolbar shapes">
+        <span class="dim">add</span>
+        <button data-expands="shapes" value="@key" data-action="create"
+                data-shows="label"></button>
       </div>
       <div class="stats" data-shows="history"></div>
       <div class="err" data-shows-if="error" data-shows="error"></div>
