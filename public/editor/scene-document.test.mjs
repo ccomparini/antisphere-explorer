@@ -536,3 +536,18 @@ test('combining is refused where it would mean nothing', () => {
   assert.throws(() => doc.combine('smoosh', ['lamp', 'bead-1']), /no such operation/);
   assert.ok(doc.has('lamp'), 'a refused combination changes nothing');
 });
+
+test('a part of a combination knows what it is part of', () => {
+  const { doc } = make();
+  doc.combine('union', ['bead-1', 'lamp']);
+  assert.equal(doc.outermostOwner('bead-1'), 'union', 'a part reports the whole');
+  assert.equal(doc.outermostOwner('union'), 'union', 'and the whole reports itself');
+
+  // Nested combinations walk all the way up.
+  doc.combine('difference', ['union', 'bead-2']);
+  assert.equal(doc.outermostOwner('bead-1'), 'cut');
+  assert.equal(doc.outermostOwner('cut'), 'cut');
+
+  // A prototype used by several instances is not "part of" any one of them.
+  assert.equal(doc.outermostOwner('bead'), 'bead');
+});

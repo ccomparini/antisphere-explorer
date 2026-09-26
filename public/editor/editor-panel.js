@@ -134,7 +134,7 @@ function describe(def) {
   const tail = extras.length ? ` · ${extras.join(' · ')}` : '';
 
   if (def.use) return { label: `use ${def.use}${tail}`, kids: [] };
-  for (const op of ['group', 'union']) {
+  for (const op of ['group', 'union', 'intersect', 'difference']) {
     if (Array.isArray(def[op])) {
       return {
         label: `${op} (${def[op].length})${tail}`,
@@ -439,9 +439,16 @@ export function createPanel(root, ctx) {
         : node.group ? 'group' : node.union ? 'union' : node.use ? 'reference' : '?';
       if (cur.owner === ROOT) return type;
       if (!cur.path) {
-        if (doc.isInstance(cur.owner)) return `instance of ${doc.spec.objects[cur.owner].use}`;
+        // Say what it belongs to, since after a combination a part looks
+        // like any other object and only moves half of what you see.
+        const whole = doc.outermostOwner(cur.owner);
+        const within = whole === cur.owner ? '' : ` · part of ${whole}`;
+        if (doc.isInstance(cur.owner)) {
+          return `instance of ${doc.spec.objects[cur.owner].use}${within}`;
+        }
         const n = doc.instancesOf(cur.owner).length;
-        return n ? `definition · ${n} instance${n === 1 ? '' : 's'}` : 'definition';
+        const kind = n ? `definition · ${n} instance${n === 1 ? '' : 's'}` : 'definition';
+        return kind + within;
       }
       if (!doc.isInstance(cur.owner)) return type;
       // Editing here edits the definition; say so when others will change too.

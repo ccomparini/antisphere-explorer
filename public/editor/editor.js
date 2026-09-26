@@ -156,8 +156,9 @@ async function main() {
 
   // -- picking ---------------------------------------------------------------
 
-  // A click selects the object under the cursor, a double click the node
-  // itself, and a click on nothing clears the selection. Shift adds to the
+  // A click selects the whole object under the cursor; a double click takes
+  // the part the ray landed on, which after a combination is one of its
+  // operands. A click on nothing clears the selection. Shift adds to the
   // selection instead of replacing it, and then a click on nothing leaves it
   // alone. A press that moves more than a few pixels is a camera drag, not a
   // click.
@@ -172,7 +173,8 @@ async function main() {
     const { origin, direction } = rayThroughPixel(view.camera, rect, event.clientX, event.clientY);
     const hit = await scene.pick(origin, direction);
     if (!hit) { if (!add) doc.clearSelection(); return; }
-    const target = selectionForHit(scene.provenance, hit.node, { deep });
+    const target = selectionForHit(scene.provenance, hit.node,
+                                   { deep, outermost: (key) => doc.outermostOwner(key) });
     if (!target) { note('nothing selectable there'); return; }
     // The scene may have changed during the round trip; a stale hit just
     // fails to select.

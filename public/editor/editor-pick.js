@@ -38,14 +38,21 @@ export function rayThroughPixel(camera, rect, clientX, clientY) {
 }
 
 /**
- * What a hit on `node` should select, or null if it isn't something the
- * user authored. A plain click selects the whole object; `deep` (a double
- * click) drills into the node itself. The root isn't an object, so a hit
- * there always selects the node.
+ * What a hit on `node` should select, or null if it isn't something the user
+ * authored.
+ *
+ * A plain click selects the whole object; `deep` (a double click) takes the
+ * part the ray actually landed on, which after a combination is one of its
+ * operands. `outermost` maps a part to the whole - SceneDocument.
+ * outermostOwner - and is what makes the plain click mean the thing on
+ * screen rather than the piece of it under the cursor.
+ *
+ * The root isn't an object, so a hit there selects the node either way.
  */
-export function selectionForHit(provenance, node, { deep = false } = {}) {
+export function selectionForHit(provenance, node, { deep = false, outermost } = {}) {
   const prov = provenance?.[node];
   if (!prov) return null;
   if (prov.owner === ROOT_OWNER) return { owner: ROOT, path: prov.path };
-  return { owner: prov.owner, path: deep ? prov.path : '' };
+  if (deep) return { owner: prov.owner, path: '' };
+  return { owner: outermost ? outermost(prov.owner) : prov.owner, path: '' };
 }

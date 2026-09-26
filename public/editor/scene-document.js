@@ -41,7 +41,11 @@
 
 export const ROOT = '@root';
 
-const AGGREGATES = ['group', 'union'];
+// Every array-of-subtrees field. Missing one here hides whatever is inside
+// it from the walk, and so from renaming, deleting, placement-taking and
+// selection: an object referenced only from a difference would look
+// unreferenced.
+const AGGREGATES = ['group', 'union', 'intersect', 'difference'];
 const SIDES = ['inside', 'outside'];
 const ZERO = [0, 0, 0];
 const MAX_CHAIN = 64;          // guard against pathological instancing chains
@@ -478,6 +482,29 @@ export class SceneDocument {
   /** The objects that are instances of `key`. */
   instancesOf(key) {
     return this.referencesTo(key).filter((r) => r.isBody).map((r) => r.owner);
+  }
+
+  /**
+   * The outermost object this one belongs to: follow placements upward while
+   * each object is placed inside exactly one other, and stop at the editor's
+   * container, at the root, or wherever the trail forks.
+   *
+   * What this is for: combining leaves the operands as named objects, so a
+   * ray that lands on a part reports the part. Clicking usually means the
+   * whole thing - the difference, not the sphere it was cut from - and the
+   * part is a drill-down from there.
+   */
+  outermostOwner(key) {
+    let current = key;
+    for (let step = 0; step < MAX_CHAIN; step++) {
+      if (current === ROOT || !this.has(current)) return current;
+      const placements = this.referencesTo(current).filter((r) => !r.isBody);
+      if (placements.length !== 1) return current;         // unplaced, or placed twice
+      const parent = placements[0].owner;
+      if (parent === ROOT || parent === this.containerKey) return current;
+      current = parent;
+    }
+    return current;
   }
 
   /**
