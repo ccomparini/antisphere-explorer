@@ -68,6 +68,48 @@ const isObject = (x) => x !== null && typeof x === 'object' && !Array.isArray(x)
 
 const v3 = (v) => `(${v.map((x) => +(+x).toFixed(2)).join(', ')})`;
 
+// Almost every shape here is a surface of revolution, so turning one about
+// its own axis moves nothing at all - which looks exactly like a broken
+// control. This works out when that is about to happen, so the panel can say
+// so rather than leaving someone to wonder.
+//
+// Conservative: anything it cannot see through - a reference, a transform
+// deeper in the subtree - counts as "this might move", since a wrong warning
+// is worse than a missing one.
+const AXIS_FIELDS = { cylinder: 'axis', cone: 'axis', spheroid: 'axis', slab: 'axis',
+                      paraboloid: 'axis', hyperboloid: 'axis', quadric: 'axis',
+                      plane: 'normal' };
+
+const parallel = (a, b) => {
+  const la = Math.hypot(...a), lb = Math.hypot(...b);
+  if (la < 1e-12 || lb < 1e-12) return false;
+  const dot = (a[0]*b[0] + a[1]*b[1] + a[2]*b[2]) / (la * lb);
+  return Math.abs(Math.abs(dot) - 1) < 1e-6;
+};
+
+function turnsInvisibly(def, axis, depth = 0) {
+  if (!def || depth > 12) return false;
+  if (typeof def !== 'object' || Array.isArray(def)) return false;
+  if (def.use !== undefined) return false;                  // cannot see inside
+  if (depth > 0 && (def.rotate !== undefined || def.scale !== undefined
+                    || def.translate !== undefined)) return false;
+  for (const op of ['group', 'union', 'intersect', 'difference']) {
+    if (Array.isArray(def[op])) {
+      return def[op].every((member) => turnsInvisibly(member, axis, depth + 1));
+    }
+  }
+  // A sphere is symmetric about everything; the rest about their own axis.
+  let symmetric = def.sphere !== undefined;
+  for (const [shape, field] of Object.entries(AXIS_FIELDS)) {
+    if (def[shape] !== undefined) {
+      symmetric = Array.isArray(def[shape][field]) && parallel(def[shape][field], axis);
+    }
+  }
+  if (!symmetric) return false;
+  return ['inside', 'outside'].every((side) =>
+    def[side] === undefined || def[side] === null || turnsInvisibly(def[side], axis, depth + 1));
+}
+
 function refName(def) {
   if (typeof def === 'string') return def;
   return isObject(def) && typeof def.use === 'string' ? def.use : null;
@@ -298,15 +340,52 @@ export function createPanel(root, ctx) {
     const degrees = spin
       ? (typeof spin.degrees === 'number' ? spin.degrees : (spin.radians ?? 0) * 180 / Math.PI)
       : 0;
-    return { axis: spin?.axis ?? [0, 0, 1], degrees };
+    // Across the up axis rather than along it: almost everything here is a
+    // surface of revolution about its own axis, so a turn about that axis
+    // would be no turn at all. See turnsInvisibly().
+    return { axis: spin?.axis ?? [1, 0, 0], degrees };
   };
 
-  function setRotation(axis, degrees) {
+  function setRotation(axis, degrees, pivot = pivotOf(current())) {
     const cur = current();
     if (!cur) return;
+    // Zeroing the last non-zero component on the way to another axis would
+    // leave a rotation about nothing, which the compiler rightly refuses.
+    // Leave the axis as it was rather than making an error of it.
+    if (!axis.some((v) => v !== 0)) return;
     editTransform(cur, 'Turn', (holder) => {
       if (!degrees) { delete holder.rotate; return; }
       holder.rotate = { axis, degrees };
+      if (pivot.some((v) => v !== 0)) holder.rotate.pivot = pivot;
+    });
+  }
+
+  // One pivot is shown for both transforms, since wanting a rotation and a
+  // scale about different points is rare and two more rows of fields is not.
+  // A scene that names them separately keeps them: the rotation's is the one
+  // displayed, and writing sets whichever of the two exist.
+  const pivotOf = (cur) => {
+    if (!cur) return [0, 0, 0];
+    const holder = translateHolder(cur);
+    if (!isObject(holder)) return [0, 0, 0];
+    const spin = isObject(holder.rotate) ? holder.rotate.pivot : null;
+    const grow = isObject(holder.scale) ? holder.scale.pivot : null;
+    return spin ?? grow ?? [0, 0, 0];
+  };
+
+  function setPivot(pivot) {
+    const cur = current();
+    if (!cur) return;
+    const zero = !pivot.some((v) => v !== 0);
+    editTransform(cur, 'Pivot', (holder) => {
+      if (isObject(holder.rotate)) {
+        if (zero) delete holder.rotate.pivot; else holder.rotate.pivot = pivot;
+      }
+      if (typeof holder.scale === 'number' && !zero) {
+        holder.scale = { factor: holder.scale, pivot };
+      } else if (isObject(holder.scale)) {
+        if (zero) delete holder.scale.pivot; else holder.scale.pivot = pivot;
+      }
     });
   }
 
@@ -320,12 +399,14 @@ export function createPanel(root, ctx) {
   function setScale(factor) {
     const cur = current();
     if (!cur) return;
+    const pivot = pivotOf(cur);
     editTransform(cur, 'Resize', (holder) => {
       if (factor === 1) { delete holder.scale; return; }
-      // Keep a pivot the scene may already have named; otherwise a bare
-      // number says all there is to say.
-      if (isObject(holder.scale) && holder.scale.pivot) holder.scale.factor = factor;
-      else holder.scale = factor;
+      // Whatever pivot is in force applies to the scale as well, since the
+      // panel shows one for both; with none, a bare number says it all.
+      const named = (isObject(holder.scale) && holder.scale.pivot) || 
+                    (pivot.some((v) => v !== 0) ? pivot : null);
+      holder.scale = named ? { factor, pivot: named } : factor;
     });
   }
 
@@ -382,6 +463,23 @@ export function createPanel(root, ctx) {
       return c ? tidy(scaleOf(translateHolder(c))) : 1;
     },
     set scaleFactor(v) { if (v > 0) setScale(v); },
+    // A pivot with no transform to belong to would have nowhere to be
+    // written, so the row only appears once there is one.
+    // True when the chosen axis is one the shape is symmetric about, so the
+    // panel can say why nothing moved.
+    get spinIsFutile() {
+      const c = current();
+      if (!c) return false;
+      const holder = translateHolder(c);
+      const { axis, degrees } = rotationOf(holder);
+      return !!degrees && turnsInvisibly(holder, axis);
+    },
+    get hasPivot() {
+      const c = current();
+      if (!c) return false;
+      const holder = translateHolder(c);
+      return isObject(holder) && (holder.rotate !== undefined || holder.scale !== undefined);
+    },
 
     get radius() { return tidy(current()?.node?.sphere?.radius ?? 0); },
     set radius(v) { editShape('radius', (n) => { n.sphere.radius = v; }); },
@@ -418,6 +516,9 @@ export function createPanel(root, ctx) {
   vectorFields(selection, ['tx', 'ty', 'tz'],
     () => { const c = current(); return c && isObject(translateHolder(c)) ? translateHolder(c).translate : null; },
     setTranslate);
+  vectorFields(selection, ['px', 'py', 'pz'],
+    () => pivotOf(current()),
+    setPivot);
   vectorFields(selection, ['ax', 'ay', 'az'],
     () => { const c = current(); return c ? rotationOf(translateHolder(c)).axis : null; },
     (next) => {

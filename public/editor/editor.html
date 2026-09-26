@@ -192,15 +192,22 @@
             <input class="num" type="number" step="0.1" data-controls="tz">
           </div></div>
           <div class="row" data-shows-if="hasTransform"><label>rotate</label><div class="ctl">
+            <input class="num" type="number" step="5" data-controls="spinDegrees" title="degrees">
+            <span class="dim">about</span>
             <input class="num" type="number" step="0.1" data-controls="ax" title="axis x">
             <input class="num" type="number" step="0.1" data-controls="ay" title="axis y">
             <input class="num" type="number" step="0.1" data-controls="az" title="axis z">
           </div></div>
-          <div class="row" data-shows-if="hasTransform"><label>degrees</label><div class="ctl">
-            <input class="num" type="number" step="5" data-controls="spinDegrees">
+          <div class="row" data-shows-if="spinIsFutile"><label></label><div class="ctl">
+            <span class="dim">that is the shape's own axis, so it turns invisibly</span>
           </div></div>
           <div class="row" data-shows-if="hasTransform"><label>scale</label><div class="ctl">
             <input class="num" type="number" step="0.1" min="0" data-controls="scaleFactor">
+          </div></div>
+          <div class="row" data-shows-if="hasPivot"><label>pivot</label><div class="ctl">
+            <input class="num" type="number" step="0.1" data-controls="px">
+            <input class="num" type="number" step="0.1" data-controls="py">
+            <input class="num" type="number" step="0.1" data-controls="pz">
           </div></div>
           <div class="row" data-shows-if="isSphere"><label>centre</label><div class="ctl">
             <input class="num" type="number" step="0.1" data-controls="cx">
