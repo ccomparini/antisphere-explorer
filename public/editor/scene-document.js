@@ -744,10 +744,16 @@ export class SceneDocument {
   }
 
   /**
-   * Copy an object, offset by `offset`. Duplicating an instance makes another
-   * instance of the same prototype; duplicating a definition copies it. The
-   * copy goes beside the original in whatever holds it, or into the
-   * container if nothing does.
+   * Copy an object, offset by `offset`. The copy goes beside the original in
+   * whatever holds it, or into the container if nothing does.
+   *
+   * Duplicating an *instance* makes another instance of the same prototype,
+   * which is the component model: the two stay the same thing in two places,
+   * and makeUnique() is how one of them stops being.
+   *
+   * Duplicating a *definition* copies it and its parts, so the copy is its
+   * own object all the way down. Sharing the parts would mean two rings with
+   * one hole between them, where moving either moved both.
    */
   duplicateObject(key, { offset = [1, 0, 0], name } = {}) {
     const copyKey = name ?? this.uniqueName(key);
@@ -755,11 +761,13 @@ export class SceneDocument {
       const source = spec.objects?.[key];
       if (source === undefined) throw new Error(`no object "${key}"`);
       this.#checkNewName(copyKey);
-      let copy;
-      if (isUseBody(source)) copy = { use: source.use };
-      else copy = clone(source);
+      if (isUseBody(source)) {
+        spec.objects[copyKey] = { use: source.use };
+      } else {
+        this.#copySubtree(spec, key, copyKey);
+      }
+      const copy = spec.objects[copyKey];
       if (isObject(copy)) copy.translate = add3(source.translate ?? ZERO, offset);
-      spec.objects[copyKey] = copy;
 
       const beside = this.referencesTo(key).find((r) => !r.isBody && Array.isArray(r.parent));
       if (beside) beside.parent.splice(Number(beside.slot) + 1, 0, copyKey);

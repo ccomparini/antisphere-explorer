@@ -611,3 +611,24 @@ test('a copied subtree keeps its shape, however deep', () => {
   assert.notEqual(handCopy, 'hand');
   assert.ok(doc.has(handCopy), 'the hand was copied too');
 });
+
+test('duplicating a definition copies its parts too', () => {
+  const { doc } = make(partsSpec());
+  // `robot` is a definition made of two parts; duplicate it.
+  const r = doc.duplicateObject('robot', { offset: [0, 5, 0] });
+  assert.equal(r.ok, true);
+  const copy = doc.spec.objects[r.name];
+  assert.ok(!copy.union.includes('arm'), `the copy shares a part: ${JSON.stringify(copy)}`);
+
+  // Moving the copy's arm leaves the original's arm where it was.
+  const [armCopy] = copy.union;
+  doc.editNode(armCopy, '', (node) => { node.sphere.center = [7, 0, 0]; });
+  assert.deepEqual(doc.spec.objects.arm.sphere.center, [1, 0, 0]);
+});
+
+test('duplicating an instance still shares the prototype', () => {
+  const { doc } = make(partsSpec());
+  const r = doc.duplicateObject('robot-1', { offset: [0, 5, 0] });
+  assert.deepEqual(doc.spec.objects[r.name], { use: 'robot', translate: [3, 5, 0] });
+  assert.deepEqual(doc.instancesOf('robot').sort(), ['robot-1', 'robot-2', r.name].sort());
+});
