@@ -96,12 +96,20 @@ export const SHAPES = {
              1.2, material),
   },
 
-  // Unbounded across the axis, which is the point of it: a plate, a floor, a
-  // wall. It goes in the editor's union container, which asks nothing of its
-  // members' bounds.
+  // The two that do not end: a plate and a half-space. Both go in the
+  // editor's union container, which asks nothing of its members' bounds.
   slab: {
     label: 'Slab',
     make: (material) => ({ slab: { center: [0, 0, 0], axis: UP, thickness: 0.3 }, material }),
+  },
+
+  // Everything below where it is placed. That is a lot of solid at once, but
+  // the axis views show plainly what happened, and undo is one key away.
+  // Inside a plane is the side its normal points away from, so a normal of
+  // +z gives ground rather than sky.
+  plane: {
+    label: 'Plane',
+    make: (material) => ({ plane: { normal: UP, offset: 0 }, material }),
   },
 };
 
