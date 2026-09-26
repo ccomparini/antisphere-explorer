@@ -551,3 +551,63 @@ test('a part of a combination knows what it is part of', () => {
   // A prototype used by several instances is not "part of" any one of them.
   assert.equal(doc.outermostOwner('bead'), 'bead');
 });
+
+// -- an object is its whole subtree -------------------------------------------------
+
+// A robot with two named parts, placed twice.
+const partsSpec = () => ({
+  materials: { clay: {} },
+  lights: [{ pos: [0, 0, 5], color: [10, 10, 10] }],
+  objects: {
+    arm: { sphere: { center: [1, 0, 0], radius: 0.4 }, material: 'clay' },
+    leg: { sphere: { center: [0, 0, -1], radius: 0.4 }, material: 'clay' },
+    robot: { union: ['arm', 'leg'] },
+    'robot-1': { use: 'robot', translate: [3, 0, 0] },
+    'robot-2': { use: 'robot', translate: [-3, 0, 0] },
+  },
+  root: { sphere: { center: [0, 0, 0], radius: 40 },
+          inside: { union: ['robot-1', 'robot-2'] } },
+});
+
+test('reachableObjects finds the parts, and their parts', () => {
+  const { doc } = make(partsSpec());
+  assert.deepEqual([...doc.reachableObjects('robot')].sort(), ['arm', 'leg']);
+  assert.deepEqual([...doc.reachableObjects('robot-1')].sort(), ['arm', 'leg', 'robot']);
+  assert.deepEqual([...doc.reachableObjects('arm')], []);
+});
+
+test('makeUnique copies all the way down', () => {
+  const { doc } = make(partsSpec());
+  const r = doc.makeUnique('robot-2');
+  assert.equal(r.ok, true);
+
+  // The copy refers to copies of the parts, not to the originals.
+  const copy = doc.spec.objects[r.name];
+  assert.equal(copy.union.length, 2);
+  assert.ok(!copy.union.includes('arm'), `still shares: ${JSON.stringify(copy)}`);
+  for (const part of copy.union) assert.ok(doc.has(part), `${part} exists`);
+
+  // Editing the copy's arm leaves the other robot's arm alone.
+  const [armCopy] = copy.union;
+  doc.editNode(armCopy, '', (node) => { node.sphere.radius = 9; });
+  assert.equal(doc.spec.objects.arm.sphere.radius, 0.4, 'the original is untouched');
+  assert.equal(doc.spec.objects[armCopy].sphere.radius, 9);
+
+  // And robot-1 still works the way it did.
+  assert.deepEqual(doc.spec.objects['robot-1'], { use: 'robot', translate: [3, 0, 0] });
+  assert.deepEqual(doc.spec.objects['robot-2'], { use: r.name, translate: [-3, 0, 0] });
+});
+
+test('a copied subtree keeps its shape, however deep', () => {
+  const spec = partsSpec();
+  spec.objects.hand = { sphere: { center: [2, 0, 0], radius: 0.2 }, material: 'clay' };
+  spec.objects.arm = { union: ['hand'] };
+  const { doc } = make(spec);
+  const r = doc.makeUnique('robot-2');
+  const copy = doc.spec.objects[r.name];
+  const [armCopy] = copy.union;
+  const [handCopy] = doc.spec.objects[armCopy].union;
+  assert.notEqual(armCopy, 'arm');
+  assert.notEqual(handCopy, 'hand');
+  assert.ok(doc.has(handCopy), 'the hand was copied too');
+});

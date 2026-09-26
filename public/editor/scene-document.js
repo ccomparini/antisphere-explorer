@@ -508,6 +508,52 @@ export class SceneDocument {
   }
 
   /**
+   * Every object reachable from this one: its parts, their parts, and so on.
+   *
+   * An object is its whole subtree - a transform on it turns everything
+   * beneath it - so the operations that copy or remove one work on this set
+   * rather than on the single body. What they differ on is what to do about
+   * references from outside it, which is a question this does not answer.
+   */
+  reachableObjects(key) {
+    const found = new Set();
+    const visit = (from) => {
+      const body = this.#spec.objects?.[from];
+      if (body === undefined) return;
+      walkDef(body, (place) => {
+        const referenced = refName(place.def);
+        if (!referenced || found.has(referenced) || referenced === key) return;
+        found.add(referenced);
+        visit(referenced);
+      }, from, [], this.#spec.objects, from);
+    };
+    visit(key);
+    return found;
+  }
+
+  /**
+   * Copy an object and all of its parts, under fresh names, with the copies
+   * referring to each other rather than back to the originals. Returns the
+   * old-name-to-new-name map; the caller places the copy.
+   */
+  #copySubtree(spec, key, copyName) {
+    const renames = new Map([[key, copyName]]);
+    for (const part of this.reachableObjects(key)) renames.set(part, this.uniqueName(part));
+    for (const [from, to] of renames) spec.objects[to] = clone(spec.objects[from]);
+    // Now that every copy exists, point them at each other.
+    for (const to of renames.values()) {
+      walkDef(spec.objects[to], (place) => {
+        const referenced = refName(place.def);
+        const renamed = referenced && renames.get(referenced);
+        if (!renamed) return;
+        if (typeof place.def === 'string') place.parent[place.slot] = renamed;
+        else place.def.use = renamed;
+      }, to, [], spec.objects, to);
+    }
+    return renames;
+  }
+
+  /**
    * Find a node: { node, parent, slot, definitionKey } with parent[slot] ===
    * node, or null. For an instance, the path is resolved in its definition,
    * which is the point: editing that node edits the prototype.
@@ -783,9 +829,14 @@ export class SceneDocument {
 
   /**
    * Give an instance its own copy of its definition, so it can be edited
-   * without changing the others. Any translates picked up along the
-   * instancing chain are folded into the instance, so it doesn't move.
-   * Returns the new definition's key in `name`.
+   * without changing the others - all the way down, since an object is its
+   * whole subtree. Parts shared with anything else are copied too: the point
+   * of the button is independence, and a part still shared would be a
+   * surprise waiting for whoever edits it next.
+   *
+   * Any translates picked up along the instancing chain are folded into the
+   * instance, so it doesn't move. Returns the new definition's key in
+   * `name`.
    */
   makeUnique(instanceKey, { name } = {}) {
     let definitionKey = null;
@@ -800,7 +851,7 @@ export class SceneDocument {
       }
       definitionKey = name ?? this.uniqueName(`${instanceKey}-proto`);
       this.#checkNewName(definitionKey);
-      spec.objects[definitionKey] = clone(spec.objects[key]);
+      this.#copySubtree(spec, key, definitionKey);
       const body = { use: definitionKey };
       if (offset.some((v) => v !== 0)) body.translate = offset;
       spec.objects[instanceKey] = body;
