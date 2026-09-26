@@ -265,21 +265,68 @@ export function createPanel(root, ctx) {
     });
   }
 
+  // Transforms belong to the thing being placed, not to the shape: at object
+  // level they go on the object's own body, so a shape authored about the
+  // origin turns and grows where it stands - scale, then rotate, then
+  // translate. Inside an object they go on the node, and there the origin is
+  // the definition's, so a rotation there will swing the part around it.
+  function editTransform(cur, field, mutate) {
+    const where = cur.owner + (cur.path ? '/' + cur.path : '');
+    const label = `${field} ${where}`;
+    const coalesce = fieldKey(cur, field);
+    if (cur.path) {
+      doc.editNode(cur.owner, cur.path, mutate, { label, coalesce });
+      return;
+    }
+    doc.edit(label, (spec) => {
+      const body = cur.owner === ROOT ? spec.root : spec.objects[cur.owner];
+      if (!isObject(body)) throw new Error(`${where} cannot carry a transform`);
+      mutate(body);
+    }, { coalesce });
+  }
+
   function setTranslate(next) {
     const cur = current();
+    if (cur) editTransform(cur, 'Move', (holder) => { holder.translate = next; });
+  }
+
+  // A rotation is an axis and an angle together, so both fields write the
+  // whole thing. Zero degrees leaves nothing behind, which keeps a spec that
+  // was only nudged as clean as one that was never touched.
+  const rotationOf = (holder) => {
+    const spin = isObject(holder) && isObject(holder.rotate) ? holder.rotate : null;
+    const degrees = spin
+      ? (typeof spin.degrees === 'number' ? spin.degrees : (spin.radians ?? 0) * 180 / Math.PI)
+      : 0;
+    return { axis: spin?.axis ?? [0, 0, 1], degrees };
+  };
+
+  function setRotation(axis, degrees) {
+    const cur = current();
     if (!cur) return;
-    const where = cur.owner + (cur.path ? '/' + cur.path : '');
-    const coalesce = fieldKey(cur, 'translate');
-    if (cur.path) {
-      doc.editNode(cur.owner, cur.path, (n) => { n.translate = next; },
-                   { label: `Move ${where}`, coalesce });
-    } else {
-      doc.edit(`Move ${where}`, (spec) => {
-        const body = cur.owner === ROOT ? spec.root : spec.objects[cur.owner];
-        if (!isObject(body)) throw new Error(`${where} can't be moved`);
-        body.translate = next;
-      }, { coalesce });
-    }
+    editTransform(cur, 'Turn', (holder) => {
+      if (!degrees) { delete holder.rotate; return; }
+      holder.rotate = { axis, degrees };
+    });
+  }
+
+  const scaleOf = (holder) => {
+    const factor = isObject(holder) ? holder.scale : undefined;
+    if (typeof factor === 'number') return factor;
+    if (isObject(factor) && typeof factor.factor === 'number') return factor.factor;
+    return 1;
+  };
+
+  function setScale(factor) {
+    const cur = current();
+    if (!cur) return;
+    editTransform(cur, 'Resize', (holder) => {
+      if (factor === 1) { delete holder.scale; return; }
+      // Keep a pivot the scene may already have named; otherwise a bare
+      // number says all there is to say.
+      if (isObject(holder.scale) && holder.scale.pivot) holder.scale.factor = factor;
+      else holder.scale = factor;
+    });
   }
 
   const selection = {
@@ -320,7 +367,21 @@ export function createPanel(root, ctx) {
     get isSphere() { return !!current()?.node?.sphere; },
     get isPlane() { return !!current()?.node?.plane; },
     get isPrimitive() { const n = current()?.node; return !!(n?.sphere || n?.plane); },
-    get hasTranslate() { const c = current(); return !!c && isObject(translateHolder(c)); },
+    get hasTransform() { const c = current(); return !!c && isObject(translateHolder(c)); },
+
+    get spinDegrees() {
+      const c = current();
+      return c ? tidy(rotationOf(translateHolder(c)).degrees) : 0;
+    },
+    set spinDegrees(v) {
+      const c = current();
+      if (c) setRotation(rotationOf(translateHolder(c)).axis, v);
+    },
+    get scaleFactor() {
+      const c = current();
+      return c ? tidy(scaleOf(translateHolder(c))) : 1;
+    },
+    set scaleFactor(v) { if (v > 0) setScale(v); },
 
     get radius() { return tidy(current()?.node?.sphere?.radius ?? 0); },
     set radius(v) { editShape('radius', (n) => { n.sphere.radius = v; }); },
@@ -357,6 +418,12 @@ export function createPanel(root, ctx) {
   vectorFields(selection, ['tx', 'ty', 'tz'],
     () => { const c = current(); return c && isObject(translateHolder(c)) ? translateHolder(c).translate : null; },
     setTranslate);
+  vectorFields(selection, ['ax', 'ay', 'az'],
+    () => { const c = current(); return c ? rotationOf(translateHolder(c)).axis : null; },
+    (next) => {
+      const c = current();
+      if (c) setRotation(next, rotationOf(translateHolder(c)).degrees);
+    });
   vectorFields(selection, ['cx', 'cy', 'cz'],
     () => current()?.node?.sphere?.center,
     (next) => editShape('centre', (n) => { n.sphere.center = next; }));
