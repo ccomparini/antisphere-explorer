@@ -416,7 +416,14 @@ export function createPanel(root, ctx) {
     get multiple() { return doc.selections.length > 1; },
     get countText() {
       const n = doc.selections.length;
-      return `${n} selected · these fields edit the last, Delete and Duplicate all of them`;
+      return `${n} selected · these fields edit the last; Delete and Duplicate take all of them, ` +
+             'and Subtract keeps the first';
+    },
+    // Combining needs two things to combine, and they have to be objects
+    // rather than parts of one.
+    get canCombine() {
+      const objects = doc.selections.filter((e) => !e.path && e.owner !== ROOT);
+      return objects.length > 1;
     },
     get title() {
       const cur = current();
@@ -697,9 +704,7 @@ export function createPanel(root, ctx) {
         refresh('structure');
         break;
       }
-      case 'create':
-        ctx.command('create', button.value);
-        break;
+
       case 'add-light':
         doc.addLight();
         break;
@@ -707,7 +712,9 @@ export function createPanel(root, ctx) {
         doc.removeLight(index);
         break;
       default:
-        ctx.command(action);
+        // A button in a repeated item carries its index; one that names a
+        // choice carries that instead, and the command takes it.
+        ctx.command(action, button.value || undefined);
     }
   });
 

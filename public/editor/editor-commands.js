@@ -230,6 +230,19 @@ export function createCommands({ doc, getActive, note, ask = globalThis.prompt, 
       }));
     },
 
+    // Combine what is selected into one object. For a difference the first
+    // thing selected is the one kept and the rest are cut away from it, so
+    // the order of selection is the order of the operation.
+    combine(operation) {
+      const keys = selectedObjects();
+      if (keys.length < 2) {
+        note(`select two or more objects to ${operation === 'difference' ? 'subtract' : operation}`);
+        return;
+      }
+      const result = doc.combine(operation, keys);
+      report(result, result.ok && `${operation}: ${keys.join(' ')} -> ${result.name}`);
+    },
+
     duplicate() {
       const keys = selectedObjects();
       if (!keys.length) { note('select an object to duplicate'); return; }

@@ -720,6 +720,41 @@ export class SceneDocument {
   }
 
   /**
+   * Combine objects into a new one: 'union', 'intersect' or 'difference'.
+   * For a difference the first operand is the one kept and the rest are cut
+   * away from it, so the order they were selected in is the order that runs.
+   *
+   * The operands stay as named objects and become the parts of the new one,
+   * which is what makes a combination something you can still take apart:
+   * select a part, move it, and the combination follows. What does go is
+   * each operand's own placement, since the combination now places it -
+   * otherwise it would appear twice over.
+   */
+  combine(operation, keys, { name } = {}) {
+    if (!['union', 'intersect', 'difference'].includes(operation)) {
+      throw new Error(`no such operation: ${operation}`);
+    }
+    const combined = name ?? this.uniqueName(operation === 'difference' ? 'cut' : operation);
+    const result = this.edit(`${operation} ${keys.join(', ')}`, (spec) => {
+      if (keys.length < 2) throw new Error(`${operation} needs two or more objects`);
+      for (const key of keys) {
+        if (!this.has(key)) throw new Error(`no object "${key}"`);
+      }
+      this.#checkNewName(combined);
+
+      // Take up the operands' placements before the combination is written,
+      // or its own references to them would be found and removed too.
+      removeAll(keys.flatMap((key) => this.referencesTo(key).filter((r) => !r.isBody)));
+
+      spec.objects[combined] = { [operation]: keys.slice() };
+      this.#placeIn(spec, combined, this.containerKey);
+      pruneAggregates(spec);
+    });
+    if (result.ok) this.select(combined);
+    return { ...result, name: combined };
+  }
+
+  /**
    * Give an instance its own copy of its definition, so it can be edited
    * without changing the others. Any translates picked up along the
    * instancing chain are folded into the instance, so it doesn't move.

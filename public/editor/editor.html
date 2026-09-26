@@ -186,6 +186,15 @@
                     title="Make this part a named object">Name…</button>
             <button data-action="deselect" title="Esc">Deselect</button>
           </div>
+          <div class="toolbar" data-shows-if="canCombine">
+            <span class="dim">combine</span>
+            <button data-action="combine" value="union"
+                    title="Everything inside any of them">Union</button>
+            <button data-action="combine" value="intersect"
+                    title="Only what is inside all of them">Intersect</button>
+            <button data-action="combine" value="difference"
+                    title="The first, with the rest cut away">Subtract</button>
+          </div>
           <div class="row" data-shows-if="hasTransform"><label>translate</label><div class="ctl">
             <input class="num" type="number" step="0.1" data-controls="tx">
             <input class="num" type="number" step="0.1" data-controls="ty">

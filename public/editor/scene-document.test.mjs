@@ -21,7 +21,7 @@ function validate(spec) {
       if (!(def.use in objects)) throw new Error(`${where}: unknown object "${def.use}"`);
       return;
     }
-    for (const op of ['group', 'union']) {
+    for (const op of ['group', 'union', 'intersect', 'difference']) {
       if (def[op] !== undefined) {
         if (!def[op].length) throw new Error(`${where}: ${op} needs at least one operand`);
         def[op].forEach((m, i) => check(m, `${where}.${op}[${i}]`));
@@ -478,4 +478,61 @@ test('a frame with a rotation or a scale in it is not just an offset', () => {
   assert.equal(doc.worldOffset('lamp'), null);               // scaled definition
   assert.deepEqual(doc.worldOffset('tilted'), [0, 4, 0]);    // still a plain offset
   assert.equal(doc.toLocal('bead-1', 'inside', [1, 2, 3]), null);
+});
+
+// -- combining objects ------------------------------------------------------------
+
+test('combining takes up the operands and leaves them editable', () => {
+  const { doc, scene } = make();
+  const compiles = scene.compiles;
+  const r = doc.combine('union', ['bead-1', 'lamp']);
+  assert.equal(r.ok, true);
+  assert.equal(r.name, 'union');
+
+  // The combination is an object made of the two, which are still objects.
+  assert.deepEqual(doc.spec.objects.union, { union: ['bead-1', 'lamp'] });
+  assert.ok(doc.has('bead-1') && doc.has('lamp'));
+  // Their own placements are gone: the combination places them now. The
+  // root has been wrapped to hold the editor's container, as it is whenever
+  // the first object is added, so the original tree is inside that.
+  assert.deepEqual(doc.spec.root.union[0].inside.union, ['bead-2']);
+  assert.deepEqual(doc.spec.objects['editor-objects'], { union: ['union'] });
+  assert.deepEqual(doc.selection, { owner: 'union', path: '' });
+  assert.equal(scene.compiles, compiles + 1, 'one compile, one undo step');
+
+  doc.undo();
+  assert.equal(doc.has('union'), false);
+  assert.deepEqual(doc.spec.root.inside.union, ['bead-1', 'bead-2', 'lamp']);
+});
+
+test('difference keeps the first operand and cuts away the rest', () => {
+  const { doc } = make();
+  doc.combine('difference', ['bead-1', 'bead-2']);
+  assert.deepEqual(doc.spec.objects.cut, { difference: ['bead-1', 'bead-2'] });
+});
+
+test('a part of a combination is still a part', () => {
+  const { doc } = make();
+  doc.combine('intersect', ['bead-1', 'lamp']);
+  // Editing a part edits the combination, because it is the same object.
+  doc.select('lamp');
+  doc.editNode('lamp', '', (node) => { node.sphere.radius = 0.5; });
+  assert.equal(doc.spec.objects.lamp.sphere.radius, 0.5);
+  assert.deepEqual(doc.spec.objects.intersect.intersect, ['bead-1', 'lamp']);
+});
+
+test('combinations nest', () => {
+  const { doc } = make();
+  doc.combine('union', ['bead-1', 'bead-2']);
+  doc.combine('difference', ['union', 'lamp']);
+  assert.deepEqual(doc.spec.objects.cut, { difference: ['union', 'lamp'] });
+  assert.deepEqual(doc.spec.objects['editor-objects'], { union: ['cut'] });
+});
+
+test('combining is refused where it would mean nothing', () => {
+  const { doc } = make();
+  assert.equal(doc.combine('union', ['lamp']).ok, false, 'one operand');
+  assert.equal(doc.combine('union', ['lamp', 'nope']).ok, false, 'no such object');
+  assert.throws(() => doc.combine('smoosh', ['lamp', 'bead-1']), /no such operation/);
+  assert.ok(doc.has('lamp'), 'a refused combination changes nothing');
 });
