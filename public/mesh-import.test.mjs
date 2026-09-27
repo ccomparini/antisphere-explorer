@@ -243,3 +243,31 @@ test('an empty or degenerate mesh makes no tree', () => {
   const flat = [[[0,0,0],[1,0,0],[2,0,0]]];        // no area
   assert.equal(meshToTree(flat, { material: 'clay' }), null);
 });
+
+// -- passing triangles whole instead of cutting them -------------------------------
+
+test('whole triangles give the same tree where nothing needs cutting', () => {
+  // On these, a straddling triangle handed to both children reaches both,
+  // and the result is exact - which is the appeal of never cutting.
+  for (const mesh of [boxMesh([-1,-1,-1], [1,1,1]), lPrismMesh(), icosphereMesh(1)]) {
+    const whole = meshToTree(mesh, { material: 'clay', split: false, maxDepth: 300 });
+    const { wrong, inside } = agreesWithMesh(mesh, whole, { samples: 800 });
+    assert.ok(inside > 40, 'the solid is there');
+    assert.equal(wrong, 0);
+  }
+});
+
+test('whole triangles overfill a torus, which is why cutting is the default', () => {
+  // A triangle passed to a child it does not actually reach can still be
+  // chosen as that child's splitting plane, and then the region behind a
+  // boundary that isn't there reads as solid. No holes - the error is
+  // always extra material, bulging outside the surface.
+  const mesh = torusMesh(1, 0.35, 12, 8);
+  const whole = meshToTree(mesh, { material: 'clay', split: false, maxDepth: 300 });
+  const loose = agreesWithMesh(mesh, whole, { samples: 800 });
+  const cut = agreesWithMesh(mesh, meshToTree(mesh, { material: 'clay' }), { samples: 800 });
+  assert.equal(cut.wrong, 0, 'cutting is exact');
+  assert.ok(loose.wrong > 0,
+            'if this ever passes, passing triangles whole has been made sound - ' +
+            'check why, and make it the default');
+});

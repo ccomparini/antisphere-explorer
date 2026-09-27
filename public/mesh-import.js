@@ -102,7 +102,7 @@ function fanOf(poly, tiny) {
  * lesser part is a sliver, is given whole to the side it is essentially on.
  * That is what keeps repeated splitting from grinding the mesh into dust.
  */
-function sortTriangle(tri, plane, eps, tiny, front, back) {
+function sortTriangle(tri, plane, eps, tiny, front, back, split = true) {
   const d = tri.map((v) => dot(plane.normal, v) - plane.offset);
   const anyFront = d.some((x) => x > eps);
   const anyBack = d.some((x) => x < -eps);
@@ -110,6 +110,16 @@ function sortTriangle(tri, plane, eps, tiny, front, back) {
   if (!anyFront && !anyBack) return 'coplanar';
   if (!anyBack) { front.push(tri); return 'front'; }
   if (!anyFront) { back.push(tri); return 'back'; }
+
+  if (!split) {
+    // Whole, to both sides. The plane a triangle contributes is the same
+    // plane however the triangle is cut, so the tree can be built without
+    // ever cutting one - at the cost of carrying a triangle down branches
+    // it may not reach into, and of the nodes that go with that.
+    front.push(tri);
+    back.push(tri);
+    return 'both';
+  }
 
   const ahead = clipPolygon(tri, plane, true, eps);
   const behind = clipPolygon(tri, plane, false, eps);
@@ -191,6 +201,7 @@ export function meshToTree(triangles, options = {}) {
     material,
     sampleSize = 12,            // how many candidate planes to weigh
     maxDepth = 5000,
+    split = true,               // cut straddling triangles, or pass them whole
   } = options;
 
   const usable = triangles.filter((tri) => planeOfTriangle(tri));
@@ -210,9 +221,12 @@ export function meshToTree(triangles, options = {}) {
     if (!plane) return null;
 
     const front = [], back = [];
-    for (const tri of tris) sortTriangle(tri, plane, eps, tiny, front, back);
+    for (const tri of tris) sortTriangle(tri, plane, eps, tiny, front, back, split);
 
     const node = { plane: { normal: plane.normal, offset: plane.offset }, material };
+    // Whole triangles can leave a child with everything its parent had,
+    // apart from the one consumed as coplanar. That still ends, since one
+    // goes each time, but it can get deep, so the depth cap matters here.
     const behind = build(back, depth + 1);
     const ahead = build(front, depth + 1);
     if (behind) node.inside = behind;           // else omitted: solid
