@@ -15,7 +15,7 @@ import {
   createTraceBuffers, createOverlapBuffers,
 } from './gpu-setup.js';
 import {
-  compileScene, packNodes, packMaterials, packLights,
+  compileScene, packNodes, packMaterials, packLights, loadImports,
 } from './antisphere-scene.js';
 
 const MAX_TRACE_RAYS = 16;
@@ -109,13 +109,22 @@ export class ASContext {
   }
 
   /** Compile a scene spec into GPU buffers that any renderer here can use. */
-  createScene(spec) {
-    return new ASScene(this, spec);
+  createScene(spec, options = {}) {
+    return new ASScene(this, spec, options);
   }
 
-  /** Fetch and compile a scene file. */
+  /**
+   * Fetch and compile a scene file, along with anything it imports.
+   *
+   * Imported files are fetched relative to the file that names them, so a
+   * scene in scenes/ can say "import": ["parts/bolt.json"] and mean
+   * scenes/parts/bolt.json.
+   */
   async loadScene(url) {
-    return this.createScene(JSON.parse(await loadText(url)));
+    const spec = JSON.parse(await loadText(url));
+    const imports = await loadImports(spec, async (path) => JSON.parse(await loadText(path)),
+                                      { from: url });
+    return this.createScene(spec, { imports, path: url });
   }
 
   createRenderer(canvas, opts) {
@@ -171,8 +180,12 @@ ASContext._rendererModule = null;
 // ---------------------------------------------------------------------------
 
 export class ASScene {
-  constructor(context, spec) {
+  constructor(context, spec, options = {}) {
     this.context = context;
+    // Kept so update() can recompile: the editor hands back an edited spec,
+    // not the files it borrowed from.
+    this.imports = options.imports ?? {};
+    this.path = options.path ?? '';
     this.nodeBuf = this.lightBuf = this.matBuf = null;
 
     // Bumped on any change that invalidates a bind group, so renderers can
@@ -186,8 +199,9 @@ export class ASScene {
    * Recompile and replace every buffer. compileScene throws before anything
    * here is touched, so a bad spec leaves the previous scene intact.
    */
-  update(spec) {
-    const built = compileScene(spec);
+  update(spec, options = {}) {
+    if (options.imports) this.imports = options.imports;
+    const built = compileScene(spec, { imports: this.imports, path: this.path });
     const { device } = this.context;
 
     for (const b of [this.nodeBuf, this.lightBuf, this.matBuf]) if (b) b.destroy();

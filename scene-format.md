@@ -77,6 +77,52 @@ An array of:
 `color`'s magnitude is radiant power, not a 0–1 color — falloff is inverse
 square, so values commonly run well above 1. At least one light is required.
 
+## `import`
+
+```
+"import": ["parts/bolt.json", "parts/frame.json"]
+"import": { "fixings": "parts/bolt.json" }
+```
+
+Borrows the objects of other scene files. An imported object is named for
+the file it came from, with a colon between:
+
+```
+{ "use": "bolt:head" }
+```
+
+so two files may each have a `"body"` without arguing about it, and a name
+you use here is never shadowed by one you imported. With the list form the
+prefix is the file's own name, without directory or extension; with the
+object form you choose it.
+
+Only `objects` and `materials` cross over. An imported file's `root`,
+`lights` and `camera` are how *it* is looked at on its own, not part of what
+it offers — so a parts file can be opened and admired in the editor while
+still being a library.
+
+Names inside an imported file keep meaning what they meant there: if its
+`bolt` is a union of its `head` and `shaft`, then importing it gives you
+`bolt:bolt` made of `bolt:head` and `bolt:shaft`, and its materials arrive
+prefixed too. Imported files may import in turn, and paths are relative to
+the file that names them — `parts/bolt.json` asking for `../common/metal.json`
+means `common/metal.json`. A file that imports itself, directly or in a
+circle, is an error rather than a hang.
+
+Anything this scene defines under an imported name wins: writing
+`"bolt:steel"` in your own `materials`, or `"bolt:head"` in your own
+`objects`, replaces that piece of the import for everything that uses it —
+which is how to re-skin or re-shape an imported part without editing the
+file it came from.
+
+What is refused is two files that would share a prefix, since one would
+silently disappear into the other. Name one of them with the object form.
+
+Loading happens before compiling, since the compiler reads no files itself.
+`loadScene()` does it for you; if you drive the compiler directly, `loadImports()`
+fetches everything a spec needs and `compileScene(spec, { imports })` takes the
+result.
+
 ## `objects`
 
 A map of name → subtree definition (see "Subtrees" below). Each entry is

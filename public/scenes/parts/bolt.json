@@ -1,0 +1,32 @@
+{
+  "_comment": "Parts meant to be imported. Its own root and lights are how it is looked at on its own; an importing scene takes only the objects and materials.",
+
+  "materials": {
+    "steel": { "kind": "glossy", "albedo": [0.58, 0.60, 0.66], "shininess": 48, "specular": 0.7 }
+  },
+
+  "objects": {
+    "head": {
+      "intersect": [
+        { "cylinder": { "center": [0, 0, 0], "axis": [0, 0, 1], "radius": 0.45 },
+          "material": "steel" },
+        { "slab": { "center": [0, 0, 0.1], "axis": [0, 0, 1], "thickness": 0.2 } }
+      ]
+    },
+    "shaft": {
+      "intersect": [
+        { "cylinder": { "center": [0, 0, 0], "axis": [0, 0, 1], "radius": 0.16 },
+          "material": "steel" },
+        { "slab": { "center": [0, 0, -0.5], "axis": [0, 0, 1], "thickness": 1.2 } }
+      ]
+    },
+    "bolt": { "union": ["head", "shaft"] }
+  },
+
+  "lights": [{ "pos": [3, -4, 5], "color": [120, 118, 112] }],
+  "camera": { "target": [0, 0, -0.2], "yaw": 0.8, "pitch": 0.3, "distance": 4 },
+  "root": {
+    "sphere": { "center": [0, 0, 0], "radius": 40 },
+    "inside": { "use": "bolt" }
+  }
+}
