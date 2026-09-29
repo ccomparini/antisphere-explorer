@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>physlab</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #err {
+    position: fixed; inset: 0; place-items: center; padding: 2rem;
+    font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #f87171; white-space: pre-wrap; text-align: center;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="err" hidden></div>
+<script type="module" src="./physlab.js"></script>
+</body>
+</html>
