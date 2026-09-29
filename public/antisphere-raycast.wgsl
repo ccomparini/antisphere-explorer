@@ -417,13 +417,19 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
 // two quadratics with no convexity needed, which is why cones, hyperboloids
 // and complements are no harder here than spheres.
 //
-// Finding mu is a one-dimensional problem: the positive semidefinite matrices
-// are convex and Q_b + mu Q_a is a line through them, so the feasible mu form
-// an interval, and the smallest eigenvalue of the pencil is concave in mu.
-// Hence the ternary search below.
+// Finding mu is a one-dimensional problem. Over the convex combination
+// (1 - t) Q_b + t Q_a (mu = t / (1 - t)) the smallest eigenvalue is concave
+// in t, and v^T (Q_a - Q_b) v, for its eigenvector v, is a supergradient: so
+// bisect on that sign, one eigen-solve a step. The eigenvector also settles
+// overlaps early: if v^T Q_a v and v^T Q_b v are both negative, v is (next
+// to) a point interior to both.
 //
-// overlap.js is the same algorithm in JS, and is the oracle this was checked
-// against; keep the two in step.
+// This always stops as soon as the answer is certain either way, since the
+// callers want a verdict fast: margin > OVERLAP_TAU is proved apart,
+// margin < -OVERLAP_TAU is an overlap, and in between is touching, to f32.
+//
+// overlap.js is the same algorithm in JS (its `decide` mode), and is the
+// oracle this is checked against; keep the two in step.
 // ---------------------------------------------------------------------------
 
 struct OverlapQuery {
@@ -465,81 +471,104 @@ fn largestEntry(m : mat4x4<f32>) -> f32 {
   return max(most, 1e-30);
 }
 
-// The smallest eigenvalue of a symmetric 4x4, by Newton from below on the
-// characteristic polynomial. Left of the smallest root the polynomial is
-// positive, decreasing and convex - every factor (x - lambda_i) is negative
-// there, so any product of two is positive - so Newton started below every
-// root climbs to it monotonically, with no case analysis. Gershgorin gives
-// that starting point.
-fn smallestEigenvalue(m : mat4x4<f32>) -> f32 {
-  // Sums of the principal minors: the coefficients of
-  // x^4 - e1 x^3 + e2 x^2 - e3 x + e4.
-  let e1 = m[0].x + m[1].y + m[2].z + m[3].w;
+// The smallest eigenvalue of a symmetric 4x4 and a unit eigenvector for it,
+// by cyclic Jacobi: rotate each off-diagonal entry away in turn, accumulating
+// the rotations as the eigenvectors. Orthogonal steps keep it accurate to f32
+// rounding, repeated eigenvalues included. (The characteristic polynomial it
+// replaced lost most of its digits near a repeated root and made false
+// proofs.) A fixed sweep count, so every invocation does the same work.
+struct Eigen {
+  value  : f32,
+  vector : vec4<f32>,
+};
 
-  var e2 = 0.0;
-  for (var i = 0; i < 4; i = i + 1) {
-    for (var j = i + 1; j < 4; j = j + 1) {
-      e2 = e2 + m[i][i] * m[j][j] - m[i][j] * m[j][i];
-    }
+const JACOBI_SWEEPS : i32 = 5;
+
+// One Jacobi rotation, zeroing a[q][p]. Always called with literal p and q
+// (see smallestEigen), so once inlined every index here is a constant and
+// both matrices can live in registers: indexing a local matrix by a runtime
+// value pushes it out to scratch memory, which cost more than all the maths.
+fn jacobiRotate(a : ptr<function, mat4x4<f32>>, v : ptr<function, mat4x4<f32>>,
+                p : i32, q : i32) {
+  let apq = (*a)[q][p];
+  let app = (*a)[p][p];
+  let aqq = (*a)[q][q];
+  // Negligible next to the diagonal: skip, which also keeps theta (and theta
+  // squared) finite below.
+  if (abs(apq) <= 1e-12 * (abs(app) + abs(aqq)) || abs(apq) < 1e-30) { return; }
+  let theta = (aqq - app) / (2.0 * apq);
+  let t = select(1.0, -1.0, theta < 0.0) / (abs(theta) + sqrt(theta * theta + 1.0));
+  let c = inverseSqrt(t * t + 1.0);
+  let s = t * c;
+  // Columns p and q, as whole vectors: (*a)[i] is column i.
+  let colP = (*a)[p];
+  let colQ = (*a)[q];
+  (*a)[p] = c * colP - s * colQ;
+  (*a)[q] = s * colP + c * colQ;
+  // Then rows p and q; the matrix is symmetric again afterwards, with the
+  // (p, q) entry exactly zero.
+  for (var r = 0; r < 4; r = r + 1) {
+    let apr = (*a)[r][p];
+    let aqr = (*a)[r][q];
+    (*a)[r][p] = c * apr - s * aqr;
+    (*a)[r][q] = s * apr + c * aqr;
   }
-
-  var e3 = 0.0;
-  for (var i = 0; i < 4; i = i + 1) {
-    for (var j = i + 1; j < 4; j = j + 1) {
-      for (var k = j + 1; k < 4; k = k + 1) {
-        e3 = e3
-          + m[i][i] * (m[j][j] * m[k][k] - m[j][k] * m[k][j])
-          - m[i][j] * (m[j][i] * m[k][k] - m[j][k] * m[k][i])
-          + m[i][k] * (m[j][i] * m[k][j] - m[j][j] * m[k][i]);
-      }
-    }
-  }
-
-  let e4 = determinant(m);
-
-  var start = 1e30;
-  for (var i = 0; i < 4; i = i + 1) {
-    var radius = 0.0;
-    for (var j = 0; j < 4; j = j + 1) {
-      if (j != i) { radius = radius + abs(m[i][j]); }
-    }
-    start = min(start, m[i][i] - radius);
-  }
-
-  var x = start;
-  for (var step = 0; step < 40; step = step + 1) {
-    let p = (((x - e1) * x + e2) * x - e3) * x + e4;
-    let dp = ((4.0 * x - 3.0 * e1) * x + 2.0 * e2) * x - e3;
-    if (dp == 0.0) { break; }
-    let next = x - p / dp;
-    if (!(next > x)) { break; }               // converged, or stuck
-    x = next;
-  }
-  return x;
+  // And the eigenvectors, which are v's columns.
+  let vP = (*v)[p];
+  let vQ = (*v)[q];
+  (*v)[p] = c * vP - s * vQ;
+  (*v)[q] = s * vP + c * vQ;
 }
 
-// The margin of the best certificate: positive is proved apart.
+fn smallestEigen(m : mat4x4<f32>) -> Eigen {
+  var a = m;
+  var v = mat4x4<f32>(vec4<f32>(1.0, 0.0, 0.0, 0.0), vec4<f32>(0.0, 1.0, 0.0, 0.0),
+                      vec4<f32>(0.0, 0.0, 1.0, 0.0), vec4<f32>(0.0, 0.0, 0.0, 1.0));
+  for (var sweep = 0; sweep < JACOBI_SWEEPS; sweep = sweep + 1) {
+    jacobiRotate(&a, &v, 0, 1);
+    jacobiRotate(&a, &v, 0, 2);
+    jacobiRotate(&a, &v, 0, 3);
+    jacobiRotate(&a, &v, 1, 2);
+    jacobiRotate(&a, &v, 1, 3);
+    jacobiRotate(&a, &v, 2, 3);
+  }
+  // The smallest diagonal entry, without indexing by a runtime value.
+  var e = Eigen(a[0][0], v[0]);
+  if (a[1][1] < e.value) { e = Eigen(a[1][1], v[1]); }
+  if (a[2][2] < e.value) { e = Eigen(a[2][2], v[2]); }
+  if (a[3][3] < e.value) { e = Eigen(a[3][3], v[3]); }
+  return e;
+}
+
+const OVERLAP_STEPS : i32 = 24;
+const OVERLAP_TAU : f32 = 1e-5;   // f32 Jacobi is good to about 1e-6 here
+
+// The margin that settles the question: > OVERLAP_TAU proved apart,
+// < -OVERLAP_TAU an overlap, between them touching.
 fn overlapMargin(qa : mat4x4<f32>, qb : mat4x4<f32>, muOut : ptr<function, f32>) -> f32 {
   let a = qa * (1.0 / largestEntry(qa));
   let b = qb * (1.0 / largestEntry(qb));
 
   var lo = 0.0;
-  var hi = 1.0 - 1e-7;                        // t in [0,1) maps to mu in [0, inf)
-  for (var i = 0; i < 48; i = i + 1) {
-    let third = (hi - lo) / 3.0;
-    let t1 = lo + third;
-    let t2 = hi - third;
-    let m1 = b + a * (t1 / (1.0 - t1));
-    let m2 = b + a * (t2 / (1.0 - t2));
-    let v1 = smallestEigenvalue(m1) / max(1.0, largestEntry(m1));
-    let v2 = smallestEigenvalue(m2) / max(1.0, largestEntry(m2));
-    if (v1 < v2) { lo = t1; } else { hi = t2; }
+  var hi = 1.0;
+  var margin = -1e30;
+  var bestT = 0.0;
+  for (var i = 0; i < OVERLAP_STEPS; i = i + 1) {
+    let t = 0.5 * (lo + hi);
+    let e = smallestEigen(b * (1.0 - t) + a * t);
+    if (e.value > margin) { margin = e.value; bestT = t; }
+    let onA = dot(e.vector, a * e.vector);
+    let onB = dot(e.vector, b * e.vector);
+    if (onA < -OVERLAP_TAU && onB < -OVERLAP_TAU) {
+      margin = e.value;                       // a witness: this lambda is < -TAU
+      bestT = t;
+      break;
+    }
+    if (margin > OVERLAP_TAU) { break; }      // a certificate
+    if (onA > onB) { lo = t; } else { hi = t; }
   }
-  let t = 0.5 * (lo + hi);
-  let mu = t / (1.0 - t);
-  *muOut = mu;
-  let best = b + a * mu;
-  return smallestEigenvalue(best) / max(1.0, largestEntry(best));
+  *muOut = bestT / (1.0 - bestT);
+  return margin;
 }
 
 @compute @workgroup_size(64)

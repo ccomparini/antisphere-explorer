@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene } from './antisphere-scene.js';
 import { regionsOverlap, regionsDisjoint, separation, matrixOf,
-         smallestEigenvalue, interiorPaths, subtreesApart } from './overlap.js';
+         smallestEigen, smallestEigenvalue, interiorPaths, subtreesApart } from './overlap.js';
 
 const primOf = (shape) =>
   compileScene({ materials: {}, lights: [], root: shape }).nodes[1].prim;
@@ -29,6 +29,34 @@ test('smallestEigenvalue matches known spectra', () => {
                   [2*s*s - 6*s*s, 2*s*s + 6*s*s, 0, 0],
                   [0, 0, 5, 0], [0, 0, 0, 9]];
   assert.ok(Math.abs(smallestEigenvalue(turned) - 2) < 1e-6);
+});
+
+test('a repeated smallest eigenvalue is found, not overshot', () => {
+  // The pencil that exposed the characteristic-polynomial version: -25/36
+  // twice, which Newton on the expanded polynomial overshot to -0.46.
+  const m = [[-25/36, 0, 0, 0], [0, 0.0625, 0, -0.25], [0, 0, -25/36, 0], [0, -0.25, 0, 1]];
+  assert.ok(Math.abs(smallestEigenvalue(m) + 25/36) < 1e-12, `got ${smallestEigenvalue(m)}`);
+  // And rotated, so the repeat is not sitting on the diagonal already.
+  const c = Math.cos(0.7), s = Math.sin(0.7);
+  const R = [[c, 0, -s, 0], [0, 1, 0, 0], [s, 0, c, 0], [0, 0, 0, 1]];
+  const mul = (x, y) => x.map((row) => y[0].map((_, j) => row.reduce((acc, v, k) => acc + v * y[k][j], 0)));
+  const Rt = R[0].map((_, j) => R.map((row) => row[j]));
+  assert.ok(Math.abs(smallestEigenvalue(mul(mul(R, m), Rt)) + 25/36) < 1e-12);
+});
+
+test('the eigenvector is a unit vector that M scales by the eigenvalue', () => {
+  const rnd = (seed) => () => (seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5;
+  const next = rnd(42);
+  for (let trial = 0; trial < 200; trial++) {
+    const m = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+    for (let i = 0; i < 4; i++) for (let j = i; j < 4; j++) m[i][j] = m[j][i] = next();
+    const { value, vector } = smallestEigen(m);
+    assert.ok(Math.abs(Math.hypot(...vector) - 1) < 1e-12);
+    for (let i = 0; i < 4; i++) {
+      const Mv = m[i].reduce((acc, v, j) => acc + v * vector[j], 0);
+      assert.ok(Math.abs(Mv - value * vector[i]) < 1e-12, `trial ${trial} row ${i}`);
+    }
+  }
 });
 
 // -- pairs of regions ---------------------------------------------------------------
@@ -85,6 +113,18 @@ test('touching counts as apart, and the margin says how close', () => {
   assert.ok(clear.margin > touch.margin, 'further apart proves more easily');
   assert.ok(over.margin < -1e-3, 'overlapping has no certificate');
   assert.ok(clear.mu >= 0, 'the multiplier is the proof');
+});
+
+test('overlapping pairs are decided by a witness', () => {
+  // An eigenvector with v^T Q_a v < 0 and v^T Q_b v < 0 is a point interior to
+  // both, so overlaps should end on one rather than on the search running out.
+  for (const [label, a, sa, b, sb, apart] of PAIRS) {
+    if (apart) continue;
+    const qa = matrixOf(primOf(a), sa), qb = matrixOf(primOf(b), sb);
+    const { margin, witness } = separation(qa, qb, { decide: true });
+    assert.ok(margin < 0, `${label}: margin ${margin}`);
+    assert.ok(witness, `${label}: overlap found without a witness`);
+  }
 });
 
 test('the certificate is never wrong about an overlap', () => {

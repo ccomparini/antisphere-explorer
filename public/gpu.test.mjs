@@ -229,61 +229,99 @@ const OVERLAP_SCENE = { sphere: { center: [0, 0, 0], radius: 100 }, material: nu
 // The cone is the only node with negative curvature along its axis.
 const coneOf = (sc) => sc.nodes.findIndex((nd, i) => i > 0 && nd.prim.k_par < 0);
 
-// Outside the shell and outside the cone plainly overlap - everything far
-// enough away is in both - and the GPU "proves" them apart with a margin of
-// about +3, which after normalization should not even be possible. The CPU
-// gets it right in f64, and a literal f32 transcription of overlapMargin()
-// gets -0.01: right, barely. So the characteristic-polynomial eigenvalue
-// loses most of its precision in f32, and this driver's arithmetic (fused
-// multiply-adds, its own determinant()) loses the rest. Excluded from the
-// test below and checked on its own, so it stays visible until it is fixed.
-const isKnownBad = (sc, { a, b, signA, signB }) =>
-  a === 1 && b === coneOf(sc) && signA < 0 && signB < 0;
-
 const cpuMargin = (sc, { a, b, signA, signB }) =>
   separation(matrixOf(sc.nodes[a].prim, signA), matrixOf(sc.nodes[b].prim, signB)).margin;
 
-gpuTest('overlapFrom() agrees with overlap.js on every pair of nodes', async () => {
-  const sc = scene(OVERLAP_SCENE);
+// antisphere-raycast.wgsl's OVERLAP_TAU: the GPU's margin is only a verdict
+// outside this band, and inside it is touching.
+const TAU = 1e-5;
+
+function allPairs(sc) {
   const pairs = [];
   for (let a = 1; a < sc.nodes.length; a++) {
     for (let b = a + 1; b < sc.nodes.length; b++) {
       for (const signA of [1, -1]) for (const signB of [1, -1]) pairs.push({ a, b, signA, signB });
     }
   }
+  return pairs;
+}
+
+gpuTest('overlapFrom() agrees with overlap.js on every pair of nodes', async () => {
+  const sc = scene(OVERLAP_SCENE);
+  const pairs = allPairs(sc);
   const margins = await sc.overlapPairs(pairs);
 
-  // The verdict has to match wherever the CPU is not itself on the fence.
-  // The margin's size only means something when it is positive - how much
-  // room the proof has. A negative margin is just "no certificate", and its
-  // value is wherever the ternary search happened to stop, which f32 and f64
-  // can legitimately disagree on: the search assumes the objective is
-  // unimodal, and smallestEigenvalue() near a repeated eigenvalue can make it
-  // not so.
+  // The GPU stops as soon as it is sure, so its margin is one that settles
+  // the question rather than the best there is: compare verdicts, against
+  // the CPU's full search, wherever the CPU is not itself on the fence.
   let decided = 0;
   pairs.forEach((pair, i) => {
-    if (isKnownBad(sc, pair)) return;
     const cpu = cpuMargin(sc, pair);
+    if (Math.abs(cpu) <= 1e-3) return;
+    decided++;
     const { a, b, signA, signB } = pair;
     const what = `nodes ${a}(${signA > 0 ? 'in' : 'out'}) and ${b}(${signB > 0 ? 'in' : 'out'})`;
-    if (cpu > 1e-3) {
-      assert.ok(Math.abs(margins[i] - cpu) < 1e-3, `${what}: GPU ${margins[i]}, CPU ${cpu}`);
-    }
-    if (Math.abs(cpu) > 1e-3) {
-      decided++;
-      assert.equal(margins[i] > 0, cpu > 0, `${what}: GPU ${margins[i]}, CPU ${cpu}`);
-    }
+    if (cpu > 0) assert.ok(margins[i] > TAU, `${what} should be apart: GPU ${margins[i]}, CPU ${cpu}`);
+    else assert.ok(margins[i] < -TAU, `${what} should overlap: GPU ${margins[i]}, CPU ${cpu}`);
   });
   assert.ok(decided > pairs.length / 2, `only ${decided} of ${pairs.length} pairs were decisive`);
   sc.destroy();
 });
 
-test('overlapFrom() does not prove outside-the-shell and outside-a-cone apart',
-     { skip, todo: 'f32 eigenvalue precision; see isKnownBad' }, async () => {
+// Once a false proof: the characteristic polynomial lost its digits in f32
+// and the GPU "proved" these apart with a margin of +3.
+gpuTest('overlapFrom() does not prove outside-the-shell and outside-a-cone apart', async () => {
   const sc = scene(OVERLAP_SCENE);
   const pair = { a: 1, b: coneOf(sc), signA: -1, signB: -1 };
   const [margin] = await sc.overlapPairs([pair]);
-  sc.destroy();
   assert.ok(cpuMargin(sc, pair) < 0, 'the CPU should find no certificate');
-  assert.ok(margin < 0, `GPU margin ${margin} claims a proof`);
+  assert.ok(margin < -TAU, `GPU margin ${margin} should be an overlap`);
+  sc.destroy();
+});
+
+gpuTest('overlapFrom() calls touching touching, to f32', async () => {
+  // Two unit balls meeting at the origin, and a ball resting on a plane.
+  const sc = scene({ sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: {
+    union: [
+      { sphere: { center: [-1, 0, 0], radius: 1 }, material: 'clay' },
+      { sphere: { center: [1, 0, 0], radius: 1 }, material: 'clay' },
+      { sphere: { center: [0, 5, 1], radius: 1 }, material: 'clay' },
+      { plane: { normal: [0, 0, 1], offset: 0 }, material: 'clay' },
+    ],
+  } });
+  const ball = (x, y, z) => sc.nodes.findIndex((nd, i) =>
+    i > 1 && nd.prim.k_perp > 0 && Math.hypot(nd.prim.linear[0] / nd.prim.k_perp + x,
+                                              nd.prim.linear[1] / nd.prim.k_perp + y,
+                                              nd.prim.linear[2] / nd.prim.k_perp + z) < 1e-6);
+  const plane = sc.nodes.findIndex((nd, i) => i > 0 && nd.prim.k_perp === 0 && nd.prim.k_par === 0);
+  const pairs = [{ a: ball(-1, 0, 0), b: ball(1, 0, 0), signA: 1, signB: 1 },
+                 { a: ball(0, 5, 1), b: plane, signA: 1, signB: 1 }];
+  for (const p of pairs) assert.ok(p.a > 0 && p.b > 0, 'found the nodes');
+  const margins = await sc.overlapPairs(pairs);
+  for (const m of margins) assert.ok(Math.abs(m) <= TAU, `touching margin ${m}`);
+  sc.destroy();
+});
+
+gpuTest('overlapFrom() batch timing (logged, not asserted)', async (t) => {
+  // A crowd of shapes, deterministic, for a before/after number.
+  let seed = 1;
+  const rnd = (lo, hi) => lo + ((seed = (seed * 16807) % 2147483647) / 2147483647) * (hi - lo);
+  const vec = () => [rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)];
+  const makers = [
+    () => ({ sphere: { center: vec().map((v) => v * 4), radius: rnd(0.3, 1.5) } }),
+    () => ({ cylinder: { center: vec().map((v) => v * 4), axis: vec(), radius: rnd(0.3, 1.2) } }),
+    () => ({ slab: { center: vec().map((v) => v * 4), axis: vec(), thickness: rnd(0.3, 2) } }),
+    () => ({ cone: { apex: vec().map((v) => v * 4), axis: vec(), slope: rnd(0.2, 1.2) } }),
+    () => ({ plane: { normal: vec(), offset: rnd(-2, 2) } }),
+  ];
+  const sc = scene({ sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: {
+    union: Array.from({ length: 24 }, (_, i) => ({ ...makers[i % 5](), material: 'clay' })),
+  } });
+  const pairs = allPairs(sc).slice(0, 1024);
+  await sc.overlapPairs(pairs);                          // warm up
+  const runs = 20, start = performance.now();
+  for (let i = 0; i < runs; i++) await sc.overlapPairs(pairs);
+  t.diagnostic(`${pairs.length} pairs: ${((performance.now() - start) / runs).toFixed(2)} ms ` +
+               'per batch, round trip included');
+  sc.destroy();
 });

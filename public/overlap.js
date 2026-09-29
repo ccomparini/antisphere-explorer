@@ -23,11 +23,20 @@
 // certificate that exists, but it never certifies an overlap as disjoint. That
 // is the safe direction for both pruning and the group check.
 //
-// Two facts make the search for mu easy. The positive semidefinite matrices
-// are a convex set and the pencil Q_b + mu Q_a is a line through matrix space,
-// so the feasible mu form an interval; and lambda_min of a symmetric matrix is
-// a minimum of linear functions, hence concave in mu. Maximising a concave
-// function of one variable is a ternary search.
+// The search runs over the convex combination P(t) = (1 - t) Q_b + t Q_a,
+// t in [0, 1), which is the same pencil (mu = t / (1 - t)) but bounded, so it
+// needs no rescaling as it goes. lambda_min of P(t) is a minimum of linear
+// functions of t, hence concave, and for any unit eigenvector v of that
+// smallest eigenvalue, v^T (Q_a - Q_b) v is a supergradient - valid even when
+// the eigenvalue is repeated. So the maximum is found by bisecting on the
+// sign of that one number: one eigen-solve per step.
+//
+// The same eigenvector answers the other way too. v^T P v = lambda, and if
+// both v^T Q_a v < 0 and v^T Q_b v < 0 then X = v, or a point next to it if
+// v's last coordinate is zero, is interior to both regions: an overlap,
+// proved on the spot. Deciding pairs is therefore usually quick: far apart,
+// some early t gives lambda > 0; deeply overlapping, some early eigenvector
+// is a witness. Only near-touching pairs run the whole bisection.
 //
 // antisphere-raycast.wgsl's overlapFrom() is a transcription of this file.
 // Keep them in step: the JS is the oracle the shader is checked against.
@@ -57,58 +66,63 @@ function magnitude(m) {
 }
 
 /**
- * The smallest eigenvalue of a symmetric 4x4.
+ * The smallest eigenvalue of a symmetric 4x4, and a unit eigenvector for it.
  *
- * Newton from below on the characteristic polynomial. Left of the smallest
- * root the polynomial is positive, decreasing and convex - every factor
- * (lambda - lambda_i) is negative there, so the product of any two is
- * positive - which makes Newton from a point below all the roots converge
- * upward, monotonically, with no case analysis. Gershgorin supplies that
- * starting point.
+ * Cyclic Jacobi: rotate away each off-diagonal entry in turn until the matrix
+ * is diagonal, accumulating the rotations as the eigenvectors. Every step is
+ * an orthogonal similarity, so the eigenvalues come out accurate to rounding
+ * relative to the matrix's size, repeated or not. (The characteristic
+ * polynomial this replaced lost most of its digits to cancellation near a
+ * repeated eigenvalue, and in f32 on a GPU that made a false proof.) For 4x4
+ * a handful of sweeps is enough; convergence is quadratic.
  */
-export function smallestEigenvalue(m) {
-  // Characteristic polynomial lambda^4 - e1 lambda^3 + e2 lambda^2 - e3 lambda
-  // + e4, whose coefficients are the sums of the principal minors.
-  const e1 = m[0][0] + m[1][1] + m[2][2] + m[3][3];
-  const minor2 = (i, j) => m[i][i] * m[j][j] - m[i][j] * m[j][i];
-  const e2 = minor2(0,1) + minor2(0,2) + minor2(0,3) + minor2(1,2) + minor2(1,3) + minor2(2,3);
-  const minor3 = (i, j, k) =>
-      m[i][i] * (m[j][j] * m[k][k] - m[j][k] * m[k][j])
-    - m[i][j] * (m[j][i] * m[k][k] - m[j][k] * m[k][i])
-    + m[i][k] * (m[j][i] * m[k][j] - m[j][j] * m[k][i]);
-  const e3 = minor3(0,1,2) + minor3(0,1,3) + minor3(0,2,3) + minor3(1,2,3);
-  const e4 = determinant4(m);
-
-  // Gershgorin: no eigenvalue is below this.
-  let start = Infinity;
-  for (let i = 0; i < 4; i++) {
-    let radius = 0;
-    for (let j = 0; j < 4; j++) if (j !== i) radius += Math.abs(m[i][j]);
-    start = Math.min(start, m[i][i] - radius);
+export function smallestEigen(m, sweeps = 10) {
+  const a = m.map((row) => row.slice());
+  const v = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]];
+  for (let sweep = 0; sweep < sweeps; sweep++) {
+    let off = 0;
+    for (let p = 0; p < 3; p++) for (let q = p + 1; q < 4; q++) off += a[p][q] * a[p][q];
+    if (off < 1e-60) break;
+    for (let p = 0; p < 3; p++) {
+      for (let q = p + 1; q < 4; q++) {
+        const apq = a[p][q];
+        // Negligible next to the diagonal: rotating it away changes nothing
+        // but would square a huge theta below.
+        if (Math.abs(apq) <= 1e-12 * (Math.abs(a[p][p]) + Math.abs(a[q][q])) ||
+            Math.abs(apq) < 1e-30) continue;
+        const theta = (a[q][q] - a[p][p]) / (2 * apq);
+        const t = (theta < 0 ? -1 : 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+        for (let r = 0; r < 4; r++) {              // columns p and q
+          const arp = a[r][p], arq = a[r][q];
+          a[r][p] = c * arp - s * arq;
+          a[r][q] = s * arp + c * arq;
+        }
+        for (let r = 0; r < 4; r++) {              // then rows p and q
+          const apr = a[p][r], aqr = a[q][r];
+          a[p][r] = c * apr - s * aqr;
+          a[q][r] = s * apr + c * aqr;
+        }
+        for (let r = 0; r < 4; r++) {              // and the eigenvectors
+          const vrp = v[r][p], vrq = v[r][q];
+          v[r][p] = c * vrp - s * vrq;
+          v[r][q] = s * vrp + c * vrq;
+        }
+      }
+    }
   }
-
-  let x = start;
-  for (let step = 0; step < 40; step++) {
-    const p = (((x - e1) * x + e2) * x - e3) * x + e4;
-    const dp = ((4 * x - 3 * e1) * x + 2 * e2) * x - e3;
-    if (dp === 0) break;
-    const next = x - p / dp;
-    if (!(next > x)) break;                   // converged, or numerically stuck
-    x = next;
-  }
-  return x;
+  let k = 0;
+  for (let i = 1; i < 4; i++) if (a[i][i] < a[k][k]) k = i;
+  return { value: a[k][k], vector: [v[0][k], v[1][k], v[2][k], v[3][k]] };
 }
 
-function determinant4(m) {
-  // Expansion by the first row, with the 3x3 minors written out.
-  const sub = (r0, r1, r2, c0, c1, c2) =>
-      m[r0][c0] * (m[r1][c1] * m[r2][c2] - m[r1][c2] * m[r2][c1])
-    - m[r0][c1] * (m[r1][c0] * m[r2][c2] - m[r1][c2] * m[r2][c0])
-    + m[r0][c2] * (m[r1][c0] * m[r2][c1] - m[r1][c1] * m[r2][c0]);
-  return m[0][0] * sub(1,2,3, 1,2,3)
-       - m[0][1] * sub(1,2,3, 0,2,3)
-       + m[0][2] * sub(1,2,3, 0,1,3)
-       - m[0][3] * sub(1,2,3, 0,1,2);
+export const smallestEigenvalue = (m) => smallestEigen(m).value;
+
+/** x^T M x. */
+function quadratic(m, x) {
+  let sum = 0;
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) sum += x[i] * m[i][j] * x[j];
+  return sum;
 }
 
 /**
@@ -117,36 +131,47 @@ function determinant4(m) {
  * Positive means proved disjoint, and the size is how much room the proof has;
  * zero means they touch; negative means no certificate was found, which for
  * two regions means they really do share interior. The multiplier that did it
- * comes back as well, since it is the proof.
+ * comes back as well, since it is the proof, and `witness` says whether an
+ * overlap was proved outright by a point interior to both.
+ *
+ * With `decide`, stop as soon as the verdict is certain either way - apart
+ * or witnessed - which is what callers that only want a yes or no should use.
+ * The margin is then a margin that settles it, not necessarily the best one.
  */
-export function separation(qa, qb, steps = 48) {
+export function separation(qa, qb, { steps = 32, decide = false } = {}) {
   const a = qa.map((row) => row.map((v) => v / magnitude(qa)));
   const b = qb.map((row) => row.map((v) => v / magnitude(qb)));
 
-  // mu runs over [0, infinity), so search t in [0, 1) and map it.
-  const marginAt = (t) => {
-    const mu = t / (1 - t);
-    const pencil = b.map((row, i) => row.map((v, j) => v + mu * a[i][j]));
-    return smallestEigenvalue(pencil) / Math.max(1, magnitude(pencil));
-  };
-
-  let lo = 0, hi = 1 - 1e-7;
+  let lo = 0, hi = 1;
+  let margin = -Infinity, bestT = 0, witness = false;
   for (let i = 0; i < steps; i++) {
-    const third = (hi - lo) / 3;
-    if (marginAt(lo + third) < marginAt(hi - third)) lo += third; else hi -= third;
+    const t = 0.5 * (lo + hi);
+    const pencil = b.map((row, r) => row.map((v, c) => (1 - t) * v + t * a[r][c]));
+    const { value, vector } = smallestEigen(pencil);
+    if (value > margin) { margin = value; bestT = t; }
+    const onA = quadratic(a, vector), onB = quadratic(b, vector);
+    if (onA < -CERTAIN && onB < -CERTAIN) {
+      witness = true;
+      // Report the lambda that came with the witness, which is below
+      // -CERTAIN, rather than a better one from earlier in the search.
+      if (decide) { margin = value; bestT = t; break; }
+    }
+    if (decide && margin > CERTAIN) break;
+    if (onA > onB) lo = t; else hi = t;           // the supergradient's sign
   }
-  const t = 0.5 * (lo + hi);
-  return { margin: marginAt(t), mu: t / (1 - t) };
+  return { margin, mu: bestT / (1 - bestT), witness };
 }
 
 /** Do these two regions share interior? A region is a primitive and a sign. */
 export function regionsOverlap(primA, signA, primB, signB) {
-  return separation(matrixOf(primA, signA), matrixOf(primB, signB)).margin < -CERTAIN;
+  return separation(matrixOf(primA, signA), matrixOf(primB, signB), { decide: true })
+    .margin < -CERTAIN;
 }
 
 /** Proved apart, with room to spare. Touching counts as apart. */
 export function regionsDisjoint(primA, signA, primB, signB) {
-  return separation(matrixOf(primA, signA), matrixOf(primB, signB)).margin > -CERTAIN;
+  return separation(matrixOf(primA, signA), matrixOf(primB, signB), { decide: true })
+    .margin > -CERTAIN;
 }
 
 // ---------------------------------------------------------------------------
