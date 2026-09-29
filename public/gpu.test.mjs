@@ -235,7 +235,7 @@ const coneOf = (sc) => sc.nodes.findIndex((nd, i) => i > 0 && nd.prim.k_par < 0)
 const cpuMargin = (sc, { a, b, signA, signB }) =>
   separation(matrixOf(sc.nodes[a].prim, signA), matrixOf(sc.nodes[b].prim, signB)).margin;
 
-// antisphere-raycast.wgsl's OVERLAP_TAU: the GPU's margin is only a verdict
+// shaders/overlap.wgsl's OVERLAP_TAU: the GPU's margin is only a verdict
 // outside this band, and inside it is touching.
 const TAU = 1e-5;
 

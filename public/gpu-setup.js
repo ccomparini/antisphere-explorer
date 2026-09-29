@@ -100,13 +100,15 @@ export async function checkShader(mod, label, code = '') {
 }
 
 /**
- * Build every pipeline from source.
+ * Build every pipeline from source: `sources` is { compute, blit, overlap },
+ * each a shader's text.
  *
- * Returns `{ error }` with a message, or `{ pipelines }` with all four. The
- * caller only swaps them in on success, so a bad edit leaves the previous
- * frame rendering rather than blacking the screen.
+ * Returns `{ error }` with a message, or `{ pipelines }` with all of them.
+ * The caller only swaps them in on success, so a bad edit leaves the
+ * previous frame rendering rather than blacking the screen.
  */
-export async function buildPipelines(device, format, computeSrc, blitSrc) {
+export async function buildPipelines(device, format, sources) {
+  const { compute: computeSrc, blit: blitSrc, overlap: overlapSrc } = sources;
   // The storage format is a literal in the WGSL type, so the direct-to-canvas
   // variant needs its own module when the canvas is not rgba8unorm.
   const directSrc = computeSrc.replace('texture_storage_2d<rgba8unorm',
@@ -116,6 +118,7 @@ export async function buildPipelines(device, format, computeSrc, blitSrc) {
   const computeMod = device.createShaderModule({ code: computeSrc });
   const directMod = sameSrc ? computeMod : device.createShaderModule({ code: directSrc });
   const blitMod = device.createShaderModule({ code: blitSrc });
+  const overlapMod = device.createShaderModule({ code: overlapSrc });
 
   // The direct variant only swaps a format name within one line, so the
   // compute shader's source map fits it too.
@@ -123,6 +126,7 @@ export async function buildPipelines(device, format, computeSrc, blitSrc) {
     checkShader(computeMod, 'compute shader', computeSrc),
     sameSrc ? true : checkShader(directMod, 'compute shader (direct)', directSrc),
     checkShader(blitMod, 'blit shader', blitSrc),
+    checkShader(overlapMod, 'overlap shader', overlapSrc),
   ]);
   if (!ok.every(Boolean)) return { error: 'shader failed to compile' };
 
@@ -147,12 +151,12 @@ export async function buildPipelines(device, format, computeSrc, blitSrc) {
     layout: 'auto',
     compute: { module: computeMod, entryPoint: 'traceFrom' },
   });
-  // Likewise overlapFrom(), which answers "do these two regions share any
-  // interior" for a batch of node pairs. It reads the same node buffer and
-  // nothing else of the scene.
+  // overlapFrom() answers "do these two regions share any interior" for a
+  // batch of node pairs. It reads the same node buffer as rendering and
+  // nothing else of the scene, so it has a shader of its own (overlap.wgsl).
   const overlapFrom = device.createComputePipeline({
     layout: 'auto',
-    compute: { module: computeMod, entryPoint: 'overlapFrom' },
+    compute: { module: overlapMod, entryPoint: 'overlapFrom' },
   });
   const err = await device.popErrorScope();
   if (err) {

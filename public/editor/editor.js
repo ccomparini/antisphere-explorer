@@ -77,6 +77,7 @@ async function main() {
   const gpu = await ASContext.create({
     computeUrl: '../gen/antisphere-raycast.wgsl',
     blitUrl:    '../gen/blit.wgsl',
+    overlapUrl: '../gen/overlap.wgsl',
   });
 
   let fileName = new URLSearchParams(location.search).get('scene');

@@ -1,0 +1,56 @@
+// The node: one antisphere as the GPU stores it, shared by every shader
+// that reads the scene's nodes (#import "node.wgsl"). The JS side packs
+// it with the Node class that tools/build-shaders.mjs generates from this
+// declaration, so this is the one definition of its layout.
+
+struct Node {
+  // A revolution quadric:
+  //
+  //   H(R) = curvature_perp (R.R) + curvature_delta (R.axis)^2
+  //          + linear . R + const_term
+  //
+  // which is transpose(R) K R + 2 c.R + d for the scene compiler's
+  // K = k_perp I + (k_par - k_perp) axis(x)axis. Two of the nine numbers
+  // arrive rearranged, because these are the forms the formulas below
+  // actually use:
+  //
+  //   curvature_delta = k_par - k_perp     zero for a sphere or a plane
+  //   linear          = 2c                 as both H and its gradient want it
+  //
+  // Nothing is lost - k_par is curvature_perp + curvature_delta, and c is
+  // linear/2 - and the isotropic case is exactly the old five numbers doing
+  // what they always did: a sphere has curvature_delta 0 and curvature_perp
+  // 1/(2r); a plane has both curvatures 0, leaving linear as its unit normal
+  // and const_term as -a.
+  //
+  // Everything else derives from these too:
+  //   grad H  = 2*curvature_perp*R + 2*curvature_delta*(R.axis)*axis + linear
+  //   centre  = -linear / (2*curvature_perp)     (spheres; see frame())
+  //   normal  = linear                           (planes)
+  //
+  // curvature_delta is also the test for "does this primitive have an axis
+  // at all": zero means every direction is alike and `axis` is arbitrary.
+  axis            : vec3<f32>,  // unit axis of revolution
+  curvature_perp  : f32,        // k_perp, signed; curvature around the axis
+  linear          : vec3<f32>,  // 2c
+  curvature_delta : f32,        // k_par - k_perp
+  const_term      : f32,        // d
+
+  inside          : u32,        // index of inside child or 0u -> no child
+  outside         : u32,        // same but outside
+
+  // "material" is an index into the materials table describing what's
+  // "inside" the node.  Since nodes are surface boundaries, this means
+  // that (unlike in reality) a bounded volume can "have" more than one
+  // material.  This is an advantage, though; for example if you want to
+  // model a cube with different colored sides, give the 6 nodes bounding
+  // the cube different materials, et voilà.  It's up to scene/object
+  // authors to make things look right.
+  // Material 0 is reseved for empty space. The "outside" material is
+  // implicitly 0.
+  material        : i32,
+
+  // Precomputed index of the "ambient" material in force at this node.
+  // Used for applying region scoped lighting or other effects.
+  env             : i32,
+};

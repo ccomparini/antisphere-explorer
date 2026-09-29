@@ -39,21 +39,23 @@ export class ASContext {
    * @param {string} [opts.computeUrl]  path to the raycast shader (generated
    *                                    from shaders/ by tools/build-shaders.mjs)
    * @param {string} [opts.blitUrl]     path to the blit shader (likewise)
+   * @param {string} [opts.overlapUrl]  path to the overlap-query shader (likewise)
    * @param {(url: string) => Promise<string>} [opts.load]
    *   how to read a shader's text; fetch by default. Node passes readFile,
    *   which is how gpu.test.mjs runs the real shaders headless.
    */
   static async create(opts = {}) {
-    const computeUrl = opts.computeUrl ?? 'gen/antisphere-raycast.wgsl';
-    const blitUrl = opts.blitUrl ?? 'gen/blit.wgsl';
+    const urls = {
+      compute: opts.computeUrl ?? 'gen/antisphere-raycast.wgsl',
+      blit: opts.blitUrl ?? 'gen/blit.wgsl',
+      overlap: opts.overlapUrl ?? 'gen/overlap.wgsl',
+    };
 
     const { adapter, device, canTimestamp, canBgraStorage } = await requestGPU();
     const ctx = new ASContext(adapter, device, { canTimestamp, canBgraStorage });
-    const load = opts.load ?? loadText;
-    ctx._sources = { computeUrl, blitUrl, load };
+    ctx._sources = { urls, load: opts.load ?? loadText };
 
-    const [computeSrc, blitSrc] = await Promise.all([load(computeUrl), load(blitUrl)]);
-    const err = await ctx._build(computeSrc, blitSrc);
+    const err = await ctx._build(await ctx._loadSources());
     if (err) throw new Error(`${err}. See the console for details.`);
     return ctx;
   }
@@ -75,7 +77,7 @@ export class ASContext {
     // groups are stale without needing to be told individually.
     this.generation = 0;
 
-    this._live = { compute: null, blit: null };
+    this._live = null;          // the sources the current pipelines were built from
     this._rayQuery = createTraceBuffers(device, MAX_TRACE_RAYS, RAY_HIT_BYTES);
     this._overlapQuery = createOverlapBuffers(device, MAX_OVERLAP_PAIRS);
     // Ray queries share one set of buffers, so they take turns: a pick
@@ -87,12 +89,19 @@ export class ASContext {
     this._onFrame = new Set();
   }
 
-  async _build(computeSrc, blitSrc) {
-    const { error, pipelines } = await buildPipelines(
-      this.device, this.format, computeSrc, blitSrc);
+  /** Every shader's text: { compute, blit, overlap }. */
+  async _loadSources() {
+    const { urls, load } = this._sources;
+    const names = Object.keys(urls);
+    const texts = await Promise.all(names.map((n) => load(urls[n])));
+    return Object.fromEntries(names.map((n, i) => [n, texts[i]]));
+  }
+
+  async _build(sources) {
+    const { error, pipelines } = await buildPipelines(this.device, this.format, sources);
     if (error) return error;
     this.pipelines = pipelines;
-    this._live = { compute: computeSrc, blit: blitSrc };
+    this._live = sources;
     this.generation++;
     return null;
   }
@@ -103,12 +112,11 @@ export class ASContext {
    * bad edit shows an error rather than a black screen.
    */
   async reloadShaders({ force = false } = {}) {
-    const { computeUrl, blitUrl, load } = this._sources;
-    const [computeSrc, blitSrc] = await Promise.all([load(computeUrl), load(blitUrl)]);
-    if (!force && computeSrc === this._live.compute && blitSrc === this._live.blit) {
+    const sources = await this._loadSources();
+    if (!force && Object.keys(sources).every((n) => sources[n] === this._live?.[n])) {
       return { changed: false, error: null };
     }
-    const error = await this._build(computeSrc, blitSrc);
+    const error = await this._build(sources);
     return { changed: true, error };
   }
 
@@ -373,9 +381,9 @@ export class ASScene {
     const bindGroup = device.createBindGroup({
       layout: pipelines.overlapFrom.getBindGroupLayout(0),
       entries: [
-        { binding: 1, resource: { buffer: this.nodeBuf } },
-        { binding: 7, resource: { buffer: buffers.queryBuf } },
-        { binding: 8, resource: { buffer: buffers.resultBuf } },
+        { binding: 0, resource: { buffer: this.nodeBuf } },
+        { binding: 1, resource: { buffer: buffers.queryBuf } },
+        { binding: 2, resource: { buffer: buffers.resultBuf } },
       ],
     });
 
