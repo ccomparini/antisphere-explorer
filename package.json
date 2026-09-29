@@ -5,6 +5,8 @@
   "description": "Proof-of-concept antisphere BSP tree renderer/constructive solid geometry.",
   "license": "MIT",
   "scripts": {
+    "shaders": "node tools/build-shaders.mjs",
+    "shaders:watch": "node tools/build-shaders.mjs --watch",
     "test": "node --test public/ tools/",
     "test:gpu": "node --test public/gpu.test.mjs"
   },

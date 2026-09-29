@@ -8,6 +8,32 @@ This means that CSG operations can be performed in the traditional way, with the
 
 This is raycaster implemented using this concept.
 
+## Shaders
+
+The WGSL sources live in `shaders/`. They are WGSL plus a few C-style
+directives, each on a line of its own:
+
+    #import "node.wgsl"        another file, relative to this one; included
+                               once, ahead of the files that import it
+    #if NAME / #elif / #else / #endif
+                               conditional lines; NAME is set per output in
+                               shaders/build.json (!, &&, || and parentheses work)
+    #error "message"           stop the build
+
+The page doesn't read `shaders/`: it loads plain WGSL from `public/gen/`,
+which the build writes (and which is committed, so the page serves as-is):
+
+    npm run shaders            build once
+    npm run shaders:watch      rebuild whenever shaders/ changes
+
+`shaders/build.json` lists the outputs. The build also writes
+`public/gen/layouts.js`, a class for every struct a shader shares with JS
+through a uniform or storage buffer, laid out by WGSL's rules, so the JS
+never spells out an offset. Compile errors are reported at their line in
+`shaders/`. With the watcher running, R in the page reloads the shaders; a
+change to a shared struct also changes `layouts.js`, which needs a full page
+reload.
+
 ## Testing
 
     npm install
@@ -15,7 +41,7 @@ This is raycaster implemented using this concept.
 
 `npm test` runs every `*.test.mjs` under `public/` and `tools/`. Most of them
 check the scene compiler and JS transcriptions of the shader; `gpu.test.mjs`
-runs `antisphere-raycast.wgsl` itself, headless, through Dawn (the `webgpu`
-package). It needs a Vulkan-capable GPU (a software one like llvmpipe works
-too) and skips itself when there isn't one. `npm run test:gpu` runs just
-that file.
+runs the shaders themselves, headless, through Dawn (the `webgpu` package),
+and checks every generated struct layout against the one Dawn actually uses.
+It needs a Vulkan-capable GPU (a software one like llvmpipe works too) and
+skips itself when there isn't one. `npm run test:gpu` runs just that file.
