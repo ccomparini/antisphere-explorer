@@ -17,6 +17,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { ASContext } from './as-context.js';
 import { matrixOf, separation } from './overlap.js';
+import { sharedStructs } from '../tools/shader-build/layout.js';
+import { emitModule } from '../tools/shader-build/emit-js.js';
 
 // -- a device, or a reason there isn't one ------------------------------------
 
@@ -324,4 +326,116 @@ gpuTest('overlapFrom() batch timing (logged, not asserted)', async (t) => {
   t.diagnostic(`${pairs.length} pairs: ${((performance.now() - start) / runs).toFixed(2)} ms ` +
                'per batch, round trip included');
   sc.destroy();
+});
+
+// -- generated struct layouts against Dawn's -------------------------------------
+//
+// tools/shader-build works out struct layouts from the WGSL spec's rules.
+// These check its answer against the compiler's: for each shared struct, a
+// shader writes a distinct value into every scalar in it, the generated JS
+// class writes the same values into its own buffer, and the two must match
+// byte for byte - every offset right, and padding left zero on both sides.
+
+// A struct with the layout features our shaders don't use (yet).
+const LAYOUT_ZOO = `
+struct Inner { x : f32, y : vec2<f32> }
+struct Zoo {
+  a : u32,
+  b : vec3<f32>,
+  c : i32,
+  m : mat3x3<f32>,
+  n : mat2x2f,
+  arr : array<vec3<f32>, 2>,
+  @size(12) s : f32,
+  inner : Inner,
+  @align(32) late : u32,
+  inners : array<Inner, 2>,
+}
+@group(0) @binding(0) var<storage, read_write> zoo : array<Zoo>;
+`;
+
+// A distinct value for every scalar in a layout, as the JS value to write
+// and the WGSL statements that write the same; i32s go negative.
+function fillAll(type, path, next, statements) {
+  const scalar = (t, p) => {
+    const k = next();
+    const v = t === 'i32' ? -k : k;
+    statements.push(`${p} = ${t}(${v});`);
+    return v;
+  };
+  switch (type.kind) {
+    case 'scalar': return scalar(type.scalar, path);
+    case 'vector': return Array.from({ length: type.n }, (_, j) => scalar(type.scalar, `${path}[${j}]`));
+    case 'matrix': return Array.from({ length: type.c }, (_, c) =>
+      Array.from({ length: type.r }, (_, r) => scalar(type.scalar, `${path}[${c}][${r}]`)));
+    case 'array': return Array.from({ length: type.count }, (_, i) => fillAll(type.elem, `${path}[${i}]`, next, statements));
+    case 'struct': return Object.fromEntries(type.members.map((m) =>
+      [m.name, fillAll(m.type, `${path}.${m.name}`, next, statements)]));
+  }
+  throw new Error(`unknown kind ${type.kind}`);
+}
+
+/** Checks every struct `code` shares; returns their names. */
+async function checkLayouts(code) {
+  const { device } = ctx;
+  const structs = sharedStructs(code);
+  const classes = await import(`data:text/javascript,${encodeURIComponent(emitModule(structs, '// check'))}`);
+  for (const s of structs) {
+    let k = 0;
+    const statements = [];
+    const values = fillAll(s, 'layoutCheckOut[0]', () => ++k, statements);
+    // Appended to the source that declares the struct; binding 999 is clear
+    // of every binding the source itself uses.
+    const checkCode = `${code}
+@group(0) @binding(999) var<storage, read_write> layoutCheckOut : array<${s.name}>;
+@compute @workgroup_size(1) fn layoutCheck() {
+  ${statements.join('\n  ')}
+}`;
+    device.pushErrorScope('validation');
+    const module = device.createShaderModule({ code: checkCode });
+    const pipeline = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'layoutCheck' } });
+    const out = device.createBuffer({ size: s.size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    const readBuf = device.createBuffer({ size: s.size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    const enc = device.createCommandEncoder();
+    const pass = enc.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 999, resource: { buffer: out } }],
+    }));
+    pass.dispatchWorkgroups(1);
+    pass.end();
+    enc.copyBufferToBuffer(out, 0, readBuf, 0, s.size);
+    device.queue.submit([enc.finish()]);
+    const err = await device.popErrorScope();
+    if (err) throw new Error(`${s.name}: ${err.message}`);
+    await readBuf.mapAsync(GPUMapMode.READ);
+    const gpu = readBuf.getMappedRange().slice(0);
+    readBuf.unmap();
+    out.destroy();
+    readBuf.destroy();
+
+    const cls = classes[s.name];
+    const mine = cls.allocate(1);
+    cls.write(mine, 0, values);
+    const a = new Uint8Array(gpu), b = new Uint8Array(mine.buffer);
+    assert.equal(b.length, a.length, `${s.name}: size`);
+    const at = a.findIndex((byte, i) => byte !== b[i]);
+    if (at >= 0) {
+      const field = s.members.findLast((m) => m.offset <= at);
+      assert.fail(`${s.name}: byte ${at} (in or after ${field?.name}) is ${a[at]} from Dawn, ${b[at]} from JS`);
+    }
+    assert.deepEqual(cls.read(classes.viewsOf(gpu), 0), values, `${s.name}: read back`);
+  }
+  return structs.map((s) => s.name);
+}
+
+gpuTest('generated layouts match Dawn for every struct the shaders share', async () => {
+  const names = await checkLayouts(await readFile(new URL('antisphere-raycast.wgsl', here), 'utf8'));
+  for (const n of ['Camera', 'Node', 'Light', 'Material', 'RayQuery', 'Seg', 'OverlapQuery', 'OverlapResult']) {
+    assert.ok(names.includes(n), `${n} was checked`);
+  }
+});
+
+gpuTest('generated layouts match Dawn for matrices, nested arrays, @align and @size', async () => {
+  assert.deepEqual(await checkLayouts(LAYOUT_ZOO), ['Inner', 'Zoo']);
 });
