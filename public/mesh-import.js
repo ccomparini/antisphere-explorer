@@ -135,6 +135,38 @@ function sortTriangle(tri, plane, eps, tiny, front, back, split = true) {
   return 'split';
 }
 
+function flatstr(obj) {  // XXX debugging
+  return Object.fromEntries(
+    Object.entries(obj).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? '[Array]' :
+      value !== null && typeof value === 'object' ? '[Object]' :
+      value
+    ])
+  );
+}
+const fp = flatstr;
+function dumpLp(obj) { // XXX debugging:  dump w/ low precision
+  return JSON.stringify(obj, (key, value) => {
+    if (typeof value === 'number') {
+      return value.toFixed(2).padStart(6); // columnation/precision reductions
+    }
+    return value;
+  }, 2);
+}
+
+// like sortTriangle, but just categorizes it as "inside" or "outside"
+// the plane, or both, or neither (coplanar).
+// Returns a tuple of bools for (inside, outside)
+function sortTriangleInOut(tri, plane, eps) {
+  const d = tri.map((v) => dot(plane.normal, v) - plane.offset);
+console.error(`sorting tri ${dumpLp(tri)} vs ${dumpLp(plane)} gave ${d}`);
+  const inside  = d.some((x) => x < -eps);
+  const outside = d.some((x) => x >  eps);
+console.error(`SO ${inside} inside and ${outside} outside`);
+  return [ inside, outside ];
+}
+
 /**
  * Which plane to take next: split when you can, bound when you can't.
  *
@@ -189,6 +221,22 @@ function choosePlane(triangles, eps, sampleSize, box) {
   return divider?.plane ?? supporting?.plane ?? fallback;
 }
 
+function addTri(tree, tri, eps) {
+  if(!tree) return {
+    // new tree starting with the plane passed
+    'plane': planeOfTriangle(tri), 
+    'inside': null,
+    'outside': null,
+  };
+
+// XXX what if they are coplanar and opposite facing?  make an example model to test.
+  const [ inside, outside ] = sortTriangleInOut(tri, tree.plane, eps);
+  if(inside)  tree.inside  = addTri(tree.inside,  tri, eps);
+  if(outside) tree.outside = addTri(tree.outside, tri, eps);
+
+  return tree;
+}
+
 /**
  * Turn a triangle mesh into a node tree.
  *
@@ -204,37 +252,70 @@ export function meshToTree(triangles, options = {}) {
     split = true,               // cut straddling triangles, or pass them whole
   } = options;
 
+// XXX maybe kill this
   const usable = triangles.filter((tri) => planeOfTriangle(tri));
+console.error(`we have ${usable.length} usable triangles (${usable})`);
   if (!usable.length) return null;
+
+  // debugging:  get/show distinct planes
+  const distinctPlanes = { };
+  for (const tri of triangles) {
+    const plane = planeOfTriangle(tri);
+    if(plane) distinctPlanes[dumpLp(plane)] = true; // note low precision dump
+  }
+console.error(`${Object.keys(distinctPlanes).length} distinct planes:\n${JSON.stringify(Object.keys(distinctPlanes), null, 2)}`);
 
   // Tolerances scaled to the model: an absolute epsilon is meaningless when
   // the same mesh may arrive in millimetres or in kilometres.
   const { lo, hi } = boundsOf(usable);
   const extent = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], 1e-12);
-  const eps = extent * 1e-9;
-  const tiny = extent * extent * 1e-12;          // twice the area of a sliver
+  //const eps = extent * 1e-9;
+const eps = 1e-6;
+//  const tiny = extent * extent * 1e-12;          // twice the area of a sliver
+console.error(`   ... bounds: ${lo}, ${hi};  epsilon: ${eps}`);
 
+  //while(const plane = choosePlane(tris, eps, sampleSize, boundsOf(tris))) {
+  let tree = null;
+  while(usable.length) {
+    const tri = usable.pop();
+    tree = addTri(tree, tri, eps);
+    tree.material = material;
+  }
+console.error(`final tree: ${dumpLp(tree)}`);
+  return tree;
+
+/*
+// XXX this won't work:  the tree needs to be built top down
+// or we can't correctly elide coplanars 
   const build = (tris, depth) => {
     if (!tris.length) return null;
-    if (depth > maxDepth) return null;
+    if (depth > maxDepth) {
+      console.warn(`hit max depth with ${tris.length} triangles remaining`);
+      return null;
+    }
     const plane = choosePlane(tris, eps, sampleSize, boundsOf(tris));
-    if (!plane) return null;
+    if (!plane) {
+      console.warn(`no suitable dividing plane found with ${tris.length} triangles remaining`);
+      return null;
+    }
 
     const front = [], back = [];
-    for (const tri of tris) sortTriangle(tri, plane, eps, tiny, front, back, split);
+    for (const tri of tris)
+      sortTriangle(tri, plane, eps, tiny, front, back, split);
 
     const node = { plane: { normal: plane.normal, offset: plane.offset }, material };
     // Whole triangles can leave a child with everything its parent had,
     // apart from the one consumed as coplanar. That still ends, since one
     // goes each time, but it can get deep, so the depth cap matters here.
     const behind = build(back, depth + 1);
-    const ahead = build(front, depth + 1);
-    if (behind) node.inside = behind;           // else omitted: solid
-    if (ahead) node.outside = ahead;            // else omitted: void
+    const ahead  = build(front, depth + 1);
+    node.inside  = behind;  // null/falsy value -> nothing inside
+    node.outside = ahead;   // null/falsy value -> nothing outside
     return node;
   };
 
   return build(usable, 0);
+ */
 }
 
 /** Nodes, depth and leaves, for judging what an import cost. */

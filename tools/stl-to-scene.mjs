@@ -24,13 +24,12 @@ stl-to-scene - convert an STL into an antisphere scene
       --material <m>   which material to give it (default "clay")
       --name <n>       the object's name in the scene (default "model")
       --no-centre      leave the model where the file put it
-      --no-floor       just the model, no floor, sky or camera
-      --whole          pass straddling triangles whole instead of cutting
-                       them (faster, and wrong on some closed meshes)
+      --floor          add a floor, sky, and camera
+      --split          split straddling triangles instead of adding whole
 `.trim();
 
 function parseArguments(argv) {
-  const options = { material: 'clay', name: 'model', centre: true, floor: true, split: true };
+  const options = { material: 'clay', name: 'model', centre: true, floor: false, split: false };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -40,8 +39,8 @@ function parseArguments(argv) {
     else if (arg === '--material') options.material = next();
     else if (arg === '--name') options.name = next();
     else if (arg === '--no-centre' || arg === '--no-center') options.centre = false;
-    else if (arg === '--no-floor') options.floor = false;
-    else if (arg === '--whole') options.split = false;
+    else if (arg === '--floor') options.floor = true;
+    else if (arg === '--split') options.split = true;
     else if (arg === '-h' || arg === '--help') options.help = true;
     else if (arg.startsWith('-')) throw new Error(`unknown option ${arg}`);
     else rest.push(arg);
