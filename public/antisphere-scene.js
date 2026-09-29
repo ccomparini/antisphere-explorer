@@ -34,6 +34,8 @@
 //   regionBall() checks the signs rather than just whether K inverts.
 // ---------------------------------------------------------------------------
 
+import { Node } from './gen/layouts.js';
+
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 function unitVector(v, fallback = [0, 0, 1]) {
@@ -1535,51 +1537,36 @@ export function packMaterials(list) {
   return buf;
 }
 
-// 64 bytes per node: vec3 axis | f32 k_perp | vec3 linear | f32 k_delta |
-//                    f32 const | u32 inside | u32 outside | i32 material |
-//                    i32 env | 12 bytes pad.
+// A node as the GPU stores it: shaders/node.wgsl's Node, whose layout
+// tools/build-shaders.mjs generates into the Node class, so the offsets and
+// the 64-byte stride live in one place.
 //
 // What goes to the GPU is not quite what a node stores: k_par arrives as
 // curvature_delta = k_par - k_perp, and c arrives doubled, because those are
-// the forms every runtime formula wants (see antisphere-raycast.wgsl's Node
-// and trace()). Both are exactly recoverable, so nothing is lost, and the
+// the forms every runtime formula wants (see Node and trace() in the
+// shaders). Both are exactly recoverable, so nothing is lost, and the
 // isotropic case falls out as curvature_delta == 0, which is also what tells
 // the shader the axis can be ignored.
 //
 // inside/outside are 0 or a real index (see flatten()'s doc comment for
-// what 0 means on each side); Int32Array vs. Uint32Array makes no
-// difference here since they only ever hold small non-negative values -
-// only antisphere-raycast.wgsl's own struct declaration needs to say u32.
-//
-// The 13 real words above are only 52 bytes, but WGSL's storage-array
-// stride for a struct rounds up to a multiple of the struct's own
-// alignment - 16, inherited from the leading vec3 - so the per-node
-// stride is 64, not 52. Getting this wrong silently corrupts every node
-// after the first, so if another field ever gets added here, recompute
-// the stride the same way: lay out real words in order, then round the
-// total up to the next multiple of 16.
+// what 0 means on each side).
 export function packNodes(list) {
-  const buf = new ArrayBuffer(list.length * 64);
-  const f = new Float32Array(buf), i = new Int32Array(buf);
+  const views = Node.allocate(list.length);
   list.forEach((nd, j) => {
-    const o = j * 16;
     const { axis, k_par, k_perp, linear, constant } = nd.prim;
-    f[o + 0] = axis[0];
-    f[o + 1] = axis[1];
-    f[o + 2] = axis[2];
-    f[o + 3] = k_perp;
-    f[o + 4] = 2 * linear[0];       // 2c
-    f[o + 5] = 2 * linear[1];
-    f[o + 6] = 2 * linear[2];
-    f[o + 7] = k_par - k_perp;      // curvature_delta
-    f[o + 8] = constant;
-    i[o + 9] = nd.inside;
-    i[o + 10] = nd.outside;
-    i[o + 11] = nd.material;
-    i[o + 12] = nd.env;
-    // o+13..o+15 are the 12 bytes of trailing pad; left zeroed.
+    Node.write(views, j, {
+      axis,
+      curvature_perp: k_perp,
+      linear: [2 * linear[0], 2 * linear[1], 2 * linear[2]],   // 2c
+      curvature_delta: k_par - k_perp,
+      const_term: constant,
+      inside: nd.inside,
+      outside: nd.outside,
+      material: nd.material,
+      env: nd.env,
+    });
   });
-  return buf;
+  return views.buffer;
 }
 
 // ---------------------------------------------------------------------------
