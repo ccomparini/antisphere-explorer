@@ -1,34 +1,24 @@
 // Tests for revolution quadrics. Run with:
 //   node --test antisphere-quadric.test.mjs
 //
-// Everything here goes through packNodes and reads the bytes back, so the
-// struct layout is under test alongside the maths: H and the ray polynomial
-// below are transcriptions of antisphere-raycast.wgsl's fAt() and trace(),
-// and if the packing drifts from the shader these stop agreeing with the
-// closed forms they are checked against.
+// Everything here goes through packNodes and reads the bytes back with the
+// generated Node class, so what the GPU is sent is under test alongside the
+// maths: H and the ray polynomial below are transcriptions of
+// antisphere-raycast.wgsl's fAt() and trace(), and if packNodes' rearranged
+// forms (curvature_delta, the doubled linear term) drift from what those
+// expect, they stop agreeing with the closed forms they are checked against.
+// Node's byte layout itself is checked against Dawn in gpu.test.mjs.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene, packNodes } from './antisphere-scene.js';
-
-const NODE_WORDS = 16;             // 64 bytes
+import { Node, viewsOf } from './gen/layouts.js';
 
 // Every node of a one-primitive scene, as the GPU would see it.
 function packed(shape, extra = {}) {
   const spec = { materials: {}, lights: [], root: { ...shape, ...extra } };
   const built = compileScene(spec);
-  const f = new Float32Array(packNodes(built.nodes));
-  const read = (i) => {
-    const o = i * NODE_WORDS;
-    return {
-      axis: [f[o], f[o + 1], f[o + 2]],
-      curvature_perp: f[o + 3],
-      linear: [f[o + 4], f[o + 5], f[o + 6]],
-      curvature_delta: f[o + 7],
-      const_term: f[o + 8],
-    };
-  };
-  return read(1);                  // node 1 is always the root
+  return Node.read(viewsOf(packNodes(built.nodes)), 1);   // node 1 is always the root
 }
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -309,7 +299,7 @@ test('a scene of every shape compiles, packs and keeps its provenance', () => {
   };
   const built = compileScene(spec);
   const bytes = packNodes(built.nodes);
-  assert.equal(bytes.byteLength, built.nodes.length * 64);
+  assert.equal(bytes.byteLength, built.nodes.length * Node.STRIDE);
   assert.equal(built.provenance.length, built.nodes.length);
   const owners = new Set(built.provenance.filter(Boolean).map((p) => p.owner));
   for (const key of Object.keys(spec.objects)) assert.ok(owners.has(key), key);
@@ -440,9 +430,8 @@ test('transforms compose through use, and leave a prototype alone', () => {
                          translate: [0, 0, 3] } },
     root: { sphere: { center: [0, 0, 0], radius: 40 }, inside: { union: ['bar', 'tipped'] } },
   });
-  const f = new Float32Array(packNodes(built.nodes));
-  const axisOf = (i) => [f[i * 16], f[i * 16 + 1], f[i * 16 + 2]];
-  const axes = built.nodes.map((_, i) => axisOf(i));
+  const views = viewsOf(packNodes(built.nodes));
+  const axes = built.nodes.map((_, i) => Node.read(views, i).axis);
   assert.ok(axes.some((a) => Math.abs(a[2]) > 0.99), 'the upright bar is still upright');
   assert.ok(axes.some((a) => Math.abs(a[1]) > 0.99), 'the tipped one lies along Y');
 });

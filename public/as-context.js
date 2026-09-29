@@ -17,7 +17,7 @@ import {
 import {
   compileScene, packNodes, packMaterials, packLights, loadImports,
 } from './antisphere-scene.js';
-import { RayQuery, Seg, viewsOf } from './gen/layouts.js';
+import { OverlapQuery, OverlapResult, RayQuery, Seg, viewsOf } from './gen/layouts.js';
 
 const MAX_TRACE_RAYS = 16;
 const MAX_OVERLAP_PAIRS = 1024;
@@ -360,15 +360,11 @@ export class ASScene {
       throw new Error(`overlapPairs: ${pairs.length} pairs, capacity is ${buffers.maxPairs}`);
     }
 
-    const packed = new ArrayBuffer(pairs.length * 16);
-    const words = new Uint32Array(packed), floats = new Float32Array(packed);
-    pairs.forEach((pair, i) => {
-      words[i * 4 + 0] = pair.a;
-      words[i * 4 + 1] = pair.b;
-      floats[i * 4 + 2] = pair.signA ?? 1;
-      floats[i * 4 + 3] = pair.signB ?? 1;
-    });
-    device.queue.writeBuffer(buffers.queryBuf, 0, packed);
+    const queries = OverlapQuery.allocate(pairs.length);
+    pairs.forEach((pair, i) => OverlapQuery.write(queries, i, {
+      node_a: pair.a, node_b: pair.b, sign_a: pair.signA ?? 1, sign_b: pair.signB ?? 1,
+    }));
+    device.queue.writeBuffer(buffers.queryBuf, 0, queries.buffer);
 
     const bindGroup = device.createBindGroup({
       layout: pipelines.overlapFrom.getBindGroupLayout(0),
@@ -379,7 +375,7 @@ export class ASScene {
       ],
     });
 
-    const bytes = pairs.length * 8;
+    const bytes = pairs.length * OverlapResult.STRIDE;
     const enc = device.createCommandEncoder();
     const pass = enc.beginComputePass();
     pass.setPipeline(pipelines.overlapFrom);
@@ -393,9 +389,9 @@ export class ASScene {
     const raw = buffers.readBuf.getMappedRange(0, bytes).slice(0);
     buffers.readBuf.unmap();
 
-    const all = new Float32Array(raw);
+    const results = viewsOf(raw);
     const margins = new Float32Array(pairs.length);
-    for (let i = 0; i < pairs.length; i++) margins[i] = all[i * 2];
+    for (let i = 0; i < pairs.length; i++) margins[i] = OverlapResult.read(results, i).margin;
     return margins;
   }
 

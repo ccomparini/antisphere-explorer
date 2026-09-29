@@ -8,7 +8,7 @@
 // caller decides what to do about it. Nothing here touches renderer state.
 
 import { readSourceMap, mapLine } from './shader-map.js';
-import { Camera, RayQuery, Seg } from './gen/layouts.js';
+import { Camera, OverlapQuery, OverlapResult, RayQuery, Seg } from './gen/layouts.js';
 
 /** Fetch a file's text, bypassing the cache so hot reload sees edits. */
 export async function loadText(url) {
@@ -228,23 +228,24 @@ export function createTraceBuffers(device, maxRays) {
 /**
  * Buffers for overlapFrom(), the batch overlap test.
  *
- * A query is two node indices and two signs (16 bytes); a result is a margin
- * and the multiplier that earned it (8 bytes). Sized for a good handful of
- * pairs at a time, since the point of doing this on the GPU is the batch.
+ * A query is two node indices and two signs; a result is a margin and the
+ * multiplier that earned it (OverlapQuery and OverlapResult in
+ * shaders/overlap.wgsl). Sized for a good handful of pairs at a time, since
+ * the point of doing this on the GPU is the batch.
  */
 export function createOverlapBuffers(device, maxPairs) {
   return {
     maxPairs,
     queryBuf: device.createBuffer({
-      size: maxPairs * 16,
+      size: maxPairs * OverlapQuery.STRIDE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     }),
     resultBuf: device.createBuffer({
-      size: maxPairs * 8,
+      size: maxPairs * OverlapResult.STRIDE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     }),
     readBuf: device.createBuffer({
-      size: maxPairs * 8,
+      size: maxPairs * OverlapResult.STRIDE,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     }),
   };
