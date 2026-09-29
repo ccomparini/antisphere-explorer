@@ -199,3 +199,10 @@ test('parseDeclarations finds the uniform and storage variables and their types'
                     ['tex', 'function', 'texture_storage_2d'], ['stack', 'private', 'array']]);
   assert.ok(layouts(d));
 });
+
+test('the build passes #warning through to its warn option', async () => {
+  const warnings = [];
+  await buildAll({ outputs: [{ entry: 'shaders/w.wgsls', out: 'gen/w.wgsl' }] },
+                 () => '\n#warning "check me"\nfn f() {}', { warn: (m) => warnings.push(m) });
+  assert.deepEqual(warnings, ['shaders/w.wgsls:2: #warning check me']);
+});

@@ -129,3 +129,26 @@ test('errors are ShaderSourceErrors carrying their place', async () => {
     assert.equal(e.line, 3);
   }
 });
+
+test('#warning reports where it is and carries on, only from live lines', async () => {
+  const src = '#if A\n#warning "A is slow here"\n#else\n#warning "not A"\n#endif\nfn f() {}';
+  const warnings = [];
+  const { code } = await build('s.wgsls', { defines: { A: 1 }, read: () => src, warn: (m) => warnings.push(m) });
+  assert.deepEqual(warnings, ['s.wgsls:2: #warning A is slow here']);
+  assert.deepEqual(code.split('\n'), ['', '', '', '', '', 'fn f() {}']);   // blanked, not removed
+  // In a branch not taken, nothing.
+  warnings.length = 0;
+  await build('s.wgsls', { defines: { A: 1 }, read: () => '#if 0\n#warning "never"\n#endif', warn: (m) => warnings.push(m) });
+  assert.deepEqual(warnings, []);
+});
+
+test('#warning goes to console.warn unless told otherwise', async () => {
+  const seen = [], original = console.warn;
+  console.warn = (m) => seen.push(m);
+  try {
+    await build('s.wgsls', { read: () => '#warning "heads up"' });
+  } finally {
+    console.warn = original;
+  }
+  assert.deepEqual(seen, ['s.wgsls:1: #warning heads up']);
+});

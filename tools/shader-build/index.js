@@ -34,14 +34,17 @@ function wgslHeader(entry) {
 /**
  * @param {object} config  as above
  * @param {(path: string) => string | Promise<string>} read  repo-relative
+ * @param {object} [options]
+ * @param {(message: string) => void} [options.warn]  where #warning goes;
+ *        console.warn by default
  * @returns {Promise<{ path: string, content: string }[]>} every file to write
  */
-export async function buildAll(config, read) {
+export async function buildAll(config, read, { warn = console.warn } = {}) {
   const files = [];
   const shared = new Map();                 // struct name -> { layout, from }
 
   for (const output of config.outputs) {
-    const { code, map } = await build(output.entry, { defines: output.defines ?? {}, read });
+    const { code, map } = await build(output.entry, { defines: output.defines ?? {}, read, warn });
 
     let structs;
     try {

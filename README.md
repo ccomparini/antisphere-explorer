@@ -20,6 +20,7 @@ valid WGSL themselves, hence the extension.
                                conditional lines; NAME is set per output in
                                shaders/build.json (!, &&, || and parentheses work)
     #error "message"           stop the build
+    #warning "message"         print a warning and carry on
 
 The page doesn't read `shaders/`: it loads plain WGSL from `public/gen/`,
 which the build writes (and which is committed, so the page serves as-is):

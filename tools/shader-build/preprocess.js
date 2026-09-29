@@ -14,6 +14,9 @@
 //                         when the build's defines give it a truthy value,
 //                         and false when they don't mention it.
 //   #error "message"      fail the build, for combinations that shouldn't be.
+//   #warning "message"    say something but carry on, for ones that are
+//                         allowed but worth a second look. Goes to the
+//                         build's warn callback, console.warn by default.
 //
 // Every directive line, and every line of a branch not taken, becomes an
 // empty line rather than disappearing. So each file's lines keep their
@@ -93,8 +96,9 @@ export function evaluate(expr, defines) {
 /**
  * Apply one file's directives. Returns its lines, with directives and dead
  * branches blanked, and the imports its live lines ask for, in order.
+ * `warn` gets each live #warning as "path:line: #warning message".
  */
-export function processFile(path, text, defines) {
+export function processFile(path, text, defines, warn = console.warn) {
   const lines = text.split('\n');
   const imports = [];
   // One frame per open #if: whether its enclosing region is live, whether a
@@ -156,6 +160,9 @@ export function processFile(path, text, defines) {
       case 'error':
         if (live()) fail(`#error ${rest.replace(/^"(.*)"$/, '$1')}`);
         break;
+      case 'warning':
+        if (live()) warn(`${path}:${lineNo}: #warning ${rest.replace(/^"(.*)"$/, '$1')}`);
+        break;
       default:
         // Only the conditionals matter in a dead branch; anything else there
         // is as ignored as the rest of it, as in C.
@@ -177,11 +184,13 @@ export function processFile(path, text, defines) {
  * @param {object} options
  * @param {Record<string, unknown>} [options.defines]  names #if can test
  * @param {(path: string) => string | Promise<string>} options.read
+ * @param {(message: string) => void} [options.warn]  where #warning goes;
+ *        console.warn by default
  * @returns {Promise<{ code: string, map: {path, offset, lines}[], files: string[] }>}
  *   code has one block per file, dependencies first; map says where each
  *   block starts (see public/shader-map.js); files lists them in order.
  */
-export async function build(entry, { defines = {}, read }) {
+export async function build(entry, { defines = {}, read, warn = console.warn }) {
   const state = new Map();                      // path -> 'pending' | 'done'
   const out = [];
   const map = [];
@@ -203,7 +212,7 @@ export async function build(entry, { defines = {}, read }) {
       throw new ShaderSourceError(importedFrom.path, importedFrom.line,
                                   `cannot read #import "${path}": ${e.message}`);
     }
-    const { lines, imports } = processFile(path, text.replace(/\r\n/g, '\n'), defines);
+    const { lines, imports } = processFile(path, text.replace(/\r\n/g, '\n'), defines, warn);
     for (const imp of imports) await include(imp.path, { path, line: imp.line });
 
     map.push({ path, offset: out.length, lines: lines.length });
