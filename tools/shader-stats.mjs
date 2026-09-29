@@ -60,6 +60,13 @@ if (process.argv[2] === '--compile') {
 
 // -- parent: run a child per entry point and read its dump ------------------------
 
+try {
+  await import('webgpu');
+} catch {
+  console.error('This needs the webgpu package (Dawn for Node): run `npm install` in the repo root.');
+  process.exit(1);
+}
+
 const args = process.argv.slice(2);
 const shaderArg = args.find((a) => a.endsWith('.wgsl'));
 const shaderPath = shaderArg ?? fileURLToPath(new URL('antisphere-raycast.wgsl', PUBLIC));
