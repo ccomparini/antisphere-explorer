@@ -34,7 +34,7 @@
 //   regionBall() checks the signs rather than just whether K inverts.
 // ---------------------------------------------------------------------------
 
-import { Node } from './gen/layouts.js';
+import { Material, Node } from './gen/layouts.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -1517,24 +1517,23 @@ export function compileScene(rawSpec, options = {}) {
   };
 }
 
-// 48 bytes per material:
-//   u32 kind | u32 pattern | vec2 params | vec3 albedo | f32 scale | vec3 albedo2 | u32 solid
-// Ordered so the two scalars and the vec2 fill the 16 bytes ahead of the first
-// vec3, which has to start on a 16-byte boundary anyway.
+// A material as the GPU stores it: Material in shaders/antisphere-raycast.wgsl,
+// written through the Material class generated from it. solid crosses as
+// u32, since bool can't be shared with the GPU.
 export function packMaterials(list) {
-  const buf = new ArrayBuffer(list.length * 48);
-  const f = new Float32Array(buf), u = new Uint32Array(buf);
+  const views = Material.allocate(list.length);
   list.forEach((m, j) => {
-    const o = j * 12;
-    u[o + 0] = m.kind;
-    u[o + 1] = m.pattern;
-    f[o + 2] = m.params[0];  f[o + 3]  = m.params[1];
-    f[o + 4] = m.albedo[0];  f[o + 5]  = m.albedo[1];  f[o + 6]  = m.albedo[2];
-    f[o + 7] = m.scale;
-    f[o + 8] = m.albedo2[0]; f[o + 9]  = m.albedo2[1]; f[o + 10] = m.albedo2[2];
-    u[o + 11] = m.solid ? 1 : 0;
+    Material.write(views, j, {
+      kind: m.kind,
+      pattern: m.pattern,
+      params: m.params,
+      albedo: m.albedo,
+      scale: m.scale,
+      albedo2: m.albedo2,
+      solid: m.solid ? 1 : 0,
+    });
   });
-  return buf;
+  return views.buffer;
 }
 
 // A node as the GPU stores it: shaders/node.wgsl's Node, whose layout

@@ -77,6 +77,8 @@ struct Node {
 
 
 
+// Ordered so the two scalars and the vec2 fill the 16 bytes ahead of the
+// first vec3, which has to start on a 16-byte boundary anyway: 48 bytes.
 struct Material {
   kind    : u32,       // selects the shading function
   pattern : u32,       // albedo modulation, independent of kind
@@ -690,4 +692,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsl","offset":2,"lines":57},{"path":"shaders/antisphere-raycast.wgsl","offset":59,"lines":633}]
+// sourcemap: [{"path":"shaders/node.wgsl","offset":2,"lines":57},{"path":"shaders/antisphere-raycast.wgsl","offset":59,"lines":635}]
