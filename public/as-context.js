@@ -36,15 +36,16 @@ export class ASContext {
    * Acquire a device and build pipelines from the given shader files.
    *
    * @param {object} [opts]
-   * @param {string} [opts.computeUrl]  path to the raycast shader
-   * @param {string} [opts.blitUrl]     path to the blit shader
+   * @param {string} [opts.computeUrl]  path to the raycast shader (generated
+   *                                    from shaders/ by tools/build-shaders.mjs)
+   * @param {string} [opts.blitUrl]     path to the blit shader (likewise)
    * @param {(url: string) => Promise<string>} [opts.load]
    *   how to read a shader's text; fetch by default. Node passes readFile,
    *   which is how gpu.test.mjs runs the real shaders headless.
    */
   static async create(opts = {}) {
-    const computeUrl = opts.computeUrl ?? 'antisphere-raycast.wgsl';
-    const blitUrl = opts.blitUrl ?? 'blit.wgsl';
+    const computeUrl = opts.computeUrl ?? 'gen/antisphere-raycast.wgsl';
+    const blitUrl = opts.blitUrl ?? 'gen/blit.wgsl';
 
     const { adapter, device, canTimestamp, canBgraStorage } = await requestGPU();
     const ctx = new ASContext(adapter, device, { canTimestamp, canBgraStorage });

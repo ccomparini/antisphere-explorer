@@ -7,6 +7,8 @@
 // Functions here throw on failure with a message fit to show the user; the
 // caller decides what to do about it. Nothing here touches renderer state.
 
+import { readSourceMap, mapLine } from './shader-map.js';
+
 /** Fetch a file's text, bypassing the cache so hot reload sees edits. */
 export async function loadText(url) {
   const res = await fetch(url, { cache: 'no-store' });
@@ -77,12 +79,20 @@ export function configureCanvas(canvas, device, canBgraStorage,
  * A shader that fails to compile leaves the pipeline invalid, and an invalid
  * pipeline makes the whole submit fail: black frames, no exception. Returns
  * false on error so the caller can keep the previous pipelines rendering.
+ *
+ * `code` is the module's source: a shader built from shaders/ carries a
+ * source map (see shader-map.js), and then messages name the file and line
+ * under shaders/ rather than the generated one.
  */
-export async function checkShader(mod, label) {
+export async function checkShader(mod, label, code = '') {
   const info = await mod.getCompilationInfo();
+  const map = readSourceMap(code);
   let failed = false;
   for (const msg of info.messages) {
-    const where = `${label} line ${msg.lineNum}:${msg.linePos}`;
+    const at = mapLine(map, msg.lineNum);
+    const where = at
+      ? `${label} ${at.path}:${at.line}:${msg.linePos}`
+      : `${label} line ${msg.lineNum}:${msg.linePos}`;
     if (msg.type === 'error') { failed = true; console.error(where, msg.message); }
     else console.warn(where, msg.message);
   }
@@ -107,10 +117,12 @@ export async function buildPipelines(device, format, computeSrc, blitSrc) {
   const directMod = sameSrc ? computeMod : device.createShaderModule({ code: directSrc });
   const blitMod = device.createShaderModule({ code: blitSrc });
 
+  // The direct variant only swaps a format name within one line, so the
+  // compute shader's source map fits it too.
   const ok = await Promise.all([
-    checkShader(computeMod, 'compute shader'),
-    sameSrc ? true : checkShader(directMod, 'compute shader (direct)'),
-    checkShader(blitMod, 'blit shader'),
+    checkShader(computeMod, 'compute shader', computeSrc),
+    sameSrc ? true : checkShader(directMod, 'compute shader (direct)', directSrc),
+    checkShader(blitMod, 'blit shader', blitSrc),
   ]);
   if (!ok.every(Boolean)) return { error: 'shader failed to compile' };
 

@@ -2,8 +2,10 @@
 //
 //   node tools/shader-stats.mjs [shader.wgsl] [entryPoint ...] [--dump DIR]
 //
-// Defaults to public/antisphere-raycast.wgsl and every @compute entry point
-// in it. For each one this prints what the driver's compiler made of it:
+// Defaults to public/gen/antisphere-raycast.wgsl, built from shaders/ by
+// tools/build-shaders.mjs (plain WGSL, which is what this needs), and every
+// @compute entry point in it. For each one this prints what the driver's
+// compiler made of it:
 //
 //   simd     lanes per hardware thread; wider leaves fewer registers per lane.
 //            Dawn asks for 16 on this GPU, so expect 16 throughout.
@@ -98,7 +100,7 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 const shaderArg = rest.find((a) => a.endsWith('.wgsl'));
-const shaderPath = shaderArg ?? fileURLToPath(new URL('antisphere-raycast.wgsl', PUBLIC));
+const shaderPath = shaderArg ?? fileURLToPath(new URL('gen/antisphere-raycast.wgsl', PUBLIC));
 const source = await readFile(shaderPath, 'utf8');
 
 const allEntries = [...source.matchAll(/@compute\b[^;{]*?\bfn\s+(\w+)/g)].map((m) => m[1]);

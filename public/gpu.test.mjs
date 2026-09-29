@@ -19,6 +19,7 @@ import { ASContext } from './as-context.js';
 import { matrixOf, separation } from './overlap.js';
 import { sharedStructs } from '../tools/shader-build/layout.js';
 import { emitModule } from '../tools/shader-build/emit-js.js';
+import { buildAll } from '../tools/shader-build/index.js';
 
 // -- a device, or a reason there isn't one ------------------------------------
 
@@ -430,7 +431,12 @@ async function checkLayouts(code) {
 }
 
 gpuTest('generated layouts match Dawn for every struct the shaders share', async () => {
-  const names = await checkLayouts(await readFile(new URL('antisphere-raycast.wgsl', here), 'utf8'));
+  // Built from shaders/ here and now, so this checks the sources, whatever
+  // state the committed files under gen/ are in.
+  const config = JSON.parse(await readFile(new URL('../shaders/build.json', here), 'utf8'));
+  const files = await buildAll(config, (path) => readFile(new URL(`../${path}`, here), 'utf8'));
+  const names = [];
+  for (const f of files.filter((f) => f.path.endsWith('.wgsl'))) names.push(...await checkLayouts(f.content));
   for (const n of ['Camera', 'Node', 'Light', 'Material', 'RayQuery', 'Seg', 'OverlapQuery', 'OverlapResult']) {
     assert.ok(names.includes(n), `${n} was checked`);
   }

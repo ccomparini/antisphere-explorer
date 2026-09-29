@@ -75,8 +75,8 @@ main().catch((e) => { fail(e.message); throw e; });
 async function main() {
   // One device, one set of pipelines, one scene — shared by every pane.
   const gpu = await ASContext.create({
-    computeUrl: '../antisphere-raycast.wgsl',
-    blitUrl:    '../blit.wgsl',
+    computeUrl: '../gen/antisphere-raycast.wgsl',
+    blitUrl:    '../gen/blit.wgsl',
   });
 
   let fileName = new URLSearchParams(location.search).get('scene');
