@@ -8,6 +8,7 @@
 // caller decides what to do about it. Nothing here touches renderer state.
 
 import { readSourceMap, mapLine } from './shader-map.js';
+import { Camera } from './gen/layouts.js';
 
 /** Fetch a file's text, bypassing the cache so hot reload sees edits. */
 export async function loadText(url) {
@@ -250,19 +251,18 @@ export function createOverlapBuffers(device, maxPairs) {
   };
 }
 
-/** Uniform buffer plus the two views the renderer writes it through. */
-export function createCameraUniform(device, bytes = 80) {
-  const host = new ArrayBuffer(bytes);
+/**
+ * The camera uniform, plus host-side views to fill it through the generated
+ * Camera class (see Camera in shaders/antisphere-raycast.wgsl). The class
+ * writes each field through the view of its own type, so a u32 mode
+ * selector can't go through the float view by mistake.
+ */
+export function createCameraUniform(device) {
   return {
     buffer: device.createBuffer({
-      size: bytes,
+      size: Camera.SIZE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     }),
-    host,
-    // One buffer, two views: the camera basis is float, the mode selectors
-    // are integers. Writing an enum through a float and rounding it back was
-    // asking for a silent off-by-one.
-    floats: new Float32Array(host),
-    enums: new Uint32Array(host),
+    views: Camera.allocate(1),
   };
 }

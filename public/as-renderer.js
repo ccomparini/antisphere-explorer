@@ -11,6 +11,7 @@
 import { configureCanvas, createCameraUniform } from './gpu-setup.js';
 import { ASContext } from './as-context.js';
 import { ASCamera } from './as-camera.js';
+import { Camera } from './gen/layouts.js';
 
 export const DEBUG_VIEWS = ['shaded', 'node visits', 'shadow rays', 'stack depth',
                             'material id', 'normals'];
@@ -188,24 +189,30 @@ export class ASRenderer {
    */
   writeCamera(overrides = {}) {
     const { eye, forward, right, up } = this.camera.basis();
-    const { floats, enums, buffer, host } = this.cam;
+    const { views, buffer } = this.cam;
     const aspect = this.directOut
       ? this.width / this.height
       : this.renderWidth / this.renderHeight;
-
-    floats.set(eye, 0);       floats[3] = Math.tan(0.5 * this.camera.fovY);
-    floats.set(right, 4);     floats[7] = aspect;
-    floats.set(up, 8);        enums[11] = (overrides.shadows ?? (this.shadows ? 1 : 0));
-    floats.set(forward, 12);  enums[15] = overrides.debugView ?? this.debugView;
-    enums[16] = overrides.ablate ?? 2;                      // 2 = full shading path
-    enums[17] = this.scene ? this.scene.lights.length : 0;
     // Perspective fans the directions from one origin; orthographic runs
     // them parallel and spreads the origins, so it needs a size in world
     // units rather than an angle. See main() in antisphere-raycast.wgsl.
     const ortho = (overrides.projection ?? this.camera.projection) === 'orthographic';
-    enums[18] = ortho ? 1 : 0;
-    floats[19] = ortho ? this.camera.halfHeight() : 0;
-    this.context.device.queue.writeBuffer(buffer, 0, host);
+
+    Camera.write(views, 0, {
+      origin: eye,
+      tanHalf: Math.tan(0.5 * this.camera.fovY),
+      right,
+      aspect,
+      up,
+      shadows: overrides.shadows ?? (this.shadows ? 1 : 0),
+      fwd: forward,
+      debug: overrides.debugView ?? this.debugView,
+      ablate: overrides.ablate ?? 2,                         // 2 = full shading path
+      light_count: this.scene ? this.scene.lights.length : 0,
+      projection: ortho ? 1 : 0,
+      ortho_half_height: ortho ? this.camera.halfHeight() : 0,
+    });
+    this.context.device.queue.writeBuffer(buffer, 0, views.buffer);
   }
 
   /**
