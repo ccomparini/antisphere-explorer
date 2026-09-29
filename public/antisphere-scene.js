@@ -34,7 +34,7 @@
 //   regionBall() checks the signs rather than just whether K inverts.
 // ---------------------------------------------------------------------------
 
-import { Material, Node } from './gen/layouts.js';
+import { Light, Material, Node } from './gen/layouts.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -1577,18 +1577,10 @@ export function packNodes(list) {
 // (0.0, 0.0, 0.0) to appease wgsl's requirement of buffer sizes > 0.
 // ---------------------------------------------------------------------------
 
-// 32 bytes per light: vec3 pos | pad | vec3 color | pad
+// A light as the GPU stores it: Light in shaders/antisphere-raycast.wgsl,
+// written through the Light class generated from it.
 export function packLights(list) {
-  const buf = new ArrayBuffer((list.length || 1) * 32);
-  const lval = new Float32Array(buf);
-  list.forEach((lt, j) => {
-    const o = j * 8;
-    lval[o + 0] = lt.pos[0];
-    lval[o + 1] = lt.pos[1];
-    lval[o + 2] = lt.pos[2];
-    lval[o + 4] = lt.color[0];
-    lval[o + 5] = lt.color[1];
-    lval[o + 6] = lt.color[2];
-  });
-  return lval;
+  const views = Light.allocate(list.length || 1);
+  list.forEach((lt, j) => Light.write(views, j, { pos: lt.pos, color: lt.color }));
+  return views.f32;
 }
