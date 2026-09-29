@@ -1,0 +1,14 @@
+{
+  "name": "antisphere-explorer",
+  "private": true,
+  "type": "module",
+  "description": "Proof-of-concept antisphere BSP tree renderer/constructive solid geometry.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test public/ tools/",
+    "test:gpu": "node --test public/gpu.test.mjs"
+  },
+  "devDependencies": {
+    "webgpu": "0.6.1"
+  }
+}

@@ -7,3 +7,15 @@ An antisphere is a sphere defined by a normal, a distance to the surface from th
 This means that CSG operations can be performed in the traditional way, with the addition of allowing spherical space divisions.  Similarly, BSP trees implemented with this concept can be constructed in such a way that they additionally achieve some of the advantages of bounding volume hierarchies.
 
 This is raycaster implemented using this concept.
+
+## Testing
+
+    npm install
+    npm test
+
+`npm test` runs every `*.test.mjs` under `public/` and `tools/`. Most of them
+check the scene compiler and JS transcriptions of the shader; `gpu.test.mjs`
+runs `antisphere-raycast.wgsl` itself, headless, through Dawn (the `webgpu`
+package). It needs a Vulkan-capable GPU (a software one like llvmpipe works
+too) and skips itself when there isn't one. `npm run test:gpu` runs just
+that file.

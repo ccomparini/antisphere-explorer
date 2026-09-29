@@ -38,6 +38,9 @@ export class ASContext {
    * @param {object} [opts]
    * @param {string} [opts.computeUrl]  path to the raycast shader
    * @param {string} [opts.blitUrl]     path to the blit shader
+   * @param {(url: string) => Promise<string>} [opts.load]
+   *   how to read a shader's text; fetch by default. Node passes readFile,
+   *   which is how gpu.test.mjs runs the real shaders headless.
    */
   static async create(opts = {}) {
     const computeUrl = opts.computeUrl ?? 'antisphere-raycast.wgsl';
@@ -45,9 +48,10 @@ export class ASContext {
 
     const { adapter, device, canTimestamp, canBgraStorage } = await requestGPU();
     const ctx = new ASContext(adapter, device, { canTimestamp, canBgraStorage });
-    ctx._sources = { computeUrl, blitUrl };
+    const load = opts.load ?? loadText;
+    ctx._sources = { computeUrl, blitUrl, load };
 
-    const [computeSrc, blitSrc] = await Promise.all([loadText(computeUrl), loadText(blitUrl)]);
+    const [computeSrc, blitSrc] = await Promise.all([load(computeUrl), load(blitUrl)]);
     const err = await ctx._build(computeSrc, blitSrc);
     if (err) throw new Error(`${err}. See the console for details.`);
     return ctx;
@@ -98,9 +102,8 @@ export class ASContext {
    * bad edit shows an error rather than a black screen.
    */
   async reloadShaders({ force = false } = {}) {
-    const [computeSrc, blitSrc] = await Promise.all([
-      loadText(this._sources.computeUrl), loadText(this._sources.blitUrl),
-    ]);
+    const { computeUrl, blitUrl, load } = this._sources;
+    const [computeSrc, blitSrc] = await Promise.all([load(computeUrl), load(blitUrl)]);
     if (!force && computeSrc === this._live.compute && blitSrc === this._live.blit) {
       return { changed: false, error: null };
     }
