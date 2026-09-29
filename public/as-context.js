@@ -322,9 +322,11 @@ export class ASScene {
    *
    * Each pair is { a, b } node indices, with optional signs (+1 for a node's
    * inside, the default, -1 for its outside). Resolves to a Float32Array of
-   * margins, one per pair: positive means proved apart, around zero means
-   * touching, negative means they meet. overlap.js does the same thing on the
-   * CPU and documents the certificate behind it.
+   * margins, one per pair: above OVERLAP_TAU (1e-5, in the shader) means
+   * proved apart, below -OVERLAP_TAU means they meet, and between is
+   * touching. The shader stops as soon as it is sure, so a margin settles the
+   * question rather than measuring how far apart. overlap.js does the same
+   * thing on the CPU and documents the certificate behind it.
    *
    * Takes its turn with the ray queries, since both map a readback buffer.
    */
