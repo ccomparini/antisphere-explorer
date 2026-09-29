@@ -202,6 +202,18 @@ struct Seg {
 
 const DEFAULT_INSIDE_BIT : u32 = 0x80000000u;
 
+// trace()'s stack of deferred segments. It lives here, not in trace(),
+// because WGSL zero-fills every variable when it comes into scope: inside
+// trace() that was 32 * 3 stores to scratch memory on every call, so on
+// every shadow ray, before the ray did anything. At module scope the fill
+// happens once per invocation. One stack serves every call: trace() does not
+// recurse, its calls never overlap, and each starts from an empty stack and
+// only reads what it pushed itself, so whatever a previous call left behind
+// is never seen. (It also means one copy in scratch memory rather than one
+// per call site trace() gets inlined into.)
+const TRACE_STACK_SIZE : i32 = 32;
+var<private> traceStack : array<Seg, TRACE_STACK_SIZE>;
+
 // Below this, a ray's polynomial coefficient counts as zero: see the ruled
 // surfaces in trace().
 const DEGENERATE : f32 = 1e-12;
@@ -237,8 +249,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
   // degenerate range from the caller then costs one node visit that pushes
   // nothing, instead of a test on every iteration forever after.
   var seg = Seg(1u, tMin, tMax);   // node 1 is always the tree's root (0 is reserved)
-  var stack : array<Seg, 32>;
-  var sp : i32 = 0;
+  var sp : i32 = 0;                // traceStack's depth; see traceStack
 
   var guard : i32 = 0;
   loop {
@@ -337,7 +348,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       for (var i : i32 = nb - 1; i >= 0; i = i - 1) {
         let sa = b[i];
         let sb = b[i + 1];
-        if (sb - sa <= 1e-6 || sp >= 32) { continue; }
+        if (sb - sa <= 1e-6 || sp >= TRACE_STACK_SIZE) { continue; }
         // Midpoint sign picks the child. Robust, and avoids reasoning about
         // which root is an entry and which is an exit. f(O + tD) is the very
         // polynomial just solved, so this is two fused multiply-adds rather
@@ -347,7 +358,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
         if ((A * mid + B) * mid + C < 0.0) {
           child = descent_node | DEFAULT_INSIDE_BIT;
         }
-        stack[sp] = Seg(child, sa, sb);
+        traceStack[sp] = Seg(child, sa, sb);
         sp = sp + 1;
         peakDepth = max(peakDepth, u32(sp));
       }
@@ -355,7 +366,7 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
 
     if (sp == 0) { break; }
     sp = sp - 1;
-    seg = stack[sp];
+    seg = traceStack[sp];
 
     guard = guard + 1;
     if (guard >= 512) {
