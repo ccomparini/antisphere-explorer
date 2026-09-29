@@ -8,7 +8,7 @@
 // caller decides what to do about it. Nothing here touches renderer state.
 
 import { readSourceMap, mapLine } from './shader-map.js';
-import { Camera } from './gen/layouts.js';
+import { Camera, RayQuery, Seg } from './gen/layouts.js';
 
 /** Fetch a file's text, bypassing the cache so hot reload sees edits. */
 export async function loadText(url) {
@@ -210,17 +210,16 @@ export function createTimestampQuery(device, canTimestamp, count) {
 export function createTraceBuffers(device, maxRays) {
   return {
     maxRays,
-    // RayQuery: vec3 origin, f32 tMin, vec3 direction, f32 tMax
     rayBuf: device.createBuffer({
-      size: maxRays * 32,
+      size: maxRays * RayQuery.STRIDE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     }),
     resultBuf: device.createBuffer({
-      size: maxRays * 12,
+      size: maxRays * Seg.STRIDE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     }),
     readBuf: device.createBuffer({
-      size: maxRays * 12,
+      size: maxRays * Seg.STRIDE,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     }),
   };

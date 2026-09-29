@@ -17,19 +17,10 @@ import {
 import {
   compileScene, packNodes, packMaterials, packLights, loadImports,
 } from './antisphere-scene.js';
+import { RayQuery, Seg, viewsOf } from './gen/layouts.js';
 
 const MAX_TRACE_RAYS = 16;
 const MAX_OVERLAP_PAIRS = 1024;
-
-// One ray query's result, as traceFrom() writes it: the Seg that the
-// shader's trace() returns.
-//   u32 node   the node whose region the ray entered, or 0 for a miss
-//   f32 t0     how far along the ray it entered
-//   f32 t1     where the segment it was found in ends (not a thickness)
-// node == 0 is the only miss test; t0 and t1 are meaningless for a miss.
-// createTraceBuffers() sizes its result buffers with this, so the shader
-// struct, the buffer size and the readback below all have to agree.
-export const RAY_HIT_BYTES = 12;
 
 export class ASContext {
   /**
@@ -78,7 +69,7 @@ export class ASContext {
     this.generation = 0;
 
     this._live = null;          // the sources the current pipelines were built from
-    this._rayQuery = createTraceBuffers(device, MAX_TRACE_RAYS, RAY_HIT_BYTES);
+    this._rayQuery = createTraceBuffers(device, MAX_TRACE_RAYS);
     this._overlapQuery = createOverlapBuffers(device, MAX_OVERLAP_PAIRS);
     // Ray queries share one set of buffers, so they take turns: a pick
     // arriving while walk mode's ground probe is still mapped would
@@ -251,8 +242,12 @@ export class ASScene {
 
   /**
    * Cast rays on the GPU and read back what each one hit: { node, t0, t1 },
-   * parallel arrays with one entry per ray. node is 0 where a ray missed,
-   * and t0 and t1 are then meaningless; see RAY_HIT_BYTES.
+   * parallel arrays with one entry per ray - the Seg that the shader's
+   * trace() returns for each:
+   *   node   the node whose region the ray entered, or 0 for a miss
+   *   t0     how far along the ray it entered
+   *   t1     where the segment it was found in ends (not a thickness)
+   * node == 0 is the only miss test; t0 and t1 are meaningless for a miss.
    *
    * Uses traceFrom(), a second entry point in the raycast shader that shares
    * trace() with the renderer, so a caller costs more rays in a batch rather
@@ -280,15 +275,11 @@ export class ASScene {
       throw new Error(`castRays: ${rays.length} rays, capacity is ${rq.maxRays}`);
     }
 
-    const packed = new Float32Array(rays.length * 8);
-    rays.forEach((r, i) => {
-      const o = i * 8;
-      packed.set(r.origin, o);
-      packed[o + 3] = r.tMin ?? 1e-3;
-      packed.set(r.direction, o + 4);
-      packed[o + 7] = r.tMax ?? 1000;
-    });
-    device.queue.writeBuffer(rq.rayBuf, 0, packed);
+    const queries = RayQuery.allocate(rays.length);
+    rays.forEach((r, i) => RayQuery.write(queries, i, {
+      o: r.origin, tMin: r.tMin ?? 1e-3, d: r.direction, tMax: r.tMax ?? 1000,
+    }));
+    device.queue.writeBuffer(rq.rayBuf, 0, queries.buffer);
 
     const bindGroup = device.createBindGroup({
       layout: pipelines.traceFrom.getBindGroupLayout(0),
@@ -300,7 +291,7 @@ export class ASScene {
       ],
     });
 
-    const bytes = rays.length * RAY_HIT_BYTES;
+    const bytes = rays.length * Seg.STRIDE;
     const enc = device.createCommandEncoder();
     const pass = enc.beginComputePass();
     pass.setPipeline(pipelines.traceFrom);
@@ -314,13 +305,14 @@ export class ASScene {
     const raw = rq.readBuf.getMappedRange(0, bytes).slice(0);
     rq.readBuf.unmap();
 
-    const words = new Uint32Array(raw), floats = new Float32Array(raw);
+    const hits = viewsOf(raw);
     const n = rays.length;
     const node = new Uint32Array(n), t0 = new Float32Array(n), t1 = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      node[i] = words[i * 3];
-      t0[i] = floats[i * 3 + 1];
-      t1[i] = floats[i * 3 + 2];
+      const hit = Seg.read(hits, i);
+      node[i] = hit.node;
+      t0[i] = hit.t0;
+      t1[i] = hit.t1;
     }
     return { node, t0, t1 };
   }

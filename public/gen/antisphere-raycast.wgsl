@@ -397,10 +397,10 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
 //
 // Each result is the Seg that trace() returns: node is the node whose
 // region the ray entered, or 0 for a miss; t0 how far along the ray and t1
-// where that segment ends, both meaningless for a miss. The host reads these back via a
-// mapAsync a frame or so after submitting, the same latency shape as the
-// profiler's timestamp queries elsewhere; as-context.js's RAY_HIT_BYTES is
-// the size of one.
+// where that segment ends, both meaningless for a miss. The host reads
+// these back via a mapAsync a frame or so after submitting, the same
+// latency shape as the profiler's timestamp queries elsewhere, through the
+// RayQuery and Seg classes generated from these declarations.
 // ---------------------------------------------------------------------------
 
 struct RayQuery {
