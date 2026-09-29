@@ -38,7 +38,7 @@
 // some early t gives lambda > 0; deeply overlapping, some early eigenvector
 // is a witness. Only near-touching pairs run the whole bisection.
 //
-// shaders/overlap.wgsl's overlapFrom() is a transcription of this file.
+// shaders/overlap.wgsls's overlapFrom() is a transcription of this file.
 // Keep them in step: the JS is the oracle the shader is checked against.
 
 const CERTAIN = 1e-9;          // a margin this small is a touch, not an overlap

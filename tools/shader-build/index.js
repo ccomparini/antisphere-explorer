@@ -5,7 +5,7 @@
 //
 //   {
 //     "outputs": [
-//       { "entry": "shaders/antisphere-raycast.wgsl",
+//       { "entry": "shaders/antisphere-raycast.wgsls",
 //         "out": "public/gen/antisphere-raycast.wgsl",
 //         "defines": { "SOME_FEATURE": true } }
 //     ],

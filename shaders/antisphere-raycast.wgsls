@@ -10,13 +10,13 @@
 //
 // The GPU stores a rearrangement of those nine rather than the numbers an
 // author wrote, because every runtime formula is cheaper in it and nothing
-// is lost. See Node, in node.wgsl.
+// is lost. See Node, in node.wgsls.
 //
 // Traversal is a solid BSP walk where each node splits the ray at up to two
 // points instead of one. Bindings, in order: camera, nodes, output image,
 // lights, materials, then (traceFrom only) ray queries and ray results.
 
-#import "node.wgsl"
+#import "node.wgsls"
 
 // Ordered so the two scalars and the vec2 fill the 16 bytes ahead of the
 // first vec3, which has to start on a 16-byte boundary anyway: 48 bytes.

@@ -10,10 +10,11 @@ This is raycaster implemented using this concept.
 
 ## Shaders
 
-The WGSL sources live in `shaders/`. They are WGSL plus a few C-style
-directives, each on a line of its own:
+The shader sources live in `shaders/` as `.wgsls` files ("WGSL source"):
+WGSL plus a few C-style directives, each on a line of its own. They are not
+valid WGSL themselves, hence the extension.
 
-    #import "node.wgsl"        another file, relative to this one; included
+    #import "node.wgsls"       another file, relative to this one; included
                                once, ahead of the files that import it
     #if NAME / #elif / #else / #endif
                                conditional lines; NAME is set per output in
@@ -33,6 +34,10 @@ never spells out an offset. Compile errors are reported at their line in
 `shaders/`. With the watcher running, R in the page reloads the shaders; a
 change to a shared struct also changes `layouts.js`, which needs a full page
 reload.
+
+Editors won't know `.wgsls` is WGSL until told. In VS Code, add
+`"files.associations": { "*.wgsls": "wgsl" }` to your settings; in vim,
+`autocmd BufRead,BufNewFile *.wgsls set filetype=wgsl`.
 
 ## Testing
 

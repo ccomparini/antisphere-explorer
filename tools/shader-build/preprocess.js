@@ -4,7 +4,7 @@
 // has no '#' in its syntax, so no directive can be mistaken for WGSL or
 // collide with a later version of it.
 //
-//   #import "path.wgsl"   another file, relative to this one. Included once
+//   #import "path.wgsls"  another file, relative to this one. Included once
 //                         however many files import it, and placed before
 //                         the first file that does: WGSL has no forward
 //                         declarations, so a definition must come first.
@@ -149,7 +149,7 @@ export function processFile(path, text, defines) {
       case 'import': {
         if (!live()) break;
         const quoted = rest.match(/^"([^"]+)"$/);
-        if (!quoted) fail(`#import wants a quoted path, like #import "node.wgsl"; got ${rest || 'nothing'}`);
+        if (!quoted) fail(`#import wants a quoted path, like #import "node.wgsls"; got ${rest || 'nothing'}`);
         imports.push({ path: resolvePath(path, quoted[1]), line: lineNo });
         break;
       }

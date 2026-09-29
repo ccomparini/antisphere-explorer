@@ -2,7 +2,7 @@
 //   node --test antisphere-csg.test.mjs
 //
 // These decide whether a point is solid by walking the compiled tree the way
-// antisphere-raycast.wgsl's trace() does - descend by the sign of H, and at
+// antisphere-raycast.wgsls's trace() does - descend by the sign of H, and at
 // an absent child read the two slots the way flatten() documents: an omitted
 // "inside" is solid using this node's own material, an omitted "outside" is
 // void. An operator is right when that walk agrees with the boolean formula

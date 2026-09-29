@@ -147,14 +147,14 @@ export async function buildPipelines(device, format, sources) {
     primitive: { topology: 'triangle-list' },
   });
   // Same module as the compute pipeline: traceFrom() is just another entry
-  // point in antisphere-raycast.wgsl, sharing trace() with main().
+  // point in antisphere-raycast.wgsls, sharing trace() with main().
   const traceFrom = device.createComputePipeline({
     layout: 'auto',
     compute: { module: computeMod, entryPoint: 'traceFrom' },
   });
   // overlapFrom() answers "do these two regions share any interior" for a
   // batch of node pairs. It reads the same node buffer as rendering and
-  // nothing else of the scene, so it has a shader of its own (overlap.wgsl).
+  // nothing else of the scene, so it has a shader of its own (overlap.wgsls).
   const overlapFrom = device.createComputePipeline({
     layout: 'auto',
     compute: { module: overlapMod, entryPoint: 'overlapFrom' },
@@ -230,7 +230,7 @@ export function createTraceBuffers(device, maxRays) {
  *
  * A query is two node indices and two signs; a result is a margin and the
  * multiplier that earned it (OverlapQuery and OverlapResult in
- * shaders/overlap.wgsl). Sized for a good handful of pairs at a time, since
+ * shaders/overlap.wgsls). Sized for a good handful of pairs at a time, since
  * the point of doing this on the GPU is the batch.
  */
 export function createOverlapBuffers(device, maxPairs) {
@@ -253,7 +253,7 @@ export function createOverlapBuffers(device, maxPairs) {
 
 /**
  * The camera uniform, plus host-side views to fill it through the generated
- * Camera class (see Camera in shaders/antisphere-raycast.wgsl). The class
+ * Camera class (see Camera in shaders/antisphere-raycast.wgsls). The class
  * writes each field through the view of its own type, so a u32 mode
  * selector can't go through the float view by mistake.
  */

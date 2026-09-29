@@ -4,7 +4,7 @@
 // Everything here goes through packNodes and reads the bytes back with the
 // generated Node class, so what the GPU is sent is under test alongside the
 // maths: H and the ray polynomial below are transcriptions of
-// antisphere-raycast.wgsl's fAt() and trace(), and if packNodes' rearranged
+// antisphere-raycast.wgsls's fAt() and trace(), and if packNodes' rearranged
 // forms (curvature_delta, the doubled linear term) drift from what those
 // expect, they stop agreeing with the closed forms they are checked against.
 // Node's byte layout itself is checked against Dawn in gpu.test.mjs.

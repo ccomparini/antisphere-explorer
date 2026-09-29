@@ -320,7 +320,7 @@ function complementSurface(prim) {
 //
 // One table. A node's material - an index into this table, 0 being vacuum
 // - is read at render time from whichever node's surface a ray actually
-// crossed (antisphere-raycast.wgsl's main() does
+// crossed (antisphere-raycast.wgsls's main() does
 // `materials[nodes[entry].material]`), so a hit's shading is always a
 // direct table read, with no scope-threading left to do at render time.
 //
@@ -586,7 +586,7 @@ function scaleTree(t, factor, pivot) {
 }
 
 // Resolves material and ambient-env inheritance once, here, instead of
-// once per ray in antisphere-raycast.wgsl's trace(). Both follow the same
+// once per ray in antisphere-raycast.wgsls's trace(). Both follow the same
 // rule: descending into a node's *inside* adopts its own value as the
 // scope for everything below it, unless that value means "inherit"
 // (INHERIT_MATERIAL for material, 0 for env), in which case the incoming
@@ -626,7 +626,7 @@ function bakeScopes(tree) {
   return resolve(tree, NO_MATERIAL, 0);
 }
 
-// Node 0 is reserved: "no child at all" - antisphere-raycast.wgsl's
+// Node 0 is reserved: "no child at all" - antisphere-raycast.wgsls's
 // trace() special-cases it before ever touching a node's geometry. It's
 // never a real node, so its own fields are dead weight, zeroed here.
 //
@@ -1517,7 +1517,7 @@ export function compileScene(rawSpec, options = {}) {
   };
 }
 
-// A material as the GPU stores it: Material in shaders/antisphere-raycast.wgsl,
+// A material as the GPU stores it: Material in shaders/antisphere-raycast.wgsls,
 // written through the Material class generated from it. solid crosses as
 // u32, since bool can't be shared with the GPU.
 export function packMaterials(list) {
@@ -1536,7 +1536,7 @@ export function packMaterials(list) {
   return views.buffer;
 }
 
-// A node as the GPU stores it: shaders/node.wgsl's Node, whose layout
+// A node as the GPU stores it: shaders/node.wgsls's Node, whose layout
 // tools/build-shaders.mjs generates into the Node class, so the offsets and
 // the 64-byte stride live in one place.
 //
@@ -1577,7 +1577,7 @@ export function packNodes(list) {
 // (0.0, 0.0, 0.0) to appease wgsl's requirement of buffer sizes > 0.
 // ---------------------------------------------------------------------------
 
-// A light as the GPU stores it: Light in shaders/antisphere-raycast.wgsl,
+// A light as the GPU stores it: Light in shaders/antisphere-raycast.wgsls,
 // written through the Light class generated from it.
 export function packLights(list) {
   const views = Light.allocate(list.length || 1);

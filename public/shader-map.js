@@ -6,7 +6,7 @@
 // output is a line in exactly one source, at a fixed offset. The build
 // records those blocks in the output's last line:
 //
-//   // sourcemap: [{"path":"shaders/node.wgsl","offset":3,"lines":57}, ...]
+//   // sourcemap: [{"path":"shaders/node.wgsls","offset":3,"lines":57}, ...]
 //
 // offset is the number of output lines before the block, so output line
 // offset + n is line n of path.

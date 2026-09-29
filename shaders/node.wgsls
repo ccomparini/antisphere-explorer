@@ -1,5 +1,5 @@
 // The node: one antisphere as the GPU stores it, shared by every shader
-// that reads the scene's nodes (#import "node.wgsl"). The JS side packs
+// that reads the scene's nodes (#import "node.wgsls"). The JS side packs
 // it with the Node class that tools/build-shaders.mjs generates from this
 // declaration, so this is the one definition of its layout.
 

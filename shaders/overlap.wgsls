@@ -3,7 +3,7 @@
 // Its own shader, since it shares nothing with rendering but the nodes.
 // Bindings: nodes, then the queries and their results.
 
-#import "node.wgsl"
+#import "node.wgsls"
 
 @group(0) @binding(0) var<storage, read> nodes : array<Node>;
 // ---------------------------------------------------------------------------
