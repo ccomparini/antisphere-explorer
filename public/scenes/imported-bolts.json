@@ -1,0 +1,40 @@
+{
+  "_comment": "Three bolts from parts/bolt.json, which knows nothing about this scene. An imported object is named for the file it came from, so parts with the same names elsewhere stay out of each other's way.",
+
+  "import": ["parts/bolt.json"],
+
+  "materials": {
+    "floor": { "albedo": [0.30, 0.31, 0.34], "albedo2": [0.18, 0.19, 0.21],
+               "pattern": "checker", "scale": 0.5 },
+    "sky": { "kind": "unlit", "albedo": [0.07, 0.09, 0.14] }
+  },
+
+  "lights": [
+    { "pos": [4, -6, 7], "color": [260, 250, 235] },
+    { "pos": [-5, -2, 3], "color": [70, 76, 92] }
+  ],
+
+  "camera": { "target": [0, 0, 0.3], "yaw": 0.9, "pitch": 0.3, "distance": 7 },
+
+  "objects": {
+    "upright": { "use": "bolt:bolt", "translate": [-1.4, 0, 0.6] },
+    "leaning": { "use": "bolt:bolt", "rotate": { "axis": [0, 1, 0], "degrees": 25 },
+                 "translate": [0, 0, 0.6] },
+    "small": { "use": "bolt:bolt", "scale": 0.6, "translate": [1.4, 0, 0.36] }
+  },
+
+  "root": {
+    "sphere": { "center": [0, 0, 0], "radius": 400 },
+    "inside": {
+      "plane": { "normal": [0, 0, 1], "offset": 0 },
+      "material": "floor",
+      "outside": {
+        "union": [
+          "upright", "leaning", "small",
+          { "sphere": { "center": [0, 0, 0], "radius": 399 },
+            "complement": true, "material": "sky" }
+        ]
+      }
+    }
+  }
+}

@@ -769,8 +769,198 @@ function boundOf(t, declared, memo, table) {
 // can no longer share nodes with the original or with other instances.
 // ---------------------------------------------------------------------------
 
-export function compileScene(spec) {
+// ---------------------------------------------------------------------------
+// Imports
+//
+// A scene can borrow the objects of other scene files:
+//
+//   "import": ["parts/bolt.json", "parts/frame.json"],
+//   ...
+//   { "use": "bolt:hex-head" }
+//
+// The name before the colon says which file an object came from, so two
+// files may both have a "body" without arguing about it. By default that
+// name is the file's own, without its directory or extension; write the
+// import as an object to choose it: { "frame": "parts/frame-v2.json" }.
+//
+// Only objects and materials cross over. An imported file's root, lights
+// and camera are how *it* is looked at, not part of what it offers.
+//
+// Loading is the caller's business, not the compiler's: compileScene() is
+// synchronous and reads no files, so the parsed files are handed to it in
+// `options.imports`. importsOf() says what a spec needs and loadImports()
+// will fetch them all, including what they import in turn.
+// ---------------------------------------------------------------------------
+
+const IMPORT_SEPARATOR = ':';
+
+/** The name an imported file goes by, when the scene doesn't say. */
+function aliasFor(path) {
+  const file = String(path).split(/[\\/]/).pop();
+  return file.replace(/\.[^.]*$/, '');
+}
+
+/**
+ * What this spec imports, as { alias, path } - including nothing, which is
+ * the usual answer.
+ */
+export function importsOf(spec) {
+  const declared = spec?.import;
+  if (!declared) return [];
+  if (Array.isArray(declared)) {
+    return declared.map((path) => ({ alias: aliasFor(path), path }));
+  }
+  if (typeof declared === 'object') {
+    return Object.entries(declared).map(([alias, path]) => ({ alias, path }));
+  }
+  throw new Error('scene.json import: needs a list of files, or a map of name to file');
+}
+
+/**
+ * Fetch every file a spec imports, and every file those import, as a map
+ * from path to parsed spec - the shape compileScene() wants.
+ *
+ * `read` takes a path and returns the parsed JSON, however the caller
+ * likes: fetch in a browser, readFile in node. Paths are resolved relative
+ * to the file that named them, which `read` sees as given.
+ */
+export async function loadImports(spec, read, { from = '', seen = new Map() } = {}) {
+  for (const { path } of importsOf(spec)) {
+    const resolved = resolvePath(from, path);
+    if (seen.has(resolved)) continue;
+    seen.set(resolved, null);                      // claim it before recursing
+    let imported;
+    try {
+      imported = await read(resolved);
+    } catch (cause) {
+      throw new Error(`cannot read imported scene "${resolved}": ${cause.message}`);
+    }
+    seen.set(resolved, imported);
+    await loadImports(imported, read, { from: resolved, seen });
+  }
+  const loaded = {};
+  for (const [path, value] of seen) if (value) loaded[path] = value;
+  return loaded;
+}
+
+/** Where a path named inside `from` actually points. */
+function resolvePath(from, path) {
+  if (!from || path.startsWith('/')) return path;
+  const directory = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : '';
+  if (!directory) return path;
+  const parts = (directory + path).split('/');
+  const out = [];
+  for (const part of parts) {
+    if (part === '.' || part === '') continue;
+    if (part === '..') out.pop();
+    else out.push(part);
+  }
+  return (path.startsWith('/') ? '/' : '') + out.join('/');
+}
+
+/** Every array of subtrees a node can carry. */
+const SUBTREE_ARRAYS = ['group', 'union', 'intersect', 'difference'];
+
+/**
+ * Copy a subtree, renaming the objects and materials it names. Everything
+ * else - shapes, transforms, bounds - is carried over untouched.
+ */
+function renameWithin(def, renameObject, renameMaterial) {
+  if (def === null || def === undefined) return def;
+  if (typeof def === 'string') return renameObject(def);
+  if (Array.isArray(def)) return def.map((d) => renameWithin(d, renameObject, renameMaterial));
+  if (typeof def !== 'object') return def;
+
+  const out = { ...def };
+  if (typeof def.use === 'string') out.use = renameObject(def.use);
+  if (typeof def.material === 'string') out.material = renameMaterial(def.material);
+  if (typeof def.paint === 'string' && !LEGACY_PAINT_WORDS.includes(def.paint)) {
+    out.paint = renameMaterial(def.paint);
+  }
+  for (const side of ['inside', 'outside']) {
+    if (side in def) out[side] = renameWithin(def[side], renameObject, renameMaterial);
+  }
+  for (const op of SUBTREE_ARRAYS) {
+    if (Array.isArray(def[op])) {
+      out[op] = def[op].map((d) => renameWithin(d, renameObject, renameMaterial));
+    }
+  }
+  return out;
+}
+
+/**
+ * Fold every imported file's objects and materials into one spec, under
+ * prefixed names. The result imports nothing and compiles like any other
+ * scene, which is how the rest of the compiler stays unaware of all this.
+ */
+export function resolveImports(spec, imports = {}, { from = '', trail = [] } = {}) {
+  const wanted = importsOf(spec);
+  if (!wanted.length) return spec;
+
+  // Two files under one name would quietly become one file. The fix is to
+  // name them, so say so.
+  const byAlias = new Map();
+  for (const { alias, path } of wanted) {
+    if (byAlias.has(alias) && byAlias.get(alias) !== path) {
+      throw new Error(`scene.json import: "${byAlias.get(alias)}" and "${path}" would both ` +
+                      `be called "${alias}". Name one of them: ` +
+                      `"import": { "${alias}-2": "${path}" }`);
+    }
+    byAlias.set(alias, path);
+  }
+
+  const merged = { ...spec, objects: { ...(spec.objects || {}) },
+                   materials: { ...(spec.materials || {}) } };
+  delete merged.import;
+
+  // What this scene says itself, which an import never overwrites: writing
+  // "bolt:steel" here is how you re-skin an imported part without editing
+  // the file it came from.
+  const ownObjects = new Set(Object.keys(spec.objects || {}));
+  const ownMaterials = new Set(Object.keys(spec.materials || {}));
+
+  for (const { alias, path } of wanted) {
+    const resolved = resolvePath(from, path);
+    if (trail.includes(resolved)) {
+      throw new Error(`scene.json import: "${resolved}" imports itself, by way of ` +
+                      trail.join(' -> '));
+    }
+    const imported = imports[resolved] ?? imports[path];
+    if (!imported) {
+      throw new Error(`scene.json import: nothing supplied for "${resolved}". ` +
+                      'Load it first - see loadImports() - and pass it in options.imports');
+    }
+
+    // Flatten what it imports before taking its objects, so a name it
+    // borrowed arrives already spelled the way it spells it.
+    const flat = resolveImports(imported, imports,
+                                { from: resolved, trail: [...trail, resolved] });
+    const prefixed = (name) => `${alias}${IMPORT_SEPARATOR}${name}`;
+    const renameObject = (name) => (flat.objects && name in flat.objects ? prefixed(name) : name);
+    const renameMaterial = (name) =>
+      (flat.materials && name in flat.materials ? prefixed(name) : name);
+
+    for (const [name, body] of Object.entries(flat.objects || {})) {
+      const key = prefixed(name);
+      if (ownObjects.has(key)) continue;                  // the scene's own wins
+      merged.objects[key] = renameWithin(body, renameObject, renameMaterial);
+    }
+    for (const [name, material] of Object.entries(flat.materials || {})) {
+      const key = prefixed(name);
+      if (ownMaterials.has(key)) continue;                // likewise
+      merged.materials[key] = material;
+    }
+  }
+  return merged;
+}
+
+export function compileScene(rawSpec, options = {}) {
   const at = (path, msg) => { throw new Error(`scene compilation: ${path}: ${msg}`); };
+
+  // Imported files are folded in before anything else looks at the spec, so
+  // everything below sees one ordinary scene whose objects happen to have
+  // colons in some of their names.
+  const spec = resolveImports(rawSpec, options.imports ?? {}, { from: options.path ?? '' });
   const warn = (path, msg) => { console.warn(`warning: ${path}: ${msg}`); };
 
   // Material 0 is vacuum: never shaded, and not solid.
