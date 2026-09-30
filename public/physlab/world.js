@@ -5,6 +5,12 @@
 // coordinates; sceneSpec() places each one by its object's orientation and
 // position to make the scene the renderer draws. An object without
 // geometry - a camera's mount, a marker - is simply not in the scene.
+//
+// Time moves by World.update(dt), once per rendered frame (physlab.js
+// hooks it to ASContext.onFrame, which runs before each frame is drawn).
+// It gives every object its own update(dt, world). An object's behaviour is
+// either an `update` function given when it is made, or a subclass's
+// update(); by default an object does nothing.
 
 import { identity, normalize, axes, toAxisAngle } from './quat.js';
 
@@ -15,8 +21,11 @@ export class WorldObject {
    * @param {number[]} [opts.position]     [x, y, z], meters
    * @param {number[]} [opts.orientation]  quaternion [x, y, z, w] (see quat.js)
    * @param {object|null} [opts.geometry]  scene subtree, in object coordinates
+   * @param {(object: WorldObject, dt: number, world: World) => void} [opts.update]
+   *   what the object does as time passes; dt in seconds
    */
-  constructor(name, { position = [0, 0, 0], orientation = identity(), geometry = null } = {}) {
+  constructor(name, { position = [0, 0, 0], orientation = identity(), geometry = null,
+                      update = null } = {}) {
     this.name = name;
     // One array for the object's whole life: moving it writes into this, so
     // anything holding a reference to it (a camera's look-at point, say)
@@ -24,6 +33,12 @@ export class WorldObject {
     this.position = position.slice();
     this.orientation = normalize(orientation);
     this.geometry = geometry;
+    this.behaviour = update;
+  }
+
+  /** Advance this object by dt seconds. Subclasses may override. */
+  update(dt, world) {
+    if (this.behaviour) this.behaviour(this, dt, world);
   }
 
   setPosition(p) {
@@ -39,6 +54,15 @@ export class WorldObject {
 export class World {
   constructor() {
     this.objects = [];
+  }
+
+  /**
+   * Advance everything by dt seconds: once per rendered frame, with the
+   * time since the last. This is also where fixed-size physics steps will
+   * run, as many as dt calls for, since they need all the objects at once.
+   */
+  update(dt) {
+    for (const o of this.objects) o.update(dt, this);
   }
 
   add(object) {

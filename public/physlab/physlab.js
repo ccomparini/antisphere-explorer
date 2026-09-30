@@ -75,6 +75,9 @@ async function main() {
   // here the planetoid's centre.
   const camera = new AttachedCamera(mount, { mode: 'forward', target: planetoid.position });
   const view = gpu.createRenderer(canvas, { scene, camera });
+  // Before each frame is drawn, time moves on: dt is seconds since the last
+  // frame, clamped by ASContext so a stall doesn't become a leap.
+  gpu.onFrame((dt) => world.update(dt));
   gpu.start();
 
   // No controls yet; from the console, e.g. physlab.camera.mode = 'lookAt'.
