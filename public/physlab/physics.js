@@ -177,10 +177,12 @@ export class PhysicsSim {
       pose: stage('pose', [5, 6, 7, 8, 9, 10]),
       clearContacts: stage('clearContacts', [12]),
       detect: stage('detect', [0, 1, 2, 5, 6, 7, 8, 11, 12]),
-      solveContacts: stage('solveContacts', [5, 6, 11, 12, 13]),
+      detectBodies: stage('detectBodies', [0, 1, 2, 5, 6, 7, 8, 11, 12]),
+      solveContacts: stage('solveContacts', [5, 6, 7, 11, 12, 13]),
       applyCorrections: stage('applyCorrections', [5, 7, 13]),
     };
     this.pairCount = bodies.length * statics.length;
+    this.collides = this.pairCount > 0 || bodies.length > 1;
     this.contactRounds = iterations;
   }
 
@@ -211,10 +213,11 @@ export class PhysicsSim {
     for (let s = 0; s < n; s++) {
       run(this.stages.predict, this.particleCount);
       for (let k = 0; k < this.iterations; k++) run(this.stages.solveDistance, this.bodyCount);
-      if (this.pairCount > 0) {
+      if (this.collides) {
         run(this.stages.pose, this.bodyCount);
         run(this.stages.clearContacts, 1);
-        run(this.stages.detect, this.pairCount);
+        if (this.pairCount > 0) run(this.stages.detect, this.pairCount);
+        if (this.bodyCount > 1) run(this.stages.detectBodies, this.bodyCount * this.bodyCount);
         for (let k = 0; k < this.contactRounds; k++) {
           run(this.stages.solveContacts, this.contactCapacity);
           run(this.stages.applyCorrections, this.particleCount);

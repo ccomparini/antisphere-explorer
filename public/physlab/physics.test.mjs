@@ -307,3 +307,91 @@ for (const tilt of [0, 0.05]) gpuTest(`a rocket set down ${tilt ? 'tilted 3 degr
   near(heightOf(base), 0, 0.03, 'base on the ground');
   s.destroy();
 });
+
+// -- bodies against each other --------------------------------------------------------
+
+// A sphere as a two-particle body, axis along world Z, centred at `at`.
+function sphereBody(at, r, index, { vel = [0, 0, 0], mass = 1 } = {}) {
+  const d = spacing(0.4 * r * r);
+  const w = 2 / mass;
+  return {
+    particles: [
+      { pos: [at[0], at[1], at[2] - d / 2], vel, invMass: w, body: index },
+      { pos: [at[0], at[1], at[2] + d / 2], vel, invMass: w, body: index },
+    ],
+    body: { p0: 2 * index, p1: 2 * index + 1, rest: d, solid: compileSolid({ sphere: { center: [0, 0, 0], radius: r }, material: 'm' }, MATERIALS),
+            a0: -d / 2, a1: d / 2, radius: r, friction: 0.5 },
+  };
+}
+const centreOf = (qs, b) => qs[2 * b].pos.map((v, i) => (v + qs[2 * b + 1].pos[i]) / 2);
+const velOf = (qs, b) => qs[2 * b].vel.map((v, i) => (v + qs[2 * b + 1].vel[i]) / 2);
+
+gpuTest('a head-on collision conserves momentum and never passes through', async () => {
+  const a = sphereBody([-2, 0, 0], 0.5, 0, { vel: [2, 0, 0] });
+  const b = sphereBody([2, 0, 0], 0.5, 1);
+  const s = new PhysicsSim(device, module, { particles: [...a.particles, ...b.particles], bodies: [a.body, b.body],
+    gravityCentre: [0, 0, 0], gm: 0 });
+  let closest = Infinity;
+  for (let k = 0; k < 60; k++) {
+    s.step(0.05);
+    const qs = await s.read();
+    const [ca, cb] = [centreOf(qs, 0), centreOf(qs, 1)];
+    closest = Math.min(closest, Math.hypot(...ca.map((v, i) => v - cb[i])));
+    assert.ok(ca[0] < cb[0], `passed through at step ${k}`);
+  }
+  const qs = await s.read();
+  const [va, vb] = [velOf(qs, 0), velOf(qs, 1)];
+  near(va[0] + vb[0], 2, 0.02, 'momentum (equal masses)');
+  near(vb[0], 1, 0.1, 'the struck one takes half (inelastic)');
+  assert.ok(closest > 1 - 0.02, `overlapped by ${1 - closest} m at most`);
+  s.destroy();
+});
+
+// (A sphere on a sphere would roll off - that balance is unstable - so the
+// stack here is a sphere on the flat top of a puck, which is stable. On
+// flat ground: a flat puck on a round planetoid touches it at one point,
+// and with a load off-centre that is a balancing act, not a stack.)
+gpuTest('a sphere dropped onto a puck on flat ground settles on top of it', async () => {
+  const R = 1, h = 0.5, r = 0.3;
+  const puckGeometry = { intersect: [
+    { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: R }, material: 'm' },
+    { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: h }, material: 'm' },
+  ] };
+  const d = spacing((3 * R * R + h * h) / 12);
+  const puck = {
+    particles: [{ pos: [0, 0, h / 2 - d / 2], invMass: 2, body: 0 }, { pos: [0, 0, h / 2 + d / 2], invMass: 2, body: 0 }],
+    body: { p0: 0, p1: 1, rest: d, solid: compileSolid(puckGeometry, MATERIALS), a0: -d / 2, a1: d / 2,
+            radius: Math.hypot(R, h / 2), friction: 0.6 },
+  };
+  const ball = sphereBody([0.3, 0, 2], r, 1);
+  const flat = compileSolid({ plane: { normal: [0, 0, 1], offset: 0 }, material: 'm' }, MATERIALS);
+  const s = new PhysicsSim(device, module, { particles: [...puck.particles, ...ball.particles], bodies: [puck.body, ball.body],
+    statics: [flat], gravityCentre: [0, 0, -1e6], gm: 9.81e12 });     // 9.81 m/s^2, as good as uniform
+  s.step(3);
+  const qs = await s.read();
+  const [cp, cb] = [centreOf(qs, 0), centreOf(qs, 1)];
+  near(cp[2], h / 2, 0.03, 'the puck on the ground');
+  near(cb[2], h + r, 0.03, 'the ball on the puck');
+  near(cb[0], 0.3, 0.02, 'where it landed');
+  assert.ok(Math.hypot(cb[0] - cp[0], cb[1] - cp[1]) < R, 'still over the puck');
+  for (const b of [0, 1]) assert.ok(Math.hypot(...velOf(qs, b)) < 0.03, `body ${b} at rest`);
+  s.destroy();
+});
+
+gpuTest('a ball given a push slides, then rolls at 5/7 of its speed', async () => {
+  // Friction brings a sliding ball to rolling without slipping, and a
+  // uniform sphere then keeps 5/7 of its starting speed.
+  const r = 0.3;
+  const ball = sphereBody([0, 0, r], r, 0, { vel: [0.5, 0, 0] });
+  ball.body.friction = 0.3;
+  const flat = compileSolid({ plane: { normal: [0, 0, 1], offset: 0 }, material: 'm' }, MATERIALS);
+  const s = new PhysicsSim(device, module, { particles: ball.particles, bodies: [ball.body],
+    statics: [flat], gravityCentre: [0, 0, -1e6], gm: 9.81e12 });
+  s.step(2);
+  const v1 = velOf(await s.read(), 0)[0];
+  s.step(1);
+  const v2 = velOf(await s.read(), 0)[0];
+  near(v1, 0.5 * 5 / 7, 0.01, 'rolling speed');
+  near(v2, v1, 0.002, 'and it keeps it');
+  s.destroy();
+});

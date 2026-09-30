@@ -803,9 +803,9 @@ export class Solid {
 }
 
 export class BodyContact {
-  static SIZE = 64;
+  static SIZE = 96;
   static ALIGN = 16;
-  static STRIDE = 64;
+  static STRIDE = 96;
   static FIELDS = Object.freeze({
     point: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
     depth: Object.freeze({ offset: 12, type: 'f32' }),
@@ -814,6 +814,8 @@ export class BodyContact {
     lever: Object.freeze({ offset: 32, type: 'vec3<f32>' }),
     other: Object.freeze({ offset: 44, type: 'u32' }),
     axis: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
+    other_lever: Object.freeze({ offset: 64, type: 'vec3<f32>' }),
+    other_axis: Object.freeze({ offset: 80, type: 'vec3<f32>' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * BodyContact.STRIDE)); }
@@ -851,6 +853,16 @@ export class BodyContact {
       f32[w + 13] = values.axis[1];
       f32[w + 14] = values.axis[2];
     }
+    if (values.other_lever !== undefined) {
+      f32[w + 16] = values.other_lever[0];
+      f32[w + 17] = values.other_lever[1];
+      f32[w + 18] = values.other_lever[2];
+    }
+    if (values.other_axis !== undefined) {
+      f32[w + 20] = values.other_axis[0];
+      f32[w + 21] = values.other_axis[1];
+      f32[w + 22] = values.other_axis[2];
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -863,6 +875,8 @@ export class BodyContact {
       lever: [f32[w + 8], f32[w + 9], f32[w + 10]],
       other: u32[w + 11],
       axis: [f32[w + 12], f32[w + 13], f32[w + 14]],
+      other_lever: [f32[w + 16], f32[w + 17], f32[w + 18]],
+      other_axis: [f32[w + 20], f32[w + 21], f32[w + 22]],
     };
   }
 }
