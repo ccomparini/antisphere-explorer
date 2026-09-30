@@ -1,0 +1,154 @@
+// Physics for physlab: contacts between solids, from the overlap
+// certificate.
+//
+// A solid is a list of paths, each a conjunction of regions (a node and a
+// side: sign * H < 0 inside) - interiorPaths() in public/overlap.js makes
+// them from a compiled tree. Two solids touch where some path of one and
+// some path of the other share a point.
+
+#import "node.wgsls"
+#import "certificate.wgsls"
+
+struct Region {
+  node : u32,
+  sign : f32,         // +1 the node's inside, -1 its outside
+};
+
+struct Path {
+  first : u32,        // regions[first .. first + count] together
+  count : u32,
+};
+
+// Where two solids meet, if they do.
+struct Contact {
+  point  : vec3<f32>, // a point inside (or on) both
+  depth  : f32,       // how far they overlap there; about 0 when touching
+  normal : vec3<f32>, // unit, out of B towards A: the way to push A off B
+  found  : u32,       // 1 if there is a contact, and the rest means something
+};
+
+@group(0) @binding(0) var<storage, read> nodes : array<Node>;
+@group(0) @binding(1) var<storage, read> regions : array<Region>;
+@group(0) @binding(2) var<storage, read> paths : array<Path>;
+
+// How far outside a region p is (negative inside), measured along the
+// gradient: on the line p + s n, n = grad H / |grad H|, H is exactly the
+// quadratic H + s |grad H| + s^2 n.K.n, and its root nearest s = 0 is where
+// that line crosses the surface. Exact for spheres and planes, and much
+// better than H / |grad H| deep inside anything curved (for a sphere that
+// is (d^2 - r^2) / 2d, which overstates a depth by the square of it). With
+// no root on the line, the first-order H / |grad H| stands in.
+fn regionDistance(r : Region, p : vec3<f32>) -> f32 {
+  let nd = nodes[r.node];
+  let g = r.sign * gradAt(nd, p);
+  let slope = length(g);
+  if (slope < 1e-20) { return 0.0; }
+  let n = g / slope;
+  let h = r.sign * fAt(nd, p);
+  let along = dot(nd.axis, n);
+  let curve = r.sign * (nd.curvature_perp + nd.curvature_delta * along * along);
+  let disc = slope * slope - 4.0 * curve * h;
+  if (disc < 0.0) { return h / slope; }
+  // The stable form of the root nearest zero; it is the step to the
+  // surface, so the distance is its negative.
+  return 2.0 * h / (slope + sqrt(disc));
+}
+
+// The way out of a region at p: its outward unit normal.
+fn regionOutward(r : Region, p : vec3<f32>) -> vec3<f32> {
+  return r.sign * normalize(gradAt(nodes[r.node], p));
+}
+
+// A point this far outside a region still counts as on it (meters).
+const CONTACT_SLOP : f32 = 1e-3;
+// Rounds of nudging a candidate point into the regions it is outside of.
+const PROJECTION_SWEEPS : i32 = 8;
+
+const NO_CONTACT = Contact(vec3<f32>(0.0), 0.0, vec3<f32>(0.0), 0u);
+
+// The deepest a point is inside a path: the distance to its nearest
+// boundary (the region it is least deep in). Negative inside.
+fn pathDistance(pa : Path, p : vec3<f32>) -> f32 {
+  var d = -1e30;
+  for (var i = 0u; i < pa.count; i = i + 1u) { d = max(d, regionDistance(regions[pa.first + i], p)); }
+  return d;
+}
+
+/**
+ * Where path A (of one solid) meets path B (of another), if it does.
+ *
+ * 1. Every region of A against every region of B: if any pair is proved
+ *    apart, so are the paths.
+ * 2. Otherwise start from the certificate's point for the pair closest to
+ *    separating. It lies in both of that pair's regions (the witness), or
+ *    is where they touch.
+ * 3. It may lie outside some other region: the witness of an endless
+ *    cylinder meeting a planet can be past the end its slab cuts off. So
+ *    nudge it onto each region it is outside of, along that region's
+ *    gradient, a few rounds. For convex regions this finds a point in all
+ *    of them when there is one.
+ * 4. Only a point inside every region of both paths makes a contact, so
+ *    the certificate being conservative never makes one up.
+ */
+fn pathContact(pa : Path, pb : Path) -> Contact {
+  var best = -1e30;
+  var start = vec4<f32>(0.0);
+  for (var i = 0u; i < pa.count; i = i + 1u) {
+    let ra = regions[pa.first + i];
+    for (var j = 0u; j < pb.count; j = j + 1u) {
+      let rb = regions[pb.first + j];
+      let c = certify(regionMatrix(nodes[ra.node], ra.sign), regionMatrix(nodes[rb.node], rb.sign));
+      if (c.margin > OVERLAP_TAU) { return NO_CONTACT; }        // proved apart
+      if (c.margin > best) { best = c.margin; start = c.vector; }
+    }
+  }
+  // A point at infinity (w = 0) is no place for a contact.
+  if (abs(start.w) < 1e-6 * length(start.xyz)) { return NO_CONTACT; }
+  var p = start.xyz / start.w;
+
+  for (var sweep = 0; sweep < PROJECTION_SWEEPS; sweep = sweep + 1) {
+    var outside = false;
+    for (var i = 0u; i < pa.count + pb.count; i = i + 1u) {
+      var r : Region;
+      if (i < pa.count) { r = regions[pa.first + i]; } else { r = regions[pb.first + i - pa.count]; }
+      let d = regionDistance(r, p);
+      if (d > 0.0) {
+        p = p - (d + 0.5 * CONTACT_SLOP) * regionOutward(r, p);   // just inside
+        outside = true;
+      }
+    }
+    if (!outside) { break; }
+  }
+
+  let dA = pathDistance(pa, p);
+  let dB = pathDistance(pb, p);
+  if (dA > CONTACT_SLOP || dB > CONTACT_SLOP) { return NO_CONTACT; }
+
+  // The way out of B at p is out through its nearest boundary.
+  var outOfB = vec3<f32>(0.0);
+  var nearest = -1e30;
+  for (var j = 0u; j < pb.count; j = j + 1u) {
+    let rb = regions[pb.first + j];
+    let d = regionDistance(rb, p);
+    if (d > nearest) { nearest = d; outOfB = regionOutward(rb, p); }
+  }
+  return Contact(p, max(0.0, -dA) + max(0.0, -dB), outOfB, 1u);
+}
+
+// -- batch contacts, for tests and tools ----------------------------------------------
+
+struct ContactQuery {
+  path_a : u32,       // indices into paths
+  path_b : u32,
+};
+
+@group(0) @binding(3) var<storage, read> contactQueries : array<ContactQuery>;
+@group(0) @binding(4) var<storage, read_write> contactResults : array<Contact>;
+
+@compute @workgroup_size(64)
+fn contactFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= arrayLength(&contactQueries)) { return; }
+  let q = contactQueries[i];
+  contactResults[i] = pathContact(paths[q.path_a], paths[q.path_b]);
+}

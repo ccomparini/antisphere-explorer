@@ -107,25 +107,6 @@ struct Light {
 @group(0) @binding(3) var<storage, read> lights : array<Light>;
 @group(0) @binding(4) var<storage, read> materials : array<Material>;
 
-// The implicit function at an arbitrary point. trace() no longer calls this:
-// along a ray it works with the A/B/C coefficients of the same polynomial
-// instead, which is cheaper. Kept because it is the definition everything
-// else is derived from, and for callers that have a point rather than a ray.
-fn fAt(nd : Node, R : vec3<f32>) -> f32 {
-  let along = dot(nd.axis, R);
-  return nd.curvature_perp * dot(R, R) + nd.curvature_delta * along * along
-       + dot(nd.linear, R) + nd.const_term;
-}
-
-// grad H = 2KR + 2c, which is exactly the stored coefficients. Reduces to
-// 2kR + 2c for a sphere and to the plane's own normal when both curvatures
-// are zero. Callers normalize, so the factor of two is harmless.
-fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
-  return 2.0 * nd.curvature_perp * R
-       + 2.0 * nd.curvature_delta * dot(nd.axis, R) * nd.axis
-       + nd.linear;
-}
-
 // A stack entry is a piece of work not yet done: an interval of the ray and
 // the node that interval still has to be tested against. Plain fields
 // rather than packed words: the array is per-invocation, so this costs more

@@ -2,6 +2,7 @@
   "outputs": [
     { "entry": "shaders/antisphere-raycast.wgsls", "out": "public/gen/antisphere-raycast.wgsl" },
     { "entry": "shaders/overlap.wgsls", "out": "public/gen/overlap.wgsl" },
+    { "entry": "shaders/physics.wgsls", "out": "public/gen/physics.wgsl" },
     { "entry": "shaders/blit.wgsls", "out": "public/gen/blit.wgsl" }
   ],
   "layouts": "public/gen/layouts.js"

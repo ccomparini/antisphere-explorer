@@ -57,6 +57,25 @@ struct Node {
   env             : i32,
 };
 
+// The implicit function at an arbitrary point. trace() no longer calls this:
+// along a ray it works with the A/B/C coefficients of the same polynomial
+// instead, which is cheaper. Kept because it is the definition everything
+// else is derived from, and for callers that have a point rather than a ray.
+fn fAt(nd : Node, R : vec3<f32>) -> f32 {
+  let along = dot(nd.axis, R);
+  return nd.curvature_perp * dot(R, R) + nd.curvature_delta * along * along
+       + dot(nd.linear, R) + nd.const_term;
+}
+
+// grad H = 2KR + 2c, which is exactly the stored coefficients. Reduces to
+// 2kR + 2c for a sphere and to the plane's own normal when both curvatures
+// are zero. Callers normalize, so the factor of two is harmless.
+fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
+  return 2.0 * nd.curvature_perp * R
+       + 2.0 * nd.curvature_delta * dot(nd.axis, R) * nd.axis
+       + nd.linear;
+}
+
 // Antisphere ray caster.
 //
 // An antisphere is nine numbers: a unit axis of revolution, a curvature
@@ -165,25 +184,6 @@ struct Light {
 @group(0) @binding(2) var outTex : texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(3) var<storage, read> lights : array<Light>;
 @group(0) @binding(4) var<storage, read> materials : array<Material>;
-
-// The implicit function at an arbitrary point. trace() no longer calls this:
-// along a ray it works with the A/B/C coefficients of the same polynomial
-// instead, which is cheaper. Kept because it is the definition everything
-// else is derived from, and for callers that have a point rather than a ray.
-fn fAt(nd : Node, R : vec3<f32>) -> f32 {
-  let along = dot(nd.axis, R);
-  return nd.curvature_perp * dot(R, R) + nd.curvature_delta * along * along
-       + dot(nd.linear, R) + nd.const_term;
-}
-
-// grad H = 2KR + 2c, which is exactly the stored coefficients. Reduces to
-// 2kR + 2c for a sphere and to the plane's own normal when both curvatures
-// are zero. Callers normalize, so the factor of two is harmless.
-fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
-  return 2.0 * nd.curvature_perp * R
-       + 2.0 * nd.curvature_delta * dot(nd.axis, R) * nd.axis
-       + nd.linear;
-}
 
 // A stack entry is a piece of work not yet done: an interval of the ray and
 // the node that interval still has to be tested against. Plain fields
@@ -692,4 +692,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":57},{"path":"shaders/antisphere-raycast.wgsls","offset":59,"lines":635}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/antisphere-raycast.wgsls","offset":78,"lines":616}]
