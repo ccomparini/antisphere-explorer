@@ -153,3 +153,23 @@ test('an unknown camera mode is refused', () => {
   const cam = new AttachedCamera(new WorldObject('m'));
   assert.throws(() => { cam.mode = 'orbit'; }, /not one of forward, lookAt/);
 });
+
+// -- time ---------------------------------------------------------------------------
+
+test('World.update gives every object its update, with dt and the world', () => {
+  const world = new World();
+  const calls = [];
+  const spinner = world.add(new WorldObject('spinner', {
+    update: (self, dt, w) => calls.push([self.name, dt, w === world]),
+  }));
+  world.add(new WorldObject('still'));                           // no behaviour: does nothing
+  class Drifter extends WorldObject {
+    update(dt) { this.setPosition([this.position[0] + dt, 0, 0]); }
+  }
+  const drifter = world.add(new Drifter('drifter'));
+  world.update(0.25);
+  world.update(0.5);
+  assert.deepEqual(calls, [['spinner', 0.25, true], ['spinner', 0.5, true]]);
+  assert.deepEqual(drifter.position, [0.75, 0, 0]);
+  assert.equal(spinner.behaviour !== null, true);
+});
