@@ -5,7 +5,7 @@
 //   left / right arrows   which object the controls fly
 //   up / down arrows      what the camera looks at; its own object means
 //                         "look forward"
-//   space                 fire a capsule the way the camera looks
+//   space                 fire an octahedron the way the camera looks
 //
 // (flight-input.js has the rest of the keys.)
 //
@@ -19,6 +19,7 @@ import { FlightControl, levelOrientation } from './flight.js';
 import { attachFlightInput } from './flight-input.js';
 import { fromBasis, fromAxisAngle, fromTo, multiply } from './quat.js';
 import { PhysicsWorld } from './physics-world.js';
+import { octahedron, octahedronBody } from './shapes.js';
 import { loadText, checkShader } from '../gpu-setup.js';
 import { FrameProfiler } from './profiler.js';
 
@@ -33,6 +34,7 @@ const SURROUNDINGS = {
     nose: { albedo: [0.80, 0.15, 0.10] },
     ball: { albedo: [0.20, 0.45, 0.80] },
     capsule: { albedo: [0.90, 0.70, 0.20] },
+    octahedron: { albedo: [0.35, 0.75, 0.45] },
   },
   // A distant sun. Light falls off as color / (1 + d^2), so at about 7 km
   // it takes a color in the tens of millions to light the ground.
@@ -45,7 +47,11 @@ const GM = 9.81 * RADIUS * RADIUS;
 // Thrust while flying a simulated body, m/s^2: more than gravity, so a
 // rocket pointed up climbs.
 const THRUST = 15;
-// A fired capsule's speed, m/s, and how far ahead of the eye its centre
+// What Space fires: octahedra 1.5 m from centre to corner (so 2.1 m
+// along an edge), and as heavy as a capsule.
+const FIRED = octahedron(1.5, 'octahedron');
+const FIRED_BODY = octahedronBody(1.5, { mass: 150 });
+// Their speed, m/s, and how far ahead of the eye each one's centre
 // starts (beyond the reach of the body the camera rides on, if any).
 const FIRE_SPEED = 25;
 const FIRE_AHEAD = 3;
@@ -209,19 +215,19 @@ async function main() {
     camera.target = next === camera.object ? null : next.position;   // held by reference
     showStatus();
   };
-  // Space fires another capsule: pointing, and moving at FIRE_SPEED, the
+  // Space fires another octahedron: pointing, and moving at FIRE_SPEED, the
   // way the camera looks, from just ahead of it.
   let fired = 0;
   const fire = () => {
     const { eye, forward } = camera.basis();
     const ahead = FIRE_AHEAD + (camera.object.body ? camera.object.body.radius : 0);
-    const capsule = world.add(new WorldObject(`capsule-${++fired}`, {
+    const shot = world.add(new WorldObject(`octahedron-${++fired}`, {
       position: eye.map((v, i) => v + ahead * forward[i]),
       orientation: fromTo([0, 1, 0], forward),
-      geometry: CAPSULE,
-      body: CAPSULE_BODY,
+      geometry: FIRED,
+      body: FIRED_BODY,
     }));
-    physics.add(capsule, forward.map((v) => FIRE_SPEED * v));
+    physics.add(shot, forward.map((v) => FIRE_SPEED * v));
   };
   attachFlightInput(canvas, flight, { commands: {
     ArrowLeft: () => flyNext(-1), ArrowRight: () => flyNext(1),
