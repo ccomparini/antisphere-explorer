@@ -302,6 +302,21 @@ generally much cheaper to traverse than an equivalent `"union"`. A member
 with no provable bound must be given `"bounds"` explicitly, or the group
 fails to compile. Takes no `"inside"`/`"outside"` of its own.
 
+```
+{ "group": [ <subtree-or-name>, ... ], "overlapping": true }
+```
+
+An **overlapping** group drops the claim: members may overlap, and it is
+then solid wherever any member is, like a `"union"`, but still built as a
+hierarchy. Members that can't touch are split apart as usual. Members whose
+bounds overlap always end up together in a chain, joined as a union where
+they meet. The compiler reports every such pair: `compileScene()` returns
+`overlaps`, one `{ "group": <its path>, "members": [i, j] }` for each pair
+of members (indices into its array, `i < j`) whose bounds overlap. That is
+a broad phase for collisions: only those pairs can touch. Every member
+still needs a bound. Physlab builds its world this way, with each moving
+body's `"bounds"` padded by how far it can move before the next compile.
+
 **Only a sphere or a spheroid bounds anything by itself.** Everything else in
 the table above runs off along its axis — a cylinder, cone, paraboloid,
 hyperboloid or slab is unbounded, as is any half-space.

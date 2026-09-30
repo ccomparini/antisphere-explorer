@@ -1369,7 +1369,18 @@ export function compileScene(rawSpec, options = {}) {
     return it.wrapped;
   }
 
-  function partition(items) {
+  // `overlaps`, for an overlapping group, collects the pairs of members
+  // whose balls overlap, keyed "i,j"; null for a strict one, which has none.
+  //
+  // Two overlapping members are never parted by a split - cleanSplit needs
+  // a gap between them, and looseSplit sends a member it cuts to both
+  // sides - so they always end up in the same chain, below, and that is
+  // the only place pairs need testing. Within a chain, a member that
+  // overlaps a later one is unioned with the rest of the chain: an absent
+  // outside means empty (DESIGN.md), so inside its ball, whatever of the
+  // others is there would otherwise vanish. One that overlaps none keeps
+  // the plain chain link, so a strict group compiles as it always did.
+  function partition(items, overlaps) {
     if (!items.length) return null;
     if (items.length === 1) return wrap(items[0]);
     const s = chooseSplit(items);
@@ -1377,13 +1388,29 @@ export function compileScene(rawSpec, options = {}) {
       let acc = null;
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i];
-        acc = selfBounded(it.tree)
-          ? node(it.tree.prim, it.tree.inside, acc, it.tree.material, it.tree.env, it.tree.prov)
-          : node(sphere(it.ball.c, it.ball.r), it.tree, acc);
+        let meets = false;
+        if (overlaps) {
+          for (let j = i + 1; j < items.length; j++) {
+            const other = items[j];
+            if (dist3(it.ball.c, other.ball.c) >= it.ball.r + other.ball.r) continue;
+            meets = true;
+            const pair = [it.index, other.index].sort((a, b) => a - b);
+            overlaps.set(pair.join(), pair);
+          }
+        }
+        if (meets) {
+          acc = selfBounded(it.tree)
+            ? union(it.tree, acc)
+            : node(sphere(it.ball.c, it.ball.r), union(it.tree, acc), acc);
+        } else {
+          acc = selfBounded(it.tree)
+            ? node(it.tree.prim, it.tree.inside, acc, it.tree.material, it.tree.env, it.tree.prov)
+            : node(sphere(it.ball.c, it.ball.r), it.tree, acc);
+        }
       }
       return acc;
     }
-    return node(s.prim, partition(s.inside), partition(s.outside));
+    return node(s.prim, partition(s.inside, overlaps), partition(s.outside, overlaps));
   }
 
   // "group" is a union plus an assertion: the members' bounding spheres are
@@ -1413,8 +1440,16 @@ export function compileScene(rawSpec, options = {}) {
       }
       // Nudge outward so a surface lying exactly on its own bound is not
       // split by the test.
-      parts.push({ label, tree: t, ball: { c: b.c, r: b.r * (1 + 1e-4) + 1e-6 } });
+      parts.push({ label, index: i, tree: t, ball: { c: b.c, r: b.r * (1 + 1e-4) + 1e-6 } });
     });
+
+    // Overlapping: the partition finds and reports the pairs that overlap.
+    if (def.overlapping) {
+      const found = new Map();
+      const out = partition(parts, found);
+      for (const members of found.values()) overlaps.push({ group: path, members });
+      return out;
+    }
 
     // A violated claim would silently drop geometry, so check it.
     for (let i = 0; i < parts.length; i++) {
@@ -1427,7 +1462,7 @@ export function compileScene(rawSpec, options = {}) {
       }
     }
 
-    return partition(parts);
+    return partition(parts, null);
   }
 
   // The CSG combinations, all of them arrays of subtrees and all built the
@@ -1533,6 +1568,7 @@ export function compileScene(rawSpec, options = {}) {
 
 
   if (!spec.root) at('root', 'missing');
+  const overlaps = [];
   const nodes = flatten(bakeScopes(tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] })));
   return {
     nodes,
@@ -1542,6 +1578,9 @@ export function compileScene(rawSpec, options = {}) {
     materials: table,
     lights: lightList,
     camera: spec.camera || null,
+    // For each "overlapping" group, the members whose bounds overlap:
+    // { group: its path, members: [i, j] }, indices into its array, i < j.
+    overlaps,
   };
 }
 

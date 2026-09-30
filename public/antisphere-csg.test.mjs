@@ -241,6 +241,76 @@ test('a difference can be a group member, and is bounded by what it cuts', () =>
   assert.equal(solidAt(scene, [0.7, 0, 0]), true);
 });
 
+// -- overlapping groups ----------------------------------------------------------------
+
+test('an overlapping group is A or B or C, and reports that A and B overlap', () => {
+  const C = { sphere: { center: [0, 0, 3], radius: 0.5 }, material: 'clay' };
+  const inC = (R) => R[0] ** 2 + R[1] ** 2 + (R[2] - 3) ** 2 < 0.25;
+  const built = build({ group: [A, B, C], overlapping: true });
+  agrees(built, (R) => inA(R) || inB(R) || inC(R), 'overlapping group',
+         [...CLEAR, [0, 0, 3], [0.2, 0.1, 2.8], [0, 0, 3.6]]);
+  assert.deepEqual(built.overlaps, [{ group: 'root.inside', members: [0, 1] }]);
+  // Without the flag, the same members are still refused.
+  assert.throws(() => build({ group: [A, B, C] }), /not mutually exterior/);
+});
+
+test('an overlapping group of many members is their union, and finds exactly the pairs whose bounds meet', () => {
+  // Spheres, and capped rods given bounds (a cylinder and a slab bound
+  // nothing themselves), scattered so that some overlap and some don't.
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const members = [], inside = [], surfaces = [], balls = [];
+  for (let i = 0; i < 24; i++) {
+    const c = [rnd() * 12 - 6, rnd() * 12 - 6, rnd() * 3 - 1.5];
+    if (i % 2) {
+      const r = 0.3 + rnd() * 0.9;
+      members.push({ sphere: { center: c, radius: r }, material: 'clay' });
+      inside.push((R) => ballAt(c, r)(R) < 0);
+      surfaces.push(ballAt(c, r));
+      balls.push({ c, r });
+    } else {
+      const axis = [rnd() - 0.5, rnd() - 0.5, rnd() - 0.5];
+      const n = Math.hypot(...axis), u = axis.map((v) => v / n);
+      const rr = 0.2 + rnd() * 0.3, half = 0.5 + rnd();
+      const reach = Math.hypot(rr, half);
+      members.push({ intersect: [
+        { cylinder: { center: c, axis: u, radius: rr }, material: 'sky' },
+        { slab: { center: c, axis: u, thickness: 2 * half }, material: 'sky' },
+      ], bounds: { center: c, radius: reach } });
+      const along = (R) => dot(R.map((v, k) => v - c[k]), u);
+      const across = (R) => Math.hypot(...R.map((v, k) => v - c[k] - along(R) * u[k]));
+      inside.push((R) => across(R) < rr && Math.abs(along(R)) < half);
+      surfaces.push((R) => Math.min(Math.abs(across(R) - rr), Math.abs(Math.abs(along(R)) - half)));
+      balls.push({ c, r: reach });
+    }
+  }
+  const built = build({ group: members, overlapping: true });
+  const points = [];
+  for (let k = 0; k < 4000; k++) points.push([rnd() * 16 - 8, rnd() * 16 - 8, rnd() * 5 - 2.5]);
+  // and many within every member's ball, where overlaps are: inside a
+  // rod's ball but outside the rod is where a neighbour would vanish if
+  // the chain didn't union them.
+  for (const b of balls) {
+    for (let k = 0; k < 150; k++) points.push(b.c.map((v) => v + (rnd() * 2 - 1) * b.r));
+  }
+  const clear = points.filter((R) => surfaces.every((f) => Math.abs(f(R)) > 1e-3));
+  agrees(built, (R) => inside.some((f) => f(R)), 'overlapping group of many', clear);
+
+  // The pairs: every pair whose balls meet (as the group nudges them), and
+  // no other.
+  const grown = balls.map((b) => ({ c: b.c, r: b.r * (1 + 1e-4) + 1e-6 }));
+  const expected = [];
+  for (let i = 0; i < grown.length; i++) {
+    for (let j = i + 1; j < grown.length; j++) {
+      const d = Math.hypot(...grown[i].c.map((v, k) => v - grown[j].c[k]));
+      if (d < grown[i].r + grown[j].r) expected.push([i, j]);
+    }
+  }
+  const got = built.overlaps.map((o) => o.members).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  assert.ok(expected.length > 3 && expected.length < 100, `a fair test: ${expected.length} overlapping pairs`);
+  assert.deepEqual(got, expected);
+});
+
 // -- materials and provenance ------------------------------------------------------
 
 test('what survives a difference keeps its own material', () => {
