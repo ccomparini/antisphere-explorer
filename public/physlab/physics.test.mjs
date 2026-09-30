@@ -514,7 +514,7 @@ gpuTest('only the pairs set are tested: with none, a sphere falls through the gr
   t.destroy();
 });
 
-gpuTest('an overlapping group of the world is the broad phase: far pairs untested, and everything still lands', async () => {
+gpuTest('a group of the world is the broad phase: far pairs untested, and everything still lands', async () => {
   // A ball on the ground, one falling from 60 m (too far to touch anything
   // at first; its bounds must grow with its speed in time to meet the
   // ground's), and two rods apart from them, all around a planet.
@@ -532,7 +532,7 @@ gpuTest('an overlapping group of the world is the broad phase: far pairs unteste
     ] },
     body: { mass: 10, centre: 0, inertia: 16 / 12, radius: 2.1 },
   }));
-  const low = ball('low', [0, 0, 501.5]);
+  const low = ball('low', [0, 0, 501]);                // resting on the ground
   const high = ball('high', [8, 0, 560]);
   const rods = [rod('rod1', [20, 0, 502]), rod('rod2', [-20, 0, 502])];
   const physics = new PhysicsWorld(device, module, world, {

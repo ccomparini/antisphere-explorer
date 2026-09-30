@@ -223,7 +223,7 @@ test('operators work through use, transforms and objects', () => {
          clearOf(ballAt([0, 0, 0], 1), ballAt([0.8, 0, 0], 0.6)));
 });
 
-test('a difference can be a group member, and is bounded by what it cuts', () => {
+test('a difference can be a group member', () => {
   const scene = compileScene({
     materials: { clay: {} }, lights: [],
     objects: {
@@ -235,26 +235,105 @@ test('a difference can be a group member, and is bounded by what it cuts', () =>
     },
     root: { group: ['carved', 'ball'] },
   });
-  assert.ok(scene.nodes.length > 4);
+  assert.equal(solidAt(scene, [8, 0, 0]), true, 'the other member');
   // The bore really is bored: on the axis, inside the sphere, nothing solid.
   assert.equal(solidAt(scene, [0, 0, 0]), false);
   assert.equal(solidAt(scene, [0.7, 0, 0]), true);
 });
 
-// -- overlapping groups ----------------------------------------------------------------
+// -- groups ------------------------------------------------------------------------------
+//
+// A group is a union whose members are each grafted only where they may
+// be (buildGroup in antisphere-scene.js): solid wherever any member is,
+// overlapping or not, and reporting the pairs of members that may overlap.
 
-test('an overlapping group is A or B or C, and reports that A and B overlap', () => {
+test('a group is A or B or C, overlapping or not, and reports that A and B may overlap', () => {
   const C = { sphere: { center: [0, 0, 3], radius: 0.5 }, material: 'clay' };
   const inC = (R) => R[0] ** 2 + R[1] ** 2 + (R[2] - 3) ** 2 < 0.25;
-  const built = build({ group: [A, B, C], overlapping: true });
-  agrees(built, (R) => inA(R) || inB(R) || inC(R), 'overlapping group',
+  const built = build({ group: [A, B, C] });
+  agrees(built, (R) => inA(R) || inB(R) || inC(R), 'group',
          [...CLEAR, [0, 0, 3], [0.2, 0.1, 2.8], [0, 0, 3.6]]);
   assert.deepEqual(built.overlaps, [{ group: 'root.inside', members: [0, 1] }]);
-  // Without the flag, the same members are still refused.
-  assert.throws(() => build({ group: [A, B, C] }), /not mutually exterior/);
 });
 
-test('an overlapping group of many members is their union, and finds exactly the pairs whose bounds meet', () => {
+// Where a sphere with this centre is referenced from in a compiled tree:
+// the [node, 'inside' | 'outside'] slots that lead to it.
+function slotsOf(built, centre) {
+  const isIt = (nd) => nd.prim.k_perp > 0 && nd.prim.linear.every((v, i) => Math.abs(-v / nd.prim.k_perp - centre[i]) < 1e-9);
+  const out = [];
+  built.nodes.forEach((nd, i) => {
+    if (!i) return;
+    if (nd.inside && isIt(built.nodes[nd.inside])) out.push([i, 'inside']);
+    if (nd.outside && isIt(built.nodes[nd.outside])) out.push([i, 'outside']);
+  });
+  return out;
+}
+
+test('a member of material null claims its region like any other: the group is the same tree', () => {
+  // Nodes only divide space; what fills a region is the material's
+  // business. A cube with no material and one of clay make the same
+  // group, and a ball inside the cube is in the region it claims either
+  // way.
+  const cube = (material) => ({ intersect: [0, 1, 2].map((k) => ({
+    slab: { center: [0, 0, 0], axis: [0, 1, 2].map((j) => (j === k ? 1 : 0)), thickness: 2 }, material })) });
+  const inCube = { sphere: { center: [0.2, 0, 0], radius: 0.3 }, material: 'sky' };
+  const beside = { sphere: { center: [3, 0, 0], radius: 0.5 }, material: 'sky' };
+  const shape = (built) => built.nodes.map((n) => ({ prim: n.prim, inside: n.inside, outside: n.outside }));
+  const vacuum = build({ group: [cube(null), inCube, beside] });
+  const clay = build({ group: [cube('clay'), inCube, beside] });
+  assert.deepEqual(shape(vacuum), shape(clay));
+  assert.deepEqual(vacuum.overlaps, clay.overlaps);
+  assert.deepEqual(vacuum.overlaps.map((o) => o.members), [[0, 1]], 'the ball in the cube; not the one beside it');
+  // The earlier claim stands: in the vacuum cube, the ball isn't there.
+  assert.equal(solidAt(vacuum, [0.2, 0, 0]), false);
+  assert.equal(solidAt(vacuum, [3, 0, 0]), true);
+});
+
+test('a member reaching a shared subtree two ways goes where each way says', () => {
+  // A quadrant, x < 0 and y < 0, leaves two absent outsides: x > 0, and
+  // x < 0 with y > 0. A half-space, z < 0, goes into both, so its node is
+  // shared. Then B, two small balls: one at (-5, 5, -5), the other at
+  // (5, -5, 5). Coming in by x > 0, the ball at x = -5 is ruled out, so
+  // B arrives at the half-space with only (5, -5, 5) possible, which is
+  // beyond it: B is grafted onto its outside. Coming in by x < 0, only
+  // (-5, 5, -5) is possible, which is inside the half-space's claim: no
+  // graft. What happens below a node depends on which of B's paths are
+  // still possible, so that, not the node alone, is what a result can be
+  // reused for: keyed by node alone, the second way in (x < 0 is tried
+  // first) would take the first's answer and lose the ball at (5, -5, 5).
+  const half = (normal) => ({ plane: { normal, offset: 0 }, material: 'clay' });
+  const quadrant = { intersect: [half([1, 0, 0]), half([0, 1, 0])] };
+  const below = half([0, 0, 1]);
+  const twoBalls = { union: [
+    { sphere: { center: [-5, 5, -5], radius: 0.5 }, material: 'sky' },
+    { sphere: { center: [5, -5, 5], radius: 0.5 }, material: 'sky' },
+  ] };
+  const built = build({ group: [quadrant, below, twoBalls] });
+  const union = build({ union: [quadrant, below, twoBalls] });
+  assert.equal(solidAt(built, [5, -5, 5]), true, 'the ball at (5, -5, 5)');
+  for (const R of GRID.map(([x, y, z]) => [x * 3, y * 4, z * 6])) {
+    assert.equal(solidAt(built, R), solidAt(union, R), `at (${R})`);
+  }
+});
+
+test('a member beyond one face of an octahedron hangs off that face alone', () => {
+  const s = 1 / Math.sqrt(3);
+  const faces = [];
+  for (const sy of [1, -1]) for (const [sx, sz] of [[1, 1], [-1, 1], [-1, -1], [1, -1]]) {
+    faces.push({ plane: { normal: [sx * s, sy * s, sz * s], offset: 1.5 * s }, material: 'clay' });
+  }
+  // Beyond the (+1, +1, +1) face, the first, and clear of every other's
+  // outside... except none: a point beyond one face is inside the rest.
+  const c = [1.6, 1.6, 1.6];
+  const built = build({ group: [{ intersect: faces }, { sphere: { center: c, radius: 0.5 }, material: 'clay' }] });
+  const slots = slotsOf(built, c);
+  assert.equal(slots.length, 1, `grafted at ${JSON.stringify(slots)}`);
+  const face = built.nodes[slots[0][0]].prim.linear;
+  assert.ok(face.every((v) => v > 0) && slots[0][1] === 'outside', 'the outside of the (+1, +1, +1) face');
+});
+
+
+test('a group of many members, overlapping, is their union, and reports every pair that overlaps', () => {
   // Spheres, and capped rods given bounds (a cylinder and a slab bound
   // nothing themselves), scattered so that some overlap and some don't.
   let seed = 11;
@@ -284,7 +363,7 @@ test('an overlapping group of many members is their union, and finds exactly the
       balls.push({ c, r: reach });
     }
   }
-  const built = build({ group: members, overlapping: true });
+  const built = build({ group: members });
   const points = [];
   for (let k = 0; k < 4000; k++) points.push([rnd() * 16 - 8, rnd() * 16 - 8, rnd() * 5 - 2.5]);
   // and many within every member's ball, where overlaps are: inside a
@@ -296,19 +375,93 @@ test('an overlapping group of many members is their union, and finds exactly the
   const clear = points.filter((R) => surfaces.every((f) => Math.abs(f(R)) > 1e-3));
   agrees(built, (R) => inside.some((f) => f(R)), 'overlapping group of many', clear);
 
-  // The pairs: every pair whose balls meet (as the group nudges them), and
-  // no other.
-  const grown = balls.map((b) => ({ c: b.c, r: b.r * (1 + 1e-4) + 1e-6 }));
-  const expected = [];
-  for (let i = 0; i < grown.length; i++) {
-    for (let j = i + 1; j < grown.length; j++) {
-      const d = Math.hypot(...grown[i].c.map((v, k) => v - grown[j].c[k]));
-      if (d < grown[i].r + grown[j].r) expected.push([i, j]);
+  // The pairs: every pair seen to overlap (some point inside both) is
+  // reported, and no pair whose balls are apart is.
+  const reported = new Set(built.overlaps.map((o) => o.members.join()));
+  const seen = new Set();
+  for (const R of points) {
+    const hits = inside.map((f, i) => (f(R) ? i : -1)).filter((i) => i >= 0);
+    for (let a = 0; a < hits.length; a++) for (let b = a + 1; b < hits.length; b++) seen.add(`${hits[a]},${hits[b]}`);
+  }
+  assert.ok(seen.size > 3, `a fair test: ${seen.size} pairs seen to overlap`);
+  for (const pair of seen) assert.ok(reported.has(pair), `${pair} overlap, but weren't reported`);
+  for (const pair of reported) {
+    const [i, j] = pair.split(',').map(Number);
+    const d = Math.hypot(...balls[i].c.map((v, k) => v - balls[j].c[k]));
+    assert.ok(d < balls[i].r + balls[j].r + 1e-6, `${pair} reported, but their balls are apart`);
+  }
+});
+
+test('a group of capsules, octahedra and spheres is their union, however their trees share parts', () => {
+  // Capsules are unions of an intersection and two spheres, so their trees
+  // share subtrees, reached from several places; a member grafted into
+  // such a subtree is pruned by the path it came in on, and must still be
+  // wherever the union says. Octahedra are all planes. Given no bounds, so
+  // all the proofs are the members' own shapes.
+  let seed = 23;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const members = [], inside = [];
+  const s3 = 1 / Math.sqrt(3);
+  for (let i = 0; i < 18; i++) {
+    const c = [rnd() * 10 - 5, rnd() * 10 - 5, rnd() * 3 - 1.5];
+    const kind = i % 3;
+    if (kind === 0) {                       // a capsule
+      const axis = [rnd() - 0.5, rnd() - 0.5, rnd() - 0.5];
+      const n = Math.hypot(...axis), u = axis.map((v) => v / n);
+      const r = 0.2 + rnd() * 0.3, half = 0.4 + rnd() * 0.8;
+      const end = (sgn) => c.map((v, k) => v + sgn * half * u[k]);
+      members.push({ union: [
+        { intersect: [
+          { cylinder: { center: c, axis: u, radius: r }, material: 'clay' },
+          { slab: { center: c, axis: u, thickness: 2 * half }, material: 'clay' },
+        ] },
+        { sphere: { center: end(1), radius: r }, material: 'clay' },
+        { sphere: { center: end(-1), radius: r }, material: 'clay' },
+      ] });
+      inside.push((R) => {
+        const t = Math.max(-half, Math.min(half, dot(R.map((v, k) => v - c[k]), u)));
+        return Math.hypot(...R.map((v, k) => v - c[k] - t * u[k])) < r;
+      });
+    } else if (kind === 1) {               // an octahedron, turned
+      const a = 0.5 + rnd();
+      const faces = [];
+      for (const sy of [1, -1]) for (const [sx, sz] of [[1, 1], [-1, 1], [-1, -1], [1, -1]]) {
+        faces.push({ plane: { normal: [sx * s3, sy * s3, sz * s3], offset: a * s3 }, material: 'sky' });
+      }
+      const degrees = rnd() * 90;
+      const axis = [rnd(), rnd(), rnd()];
+      members.push({ intersect: faces, rotate: { axis, degrees }, translate: c });
+      const n = Math.hypot(...axis), u = axis.map((v) => v / n), th = -degrees * Math.PI / 180;
+      inside.push((R) => {                  // turned back, then |x| + |y| + |z| < a
+        const d = R.map((v, k) => v - c[k]);
+        const along = dot(u, d), x = [u[1] * d[2] - u[2] * d[1], u[2] * d[0] - u[0] * d[2], u[0] * d[1] - u[1] * d[0]];
+        const back = d.map((v, k) => v * Math.cos(th) + x[k] * Math.sin(th) + u[k] * along * (1 - Math.cos(th)));
+        return Math.abs(back[0]) + Math.abs(back[1]) + Math.abs(back[2]) < a;
+      });
+    } else {                                // a sphere
+      const r = 0.3 + rnd() * 0.8;
+      members.push({ sphere: { center: c, radius: r }, material: 'clay' });
+      inside.push((R) => ballAt(c, r)(R) < 0);
     }
   }
-  const got = built.overlaps.map((o) => o.members).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  assert.ok(expected.length > 3 && expected.length < 100, `a fair test: ${expected.length} overlapping pairs`);
-  assert.deepEqual(got, expected);
+  const built = build({ group: members });
+  const union = build({ union: members });
+  // Points everywhere, and many around each member.
+  const points = [];
+  for (let k = 0; k < 6000; k++) points.push([rnd() * 12 - 6, rnd() * 12 - 6, rnd() * 5 - 2.5]);
+  // Compared with the union of the same members, not a formula: points on
+  // a surface are a coin toss either way, and the two agree on those too.
+  let agreeing = 0, solid = 0;
+  for (const R of points) {
+    const want = solidAt(union, R);
+    assert.equal(solidAt(built, R), want, `at (${R.map((v) => +v.toFixed(2))})`);
+    agreeing++;
+    if (want) solid++;
+  }
+  assert.ok(solid > 100, `a fair test: ${solid} of ${agreeing} points solid`);
+  // And the union is what the members say.
+  const wrong = points.filter((R) => solidAt(union, R) !== inside.some((f) => f(R)));
+  assert.ok(wrong.length < 3, `the union itself disagrees at ${wrong.length} points`);
 });
 
 // -- materials and provenance ------------------------------------------------------

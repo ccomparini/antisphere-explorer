@@ -35,6 +35,7 @@
 // ---------------------------------------------------------------------------
 
 import { Light, Material, Node } from './gen/layouts.js';
+import { regionsDisjoint } from './overlap.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -1269,155 +1270,194 @@ export function compileScene(rawSpec, options = {}) {
     return typeof d === 'string' ? named(d, path) : tree(d, path, where);
   }
 
-  // Split candidates: planes along the axes and the four body diagonals, plus
-  // spheres about the centroid. Each is tried at every gap between members
-  // sorted along that projection.
-  const SPLIT_DIRS = [[1,0,0], [0,1,0], [0,0,1], [1,1,1], [1,1,-1], [1,-1,1], [-1,1,1]]
+  // "group" is a union, built so that each member hangs only where it can
+  // be. Nodes only divide space, so this is said in their terms alone: a
+  // member claims the regions its absent insides mark (whatever material
+  // fills them - vacuum included), and defers everywhere else through its
+  // absent outsides. Members are folded in in order, like union: each one,
+  // B, is grafted into the absent outsides of the tree so far - never into
+  // a claimed region, where the earlier claim stands - but only where B
+  // may be. Going down, each node's region is tested against B, and once B
+  // is proved clear of the region so far, nothing below is touched and it
+  // stays shared; copies are made only on the way to where B goes.
+  //
+  // So each member's own surfaces divide the space around it for the
+  // members after it: B hangs off only the faces of an earlier octahedron
+  // that it is beyond, and those faces do double duty as its dividers.
+  // Earlier members sit higher, so order is the tree's shape.
+  //
+  // A node reached by several ways in (shared) is grafted once for each
+  // set of B's paths still possible on arrival, which is all that decides
+  // what happens below it.
+  //
+  // Pruning only ever skips a slot B was proved clear of, so the result
+  // is the union's whatever the proofs manage; a missed proof just costs a
+  // graft. And where B reaches a region an earlier member A claims without
+  // being proved clear of it, the two may overlap, and are reported:
+  // `overlaps`, a broad phase for whatever cares what fills them (physics).
+  //
+  // The proofs: a node's region knocks B out if it is disjoint from B's
+  // ball, or from one of the regions on each of B's paths to what it claims
+  // (regionsDisjoint, exact for a pair). A member's "bounds", when given,
+  // is its only test shape - it says where the member may be, which for a
+  // moving body includes where it may move to. Otherwise its paths are
+  // used, and its ball if what it claims is bounded.
+
+  // How much grafting one member may do, in nodes visited, before it falls
+  // back to a plain union (the same result, just unpruned, and then
+  // reported against every member before it).
+  const GRAFT_BUDGET = 20000;
+  // Claimed paths past this many are not used for proofs (the ball still
+  // is).
+  const PROOF_PATHS = 64;
+
+  const UNPROVEN = Symbol('unproven');
+
+  // boundOf() asks which regions are solid; here every absent inside is a
+  // claim, whatever fills it.
+  const claimTable = new Proxy({}, { get: () => ({ solid: true }) });
+  const claimMemo = new Map();
+
+  // A member's claimed regions, as the paths down to them - [{ prim, sign }]
+  // each - or null if there are more than `limit`.
+  function treePaths(t, limit = PROOF_PATHS) {
+    const out = [];
+    let over = false;
+    const walk = (n, carried) => {
+      if (over) return;
+      const inside = [...carried, { prim: n.prim, sign: 1 }];
+      if (n.inside) walk(n.inside, inside);
+      else {
+        out.push(inside);
+        if (out.length > limit) over = true;
+      }
+      if (n.outside) walk(n.outside, [...carried, { prim: n.prim, sign: -1 }]);
+    };
+    if (t) walk(t, []);
+    return over ? null : out;
+  }
+
+  // What a member is tested as: { ball, paths, frame, bound }. `bound` is
+  // its ball as { c, r }, or null if what it claims is unbounded. `frame` is where
+  // the proofs measure: about the member's own ball, so that a small member
+  // far from the origin, beside something big, is proved apart only where
+  // it really is (see regionsDisjoint).
+  function testShapeOf(t) {
+    const b = boundOf(t, declared, claimMemo, claimTable);
+    const bounded = b && b !== UNBOUNDED;
+    const ball = bounded ? sphere(b.c, b.r * (1 + 1e-4) + 1e-6) : null;
+    const frame = bounded ? { c: b.c, L: b.r } : null;
+    const bound = bounded ? { c: b.c, r: b.r } : null;
+    const grown = bounded ? { c: b.c, r: b.r * (1 + 1e-4) + 1e-6 } : null;   // as `ball` is
+    if (declared.has(t)) return { ball, paths: null, frame, bound, grown };
+    return { ball, paths: treePaths(t), frame, bound, grown };
+  }
+
+  // Whether a ball ({ c, r }) is clear of a region, where that is exact and
+  // cheap: a half-space (a plane) or a sphere's inside or outside. Touching
+  // counts as clear, as it does for regionsDisjoint. Undefined for any
+  // other quadric, for the certificate to decide.
+  function ballClear(prim, sign, ball) {
+    const { k_par: kp, k_perp: k, linear: c, constant: d } = prim;
+    if (kp !== k) return undefined;
+    const p = ball.c, r = ball.r;
+    if (k === 0) {
+      // H = 2 c.x + d: over the ball, sign H is least at its centre less r |2c|.
+      const h = 2 * (c[0] * p[0] + c[1] * p[1] + c[2] * p[2]) + d;
+      return sign * h >= 2 * Math.hypot(c[0], c[1], c[2]) * r;
+    }
+    // H = k |x|^2 + 2 c.x + d: a sphere about q = -c / k, of radius R.
+    const q = c.map((v) => -v / k);
+    const R2 = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] - d / k;
+    if (!(R2 > 0)) return undefined;
+    const R = Math.sqrt(R2), apart = dist3(p, q);
+    return sign * k > 0 ? apart >= R + r          // its inside: the two balls apart
+                        : apart + r <= R;         // its outside: the ball within it
+  }
+
+  // Whether B is proved clear of a region once it is also inside `region`
+  // ({ prim, sign }): the paths of B still alive are those no region so
+  // far has knocked out. Returns the new alive list, or null once B is
+  // clear. A shape with no paths to prove with (only a ball, or too many)
+  // starts from UNPROVEN, which only the ball can clear.
+  function knock(shape, alive, region) {
+    if (shape.bound) {
+      const quick = ballClear(region.prim, region.sign, shape.grown);
+      if (quick === true) return null;
+      if (quick === undefined && regionsDisjoint(region.prim, region.sign, shape.ball, 1, shape.frame)) return null;
+    }
+    if (alive === UNPROVEN) return alive;
+    const left = alive.filter((p) => !p.some((r) => regionsDisjoint(region.prim, region.sign, r.prim, r.sign, shape.frame)));
+    return left.length ? left : null;
+  }
+
+  // Members are folded in no more than this many at a time; more than
+  // that are divided first.
+  const FOLD_AT_MOST = 2;
+
+  // Divider directions: planes square to the axes and the four body
+  // diagonals (and spheres, see chooseDivider).
+  const DIVIDER_DIRS = [[1,0,0], [0,1,0], [0,0,1], [1,1,1], [1,1,-1], [1,-1,1], [-1,1,1]]
     .map((d) => { const L = Math.hypot(...d); return d.map((v) => v / L); });
 
-  // A split that separates every member without cutting any of them. Prefers
-  // the most even one. `pref` is the running max of x+r from the low side,
-  // `suf` the running min of x-r from the high side; a gap is clean when they
-  // do not cross.
-  function cleanSplit(items, project, makePrim) {
-    const n = items.length;
-    const arr = items.map((it, i) => ({ i, x: project(it.ball), r: it.ball.r }))
-                     .sort((a, b) => a.x - b.x);
-    const pref = new Array(n), suf = new Array(n);
-    let m = -Infinity;
-    for (let k = 0; k < n; k++) { m = Math.max(m, arr[k].x + arr[k].r); pref[k] = m; }
-    m = Infinity;
-    for (let k = n - 1; k >= 0; k--) { m = Math.min(m, arr[k].x - arr[k].r); suf[k] = m; }
-
-    let cut = null;
-    for (let k = 1; k < n; k++) {
-      if (pref[k - 1] > suf[k]) continue;            // this gap would cut a member
-      const bal = Math.abs(k - n / 2);
-      if (!cut || bal < cut.bal) cut = { bal, k, t: 0.5 * (pref[k - 1] + suf[k]) };
-    }
-    if (!cut) return null;
-    const prim = makePrim(cut.t);
-    if (!prim) return null;
-    return {
-      prim,
-      bal: cut.bal,
-      inside:  arr.slice(0, cut.k).map((a) => items[a.i]),
-      outside: arr.slice(cut.k).map((a) => items[a.i])
-    };
-  }
-
-  // Fallback when nothing separates cleanly: split at the median and put any
-  // member the surface crosses into *both* children. Subtree sharing makes
-  // that one extra reference rather than a copy. Requires strict progress on
-  // both sides so the recursion terminates.
-  function looseSplit(items, project, makePrim) {
-    const xs = items.map((it) => project(it.ball)).sort((a, b) => a - b);
-    const t = xs[Math.floor(xs.length / 2)];
-    const prim = makePrim(t);
-    if (!prim) return null;
-    const inside = [], outside = [];
-    for (const it of items) {
-      const x = project(it.ball), r = it.ball.r;
-      if (x + r <= t) inside.push(it);
-      else if (x - r >= t) outside.push(it);
-      else { inside.push(it); outside.push(it); }
-    }
-    if (inside.length >= items.length || outside.length >= items.length) return null;
-    return { prim, inside, outside, cost: Math.max(inside.length, outside.length) };
-  }
-
-  function chooseSplit(items) {
-    const mid = [0, 1, 2].map((ax) =>
-      items.reduce((s, it) => s + it.ball.c[ax], 0) / items.length);
-
-    const tries = SPLIT_DIRS.map((d) => [
-      (b) => b.c[0] * d[0] + b.c[1] * d[1] + b.c[2] * d[2],
-      (t) => plane(d, t),
-    ]);
-    tries.push([(b) => dist3(b.c, mid), (t) => (t > 1e-6 ? sphere(mid, t) : null)]);
-
+  // The plane that best divides `list`: members whose ball is wholly on its
+  // inside go there, wholly outside go there, and the rest - crossing it,
+  // or unbounded - go to both. Along each direction, a cut in a gap
+  // between members is tried first (the most even one), crossing nothing:
+  // a cut through members' centres, in a grid of beads, went through a
+  // whole row of them and put each on both sides. With no gap, the
+  // median. Best overall is the one whose bigger side is smallest; one
+  // that leaves either side with everything makes no progress, and is no
+  // divider. Null if none helps.
+  function chooseDivider(list) {
     let best = null;
-    for (const [proj, mk] of tries) {
-      const s = cleanSplit(items, proj, mk);
-      if (s && (!best || s.bal < best.bal)) best = s;
-    }
-    if (best) return best;
-    for (const [proj, mk] of tries) {
-      const s = looseSplit(items, proj, mk);
-      if (s && (!best || s.cost < best.cost)) best = s;
+    // A candidate: `along` measures members along it (1-Lipschitz, so a
+    // ball of radius r spans at most x - r .. x + r), and `make` is the
+    // divider at t, whose inside is where along < t.
+    const consider = (along, make, t) => {
+      const inside = [], outside = [];
+      for (const m of list) {
+        const b = m.shape.bound;
+        const x = b ? along(b) : 0;
+        if (b && x + b.r <= t) inside.push(m);
+        else if (b && x - b.r >= t) outside.push(m);
+        else { inside.push(m); outside.push(m); }
+      }
+      if (inside.length >= list.length || outside.length >= list.length) return;
+      const cost = Math.max(inside.length, outside.length);
+      if (!best || cost < best.cost) {
+        const prim = make(t);
+        if (prim) best = { prim, inside, outside, cost };
+      }
+    };
+    const bounded = list.filter((m) => m.shape.bound);
+    const mid = [0, 1, 2].map((k) => bounded.reduce((sum, m) => sum + m.shape.bound.c[k], 0) / Math.max(1, bounded.length));
+    const candidates = [
+      ...DIVIDER_DIRS.map((d) => [(b) => b.c[0] * d[0] + b.c[1] * d[1] + b.c[2] * d[2], (t) => plane(d, t)]),
+      // Spheres about the members' middle, for things laid out round one.
+      [(b) => dist3(b.c, mid), (t) => (t > 1e-6 ? sphere(mid, t) : null)],
+    ];
+    for (const [along, make] of candidates) {
+      const sorted = list.filter((m) => m.shape.bound)
+        .map((m) => ({ x: along(m.shape.bound), r: m.shape.bound.r })).sort((p, q) => p.x - q.x);
+      const n = sorted.length;
+      if (n < 2) continue;
+      // pref[k]: the furthest reach of the first k + 1; suf[k]: the nearest
+      // of the rest from k on. A gap before k when pref[k - 1] <= suf[k].
+      const pref = [], suf = [];
+      sorted.forEach((e, k) => { pref[k] = Math.max(k ? pref[k - 1] : -Infinity, e.x + e.r); });
+      for (let k = n - 1; k >= 0; k--) suf[k] = Math.min(k < n - 1 ? suf[k + 1] : Infinity, sorted[k].x - sorted[k].r);
+      let gap = null;
+      for (let k = 1; k < n; k++) {
+        if (pref[k - 1] > suf[k]) continue;
+        const off = Math.abs(k - n / 2);
+        if (!gap || off < gap.off) gap = { off, t: 0.5 * (pref[k - 1] + suf[k]) };
+      }
+      consider(along, make, gap ? gap.t : sorted[Math.floor(n / 2)].x);
     }
     return best;
   }
 
-  // If the root of the tree has no "outside" geomeetry and encloses no
-  // points at infinity (i.e. it's a sphere or ellipsoid, in our system),
-  // the tree is (trivially) self-bounded:
-  const selfBounded = (t) =>
-    t && !t.outside && regionBall(t.prim, true) !== null;
-
-  // Memoized, so a member landing in two children stays one subtree. The
-  // bounding sphere itself is never meant to be individually visible, so
-  // NO_MATERIAL (vacuum) for it is correct, not just a placeholder: it.tree
-  // supplies the real material wherever it actually gets hit, and the gap
-  // between the two shows through as empty space either way.
-  function wrap(it) {
-    if (!it.wrapped) {
-      it.wrapped = selfBounded(it.tree)
-        ? it.tree
-        : node(sphere(it.ball.c, it.ball.r), it.tree, null);
-    }
-    return it.wrapped;
-  }
-
-  // `overlaps`, for an overlapping group, collects the pairs of members
-  // whose balls overlap, keyed "i,j"; null for a strict one, which has none.
-  //
-  // Two overlapping members are never parted by a split - cleanSplit needs
-  // a gap between them, and looseSplit sends a member it cuts to both
-  // sides - so they always end up in the same chain, below, and that is
-  // the only place pairs need testing. Within a chain, a member that
-  // overlaps a later one is unioned with the rest of the chain: an absent
-  // outside means empty (DESIGN.md), so inside its ball, whatever of the
-  // others is there would otherwise vanish. One that overlaps none keeps
-  // the plain chain link, so a strict group compiles as it always did.
-  function partition(items, overlaps) {
-    if (!items.length) return null;
-    if (items.length === 1) return wrap(items[0]);
-    const s = chooseSplit(items);
-    if (!s) {                                      // no split makes progress
-      let acc = null;
-      for (let i = items.length - 1; i >= 0; i--) {
-        const it = items[i];
-        let meets = false;
-        if (overlaps) {
-          for (let j = i + 1; j < items.length; j++) {
-            const other = items[j];
-            if (dist3(it.ball.c, other.ball.c) >= it.ball.r + other.ball.r) continue;
-            meets = true;
-            const pair = [it.index, other.index].sort((a, b) => a - b);
-            overlaps.set(pair.join(), pair);
-          }
-        }
-        if (meets) {
-          acc = selfBounded(it.tree)
-            ? union(it.tree, acc)
-            : node(sphere(it.ball.c, it.ball.r), union(it.tree, acc), acc);
-        } else {
-          acc = selfBounded(it.tree)
-            ? node(it.tree.prim, it.tree.inside, acc, it.tree.material, it.tree.env, it.tree.prov)
-            : node(sphere(it.ball.c, it.ball.r), it.tree, acc);
-        }
-      }
-      return acc;
-    }
-    return node(s.prim, partition(s.inside, overlaps), partition(s.outside, overlaps));
-  }
-
-  // "group" is a union plus an assertion: the members' bounding spheres are
-  // mutually exterior. That claim is what lets a partition surface separate
-  // them, giving a hierarchy instead of a linear chain. Because one node type
-  // serves as both splitting surface and bounding volume, the result is a BSP
-  // tree and a bounding volume hierarchy at the same time.
   function buildGroup(def, path, where) {
     if (!Array.isArray(def.group)) {
       at(path, 'group takes an array of subtrees, or names of entries under "objects"');
@@ -1425,49 +1465,120 @@ export function compileScene(rawSpec, options = {}) {
     if (def.inside !== undefined || def.outside !== undefined) {
       at(path, 'group is a whole subtree, so it takes no inside or outside');
     }
+    if (def.overlapping !== undefined) {
+      warn(`${path}.overlapping`, 'no longer needed: every group allows overlap and reports it');
+    }
 
-    const parts = [];
+    const members = [];
     def.group.forEach((d, i) => {
       const p = `${path}.group[${i}]`;
       const label = typeof d === 'string' ? `"${d}"` : p;
       const t = operand(d, p, below(where, 'group', String(i)));
       if (t === BUILDING) at(p, `object ${label} refers to itself`);
-      const b = boundOf(t, declared, boundMemo, table);
-      if (b === NO_SOLID) return;                  // contributes nothing
-      if (b === UNBOUNDED) {
-        at(p, `${label} has no bounding sphere, so it cannot be a group member. ` +
-              'Give it "bounds": { "center": [x, y, z], "radius": r }, or use union instead');
-      }
-      // Nudge outward so a surface lying exactly on its own bound is not
-      // split by the test.
-      parts.push({ label, index: i, tree: t, ball: { c: b.c, r: b.r * (1 + 1e-4) + 1e-6 } });
+      if (t) members.push({ index: i, tree: t });
     });
 
-    // Overlapping: the partition finds and reports the pairs that overlap.
-    if (def.overlapping) {
-      const found = new Map();
-      const out = partition(parts, found);
-      for (const members of found.values()) overlaps.push({ group: path, members });
-      return out;
-    }
+    const memberOf = new Map();            // node -> the member it is (a copy of) part of
+    const mark = (t, index) => {
+      const walk = (n) => {
+        if (!n || memberOf.has(n)) return;
+        memberOf.set(n, index);
+        walk(n.inside);
+        walk(n.outside);
+      };
+      walk(t);
+    };
+    const found = new Map();               // "i,j" -> [i, j]
+    const report = (a, b) => {
+      if (a === undefined || a === b) return;
+      const pair = a < b ? [a, b] : [b, a];
+      found.set(pair.join(), pair);
+    };
 
-    // A violated claim would silently drop geometry, so check it.
-    for (let i = 0; i < parts.length; i++) {
-      for (let j = i + 1; j < parts.length; j++) {
-        const A = parts[i].ball, B = parts[j].ball;
-        if (dist3(A.c, B.c) < A.r + B.r) {
-          at(path, `${parts[i].label} and ${parts[j].label} are not mutually ` +
-                   'exterior, so they cannot be grouped. Use union instead');
+    for (const m of members) m.shape = testShapeOf(m.tree);
+
+    // Fold `list` in, in order: each member grafted into the absent
+    // outsides of what the ones before it made, where it may be.
+    const fold = (list) => {
+    let acc = null;
+    const earlier = [];
+    for (const m of list) {
+      if (!acc) {
+        acc = m.tree;
+      } else {
+        const shape = m.shape;
+        let budget = GRAFT_BUDGET;
+        // What happens below a node depends only on which of B's paths are
+        // still possible when it gets there (each region knocks paths out
+        // on its own), so a result is reused for that pair: the same node
+        // reached another way with the same paths possible. Keyed by node
+        // alone, a node shared by two ways in would take the first way's
+        // answer for both.
+        const pathIndex = new Map((shape.paths ?? []).map((p, i) => [p, i]));
+        const aliveKey = (alive) => (alive === UNPROVEN ? '*' : alive.map((p) => pathIndex.get(p)).join());
+        const done = new Map();            // node -> Map(aliveKey -> result)
+        const graft = (t, alive) => {
+          let byAlive = done.get(t);
+          if (!byAlive) { byAlive = new Map(); done.set(t, byAlive); }
+          const key = aliveKey(alive);
+          if (!byAlive.has(key)) byAlive.set(key, graftOnce(t, alive));
+          return byAlive.get(key);
+        };
+        const graftOnce = (t, alive) => {
+          if (--budget < 0) throw GRAFT_BUDGET;
+          let inside = t.inside, outside = t.outside;
+          const owner = memberOf.get(t);
+          const inAlive = knock(shape, alive, { prim: t.prim, sign: 1 });
+          if (inAlive !== null) {
+            if (t.inside) inside = graft(t.inside, inAlive);
+            else report(owner, m.index);           // a region `owner` claims: the claim stands
+          }
+          const outAlive = knock(shape, alive, { prim: t.prim, sign: -1 });
+          if (outAlive !== null) outside = t.outside ? graft(t.outside, outAlive) : m.tree;
+          if (inside === t.inside && outside === t.outside) return t;
+          const copy = node(t.prim, inside, outside, t.material, t.env, t.prov);
+          if (owner !== undefined) memberOf.set(copy, owner);
+          return copy;
+        };
+        try {
+          acc = graft(acc, shape.paths ?? UNPROVEN);
+        } catch (e) {
+          if (e !== GRAFT_BUDGET) throw e;
+          acc = union(acc, m.tree);
+          for (const i of earlier) report(i, m.index);
         }
       }
+      mark(m.tree, m.index);
+      earlier.push(m.index);
     }
+    return acc;
+    };
 
-    return partition(parts, null);
+    // Divide the members among dividers first, top-down, and fold them in
+    // only a few at a time (see chooseDivider): folding a long list makes
+    // a chain as long - each member's absent outside takes the next - and
+    // rays walk all of it. Members are kept in order within each cell, so
+    // where they overlap the earlier claim still stands.
+    const divide = (list) => {
+      if (list.length <= FOLD_AT_MOST) return fold(list);
+      const split = chooseDivider(list);
+      if (!split) return fold(list);
+      const inside = divide(split.inside), outside = divide(split.outside);
+      // A divider has both children, or defers on one side: never an
+      // absent inside, which would claim that side, and hide whatever is
+      // later unioned with the group there. So an empty side goes outside.
+      if (!inside) return node(complementSurface(split.prim), outside, null);
+      return node(split.prim, inside, outside);
+    };
+    const acc = divide(members);
+    for (const pair of found.values()) overlaps.push({ group: path, members: pair });
+    return acc;
   }
 
   // The CSG combinations, all of them arrays of subtrees and all built the
   // same way: fold the operands together with the matching operator.
-  // "group" is separate, being a union plus a disjointness claim.
+  // "group" is separate: a union too, but built to hang each member only
+  // where it can be (buildGroup).
   // (Wrapped: reduce() passes an index and the array too, and union() would
   // take the index for its memo.)
   const COMBINERS = {
@@ -1578,8 +1689,9 @@ export function compileScene(rawSpec, options = {}) {
     materials: table,
     lights: lightList,
     camera: spec.camera || null,
-    // For each "overlapping" group, the members whose bounds overlap:
-    // { group: its path, members: [i, j] }, indices into its array, i < j.
+    // For each group, the members that may overlap - whose overlap its
+    // pruning couldn't rule out (buildGroup): { group: its path, members:
+    // [i, j] }, indices into its array, i < j.
     overlaps,
   };
 }

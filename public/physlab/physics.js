@@ -213,7 +213,7 @@ export class PhysicsSim {
    * Which pairs detect() tries: [{ body, other }], `other` another body's
    * index (not `body`) or bodyCount + a static's index. Each becomes every
    * path of the one against every path of the other, one a thread. The
-   * rest can't touch; a broad phase (such as an overlapping group's
+   * rest can't touch; a broad phase (such as a group's
    * overlaps, see physics-world.js) says which those are.
    */
   setPairs(pairs) {

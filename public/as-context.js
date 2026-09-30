@@ -217,7 +217,7 @@ export class ASScene {
     this.materials = built.materials;
     this.lights = built.lights;
     this.camera = built.camera ?? null;
-    // Members of "overlapping" groups whose bounds overlap (compileScene).
+    // Members of groups that may overlap (compileScene).
     this.overlaps = built.overlaps;
 
     const nodeData = packNodes(built.nodes);

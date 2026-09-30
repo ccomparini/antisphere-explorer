@@ -292,42 +292,46 @@ definition.
 { "group": [ <subtree-or-name>, ... ] }
 ```
 
-A disjoint union: every member's solid region must be proven mutually
-exterior to every other member's (via each member's own bounding sphere, or
-its `"bounds"` if given). This is checked at compile time — a violated claim
-throws rather than silently dropping geometry. In exchange for that
-guarantee, the members are assembled into a BSP-style hierarchy (each split
-also acting as a bounding-volume test) instead of a flat chain, which is
-generally much cheaper to traverse than an equivalent `"union"`. A member
-with no provable bound must be given `"bounds"` explicitly, or the group
-fails to compile. Takes no `"inside"`/`"outside"` of its own.
+A union built for speed: it is whatever the same members make as a
+`"union"`, overlapping or not, but arranged so that a ray tests few of
+them. Takes no `"inside"`/`"outside"` of its own.
 
-```
-{ "group": [ <subtree-or-name>, ... ], "overlapping": true }
-```
+It is said in terms of nodes alone, which only divide space. A member
+*claims* the regions its absent insides mark, whatever material fills them
+(`null` included), and defers everywhere else through its absent outsides.
+Where members overlap, the earlier one's claim stands, as in a `"union"`.
 
-An **overlapping** group drops the claim: members may overlap, and it is
-then solid wherever any member is, like a `"union"`, but still built as a
-hierarchy. Members that can't touch are split apart as usual. Members whose
-bounds overlap always end up together in a chain, joined as a union where
-they meet. The compiler reports every such pair: `compileScene()` returns
-`overlaps`, one `{ "group": <its path>, "members": [i, j] }` for each pair
-of members (indices into its array, `i < j`) whose bounds overlap. That is
-a broad phase for collisions: only those pairs can touch. Every member
-still needs a bound. Physlab builds its world this way, with each moving
-body's `"bounds"` padded by how far it can move before the next compile.
+- **Dividers.** The compiler first splits the members among dividing
+  surfaces, top-down: a plane (square to an axis or a body diagonal) or a
+  sphere, placed in a gap between members where there is one, keeping each
+  side as small as it can. A member wholly on one side goes there; one
+  that crosses the divider, or has no bound, goes to both, shared. A
+  divider has something on both sides, or defers on one - never an absent
+  inside, which would claim that side.
+- **Folding.** The few members left in each cell are folded in, in their
+  order: each is grafted into the absent outsides of those before it, but
+  only where it may be. So an earlier member's own surfaces divide the space
+  for later ones: a ball beyond one face of an octahedron hangs off that
+  face alone.
+- **Overlaps.** Where a member reaches a region an earlier one claims, and
+  can't be proved clear of it, the two may overlap. `compileScene()` returns
+  them as `overlaps`: one `{ "group": <its path>, "members": [i, j] }` per
+  pair (indices into its array, `i < j`). That is a broad phase for
+  physics, which decides for itself what the materials mean.
+
+A member's bound is worked out from what it claims, and helps both the
+dividing and the proofs; a member with none still works, it just can't be
+divided away from anything. `"bounds"`, when given, is used instead, and
+for the proofs it is taken as the whole truth about where the member may
+be. Physlab pads its moving bodies' bounds by how far they may move before
+the next compile, so the overlaps it gets back cover that too.
 
 **Only a sphere or a spheroid bounds anything by itself.** Everything else in
 the table above runs off along its axis — a cylinder, cone, paraboloid,
-hyperboloid or slab is unbounded, as is any half-space.
-
-That's about the primitive alone, though, not about the subtree. A bound is
+hyperboloid or slab is unbounded, as is any half-space. But a bound is
 worked out from the whole subtree, so an unbounded shape carved down by
 something bounded is bounded: a cone with a sphere in its `"inside"` is the
-part of the cone within that sphere, and the sphere's ball bounds it. The
-members that actually need help are the ones with nothing bounded anywhere
-in them — a bare cone, a slab, a `"union"` of unbounded pieces. Give those
-`"bounds"` explicitly, or use `"union"` instead of `"group"`.
+part of the cone within that sphere, and the sphere's ball bounds it.
 
 ### `"union"`, `"intersect"`, `"difference"`
 
@@ -341,9 +345,9 @@ The three general CSG combinations, each an array of subtrees folded left to
 right, each correct for any operands regardless of overlap, and each taking
 no `"inside"`/`"outside"` of its own. One operand means just that operand.
 
-- `"union"` — solid wherever any operand is solid. Use this instead of
-  `"group"` when members might overlap or you can't (or don't want to) prove
-  disjointness.
+- `"union"` — solid wherever any operand is solid. A `"group"` of the same
+  operands is the same, arranged for speed; use `"union"` for the parts of
+  one object, which overlap on purpose.
 - `"intersect"` — solid only where every operand is.
 - `"difference"` — the first operand, minus every operand after it.
 
@@ -467,10 +471,11 @@ entirely.
 ```
 
 Declares a bounding sphere for this subtree by hand, overriding whatever
-bound (if any) could otherwise be inferred from its own shape. Needed for
-`"group"` members whose solidity isn't already confined to one ball by their
-own root primitive — most commonly a `"union"` of several primitives, or any
-subtree whose root is one of the unbounded shapes.
+bound (if any) could otherwise be inferred from its own shape. It helps a
+`"group"` divide its members, and prove them apart, where what a member
+claims isn't already confined to one ball by its own shape — most commonly
+a `"union"` of several primitives, or a subtree whose root is one of the
+unbounded shapes.
 
 Bounds are in world space, so they describe the subtree *after* its own
 transforms have been applied.

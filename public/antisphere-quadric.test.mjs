@@ -240,29 +240,29 @@ test('a ray along a ruling makes every coefficient vanish', () => {
 
 // -- bounds, and what may be grouped ------------------------------------------------
 
-test('a spheroid bounds a group member; unbounded shapes do not', () => {
+test('any shape can be a group member, bounded or not; only what may overlap is reported', () => {
   const group = (shape) => compileScene({
     materials: { clay: {} }, lights: [],
     objects: { thing: { ...shape, material: 'clay' },
                ball: { sphere: { center: [40, 0, 0], radius: 1 }, material: 'clay' } },
     root: { group: ['thing', 'ball'] },
   });
-  // Bounded: sphere and spheroid.
-  group({ spheroid: { center: [0, 0, 0], axis: [0, 0, 1], height: 3 * 2, radius: 1 } });
-  group({ sphere: { center: [0, 0, 0], radius: 1 } });
-  // Unbounded: everything with an axis it runs off along.
   for (const shape of [
+    { spheroid: { center: [0, 0, 0], axis: [0, 0, 1], height: 3 * 2, radius: 1 } },
+    { sphere: { center: [0, 0, 0], radius: 1 } },
     { cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 } },
     { cone: { apex: [0, 0, 0], axis: [0, 0, 1], slope: 1 } },
     { paraboloid: { vertex: [0, 0, 0], axis: [0, 0, 1], focal: 1 } },
     { hyperboloid: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1, semiAxial: 1 } },
-    { slab: { center: [0, 0, 0], axis: [0, 0, 1], thickness: 1 } },
   ]) {
-    assert.throws(() => group(shape), /no bounding sphere/, Object.keys(shape)[0]);
+    assert.deepEqual(group(shape).overlaps, [], `${Object.keys(shape)[0]}: nowhere near the ball`);
   }
+  // A slab without end reaches the ball.
+  assert.deepEqual(group({ slab: { center: [0, 0, 0], axis: [0, 0, 1], thickness: 1 } }).overlaps,
+                   [{ group: 'root', members: [0, 1] }]);
 });
 
-test('a spheroid group is partitioned, and overlap is still caught', () => {
+test('spheroids apart are not reported; overlapping, they are, and both kept', () => {
   const members = (dx) => ({
     materials: { clay: {} }, lights: [],
     objects: {
@@ -273,9 +273,10 @@ test('a spheroid group is partitioned, and overlap is still caught', () => {
     },
     root: { group: ['a', 'b'] },
   });
-  const built = compileScene(members(6));
-  assert.ok(built.nodes.length > 3, 'a split surface and both members');
-  assert.throws(() => compileScene(members(1)), /not mutually exterior/);
+  assert.deepEqual(compileScene(members(6)).overlaps, []);
+  const close = compileScene(members(1));
+  assert.deepEqual(close.overlaps, [{ group: 'root', members: [0, 1] }]);
+  assert.ok(close.nodes.length >= 3, 'both members');
 });
 
 // -- whole scenes ---------------------------------------------------------------------

@@ -187,7 +187,7 @@ async function main() {
   const physics = new PhysicsWorld(gpu.device, physicsModule, world, {
     materials: SURROUNDINGS.materials, origin: rocket.position, gravity: { from: planetoid, gm: GM },
   });
-  // The scene is an overlapping group of the world's objects, each body's
+  // The scene is a group of the world's objects, each body's
   // bounds padded by how far it may move before the next compile. Its
   // overlaps are the broad phase: the only pairs physics tests for contact.
   const sceneSpec = () => world.sceneSpec(SURROUNDINGS, { bounds: (o) => physics.boundsOf(o) });

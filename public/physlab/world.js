@@ -97,7 +97,7 @@ export class World {
    * @param {object} [surroundings]  { materials, lights }, which aren't objects (yet)
    * @param {object} [opts]
    * @param {(o: WorldObject) => ({ center, radius }|null)} [opts.bounds]
-   *   Makes the root an overlapping group (scene-format.md) instead of a
+   *   Makes the root a group (scene-format.md) instead of a
    *   union, with each object's bounds from this where it gives one. The
    *   compiled scene's overlaps then say which objects may touch; their
    *   members index placed(), the objects in the scene at this call.
@@ -120,7 +120,7 @@ export class World {
       return use;
     });
     let root = uses.length === 1 ? uses[0] : { union: uses };
-    if (bounds) root = { group: uses, overlapping: true };
+    if (bounds) root = { group: uses };
     return { materials, lights, objects, root };
   }
 

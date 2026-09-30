@@ -9,7 +9,7 @@
 // be added as it runs (add()).
 //
 // Which pairs are tested for contact can come from a broad phase: give
-// each body's bounds (boundsOf()) to an overlapping group in the scene,
+// each body's bounds (boundsOf()) to a group in the scene,
 // and its overlaps back to setCandidates(). Until then, every pair is.
 
 import { compileSolid, PhysicsSim } from './physics.js';
@@ -145,7 +145,7 @@ export class PhysicsWorld {
 
   /**
    * The pairs of objects that may touch - from a broad phase, such as an
-   * overlapping group's overlaps - and so the only ones tested for contact
+   * group's overlaps - and so the only ones tested for contact
    * until the next call. Pairs of two static objects, and objects this
    * doesn't know, are ignored.
    */

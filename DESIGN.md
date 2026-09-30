@@ -54,10 +54,16 @@ acceleration structure to build, keep in step, or traverse.
 
 - A division may have nothing of its own on either side: a pure split
   between the members of a group.
-- A member that straddles a split goes on both sides. The compiler already
-  does this (`looseSplit()`, with the member's subtree shared through the
-  memoized `wrap()`, in `public/antisphere-scene.js`), and it has to be
-  handled carefully.
+- A member that straddles a split goes on both sides. The compiler does
+  this in `group` (`chooseDivider()` and `buildGroup()` in
+  `public/antisphere-scene.js`), sharing the member's subtree, and it has
+  to be handled carefully.
+- A member's own surfaces are divisions too: `group` grafts each member
+  only into the absent outsides of the members before it that it may
+  reach, so a ball beyond one face of an octahedron hangs off that face
+  alone. These trees are about divisions, not solidity: a region is
+  claimed by an absent inside whatever its material, and a node filled with
+  `null` divides space exactly as one filled with stone.
 
 ## Moving objects
 
