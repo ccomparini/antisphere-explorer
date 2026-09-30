@@ -2,21 +2,19 @@
 //
 //   click          grab the pointer for mouse-look; Escape lets it go
 //   mouse          turn (left/right) and look (up/down), while grabbed
-//   W A S D        forward, left, back, right (arrow keys too)
+//   W A S D        forward, left, back, right
 //   E / Space      up        Q / C   down
 //   Shift          faster
-//   V              switch camera mode (forward / look-at)
 //
-// Keys are read by physical position (KeyboardEvent.code), so WASD is where
-// it should be on any layout.
-
-import { CAMERA_MODES } from './camera.js';
+// plus whatever one-shot keys the page adds as `commands` (physlab.js uses
+// the arrows). Keys are read by physical position (KeyboardEvent.code), so
+// WASD is where it should be on any layout.
 
 const KEYS = {
-  KeyW: 'forward', ArrowUp: 'forward',
-  KeyS: 'back', ArrowDown: 'back',
-  KeyA: 'left', ArrowLeft: 'left',
-  KeyD: 'right', ArrowRight: 'right',
+  KeyW: 'forward',
+  KeyS: 'back',
+  KeyA: 'left',
+  KeyD: 'right',
   KeyE: 'up', Space: 'up',
   KeyQ: 'down', KeyC: 'down',
   ShiftLeft: 'fast', ShiftRight: 'fast',
@@ -25,8 +23,11 @@ const KEYS = {
 // Radians per pixel of mouse movement, as the raycast page's mouse-look.
 const TURN_PER_PIXEL = 0.006, LOOK_PER_PIXEL = 0.005;
 
-/** Wire `canvas` and the window to `flight`; returns a function that unwires. */
-export function attachFlightInput(canvas, flight) {
+/**
+ * Wire `canvas` and the window to `flight`; returns a function that unwires.
+ * `commands` maps KeyboardEvent.code to a function run once per press.
+ */
+export function attachFlightInput(canvas, flight, { commands = {} } = {}) {
   const off = [];
   const listen = (target, type, fn, opt) => {
     target.addEventListener(type, fn, opt);
@@ -47,11 +48,11 @@ export function attachFlightInput(canvas, flight) {
   listen(window, 'keydown', (e) => {
     const action = KEYS[e.code];
     if (action) {
-      e.preventDefault();                      // no scrolling on Space or the arrows
+      e.preventDefault();                      // no scrolling on Space
       flight.press(action);
-    } else if (e.code === 'KeyV' && !e.repeat) {
-      const { camera } = flight;
-      camera.mode = CAMERA_MODES[(CAMERA_MODES.indexOf(camera.mode) + 1) % CAMERA_MODES.length];
+    } else if (commands[e.code]) {
+      e.preventDefault();                      // nor on the arrows
+      if (!e.repeat) commands[e.code]();
     }
   });
   listen(window, 'keyup', (e) => {

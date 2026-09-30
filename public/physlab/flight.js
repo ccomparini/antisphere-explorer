@@ -1,8 +1,15 @@
-// Free flight for a camera's mount, kept upright with respect to the
-// planet: the mount's +Z always points straight away from the origin, so
-// the horizon stays level wherever it flies. It turns only about that
-// vertical (heading); looking up and down is the camera's pitch, a head
-// tilting on a level body.
+// Free flight for an object. attach() picks which; it starts as the
+// camera's own.
+//
+// The camera's object is kept upright with respect to the planet: its +Z
+// points straight away from the origin, so the horizon stays level wherever
+// it flies, and it turns only about that vertical. Looking up and down is
+// the camera's pitch, a head tilting on a level body, and forward is where
+// the camera looks, pitch and all.
+//
+// Anything else flies on its own axes, whichever way up it is: forward is
+// its +Y, right its +X, up its +Z, and turning is about its own +Z. A
+// rocket standing on its tail (+Y up) goes up when flown forward.
 //
 // Kinematic for now: keys set a velocity, and letting go stops. No DOM
 // here - flight-input.js turns keys and the mouse into calls on this.
@@ -43,10 +50,17 @@ export class FlightControl {
    */
   constructor(camera, { speed = 20, boost = 5 } = {}) {
     this.camera = camera;
+    this.object = camera.object;  // what the controls move; see attach()
     this.speed = speed;
     this.boost = boost;
     this.held = new Set();
     this.pendingYaw = 0;          // radians to turn right, gathered until the next update
+  }
+
+  /** Move `object` from now on (the camera stays where it is). */
+  attach(object) {
+    this.object = object;
+    this.pendingYaw = 0;
   }
 
   press(action) { if (ACTIONS.includes(action)) this.held.add(action); }
@@ -63,33 +77,41 @@ export class FlightControl {
     this.camera.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p));
   }
 
-  /** Turn, move by dt seconds of the held keys' velocity, and level again. */
+  /** Turn and move by dt seconds of the held keys' velocity (and level, carrying the camera). */
   update(dt) {
-    const body = this.camera.object;
+    const body = this.object;
+    const carriesCamera = body === this.camera.object;
+    if (!this.pendingYaw && !this.held.size) return;          // no input: leave it be
+    // Kept upright means "up" from the origin, which at the origin itself
+    // means nothing; leave it there.
+    if (carriesCamera && Math.hypot(...body.position) < 1e-9) { this.pendingYaw = 0; return; }
     let { x, y, z } = body.axes();
 
-    // Heading turns about the vertical: turning right is clockwise seen
-    // from above, i.e. negative about +Z.
+    // Turning is about the object's +Z (the vertical, for the camera's
+    // object): turning right is clockwise seen from above, i.e. negative
+    // about +Z.
     if (this.pendingYaw) {
       const c = Math.cos(this.pendingYaw), s = Math.sin(this.pendingYaw);
       y = [c * y[0] + s * x[0], c * y[1] + s * x[1], c * y[2] + s * x[2]];
       this.pendingYaw = 0;
     }
-    const heading = y;
 
     const held = (a) => (this.held.has(a) ? 1 : 0);
     const along = held('forward') - held('back');
     const across = held('right') - held('left');
     const vertical = held('up') - held('down');
     if (along || across || vertical) {
-      // Forward is where the camera looks, pitch and all: fly where you look.
-      const c = Math.cos(this.camera.pitch), s = Math.sin(this.camera.pitch);
+      // Carrying the camera, forward is where it looks, pitch and all.
+      const pitch = carriesCamera ? this.camera.pitch : 0;
+      const c = Math.cos(pitch), s = Math.sin(pitch);
       const view = [c * y[0] + s * z[0], c * y[1] + s * z[1], c * y[2] + s * z[2]];
       const right = cross(y, z);
       const step = this.speed * (this.held.has('fast') ? this.boost : 1) * dt;
       const move = [0, 1, 2].map((i) => (along * view[i] + across * right[i] + vertical * z[i]) * step);
       body.setPosition(body.position.map((v, i) => v + move[i]));
     }
-    body.orientation = levelOrientation(body.position, heading);
+    body.orientation = carriesCamera
+      ? levelOrientation(body.position, y)       // upright where it now is
+      : fromBasis(cross(y, z), y, z);            // turned about its own +Z
   }
 }
