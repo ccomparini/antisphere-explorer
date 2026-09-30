@@ -24,6 +24,27 @@ of the code is built on, and the direction it is going.
   - `interiorPaths()` in `public/overlap.js`, which decides which regions
     count as solid for overlap tests.
 
+### Why inside is H < 0, not H ≤ 0
+
+The surface itself (H = 0) is deliberately not inside. This is settled; the
+reasons:
+
+- **Rays lying in a surface** (a camera exactly level with a floor plane, a
+  ray along a cylinder's straight lines) have H = 0 their whole length. With
+  ≤ they would count as inside all the way and give spurious hits.
+  `trace()` relies on "a ray lying in a surface never enters it".
+- **Complement stays symmetric.** Negating H makes the complement's inside
+  H > 0, so the surface belongs to neither side rather than to both.
+- **Touching is not overlapping.** Insides are open sets, so two solids
+  resting against each other share no inside, and the overlap test says
+  apart. Resting contact in physics and exact placement in an editor both
+  depend on this.
+
+A solid still includes its surface in the usual solid-modelling sense
+(regularized sets: the closure of the interior): the surface is where it is
+seen and touched, but it has no volume, so it never decides an overlap.
+Anything that classifies a point must use the same strict test.
+
 ## Why quadrics: bounding volume hierarchies without a separate structure
 
 This is the core motivation. Every division is a quadric, so a bounding
