@@ -575,15 +575,16 @@ export class Contact {
 }
 
 export class Particle {
-  static SIZE = 48;
+  static SIZE = 64;
   static ALIGN = 16;
-  static STRIDE = 48;
+  static STRIDE = 64;
   static FIELDS = Object.freeze({
     pos: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
     inv_mass: Object.freeze({ offset: 12, type: 'f32' }),
     vel: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
     body: Object.freeze({ offset: 28, type: 'u32' }),
     start: Object.freeze({ offset: 32, type: 'vec3<f32>' }),
+    pre_vel: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Particle.STRIDE)); }
@@ -613,6 +614,11 @@ export class Particle {
       f32[w + 9] = values.start[1];
       f32[w + 10] = values.start[2];
     }
+    if (values.pre_vel !== undefined) {
+      f32[w + 12] = values.pre_vel[0];
+      f32[w + 13] = values.pre_vel[1];
+      f32[w + 14] = values.pre_vel[2];
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -623,6 +629,7 @@ export class Particle {
       vel: [f32[w + 4], f32[w + 5], f32[w + 6]],
       body: u32[w + 7],
       start: [f32[w + 8], f32[w + 9], f32[w + 10]],
+      pre_vel: [f32[w + 12], f32[w + 13], f32[w + 14]],
     };
   }
 }

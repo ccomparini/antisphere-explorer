@@ -160,7 +160,11 @@ fn pathExit(pa : Path, p : vec3<f32>, dir : vec3<f32>) -> f32 {
 // each by its nearest boundary: in a rod's end tipped nearly on edge, the
 // end face is the nearest boundary, a millimetre sideways, while the rod
 // goes on 12 cm below p - a depth that let it sink out of sight until one
-// deep point threw it into the air.)
+// deep point threw it into the air.) A point let in by CONTACT_SLOP but
+// outside a path is short of the overlap by that much, so that comes off:
+// settled between a base and the ground 0.2 mm apart, a point half a
+// millimetre into the ground counted that half millimetre as depth, and
+// the pushes it made threw the base up off the ground every few substeps.
 fn contactAt(pa : Path, pb : Path, p : vec3<f32>) -> Contact {
   // A point that isn't finite (a support point from a degenerate case) is
   // no contact. It has to be refused here: taking the max of distances
@@ -177,7 +181,8 @@ fn contactAt(pa : Path, pb : Path, p : vec3<f32>) -> Contact {
     let d = regionDistance(rb, p);
     if (d > nearest) { nearest = d; outOfB = regionOutward(rb, p); }
   }
-  return Contact(p, pathExit(pb, p, outOfB) + pathExit(pa, p, -outOfB), outOfB, 1u);
+  let overlap = pathExit(pb, p, outOfB) + pathExit(pa, p, -outOfB) - max(dA, 0.0) - max(dB, 0.0);
+  return Contact(p, max(overlap, 0.0), outOfB, 1u);
 }
 
 // The point of region r's surface whose outward normal is `out`: where a
@@ -349,6 +354,7 @@ struct Particle {
   vel      : vec3<f32>,
   body     : u32,       // the body it belongs to
   start    : vec3<f32>, // where it was at the start of this substep
+  pre_vel  : vec3<f32>, // its velocity as predicted, before any constraint
 };
 
 // A body: two particles, what joins them, and the solid it is.
@@ -403,6 +409,7 @@ fn predict(@builtin(global_invocation_id) gid : vec3<u32>) {
     q.vel = q.vel + (gravityAt(q.pos) + bodies[q.body].thrust) * sim.h;
     q.pos = q.pos + q.vel * sim.h;
   }
+  q.pre_vel = q.vel;
   particles[i] = q;
 }
 
@@ -606,12 +613,15 @@ const MANIFOLD_SWEEPS : i32 = 24;
 // Record a contact between paths pa (of body b) and pb (of `other`), and,
 // where both sides are flat at the body's scale - a base on the ground, a
 // rod's side along its length - more points across the overlap: seeds
-// spread round the first in the contact plane, each settled into the
-// overlap, so they land at its edges. One point can't hold a flat face
+// spread round `centre` (a body's centre of mass) as it falls on the
+// contact plane, each settled into the overlap, so they land at its edges
+// on every side. (Spread round the first point, which is often at the
+// rim, half of them fell off the face, and the rest held only the half of
+// the base that point was on - the other side, every other substep.) One point can't hold a flat face
 // that bears an off-centre load: a ball resting 0.3 m out on a puck
 // tipped it on its single contact, then rolled down the slope it made. (A
 // ball needs none: its one support point is exact.)
-fn recordPair(pa : Path, pb : Path, c : Contact, b : u32, other : u32, reach : f32) {
+fn recordPair(pa : Path, pb : Path, c : Contact, b : u32, other : u32, reach : f32, centre : vec3<f32>) {
   recordContact(c, b, other);
   if (bulgesAt(tightest(pa, c.point), reach) || bulgesAt(tightest(pb, c.point), reach)) { return; }
   let n = c.normal;
@@ -619,6 +629,7 @@ fn recordPair(pa : Path, pb : Path, c : Contact, b : u32, other : u32, reach : f
   if (dot(t1, t1) < 1e-6) { t1 = cross(n, vec3<f32>(0.0, 1.0, 0.0)); }
   t1 = normalize(t1);
   let t2 = cross(n, t1);
+  let under = centre - dot(centre - c.point, n) * n;
   var kept = array<vec3<f32>, 5>(c.point, vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
   var count = 1u;
   for (var k = 0u; k < 4u; k = k + 1u) {
@@ -626,7 +637,7 @@ fn recordPair(pa : Path, pb : Path, c : Contact, b : u32, other : u32, reach : f
     if (k == 1u) { dir = -t1; }
     if (k == 2u) { dir = t2; }
     if (k == 3u) { dir = -t2; }
-    let m = contactAt(pa, pb, settleFor(pa, pb, c.point + 0.9 * reach * dir, MANIFOLD_SWEEPS));
+    let m = contactAt(pa, pb, settleFor(pa, pb, under + 0.9 * reach * dir, MANIFOLD_SWEEPS));
     if (m.found == 0u) { continue; }
     var fresh = true;
     for (var j = 0u; j < count; j = j + 1u) {
@@ -656,7 +667,7 @@ fn detect(@builtin(global_invocation_id) gid : vec3<u32>) {
       let pa = paths[sa.first_path + ia];
       let pb = paths[sb.first_path + ib];
       let c = pathContact(pa, pb);
-      if (c.found != 0u) { recordPair(pa, pb, c, b, other, bodies[b].radius); }
+      if (c.found != 0u) { recordPair(pa, pb, c, b, other, bodies[b].radius, sideOf(b).f.centre); }
     }
   }
 }
@@ -682,13 +693,16 @@ fn detectBodies(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (distance(originOf(a), originOf(b)) > bodies[a].radius + bodies[b].radius) { return; }
   let sa = solids[bodies[a].solid];
   let sb = solids[bodies[b].solid];
+  // A manifold spreads round the smaller one, whose face is the one to hold.
+  var smaller = sideOf(a).f.centre;
+  if (bodies[b].radius < bodies[a].radius) { smaller = sideOf(b).f.centre; }
   for (var ia = 0u; ia < sa.path_count; ia = ia + 1u) {
     for (var ib = 0u; ib < sb.path_count; ib = ib + 1u) {
       let pa = paths[sa.first_path + ia];
       let pb = paths[sb.first_path + ib];
       let c = pathContact(pa, pb);
       if (c.found != 0u) {
-        recordPair(pa, pb, c, a, b, min(bodies[a].radius, bodies[b].radius));
+        recordPair(pa, pb, c, a, b, min(bodies[a].radius, bodies[b].radius), smaller);
       }
     }
   }
@@ -802,18 +816,106 @@ fn solveContacts(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (bMoves) { counted(b); }
 }
 
-// Apply each particle's summed corrections, averaged over the contacts
-// that made them (Jacobi), and clear them for the next round.
+// A particle's summed corrections, averaged over the contacts that made
+// them (Jacobi), and cleared for the next round.
+fn takeCorrection(i : u32) -> vec3<f32> {
+  let n = atomicLoad(&corrections[i * 4u + 3u]);
+  var d = vec3<f32>(0.0);
+  if (n > 0) {
+    d = vec3<f32>(f32(atomicLoad(&corrections[i * 4u])),
+                  f32(atomicLoad(&corrections[i * 4u + 1u])),
+                  f32(atomicLoad(&corrections[i * 4u + 2u]))) / (FIXED * f32(n));
+  }
+  for (var k = 0u; k < 4u; k = k + 1u) { atomicStore(&corrections[i * 4u + k], 0); }
+  return d;
+}
+
 @compute @workgroup_size(64)
 fn applyCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= sim.particle_count) { return; }
-  let n = atomicLoad(&corrections[i * 4u + 3u]);
-  if (n > 0) {
-    let d = vec3<f32>(f32(atomicLoad(&corrections[i * 4u])),
-                      f32(atomicLoad(&corrections[i * 4u + 1u])),
-                      f32(atomicLoad(&corrections[i * 4u + 2u]))) / (FIXED * f32(n));
-    particles[i].pos = particles[i].pos + d;
-  }
-  for (var k = 0u; k < 4u; k = k + 1u) { atomicStore(&corrections[i * 4u + k], 0); }
+  particles[i].pos = particles[i].pos + takeCorrection(i);
+}
+
+// -- contact velocities -------------------------------------------------------------
+//
+// Velocity comes from how far a substep moved things (updateVelocity), so
+// every push out of an overlap becomes speed away from the contact too. A
+// body landing needs that, but a body at rest sinks by g h^2 each substep,
+// is pushed out by about as much, rarely exactly and never twice the same
+// (Jacobi averaging, contact points that move, fixed-point corrections),
+// and what's left over is a small bounce, every substep: resting things
+// shimmer. So after the velocity update, each contact is given back the
+// normal velocity it had before the solve, bounced by RESTITUTION - but only
+// ever by taking speed away from it, so nothing is held down, and a body
+// already leaving (thrust, a spring) keeps what it had. This is the
+// velocity pass of Mueller et al., "Detailed Rigid Body Simulation with
+// Extended Position Based Dynamics" (2020), one-sided.
+
+// How much of the approach speed a contact bounces back with. None, for
+// now; it belongs with the materials, when they grow physical properties.
+const RESTITUTION : f32 = 0.0;
+
+// The velocity of the body point at r from the body's centre, from its
+// particles' velocities now or as predicted: the centre's, plus the turn
+// the particles' difference says (axis x (v1 - v0) / length), which has
+// no roll, as push() gives none.
+fn velocityAt(s : Side, r : vec3<f32>, predicted : bool) -> vec3<f32> {
+  let q0 = particles[s.body.p0];
+  let q1 = particles[s.body.p1];
+  var v0 = q0.vel;
+  var v1 = q1.vel;
+  if (predicted) { v0 = q0.pre_vel; v1 = q1.pre_vel; }
+  let m0 = 1.0 / max(q0.inv_mass, 1e-20);
+  let m1 = 1.0 / max(q1.inv_mass, 1e-20);
+  var v = (m0 * v0 + m1 * v1) / (m0 + m1);
+  let len = length(s.x1 - s.x0);
+  if (len > 1e-9) { v = v + cross(cross(s.f.axis, v1 - v0) / len, r); }
+  return v;
+}
+
+// Corrections here are velocities, summed in the same fixed point: a
+// micron a second's resolution, and two kilometres a second of range.
+@compute @workgroup_size(64)
+fn solveContactVelocities(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= min(atomicLoad(&contactCount), arrayLength(&bodyContacts))) { return; }
+  let c = bodyContacts[i];
+  let a = sideOf(c.body);
+  let isBody = c.other < sim.body_count;
+  var b = a;
+  var bMoves = false;
+  if (isBody) { b = sideOf(c.other); bMoves = b.movable; }
+  if (!a.movable && !bMoves) { return; }
+
+  let xa = carried(a.f, c.lever, c.axis);
+  var xb = c.point;
+  if (isBody) { xb = carried(b.f, c.other_lever, c.other_axis); }
+  let ra = xa - a.f.centre;
+  let rb = xb - b.f.centre;
+
+  // Normal speeds, positive apart: now, and as predicted.
+  var rel = vec3<f32>(0.0);
+  var before = vec3<f32>(0.0);
+  if (a.movable) { rel = velocityAt(a, ra, false); before = velocityAt(a, ra, true); }
+  if (bMoves) { rel = rel - velocityAt(b, rb, false); before = before - velocityAt(b, rb, true); }
+  let vn = dot(rel, c.normal);
+  let vn0 = dot(before, c.normal);
+  let want = max(vn0, -RESTITUTION * vn0);    // approaching: the bounce; leaving: as it was
+  let dv = min(want - vn, 0.0);                 // only ever slowed
+  if (dv >= 0.0) { return; }
+
+  var w = 0.0;
+  if (a.movable) { w = w + resistanceOf(a.f, ra, c.normal); }
+  if (bMoves) { w = w + resistanceOf(b.f, rb, c.normal); }
+  let lambda = dv / w;
+  if (a.movable) { push(a, ra, c.normal, lambda); counted(a); }
+  if (bMoves) { push(b, rb, -c.normal, lambda); counted(b); }
+}
+
+@compute @workgroup_size(64)
+fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= sim.particle_count) { return; }
+  particles[i].vel = particles[i].vel + takeCorrection(i);
 }

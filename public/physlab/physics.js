@@ -188,6 +188,8 @@ export class PhysicsSim {
       detectBodies: stage('detectBodies', [0, 1, 2, 5, 6, 7, 8, 11, 12]),
       solveContacts: stage('solveContacts', [5, 6, 7, 11, 12, 13]),
       applyCorrections: stage('applyCorrections', [5, 7, 13]),
+      solveContactVelocities: stage('solveContactVelocities', [5, 6, 7, 11, 12, 13]),
+      applyVelocityCorrections: stage('applyVelocityCorrections', [5, 7, 13]),
     };
     this.pairCount = bodies.length * statics.length;
     this.collides = this.pairCount > 0 || bodies.length > 1;
@@ -237,6 +239,12 @@ export class PhysicsSim {
         }
       }
       run(this.stages.updateVelocity, this.particleCount);
+      if (this.collides) {
+        for (let k = 0; k < this.contactRounds; k++) {
+          run(this.stages.solveContactVelocities, this.contactCapacity);
+          run(this.stages.applyVelocityCorrections, this.particleCount);
+        }
+      }
     }
     pass.end();
     this.device.queue.submit([enc.finish()]);

@@ -466,3 +466,81 @@ gpuTest('a rod dropped at any steep angle comes to rest lying flat, gaining no e
     s.destroy();
   }
 });
+
+// -- resting stays at rest ------------------------------------------------------------
+//
+// XPBD takes velocity from how far a substep moved things, so any push a
+// contact doesn't finish in one substep comes back as a small bounce in the
+// next: bodies that look settled keep shimmering. These settle a body, then
+// watch it for a second at 60 frames a second: the fastest any particle
+// moves, and how far any drifts from where it settled.
+async function restlessness(s, settle) {
+  s.step(settle);
+  const from = await s.read();
+  let fastest = 0, drift = 0;
+  for (let f = 0; f < 60; f++) {
+    s.step(1 / 60);
+    const qs = await s.read();
+    qs.forEach((q, i) => {
+      fastest = Math.max(fastest, Math.hypot(...q.vel));
+      drift = Math.max(drift, Math.hypot(...q.pos.map((v, k) => v - from[i].pos[k])));
+    });
+  }
+  s.destroy();
+  return { fastest, drift };
+}
+
+const ROD = { intersect: [
+  { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.25 }, material: 'm' },
+  { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
+] };
+const ROCKET = { union: [
+  { intersect: [
+    { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 1 }, material: 'm' },
+    { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 8 }, material: 'm' },
+  ] },
+  { intersect: [
+    { cone: { apex: [0, 6, 0], axis: [0, 1, 0], slope: 0.5 }, material: 'm' },
+    { slab: { center: [0, 5, 0], axis: [0, 1, 0], thickness: 2 }, material: 'm' },
+  ] },
+] };
+const PUCK = { intersect: [
+  { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 1 }, material: 'm' },
+  { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 0.5 }, material: 'm' },
+] };
+
+const resting = {
+  'a sphere on the planetoid': () => {
+    const { particles, body } = bodyAt([0, 0, 0.51], { sphere: { center: [0, 0, 0], radius: 0.5 }, material: 'm' },
+      { inertiaPerMass: 0.1, radius: 0.5 });
+    return onGround(particles, [body]);
+  },
+  'a rod lying on the planetoid': () => {
+    const { particles, body } = bodyAt([0, 0, 0.26], ROD,
+      { inertiaPerMass: 16 / 12 + 0.25 * 0.25 / 4, radius: 2.02, tilt: Math.PI / 2 });
+    return onGround(particles, [body]);
+  },
+  'a rocket standing on the planetoid': () => {
+    const { particles, body } = bodyAt([0, 0, 4.01], ROCKET, { inertiaPerMass: 64 / 12 + 1 / 4, radius: 6.1 });
+    return onGround(particles, [body]);
+  },
+  'a sphere on a puck on flat ground': () => {
+    const d = spacing((3 + 0.25) / 12);
+    const puck = {
+      particles: [{ pos: [0, 0, 0.25 - d / 2], invMass: 2, body: 0 }, { pos: [0, 0, 0.25 + d / 2], invMass: 2, body: 0 }],
+      body: { p0: 0, p1: 1, rest: d, solid: compileSolid(PUCK, MATERIALS), a0: -d / 2, a1: d / 2,
+              radius: Math.hypot(1, 0.25), friction: 0.6 },
+    };
+    const ball = sphereBody([0.3, 0, 0.81], 0.3, 1);
+    const flat = compileSolid({ plane: { normal: [0, 0, 1], offset: 0 }, material: 'm' }, MATERIALS);
+    return new PhysicsSim(device, module, { particles: [...puck.particles, ...ball.particles], bodies: [puck.body, ball.body],
+      statics: [flat], gravityCentre: [0, 0, -1e6], gm: 9.81e12 });
+  },
+};
+
+for (const [what, make] of Object.entries(resting)) gpuTest(`${what} stays at rest`, async () => {
+  const { fastest, drift } = await restlessness(make(), 3);
+  console.log(`# ${what}: fastest ${(fastest * 1000).toFixed(3)} mm/s, drift ${(drift * 1000).toFixed(3)} mm`);
+  assert.ok(fastest < 1e-3, `a particle moved at ${(fastest * 1000).toFixed(2)} mm/s`);
+  assert.ok(drift < 1e-3, `a particle drifted ${(drift * 1000).toFixed(2)} mm`);
+});
