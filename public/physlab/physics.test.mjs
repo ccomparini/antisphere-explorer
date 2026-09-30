@@ -21,6 +21,8 @@ async function openDevice() {
   const adapter = await globalThis.gpuInstance.requestAdapter();
   if (!adapter) return { skip: 'no GPU adapter' };
   const device = await adapter.requestDevice();
+  // A validation error otherwise only shows as nothing happening.
+  device.addEventListener('uncapturederror', (e) => gpuErrors.push(e.error.message));
   const config = JSON.parse(await readFile(new URL('shaders/build.json', repo), 'utf8'));
   const files = await buildAll(config, (p) => readFile(new URL(p, repo), 'utf8'), { warn: () => {} });
   const code = files.find((f) => f.path.endsWith('/physics.wgsl')).content;
@@ -31,9 +33,15 @@ async function openDevice() {
   return { device, module };
 }
 
+const gpuErrors = [];
 const { device, module, skip } = await openDevice();
 after(() => device?.destroy());
-const gpuTest = (name, fn) => test(name, { skip }, fn);
+const gpuTest = (name, fn) => test(name, { skip }, async () => {
+  gpuErrors.length = 0;
+  await fn();
+  await device.queue.onSubmittedWorkDone();
+  assert.deepEqual(gpuErrors, [], 'GPU validation errors');
+});
 
 const MATERIALS = { m: { albedo: [0.5, 0.5, 0.5] } };
 const solid = (geometry) => compileSolid(geometry, MATERIALS);
@@ -207,5 +215,95 @@ gpuTest('thrust equal to gravity hovers; a pinned particle never moves', async (
   const [hover, pinned] = await s.read();
   near(hover.pos, [0, 0, 600], 2e-3, 'hovering');
   assert.deepEqual(pinned.pos, [5, 0, 600]);
+  s.destroy();
+});
+
+// -- bodies against static ground ----------------------------------------------------
+//
+// A planetoid of radius 500 whose top is at the origin: the simulation's
+// floating origin sits where the action is, as physlab's will.
+
+const ground = () => compileSolid({ sphere: { center: [0, 0, -500], radius: 500 }, material: 'm' }, MATERIALS);
+const onGround = (particles, bodies) =>
+  new PhysicsSim(device, module, { particles, bodies, statics: [ground()], gravityCentre: [0, 0, -500], gm: GM });
+
+// Two half-masses on a body's axis, spaced so the pair has the solid's
+// inertia across its axis: 2 (m/2) (d/2)^2 = I.
+const spacing = (inertiaPerMass) => 2 * Math.sqrt(inertiaPerMass);
+
+// A body upright (its +Y along world +Z) with its local origin at `at`, or
+// turned by `tilt` radians about world X.
+function bodyAt(at, geometry, { inertiaPerMass, radius, mass = 1, tilt = 0, friction = 0.6 }) {
+  const d = spacing(inertiaPerMass);
+  const u = [0, -Math.sin(tilt), Math.cos(tilt)];
+  const place = (a) => at.map((v, i) => v + a * u[i]);
+  const w = 2 / mass;
+  return {
+    particles: [{ pos: place(-d / 2), invMass: w, body: 0 }, { pos: place(d / 2), invMass: w, body: 0 }],
+    body: { p0: 0, p1: 1, rest: d, solid: compileSolid(geometry, MATERIALS), a0: -d / 2, a1: d / 2, radius, friction },
+  };
+}
+
+const lift = (p) => p[2] + 500 - Math.hypot(p[0], p[1], p[2] + 500);   // ~ height above the ground
+const heightOf = (p) => Math.hypot(p[0], p[1], p[2] + 500) - 500;
+
+gpuTest('a dropped sphere comes to rest on the ground', async () => {
+  const r = 0.5;
+  const { particles, body } = bodyAt([0, 0, 4], { sphere: { center: [0, 0, 0], radius: r }, material: 'm' },
+    { inertiaPerMass: 0.4 * r * r, radius: r });
+  const s = onGround(particles, [body]);
+  s.step(4);
+  const [a, b] = await s.read();
+  const centre = a.pos.map((v, i) => (v + b.pos[i]) / 2);
+  near(heightOf(centre), r, 0.02, 'centre above the ground');
+  assert.ok(Math.hypot(...a.vel) < 0.05, `still moving at ${Math.hypot(...a.vel)} m/s`);
+  const contacts = await s.readContacts();
+  assert.ok(contacts.length >= 1, 'touching');
+  s.destroy();
+});
+
+gpuTest('a rod dropped at an angle turns as it lands, and ends lying flat', async () => {
+  const r = 0.25, L = 4;
+  const rod = { intersect: [
+    { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: r }, material: 'm' },
+    { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: L }, material: 'm' },
+  ] };
+  const { particles, body } = bodyAt([0, 0, 3], rod,
+    { inertiaPerMass: L * L / 12 + r * r / 4, radius: Math.hypot(L / 2, r), tilt: Math.PI / 3 });   // 30 deg from flat
+  const s = onGround(particles, [body]);
+  s.step(6);
+  const [a, b] = await s.read();
+  near(heightOf(a.pos), r, 0.05, 'one end on the ground');
+  near(heightOf(b.pos), r, 0.05, 'and the other');
+  assert.ok(Math.hypot(...a.vel) + Math.hypot(...b.vel) < 0.1, 'at rest');
+  s.destroy();
+});
+
+// Its centre of mass is about 4.3 m above a base 1 m in radius, so tipped
+// less than ~13 degrees it should rock back onto its base, settle, and
+// stand - which needs pushes at the rim to turn it (the lever arm), and
+// to lose the rocking's energy.
+for (const tilt of [0, 0.05]) gpuTest(`a rocket set down ${tilt ? 'tilted 3 degrees' : 'upright'} stands on its base`, async () => {
+  const rocket = { union: [
+    { intersect: [
+      { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 1 }, material: 'm' },
+      { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 8 }, material: 'm' },
+    ] },
+    { intersect: [
+      { cone: { apex: [0, 6, 0], axis: [0, 1, 0], slope: 0.5 }, material: 'm' },
+      { slab: { center: [0, 5, 0], axis: [0, 1, 0], thickness: 2 }, material: 'm' },
+    ] },
+  ] };
+  const { particles, body } = bodyAt([0, 0, 4.01 + Math.sin(tilt)], rocket,
+    { inertiaPerMass: 64 / 12 + 1 / 4, radius: 6.1, tilt });
+  const s = onGround(particles, [body]);
+  s.step(4);
+  const [a, b] = await s.read();
+  const axis = b.pos.map((v, i) => v - a.pos[i]);
+  const upright = axis[2] / Math.hypot(...axis);
+  assert.ok(upright > Math.cos(0.1 * Math.PI / 180), `upright within 0.1 degree: axis . up = ${upright}`);
+  assert.ok(Math.hypot(...b.vel) < 0.03, `at rest: its top moves at ${Math.hypot(...b.vel)} m/s`);
+  const base = a.pos.map((v, i) => v - (-spacing(64 / 12 + 1 / 4) / 2 + 4) * axis[i] / Math.hypot(...axis));
+  near(heightOf(base), 0, 0.03, 'base on the ground');
   s.destroy();
 });

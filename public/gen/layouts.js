@@ -628,15 +628,20 @@ export class Particle {
 }
 
 export class Body {
-  static SIZE = 32;
+  static SIZE = 48;
   static ALIGN = 16;
-  static STRIDE = 32;
+  static STRIDE = 48;
   static FIELDS = Object.freeze({
     p0: Object.freeze({ offset: 0, type: 'u32' }),
     p1: Object.freeze({ offset: 4, type: 'u32' }),
     rest: Object.freeze({ offset: 8, type: 'f32' }),
     compliance: Object.freeze({ offset: 12, type: 'f32' }),
     thrust: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
+    solid: Object.freeze({ offset: 28, type: 'u32' }),
+    a0: Object.freeze({ offset: 32, type: 'f32' }),
+    a1: Object.freeze({ offset: 36, type: 'f32' }),
+    radius: Object.freeze({ offset: 40, type: 'f32' }),
+    friction: Object.freeze({ offset: 44, type: 'f32' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Body.STRIDE)); }
@@ -662,6 +667,21 @@ export class Body {
       f32[w + 5] = values.thrust[1];
       f32[w + 6] = values.thrust[2];
     }
+    if (values.solid !== undefined) {
+      u32[w + 7] = values.solid;
+    }
+    if (values.a0 !== undefined) {
+      f32[w + 8] = values.a0;
+    }
+    if (values.a1 !== undefined) {
+      f32[w + 9] = values.a1;
+    }
+    if (values.radius !== undefined) {
+      f32[w + 10] = values.radius;
+    }
+    if (values.friction !== undefined) {
+      f32[w + 11] = values.friction;
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -672,20 +692,27 @@ export class Body {
       rest: f32[w + 2],
       compliance: f32[w + 3],
       thrust: [f32[w + 4], f32[w + 5], f32[w + 6]],
+      solid: u32[w + 7],
+      a0: f32[w + 8],
+      a1: f32[w + 9],
+      radius: f32[w + 10],
+      friction: f32[w + 11],
     };
   }
 }
 
 export class SimParams {
-  static SIZE = 32;
+  static SIZE = 48;
   static ALIGN = 16;
-  static STRIDE = 32;
+  static STRIDE = 48;
   static FIELDS = Object.freeze({
     gravity_centre: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
     gm: Object.freeze({ offset: 12, type: 'f32' }),
     h: Object.freeze({ offset: 16, type: 'f32' }),
     particle_count: Object.freeze({ offset: 20, type: 'u32' }),
     body_count: Object.freeze({ offset: 24, type: 'u32' }),
+    first_static: Object.freeze({ offset: 28, type: 'u32' }),
+    static_count: Object.freeze({ offset: 32, type: 'u32' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * SimParams.STRIDE)); }
@@ -711,6 +738,12 @@ export class SimParams {
     if (values.body_count !== undefined) {
       u32[w + 6] = values.body_count;
     }
+    if (values.first_static !== undefined) {
+      u32[w + 7] = values.first_static;
+    }
+    if (values.static_count !== undefined) {
+      u32[w + 8] = values.static_count;
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -721,6 +754,115 @@ export class SimParams {
       h: f32[w + 4],
       particle_count: u32[w + 5],
       body_count: u32[w + 6],
+      first_static: u32[w + 7],
+      static_count: u32[w + 8],
+    };
+  }
+}
+
+export class Solid {
+  static SIZE = 16;
+  static ALIGN = 4;
+  static STRIDE = 16;
+  static FIELDS = Object.freeze({
+    first_path: Object.freeze({ offset: 0, type: 'u32' }),
+    path_count: Object.freeze({ offset: 4, type: 'u32' }),
+    first_node: Object.freeze({ offset: 8, type: 'u32' }),
+    node_count: Object.freeze({ offset: 12, type: 'u32' }),
+  });
+
+  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Solid.STRIDE)); }
+  static write(views, index, values) { Solid.writeAt(views, index * Solid.STRIDE, values); }
+  static read(views, index) { return Solid.readAt(views, index * Solid.STRIDE); }
+
+  static writeAt(views, byteOffset, values) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    if (values.first_path !== undefined) {
+      u32[w] = values.first_path;
+    }
+    if (values.path_count !== undefined) {
+      u32[w + 1] = values.path_count;
+    }
+    if (values.first_node !== undefined) {
+      u32[w + 2] = values.first_node;
+    }
+    if (values.node_count !== undefined) {
+      u32[w + 3] = values.node_count;
+    }
+  }
+
+  static readAt(views, byteOffset) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    return {
+      first_path: u32[w],
+      path_count: u32[w + 1],
+      first_node: u32[w + 2],
+      node_count: u32[w + 3],
+    };
+  }
+}
+
+export class BodyContact {
+  static SIZE = 64;
+  static ALIGN = 16;
+  static STRIDE = 64;
+  static FIELDS = Object.freeze({
+    point: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
+    depth: Object.freeze({ offset: 12, type: 'f32' }),
+    normal: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
+    body: Object.freeze({ offset: 28, type: 'u32' }),
+    lever: Object.freeze({ offset: 32, type: 'vec3<f32>' }),
+    other: Object.freeze({ offset: 44, type: 'u32' }),
+    axis: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
+  });
+
+  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * BodyContact.STRIDE)); }
+  static write(views, index, values) { BodyContact.writeAt(views, index * BodyContact.STRIDE, values); }
+  static read(views, index) { return BodyContact.readAt(views, index * BodyContact.STRIDE); }
+
+  static writeAt(views, byteOffset, values) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    if (values.point !== undefined) {
+      f32[w] = values.point[0];
+      f32[w + 1] = values.point[1];
+      f32[w + 2] = values.point[2];
+    }
+    if (values.depth !== undefined) {
+      f32[w + 3] = values.depth;
+    }
+    if (values.normal !== undefined) {
+      f32[w + 4] = values.normal[0];
+      f32[w + 5] = values.normal[1];
+      f32[w + 6] = values.normal[2];
+    }
+    if (values.body !== undefined) {
+      u32[w + 7] = values.body;
+    }
+    if (values.lever !== undefined) {
+      f32[w + 8] = values.lever[0];
+      f32[w + 9] = values.lever[1];
+      f32[w + 10] = values.lever[2];
+    }
+    if (values.other !== undefined) {
+      u32[w + 11] = values.other;
+    }
+    if (values.axis !== undefined) {
+      f32[w + 12] = values.axis[0];
+      f32[w + 13] = values.axis[1];
+      f32[w + 14] = values.axis[2];
+    }
+  }
+
+  static readAt(views, byteOffset) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    return {
+      point: [f32[w], f32[w + 1], f32[w + 2]],
+      depth: f32[w + 3],
+      normal: [f32[w + 4], f32[w + 5], f32[w + 6]],
+      body: u32[w + 7],
+      lever: [f32[w + 8], f32[w + 9], f32[w + 10]],
+      other: u32[w + 11],
+      axis: [f32[w + 12], f32[w + 13], f32[w + 14]],
     };
   }
 }

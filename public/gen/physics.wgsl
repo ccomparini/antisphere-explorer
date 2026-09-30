@@ -327,23 +327,11 @@ fn pathDistance(pa : Path, p : vec3<f32>) -> f32 {
   return d;
 }
 
-/**
- * Where path A (of one solid) meets path B (of another), if it does.
- *
- * 1. Every region of A against every region of B: if any pair is proved
- *    apart, so are the paths.
- * 2. Otherwise start from the certificate's point for the pair closest to
- *    separating. It lies in both of that pair's regions (the witness), or
- *    is where they touch.
- * 3. It may lie outside some other region: the witness of an endless
- *    cylinder meeting a planet can be past the end its slab cuts off. So
- *    nudge it onto each region it is outside of, along that region's
- *    gradient, a few rounds. For convex regions this finds a point in all
- *    of them when there is one.
- * 4. Only a point inside every region of both paths makes a contact, so
- *    the certificate being conservative never makes one up.
- */
-fn pathContact(pa : Path, pb : Path) -> Contact {
+// The certificate's point for where path A meets path B, as a homogeneous
+// (x, w); w = 0 when there is none (some region pair is proved apart, or
+// the point is at infinity). It comes from the region pair closest to
+// separating: the witness there, or where that pair touches.
+fn meetingPoint(pa : Path, pb : Path) -> vec4<f32> {
   var best = -1e30;
   var start = vec4<f32>(0.0);
   for (var i = 0u; i < pa.count; i = i + 1u) {
@@ -351,14 +339,20 @@ fn pathContact(pa : Path, pb : Path) -> Contact {
     for (var j = 0u; j < pb.count; j = j + 1u) {
       let rb = regions[pb.first + j];
       let c = certify(regionMatrix(nodes[ra.node], ra.sign), regionMatrix(nodes[rb.node], rb.sign));
-      if (c.margin > OVERLAP_TAU) { return NO_CONTACT; }        // proved apart
+      if (c.margin > OVERLAP_TAU) { return vec4<f32>(0.0); }    // proved apart
       if (c.margin > best) { best = c.margin; start = c.vector; }
     }
   }
-  // A point at infinity (w = 0) is no place for a contact.
-  if (abs(start.w) < 1e-6 * length(start.xyz)) { return NO_CONTACT; }
-  var p = start.xyz / start.w;
+  if (abs(start.w) < 1e-6 * length(start.xyz)) { return vec4<f32>(0.0); }
+  return vec4<f32>(start.xyz / start.w, 1.0);
+}
 
+// Nudge p onto every region of both paths it is outside of, along each
+// region's gradient, a few rounds. For convex regions this finds a point in
+// all of them when there is one; started outside the overlap, it ends on
+// the overlap's edge nearest the start.
+fn settleInto(pa : Path, pb : Path, start : vec3<f32>) -> vec3<f32> {
+  var p = start;
   for (var sweep = 0; sweep < PROJECTION_SWEEPS; sweep = sweep + 1) {
     var outside = false;
     for (var i = 0u; i < pa.count + pb.count; i = i + 1u) {
@@ -372,12 +366,15 @@ fn pathContact(pa : Path, pb : Path) -> Contact {
     }
     if (!outside) { break; }
   }
+  return p;
+}
 
+// A contact at p, if p really is in both paths: depth is how deep it is
+// in each, and the way out of B is out through B's nearest boundary.
+fn contactAt(pa : Path, pb : Path, p : vec3<f32>) -> Contact {
   let dA = pathDistance(pa, p);
   let dB = pathDistance(pb, p);
   if (dA > CONTACT_SLOP || dB > CONTACT_SLOP) { return NO_CONTACT; }
-
-  // The way out of B at p is out through its nearest boundary.
   var outOfB = vec3<f32>(0.0);
   var nearest = -1e30;
   for (var j = 0u; j < pb.count; j = j + 1u) {
@@ -386,6 +383,25 @@ fn pathContact(pa : Path, pb : Path) -> Contact {
     if (d > nearest) { nearest = d; outOfB = regionOutward(rb, p); }
   }
   return Contact(p, max(0.0, -dA) + max(0.0, -dB), outOfB, 1u);
+}
+
+/**
+ * Where path A (of one solid) meets path B (of another), if it does.
+ *
+ * 1. Every region of A against every region of B: if any pair is proved
+ *    apart, so are the paths.
+ * 2. Otherwise start from the certificate's point for the pair closest to
+ *    separating (meetingPoint).
+ * 3. It may lie outside some other region: the witness of an endless
+ *    cylinder meeting a planet can be past the end its slab cuts off. So
+ *    settle it into all of them (settleInto).
+ * 4. Only a point inside every region of both paths makes a contact, so
+ *    the certificate being conservative never makes one up (contactAt).
+ */
+fn pathContact(pa : Path, pb : Path) -> Contact {
+  let m = meetingPoint(pa, pb);
+  if (m.w == 0.0) { return NO_CONTACT; }
+  return contactAt(pa, pb, settleInto(pa, pb, m.xyz));
 }
 
 // -- batch contacts, for tests and tools ----------------------------------------------
@@ -426,14 +442,25 @@ struct Particle {
   start    : vec3<f32>, // where it was at the start of this substep
 };
 
-// A body: two particles and what joins them, for now. Its geometry comes
-// with collisions.
+// A body: two particles, what joins them, and the solid it is.
+//
+// Its geometry is a solid in the body's own coordinates, and it must be
+// coaxial with +Y: every node a surface of revolution about the Y axis
+// (the host checks). Then where it is placed depends only on the axis and
+// an origin, never on a roll about the axis, which two particles can't
+// say and which such a solid wouldn't show anyway. The particles sit on
+// that axis at local y = a0 and a1.
 struct Body {
   p0         : u32,
   p1         : u32,
   rest       : f32,        // the particles' distance apart, unstressed
   compliance : f32,        // XPBD compliance of that distance, m/N; 0 is rigid
   thrust     : vec3<f32>,  // extra acceleration on both particles (a motor), m/s^2
+  solid      : u32,        // its geometry, in solids
+  a0         : f32,        // where p0 sits on the local Y axis
+  a1         : f32,        // and p1
+  radius     : f32,        // how far its solid reaches from its local origin, at most
+  friction   : f32,        // Coulomb coefficient against what it touches
 };
 
 struct SimParams {
@@ -442,6 +469,8 @@ struct SimParams {
   h              : f32,        // substep, seconds
   particle_count : u32,
   body_count     : u32,
+  first_static   : u32,        // solids from here on collide but never move
+  static_count   : u32,
 };
 
 @group(0) @binding(5) var<storage, read_write> particles : array<Particle>;
@@ -512,4 +541,228 @@ fn updateVelocity(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i] = q;
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":175},{"path":"shaders/physics.wgsls","offset":253,"lines":261}]
+// -- collisions -------------------------------------------------------------------
+//
+// Each substep, after the prediction: place every body's solid where its
+// particles now are (pose), find where bodies meet the static solids
+// (detect), then a few rounds of pushing them out (solveContacts, then
+// applyCorrections) alternating with the bodies' own constraints.
+//
+// A push is a rigid-body one. A body's two particles give its centre of
+// mass and its inertia about axes square to it; a push at x along n moves
+// the centre and turns the body by (r x n), r from the centre to x, less
+// its part along the axis - the roll two particles can't hold, and a solid
+// of revolution wouldn't show. So a push at the rim of a rocket's base
+// tips it, and pushes all round the rim cancel and let it stand; sharing
+// the push between the particles by where x falls along the axis alone
+// would stand it like a needle on its point.
+
+// Where each solid's paths and nodes are.
+struct Solid {
+  first_path : u32,
+  path_count : u32,
+  first_node : u32,
+  node_count : u32,
+};
+
+// A contact found this substep, with how the body stood when it was found,
+// so its depth can be followed as the body is pushed.
+struct BodyContact {
+  point  : vec3<f32>,  // where found
+  depth  : f32,        // how deep then
+  normal : vec3<f32>,  // unit, the way to push the body out
+  body   : u32,
+  lever  : vec3<f32>,  // from the body's centre of mass to the point, then
+  other  : u32,        // the static solid it touches
+  axis   : vec3<f32>,  // the body's axis, then
+};
+
+@group(0) @binding(8) var<storage, read> solids : array<Solid>;
+@group(0) @binding(9) var<storage, read> localNodes : array<Node>;
+@group(0) @binding(10) var<storage, read_write> posedNodes : array<Node>;
+@group(0) @binding(11) var<storage, read_write> bodyContacts : array<BodyContact>;
+@group(0) @binding(12) var<storage, read_write> contactCount : atomic<u32>;
+@group(0) @binding(13) var<storage, read_write> corrections : array<atomic<i32>>;
+
+// Corrections are summed as integers, in units of 2^-20 m: WGSL atomics
+// are integers only, and that is a micron's resolution with a kilometre
+// of range.
+const FIXED : f32 = 1048576.0;
+
+fn axisOf(x0 : vec3<f32>, x1 : vec3<f32>) -> vec3<f32> {
+  let d = x1 - x0;
+  let len = length(d);
+  if (len < 1e-9) { return vec3<f32>(0.0, 1.0, 0.0); }
+  return d / len;
+}
+
+// A body's centre of mass, axis, mass and inertia about axes square to
+// the axis, from its particles (now, or at the substep's start).
+struct Frame {
+  centre  : vec3<f32>,
+  mass    : f32,
+  axis    : vec3<f32>,
+  inertia : f32,
+};
+
+fn frameOf(x0 : vec3<f32>, x1 : vec3<f32>, m0 : f32, m1 : f32) -> Frame {
+  let m = m0 + m1;
+  let c = (m0 * x0 + m1 * x1) / m;
+  let i = m0 * dot(x0 - c, x0 - c) + m1 * dot(x1 - c, x1 - c);
+  return Frame(c, m, axisOf(x0, x1), i);
+}
+
+// A node given in the body's coordinates (coaxial with +Y), placed with
+// its local origin at o and its Y axis along u. With K = k I + dk a a^T:
+// the axis turns to u, the curvatures stay, and translating by o takes
+// linear to linear - 2 K o and const to const + o.K.o - linear.o.
+fn placeCoaxial(nd : Node, o : vec3<f32>, u : vec3<f32>) -> Node {
+  var w = nd;
+  let ly = nd.linear.y;                       // coaxial: along Y, or nothing
+  let ko = nd.curvature_perp * o + nd.curvature_delta * dot(u, o) * u;
+  w.axis = u;
+  w.linear = ly * u - 2.0 * ko;
+  w.const_term = nd.const_term + dot(o, ko) - ly * dot(u, o);
+  return w;
+}
+
+// Place each body's solid where its particles now are.
+@compute @workgroup_size(64)
+fn pose(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let b = gid.x;
+  if (b >= sim.body_count) { return; }
+  let body = bodies[b];
+  let x0 = particles[body.p0].pos;
+  let u = axisOf(x0, particles[body.p1].pos);
+  let o = x0 - body.a0 * u;
+  let solid = solids[body.solid];
+  for (var n = 0u; n < solid.node_count; n = n + 1u) {
+    let at = solid.first_node + n;
+    posedNodes[at] = placeCoaxial(localNodes[at], o, u);
+  }
+}
+
+@compute @workgroup_size(1)
+fn clearContacts() {
+  atomicStore(&contactCount, 0u);
+}
+
+fn recordContact(c : Contact, b : u32, other : u32) {
+  let at = atomicAdd(&contactCount, 1u);
+  if (at >= arrayLength(&bodyContacts)) { return; }
+  let body = bodies[b];
+  let q0 = particles[body.p0];
+  let q1 = particles[body.p1];
+  let f = frameOf(q0.pos, q1.pos, 1.0 / max(q0.inv_mass, 1e-20), 1.0 / max(q1.inv_mass, 1e-20));
+  bodyContacts[at] = BodyContact(c.point, c.depth, c.normal, b, c.point - f.centre, other, f.axis);
+}
+
+// Every body against every static solid: a contact for each pair of their
+// paths that meet. One point per pair, found afresh every substep, is
+// enough to rest on a flat face and to rock back onto one: under a tilted
+// base the point found is the low rim, which is where the righting push
+// belongs. (Spreading extra points across the overlap - a manifold - made
+// no measurable difference to a rocket rocking back onto its base, so it
+// isn't done.)
+@compute @workgroup_size(64)
+fn detect(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= sim.body_count * sim.static_count) { return; }
+  let b = i / sim.static_count;
+  let other = sim.first_static + i % sim.static_count;
+  let sa = solids[bodies[b].solid];
+  let sb = solids[other];
+  for (var ia = 0u; ia < sa.path_count; ia = ia + 1u) {
+    for (var ib = 0u; ib < sb.path_count; ib = ib + 1u) {
+      let c = pathContact(paths[sa.first_path + ia], paths[sb.first_path + ib]);
+      if (c.found != 0u) { recordContact(c, b, other); }
+    }
+  }
+}
+
+// Push a body at x (r from its centre) along dir by amount: split between
+// moving its centre and turning it about axes square to its axis, in
+// proportion to its mass and inertia, and add what that does to each
+// particle to the corrections.
+fn push(body : Body, f : Frame, x0 : vec3<f32>, x1 : vec3<f32>, r : vec3<f32>,
+        dir : vec3<f32>, amount : f32) {
+  let torque = cross(r, dir);
+  let square = torque - dot(torque, f.axis) * f.axis;     // no roll
+  var w = 1.0 / f.mass;
+  if (f.inertia > 1e-12) { w = w + dot(square, square) / f.inertia; }
+  let lambda = amount / w;
+  let shift = dir * lambda / f.mass;
+  var turn = vec3<f32>(0.0);
+  if (f.inertia > 1e-12) { turn = square * lambda / f.inertia; }
+  let d0 = shift + cross(turn, x0 - f.centre);
+  let d1 = shift + cross(turn, x1 - f.centre);
+  let a = body.p0 * 4u;
+  let c = body.p1 * 4u;
+  atomicAdd(&corrections[a], i32(round(d0.x * FIXED)));
+  atomicAdd(&corrections[a + 1u], i32(round(d0.y * FIXED)));
+  atomicAdd(&corrections[a + 2u], i32(round(d0.z * FIXED)));
+  atomicAdd(&corrections[c], i32(round(d1.x * FIXED)));
+  atomicAdd(&corrections[c + 1u], i32(round(d1.y * FIXED)));
+  atomicAdd(&corrections[c + 2u], i32(round(d1.z * FIXED)));
+}
+
+// Where a point fixed in the body - `lever` from the centre, with the body
+// along `axis`, when found - is when the body's frame is f.
+fn carried(f : Frame, lever : vec3<f32>, axis : vec3<f32>) -> vec3<f32> {
+  let along = dot(lever, axis);
+  let side = lever - along * axis;
+  var turned = side - dot(side, f.axis) * f.axis;          // square to the new axis
+  let len = length(turned);
+  if (len > 1e-12) { turned = turned * (length(side) / len); }
+  return f.centre + along * f.axis + turned;
+}
+
+// Each contact still overlapping pushes its body out by what's left of its
+// depth; then friction takes back up to friction x depth of the point's
+// sideways slide over this substep.
+@compute @workgroup_size(64)
+fn solveContacts(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= min(atomicLoad(&contactCount), arrayLength(&bodyContacts))) { return; }
+  let c = bodyContacts[i];
+  let body = bodies[c.body];
+  let q0 = particles[body.p0];
+  let q1 = particles[body.p1];
+  if (q0.inv_mass == 0.0 || q1.inv_mass == 0.0) { return; }   // pinned: immovable
+  let m0 = 1.0 / q0.inv_mass;
+  let m1 = 1.0 / q1.inv_mass;
+  let f = frameOf(q0.pos, q1.pos, m0, m1);
+  let x = carried(f, c.lever, c.axis);
+  let depth = c.depth - dot(x - c.point, c.normal);
+  if (depth <= 0.0) { return; }
+  push(body, f, q0.pos, q1.pos, x - f.centre, c.normal, depth);
+
+  // Friction: the point's slide since the substep began, across the normal.
+  let s = frameOf(q0.start, q1.start, m0, m1);
+  let slide = x - carried(s, c.lever, c.axis);
+  let across = slide - dot(slide, c.normal) * c.normal;
+  let len = length(across);
+  if (len > 1e-9) {
+    push(body, f, q0.pos, q1.pos, x - f.centre, -across / len, min(len, body.friction * depth));
+  }
+  atomicAdd(&corrections[body.p0 * 4u + 3u], 1);
+  atomicAdd(&corrections[body.p1 * 4u + 3u], 1);
+}
+
+// Apply each particle's summed corrections, averaged over the contacts
+// that made them (Jacobi), and clear them for the next round.
+@compute @workgroup_size(64)
+fn applyCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= sim.particle_count) { return; }
+  let n = atomicLoad(&corrections[i * 4u + 3u]);
+  if (n > 0) {
+    let d = vec3<f32>(f32(atomicLoad(&corrections[i * 4u])),
+                      f32(atomicLoad(&corrections[i * 4u + 1u])),
+                      f32(atomicLoad(&corrections[i * 4u + 2u]))) / (FIXED * f32(n));
+    particles[i].pos = particles[i].pos + d;
+  }
+  for (var k = 0u; k < 4u; k = k + 1u) { atomicStore(&corrections[i * 4u + k], 0); }
+}
+
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":175},{"path":"shaders/physics.wgsls","offset":253,"lines":514}]
