@@ -9,6 +9,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { buildAll } from '../../tools/shader-build/index.js';
 import { compileSolid, packSolids, PhysicsSim } from './physics.js';
+import { PhysicsWorld } from './physics-world.js';
+import { World, WorldObject } from './world.js';
+import { fromAxisAngle } from './quat.js';
 import { Contact, ContactQuery, viewsOf } from '../gen/layouts.js';
 
 const repo = new URL('../../', import.meta.url);
@@ -297,7 +300,7 @@ for (const tilt of [0, 0.05]) gpuTest(`a rocket set down ${tilt ? 'tilted 3 degr
   const { particles, body } = bodyAt([0, 0, 4.01 + Math.sin(tilt)], rocket,
     { inertiaPerMass: 64 / 12 + 1 / 4, radius: 6.1, tilt });
   const s = onGround(particles, [body]);
-  s.step(4);
+  s.step(6);                                     // tilted, it rocks for ~5 s before it rests
   const [a, b] = await s.read();
   const axis = b.pos.map((v, i) => v - a.pos[i]);
   const upright = axis[2] / Math.hypot(...axis);
@@ -394,4 +397,72 @@ gpuTest('a ball given a push slides, then rolls at 5/7 of its speed', async () =
   near(v1, 0.5 * 5 / 7, 0.01, 'rolling speed');
   near(v2, v1, 0.002, 'and it keeps it');
   s.destroy();
+});
+
+// -- world objects, simulated ---------------------------------------------------------
+
+gpuTest('PhysicsWorld drops world objects onto a static one and follows them back', async () => {
+  // Far from the world's origin on purpose: the simulation is centred on
+  // `origin`, and the objects' poses come back in world coordinates.
+  const world = new World();
+  const planet = world.add(new WorldObject('planet', { geometry: { sphere: { center: [0, 0, 0], radius: 500 }, material: 'm' } }));
+  const ball = world.add(new WorldObject('ball', {
+    position: [0, 0, 510], geometry: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'm' },
+    body: { mass: 10, centre: 0, inertia: 0.4, radius: 1 },
+  }));
+  const rod = world.add(new WorldObject('rod', {
+    position: [6, 0, 506], orientation: fromAxisAngle([1, 0, 0], 1.2),
+    geometry: { intersect: [
+      { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.3 }, material: 'm' },
+      { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
+    ] },
+    body: { mass: 10, centre: 0, inertia: 16 / 12, radius: 2.1 },
+  }));
+  const physics = new PhysicsWorld(device, module, world, {
+    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+  });
+  assert.equal(physics.simulates(ball), true);
+  assert.equal(physics.simulates(planet), false);
+  for (let f = 0; f < 240; f++) {                  // 4 s at 60 frames a second
+    physics.update(1 / 60);
+    await physics.reading;                         // a real page doesn't wait; the test does
+  }
+  physics.update(0);
+  near(Math.hypot(...ball.position) - 500, 1, 0.03, 'the ball on the ground');
+  near(Math.hypot(...rod.position) - 500, 0.3, 0.05, 'the rod lying on it');
+  // Thrust: up on the ball, more than gravity, and it climbs.
+  physics.setThrust(ball, [0, 0, 15]);
+  for (let f = 0; f < 60; f++) { physics.update(1 / 60); await physics.reading; }
+  physics.update(0);
+  assert.ok(Math.hypot(...ball.position) - 500 > 2, `climbing: ${Math.hypot(...ball.position) - 500} m up`);
+  await physics.reading;
+  physics.destroy();
+});
+
+gpuTest('a rod dropped at any steep angle comes to rest lying flat, gaining no energy', async () => {
+  // Landing nearly on end once gained energy on every bounce - up to 23 m
+  // from a 6 m drop - because depth was measured to the nearest boundary,
+  // which for a tipped end face is sideways, not down.
+  const flat = compileSolid({ plane: { normal: [0, 0, 1], offset: 0 }, material: 'm' }, MATERIALS);
+  const rod = { intersect: [
+    { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.3 }, material: 'm' },
+    { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
+  ] };
+  const d = spacing(16 / 12);
+  for (const deg of [30, 60, 75, 80, 85]) {
+    const t = deg * Math.PI / 180, u = [0, Math.cos(t), Math.sin(t)];
+    const s = new PhysicsSim(device, module, {
+      particles: [0, 1].map((k) => ({ pos: u.map((v, i) => [0, 0, 6][i] + (k ? 1 : -1) * v * d / 2), invMass: 0.2, body: 0 })),
+      bodies: [{ p0: 0, p1: 1, rest: d, solid: compileSolid(rod, MATERIALS), a0: -d / 2, a1: d / 2, radius: 2.1, friction: 0.5 }],
+      statics: [flat], gravityCentre: [0, 0, -1e6], gm: 9.81e12 });
+    s.step(5);
+    let highest = 0;
+    for (let k = 0; k < 20; k++) {
+      s.step(0.25);
+      const q = await s.read();
+      highest = Math.max(highest, (q[0].pos[2] + q[1].pos[2]) / 2);
+    }
+    assert.ok(highest < 0.35, `dropped at ${deg} degrees, it rose to ${highest.toFixed(2)} m after settling`);
+    s.destroy();
+  }
 });

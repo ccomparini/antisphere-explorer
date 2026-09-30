@@ -16,7 +16,9 @@ import { World, WorldObject } from './world.js';
 import { AttachedCamera } from './camera.js';
 import { FlightControl, levelOrientation } from './flight.js';
 import { attachFlightInput } from './flight-input.js';
-import { fromBasis } from './quat.js';
+import { fromBasis, fromAxisAngle, multiply } from './quat.js';
+import { PhysicsWorld } from './physics-world.js';
+import { loadText, checkShader } from '../gpu-setup.js';
 
 // Not objects (yet): what the objects are made of, and what lights them.
 const SURROUNDINGS = {
@@ -27,6 +29,8 @@ const SURROUNDINGS = {
             pattern: 'checker', scale: 50 },
     hull: { albedo: [0.85, 0.85, 0.88] },
     nose: { albedo: [0.80, 0.15, 0.10] },
+    ball: { albedo: [0.20, 0.45, 0.80] },
+    capsule: { albedo: [0.90, 0.70, 0.20] },
   },
   // A distant sun. Light falls off as color / (1 + d^2), so at about 7 km
   // it takes a color in the tens of millions to light the ground.
@@ -34,6 +38,11 @@ const SURROUNDINGS = {
 };
 
 const RADIUS = 500;
+// Gravity towards the planetoid's centre: 9.81 m/s^2 at its surface.
+const GM = 9.81 * RADIUS * RADIUS;
+// Thrust while flying a simulated body, m/s^2: more than gravity, so a
+// rocket pointed up climbs.
+const THRUST = 15;
 
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
@@ -42,6 +51,19 @@ const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
 // and 8 m long (y from -4 to 4), and a cone capping it from y = 4 to its
 // tip at y = 6. The cone is double, so a slab keeps just the cap; so does
 // the body's cylinder, which is endless otherwise.
+// A capsule along +Y: a cylinder 3 m long capped with half-spheres,
+// 0.6 m in radius. All coaxial, as a two-particle body needs.
+const CAPSULE = {
+  union: [
+    { intersect: [
+      { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.6 }, material: 'capsule' },
+      { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 3 }, material: 'capsule' },
+    ] },
+    { sphere: { center: [0, 1.5, 0], radius: 0.6 }, material: 'capsule' },
+    { sphere: { center: [0, -1.5, 0], radius: 0.6 }, material: 'capsule' },
+  ],
+};
+
 const ROCKET = {
   union: [
     { intersect: [
@@ -79,13 +101,46 @@ function buildWorld() {
   const east = [1, 0, 0];
   const standAt = unit(up.map((v, i) => v + (40 / RADIUS) * east[i]));
   const rz = unit(east.map((v, i) => v - east.reduce((s, e, j) => s + e * standAt[j], 0) * standAt[i]));
-  world.add(new WorldObject('rocket', {
+  const standing = fromBasis(cross(standAt, rz), standAt, rz);
+  const rocket = world.add(new WorldObject('rocket', {
     position: standAt.map((v) => v * (RADIUS + 4)),        // its base, y = -4, on the ground
-    orientation: fromBasis(cross(standAt, rz), standAt, rz),
+    orientation: standing,
     geometry: ROCKET,
+    // Mostly a cylinder 8 m long and 1 m round, with a little cone on top:
+    // centre of mass a little above the middle, inertia across it about
+    // L^2 / 12 + r^2 / 4 per unit mass.
+    body: { mass: 2000, centre: 0.35, inertia: 5.6, radius: 6.1, friction: 0.6 },
   }));
 
-  return { world, planetoid, mount };
+  // Things to drop near it, from 30 m and 25 m up.
+  const near = (along, across, height) => {
+    const dir = unit(standAt.map((v, i) => v + (along / RADIUS) * east[i] + (across / RADIUS) * rz[i]));
+    return dir.map((v) => v * (RADIUS + height));
+  };
+  world.add(new WorldObject('ball', {
+    position: near(6, 4, 30),
+    orientation: standing,
+    geometry: { sphere: { center: [0, 0, 0], radius: 1.5 }, material: 'ball' },
+    body: { mass: 300, centre: 0, inertia: 0.4 * 1.5 * 1.5, radius: 1.5, friction: 0.5 },
+  }));
+  world.add(new WorldObject('capsule', {
+    position: near(-5, -3, 25),
+    orientation: multiply(standing, fromAxisAngle([0, 0, 1], 1.0)),      // tipped over
+    geometry: CAPSULE,
+    body: { mass: 150, centre: 0, inertia: 4.2 * 4.2 / 12 + 0.6 * 0.6 / 4, radius: 2.1, friction: 0.5 },
+  }));
+
+  return { world, planetoid, mount, rocket };
+}
+
+// The held keys as an acceleration along the flown object's own axes:
+// forward its +Y, right its +X, up its +Z.
+function thrustOf(flight) {
+  const held = (a) => (flight.held.has(a) ? 1 : 0);
+  const { x, y, z } = flight.object.axes();
+  const f = held('forward') - held('back'), r = held('right') - held('left'), u = held('up') - held('down');
+  const g = THRUST * (flight.held.has('fast') ? 2 : 1);
+  return [0, 1, 2].map((i) => g * (f * y[i] + r * x[i] + u * z[i]));
 }
 
 const canvas = document.getElementById('c');
@@ -106,8 +161,19 @@ async function main() {
     blitUrl:    '../gen/blit.wgsl',
     overlapUrl: '../gen/overlap.wgsl',
   });
-  const { world, mount } = buildWorld();
+  const { world, planetoid, mount, rocket } = buildWorld();
   const scene = gpu.createScene(world.sceneSpec(SURROUNDINGS));
+
+  // The simulation, centred on the rocket's pad.
+  const physicsUrl = '../gen/physics.wgsl';
+  const physicsCode = await loadText(physicsUrl);
+  const physicsModule = gpu.device.createShaderModule({ code: physicsCode });
+  if (!(await checkShader(physicsModule, 'physics shader', physicsCode))) {
+    throw new Error('physics shader failed to compile. See the console for details.');
+  }
+  const physics = new PhysicsWorld(gpu.device, physicsModule, world, {
+    materials: SURROUNDINGS.materials, origin: rocket.position, gravity: { from: planetoid, gm: GM },
+  });
   // Looking forward from the mount to start, pitched down a little so the
   // ground is in view.
   const camera = new AttachedCamera(mount, { pitch: -0.2 });
@@ -118,7 +184,8 @@ async function main() {
   const status = document.getElementById('status');
   const showStatus = () => {
     const looking = world.objects.find((o) => o.position === camera.target);
-    status.textContent = `flying: ${flight.object.name} · camera on ${camera.object.name}, ` +
+    const how = physics.simulates(flight.object) ? ' (thrust)' : '';
+    status.textContent = `flying: ${flight.object.name}${how} · camera on ${camera.object.name}, ` +
       (looking ? `looking at ${looking.name}` : 'looking forward');
   };
   const step = (list, current, by) => list[(list.indexOf(current) + by + list.length) % list.length];
@@ -141,11 +208,18 @@ async function main() {
   // anything with geometry moved, the scene follows (a full rebuild, for
   // now; see DESIGN.md on moving nodes in place).
   gpu.onFrame((dt) => {
-    flight.update(dt);
+    // Flying a simulated body is thrust along its own axes; anything else
+    // the controls move directly.
+    for (const o of physics.bodies) {
+      physics.setThrust(o, o === flight.object ? thrustOf(flight) : [0, 0, 0]);
+    }
+    if (physics.simulates(flight.object)) flight.pendingYaw = 0;   // turning a body needs a torque; not yet
+    else flight.update(dt);
     world.update(dt);
+    physics.update(dt);
     if (world.geometryMoved()) scene.update(world.sceneSpec(SURROUNDINGS));
   });
   gpu.start();
 
-  window.physlab = { world, camera, flight, scene, view, gpu };
+  window.physlab = { world, camera, flight, scene, view, gpu, physics };
 }

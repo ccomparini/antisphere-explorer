@@ -29,9 +29,14 @@ export class WorldObject {
    * @param {object|null} [opts.geometry]  scene subtree, in object coordinates
    * @param {(object: WorldObject, dt: number, world: World) => void} [opts.update]
    *   what the object does as time passes; dt in seconds
+   * @param {object|null} [opts.body]  makes it a simulated body (physics-world.js):
+   *   { mass, centre, inertia, radius, friction?, compliance? } - its centre of
+   *   mass on its local +Y, its inertia across that axis per unit mass, and
+   *   how far its geometry reaches from its origin. Its geometry must be
+   *   coaxial with +Y.
    */
   constructor(name, { position = [0, 0, 0], orientation = identity(), geometry = null,
-                      update = null } = {}) {
+                      update = null, body = null } = {}) {
     this.name = name;
     // One array for the object's whole life: moving it writes into this, so
     // anything holding a reference to it (a camera's look-at point, say)
@@ -40,6 +45,7 @@ export class WorldObject {
     this.orientation = normalize(orientation);
     this.geometry = geometry;
     this.behaviour = update;
+    this.body = body;
   }
 
   /** Advance this object by dt seconds. Subclasses may override. */

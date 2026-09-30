@@ -10,9 +10,17 @@ import { compileScene, packNodes } from '../antisphere-scene.js';
 import { interiorPaths } from '../overlap.js';
 import { Body, BodyContact, Particle, Path, Region, SimParams, Solid, viewsOf } from '../gen/layouts.js';
 
-/** A geometry subtree (scene-format.md) as a solid: { nodes, paths }. */
-export function compileSolid(geometry, materials) {
-  const built = compileScene({ materials, lights: [], root: geometry });
+/**
+ * A geometry subtree (scene-format.md) as a solid: { nodes, paths }. With
+ * `place` ({ rotate, translate }, as scene-format.md spells them), the
+ * geometry is turned and moved first - how a static object's solid gets
+ * into simulation coordinates.
+ */
+export function compileSolid(geometry, materials, place = null) {
+  const spec = place
+    ? { materials, lights: [], objects: { solid: geometry }, root: { use: 'solid', ...place } }
+    : { materials, lights: [], root: geometry };
+  const built = compileScene(spec);
   const solid = (i) => !!built.materials[built.nodes[i].material].solid;
   return { nodes: built.nodes, paths: interiorPaths(built.nodes, 1, solid) };
 }

@@ -92,3 +92,16 @@ export function toAxisAngle(q) {
   if (s < 1e-12) return { axis: [0, 0, 1], radians: 0 };
   return { axis: [x / s, y / s, z / s], radians: 2 * Math.atan2(s, w) };
 }
+
+/** The shortest turn taking unit vector a to unit vector b. */
+export function fromTo(a, b) {
+  const c = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  if (c < -0.999999) {
+    // Opposite: half a turn about anything square to a.
+    const other = Math.abs(a[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+    const axis = [a[1] * other[2] - a[2] * other[1], a[2] * other[0] - a[0] * other[2], a[0] * other[1] - a[1] * other[0]];
+    return fromAxisAngle(axis, Math.PI);
+  }
+  const w = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  return normalize([w[0], w[1], w[2], 1 + c]);
+}

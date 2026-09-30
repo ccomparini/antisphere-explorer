@@ -120,8 +120,47 @@ fn settleFor(pa : Path, pb : Path, start : vec3<f32>, sweeps : i32) -> vec3<f32>
   return p;
 }
 
-// A contact at p, if p really is in both paths: depth is how deep it is
-// in each, and the way out of B is out through B's nearest boundary.
+// How far from p along dir until leaving region r (p inside it): the
+// smallest t >= 0 where sign H(p + t dir) = 0, from the quadratic
+// sign (H(p) + t grad.dir + t^2 dir.K.dir). Never leaving is a long way.
+fn exitAlong(r : Region, p : vec3<f32>, dir : vec3<f32>) -> f32 {
+  let nd = nodes[r.node];
+  let c = r.sign * fAt(nd, p);
+  if (c >= 0.0) { return 0.0; }
+  let b = r.sign * dot(gradAt(nd, p), dir);
+  let along = dot(nd.axis, dir);
+  let a = r.sign * (nd.curvature_perp * dot(dir, dir) + nd.curvature_delta * along * along);
+  let never = 1e6;
+  if (abs(a) < 1e-20) {
+    if (b > 0.0) { return -c / b; }
+    return never;
+  }
+  let disc = b * b - 4.0 * a * c;
+  if (disc < 0.0) { return never; }
+  let q = -0.5 * (b + select(-1.0, 1.0, b >= 0.0) * sqrt(disc));
+  let t1 = q / a;
+  let t2 = c / q;
+  var t = never;
+  if (t1 >= 0.0) { t = min(t, t1); }
+  if (t2 >= 0.0) { t = min(t, t2); }
+  return t;
+}
+
+// ... and until leaving a path, which is left at the first of its regions.
+fn pathExit(pa : Path, p : vec3<f32>, dir : vec3<f32>) -> f32 {
+  var t = 1e6;
+  for (var i = 0u; i < pa.count; i = i + 1u) { t = min(t, exitAlong(regions[pa.first + i], p, dir)); }
+  return t;
+}
+
+// A contact at p, if p really is in both paths. The way out of B is out
+// through B's nearest boundary, n; depth is how much of the line through p
+// along n both solids share - out of B along n, plus out of A along -n -
+// which is what a push along n must remove there. (Not how deep p is in
+// each by its nearest boundary: in a rod's end tipped nearly on edge, the
+// end face is the nearest boundary, a millimetre sideways, while the rod
+// goes on 12 cm below p - a depth that let it sink out of sight until one
+// deep point threw it into the air.)
 fn contactAt(pa : Path, pb : Path, p : vec3<f32>) -> Contact {
   // A point that isn't finite (a support point from a degenerate case) is
   // no contact. It has to be refused here: taking the max of distances
@@ -138,7 +177,7 @@ fn contactAt(pa : Path, pb : Path, p : vec3<f32>) -> Contact {
     let d = regionDistance(rb, p);
     if (d > nearest) { nearest = d; outOfB = regionOutward(rb, p); }
   }
-  return Contact(p, max(0.0, -dA) + max(0.0, -dB), outOfB, 1u);
+  return Contact(p, pathExit(pb, p, outOfB) + pathExit(pa, p, -outOfB), outOfB, 1u);
 }
 
 // The point of region r's surface whose outward normal is `out`: where a
@@ -190,14 +229,18 @@ fn supportPoint(r : Region, out : vec3<f32>, p : vec3<f32>) -> vec3<f32> {
   return x0 + s * x1;
 }
 
-// Whether a region bulges out in every direction (sphere, spheroid): its
-// support point is then one definite point. A plane, slab or cylinder is
-// flat along some direction, where every point is as good as another, and
-// choosing one by where the search happened to stop is as good as any -
-// better than a rim point that flips side with a tiny tilt.
-fn bulges(r : Region) -> bool {
+// Whether a region curves along direction `out`, so that its support
+// point facing that way is well defined: a sphere always, a cylinder when
+// `out` crosses its axis (a lying rod's bottom line), a slab along its own
+// axis. Not a plane, and not a cylinder pushed along its length, where
+// the point would be anywhere - or, nearly so, flip from side to side with
+// a tiny tilt.
+fn curvesAlong(r : Region, out : vec3<f32>) -> bool {
   let nd = nodes[r.node];
-  return r.sign * nd.curvature_perp > 0.0 && r.sign * (nd.curvature_perp + nd.curvature_delta) > 0.0;
+  let along = dot(nd.axis, out);
+  let k = r.sign * (nd.curvature_perp * dot(out, out) + nd.curvature_delta * along * along);
+  let most = max(abs(nd.curvature_perp), abs(nd.curvature_perp + nd.curvature_delta));
+  return k > 0.05 * most;
 }
 
 // Whether a region bulges at the scale of a body `reach` across: its
@@ -233,13 +276,16 @@ fn tightest(pa : Path, p : vec3<f32>) -> Region {
  *    settle it into all of them (settleInto).
  * 4. Only a point inside every region of both paths makes a contact, so
  *    the certificate being conservative never makes one up (contactAt).
- * 5. That point can be anywhere in the overlap, and a push off-centre
- *    turns a body: 0.1 mm off under a resting ball was enough to set it
- *    rolling away. So where a side's nearest boundary bulges (a ball),
- *    move the point to that side's support point facing the other -
- *    straight under the ball's centre - A's first, then B's, keeping each
- *    only if it is still in both. A flat side has no such point and keeps
- *    the one it has, which is also what holds a tilted base's low rim.
+ * 5. That point can be anywhere in the overlap - often at its edge, where
+ *    the two surfaces cross and the overlap along the normal is nil, even
+ *    with the body sunk 14 cm in elsewhere. And a push off-centre turns a
+ *    body: 0.1 mm off under a resting ball set it rolling away. So where a
+ *    side's nearest boundary curves along the push (a ball, a lying rod's
+ *    underside), move the point to that side's support point facing the
+ *    other - straight under the ball's centre, along the rod's bottom
+ *    line - A's first, then B's, keeping each only if it is still in both.
+ *    Where it doesn't curve (a flat face) there is no such point, and the
+ *    one it has stays, which is also what holds a tilted base's low rim.
  */
 fn pathContact(pa : Path, pb : Path) -> Contact {
   let m = meetingPoint(pa, pb);
@@ -252,13 +298,15 @@ fn pathContact(pa : Path, pb : Path) -> Contact {
   // off-centre point would just point back through that point.)
   let ra = tightest(pa, c.point);
   let rb = tightest(pb, c.point);
-  if (bulges(ra)) {
-    let x = supportPoint(ra, -regionOutward(rb, c.point), c.point);
+  let outOfA = -regionOutward(rb, c.point);
+  if (curvesAlong(ra, outOfA)) {
+    let x = supportPoint(ra, outOfA, c.point);
     let better = contactAt(pa, pb, x);
     if (better.found != 0u) { c = better; }
   }
-  if (bulges(rb)) {
-    let x = supportPoint(rb, -regionOutward(ra, c.point), c.point);
+  let outOfB = -regionOutward(ra, c.point);
+  if (curvesAlong(rb, outOfB)) {
+    let x = supportPoint(rb, outOfB, c.point);
     let better = contactAt(pa, pb, x);
     if (better.found != 0u) { c = better; }
   }

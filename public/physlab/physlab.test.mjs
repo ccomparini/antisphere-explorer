@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { identity, fromAxisAngle, multiply, rotate, axes, fromBasis, toAxisAngle, normalize } from './quat.js';
+import { identity, fromAxisAngle, multiply, rotate, axes, fromBasis, toAxisAngle, normalize, fromTo } from './quat.js';
 import { World, WorldObject } from './world.js';
 import { AttachedCamera } from './camera.js';
 import { FlightControl, levelOrientation } from './flight.js';
@@ -298,4 +298,12 @@ test('geometryMoved says when the scene must be rebuilt', () => {
   world.sceneSpec(ROCK);
   world.add(new WorldObject('rock', { geometry: ball(1) }));
   assert.equal(world.geometryMoved(), true);                        // something new to draw
+});
+
+test('fromTo is the shortest turn from one direction to another', () => {
+  for (const [a, b] of [[[1, 0, 0], [0, 1, 0]], [[0, 0, 1], [0.6, 0, 0.8]], [[0, 1, 0], [0, 1, 0]], [[1, 0, 0], [-1, 0, 0]]]) {
+    const q = fromTo(a, b);
+    near(rotate(q, a), b, 1e-12);
+    if (Math.abs(dot(a, b)) < 0.999) near(rotate(q, cross(a, b)), cross(a, b), 1e-12);   // about their common perpendicular
+  }
 });
