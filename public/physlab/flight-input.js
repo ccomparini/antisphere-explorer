@@ -3,19 +3,19 @@
 //   click          grab the pointer for mouse-look; Escape lets it go
 //   mouse          turn (left/right) and look (up/down), while grabbed
 //   W A S D        forward, left, back, right
-//   E / Space      up        Q / C   down
+//   E              up        Q / C   down
 //   Shift          faster
 //
 // plus whatever one-shot keys the page adds as `commands` (physlab.js uses
-// the arrows). Keys are read by physical position (KeyboardEvent.code), so
-// WASD is where it should be on any layout.
+// the arrows and Space). Keys are read by physical position
+// (KeyboardEvent.code), so WASD is where it should be on any layout.
 
 const KEYS = {
   KeyW: 'forward',
   KeyS: 'back',
   KeyA: 'left',
   KeyD: 'right',
-  KeyE: 'up', Space: 'up',
+  KeyE: 'up',
   KeyQ: 'down', KeyC: 'down',
   ShiftLeft: 'fast', ShiftRight: 'fast',
 };
@@ -48,10 +48,10 @@ export function attachFlightInput(canvas, flight, { commands = {} } = {}) {
   listen(window, 'keydown', (e) => {
     const action = KEYS[e.code];
     if (action) {
-      e.preventDefault();                      // no scrolling on Space
+      e.preventDefault();
       flight.press(action);
     } else if (commands[e.code]) {
-      e.preventDefault();                      // nor on the arrows
+      e.preventDefault();                      // no scrolling on Space or the arrows
       if (!e.repeat) commands[e.code]();
     }
   });

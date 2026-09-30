@@ -73,6 +73,19 @@ export function checkCoaxial(solid, what = 'body') {
   });
 }
 
+// Compute pipelines by module and entry point: making them is the slow part
+// of making a simulation, and physics-world.js makes a new one each time a
+// body is added.
+const pipelines = new WeakMap();
+function pipelineOf(device, module, entryPoint) {
+  if (!pipelines.has(module)) pipelines.set(module, new Map());
+  const byEntry = pipelines.get(module);
+  if (!byEntry.has(entryPoint)) {
+    byEntry.set(entryPoint, device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint } }));
+  }
+  return byEntry.get(entryPoint);
+}
+
 /**
  * Particles and bodies on the GPU, stepped in fixed substeps (XPBD; see
  * shaders/physics.wgsls), colliding with each other's solids and with
@@ -171,7 +184,7 @@ export class PhysicsSim {
       8: solidBuf, 9: localNodes, 10: posedNodes, 11: this.contacts, 12: this.contactCount, 13: corrections,
     };
     const stage = (entryPoint, bindings) => {
-      const pipeline = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint } });
+      const pipeline = pipelineOf(device, module, entryPoint);
       const bindGroup = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
         entries: bindings.map((binding) => ({ binding, resource: { buffer: buffers[binding] } })),

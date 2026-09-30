@@ -5,6 +5,7 @@
 //   left / right arrows   which object the controls fly
 //   up / down arrows      what the camera looks at; its own object means
 //                         "look forward"
+//   space                 fire a capsule the way the camera looks
 //
 // (flight-input.js has the rest of the keys.)
 //
@@ -16,7 +17,7 @@ import { World, WorldObject } from './world.js';
 import { AttachedCamera } from './camera.js';
 import { FlightControl, levelOrientation } from './flight.js';
 import { attachFlightInput } from './flight-input.js';
-import { fromBasis, fromAxisAngle, multiply } from './quat.js';
+import { fromBasis, fromAxisAngle, fromTo, multiply } from './quat.js';
 import { PhysicsWorld } from './physics-world.js';
 import { loadText, checkShader } from '../gpu-setup.js';
 import { FrameProfiler } from './profiler.js';
@@ -44,6 +45,10 @@ const GM = 9.81 * RADIUS * RADIUS;
 // Thrust while flying a simulated body, m/s^2: more than gravity, so a
 // rocket pointed up climbs.
 const THRUST = 15;
+// A fired capsule's speed, m/s, and how far ahead of the eye its centre
+// starts (beyond the reach of the body the camera rides on, if any).
+const FIRE_SPEED = 25;
+const FIRE_AHEAD = 3;
 
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
@@ -64,6 +69,8 @@ const CAPSULE = {
     { sphere: { center: [0, -1.5, 0], radius: 0.6 }, material: 'capsule' },
   ],
 };
+
+const CAPSULE_BODY = { mass: 150, centre: 0, inertia: 4.2 * 4.2 / 12 + 0.6 * 0.6 / 4, radius: 2.1, friction: 0.5 };
 
 const ROCKET = {
   union: [
@@ -128,7 +135,7 @@ function buildWorld() {
     position: near(-5, -3, 25),
     orientation: multiply(standing, fromAxisAngle([0, 0, 1], 1.0)),      // tipped over
     geometry: CAPSULE,
-    body: { mass: 150, centre: 0, inertia: 4.2 * 4.2 / 12 + 0.6 * 0.6 / 4, radius: 2.1, friction: 0.5 },
+    body: CAPSULE_BODY,
   }));
 
   return { world, planetoid, mount, rocket };
@@ -197,9 +204,24 @@ async function main() {
     camera.target = next === camera.object ? null : next.position;   // held by reference
     showStatus();
   };
+  // Space fires another capsule: pointing, and moving at FIRE_SPEED, the
+  // way the camera looks, from just ahead of it.
+  let fired = 0;
+  const fire = () => {
+    const { eye, forward } = camera.basis();
+    const ahead = FIRE_AHEAD + (camera.object.body ? camera.object.body.radius : 0);
+    const capsule = world.add(new WorldObject(`capsule-${++fired}`, {
+      position: eye.map((v, i) => v + ahead * forward[i]),
+      orientation: fromTo([0, 1, 0], forward),
+      geometry: CAPSULE,
+      body: CAPSULE_BODY,
+    }));
+    physics.add(capsule, forward.map((v) => FIRE_SPEED * v));
+  };
   attachFlightInput(canvas, flight, { commands: {
     ArrowLeft: () => flyNext(-1), ArrowRight: () => flyNext(1),
     ArrowUp: () => lookNext(1), ArrowDown: () => lookNext(-1),
+    Space: fire,
   } });
   showStatus();
 

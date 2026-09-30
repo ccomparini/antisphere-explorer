@@ -439,6 +439,60 @@ gpuTest('PhysicsWorld drops world objects onto a static one and follows them bac
   physics.destroy();
 });
 
+gpuTest('PhysicsWorld.add fires a body in mid-run, and what was moving keeps moving', async () => {
+  // A ball falling, then a capsule fired sideways 20 m above the ground.
+  // Adding it rebuilds the simulation: the ball must carry on falling from
+  // where it had got to, at the speed it had, and the capsule leave at its
+  // own speed, as good as unhindered at first.
+  const world = new World();
+  const planet = world.add(new WorldObject('planet', { geometry: { sphere: { center: [0, 0, 0], radius: 500 }, material: 'm' } }));
+  const ball = world.add(new WorldObject('ball', {
+    position: [0, 0, 560], geometry: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'm' },
+    body: { mass: 10, centre: 0, inertia: 0.4, radius: 1 },
+  }));
+  const physics = new PhysicsWorld(device, module, world, {
+    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+  });
+  const run = async (frames) => {
+    for (let f = 0; f < frames; f++) {
+      physics.update(1 / 60);
+      await physics.reading;
+      await physics.rebuilding;
+    }
+  };
+  // Gravity weakens with height (7.8 m/s^2 up here), so where free fall
+  // from 560 m should have got to, in small steps.
+  const fall = (t) => {
+    let r = 560, v = 0;
+    for (let k = 0; k < t * 1000; k++) { v -= (GM / (r * r)) * 1e-3; r += v * 1e-3; }
+    return 560 - r;
+  };
+  await run(60);
+  physics.update(0);
+  near(560 - ball.position[2], fall(1), 0.1, 'a second of free fall');
+
+  const capsule = world.add(new WorldObject('capsule', {
+    position: [0, 20, 520],                         // lying along +Y, the way it goes
+    geometry: { intersect: [
+      { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.5 }, material: 'm' },
+      { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 2 }, material: 'm' },
+    ] },
+    body: { mass: 10, centre: 0, inertia: 4 / 12, radius: 1.2 },
+  }));
+  physics.add(capsule, [0, 25, 0]);
+  assert.equal(physics.simulates(capsule), true);
+  await run(31);                                  // the first frame rebuilds, and runs nothing
+  physics.update(0);
+  await physics.reading;
+  physics.update(0);
+  // Half a second more for each: the ball from 1 s to 1.5 s of its fall.
+  near(560 - ball.position[2], fall(1.5), 0.1, 'the ball fell on from where it was');
+  near(capsule.position[1], 20 + 25 * 0.5, 0.2, 'the capsule went its own way');
+  near(capsule.position[2], 520 - 0.5 * 9.81 * (500 / 520) ** 2 * 0.25, 0.1, 'and fell as it went');
+  await physics.reading;
+  physics.destroy();
+});
+
 gpuTest('a rod dropped at any steep angle comes to rest lying flat, gaining no energy', async () => {
   // Landing nearly on end once gained energy on every bounce - up to 23 m
   // from a 6 m drop - because depth was measured to the nearest boundary,
