@@ -170,7 +170,6 @@ async function main() {
     overlapUrl: '../gen/overlap.wgsl',
   });
   const { world, planetoid, mount, rocket } = buildWorld();
-  const scene = gpu.createScene(world.sceneSpec(SURROUNDINGS));
 
   // The simulation, centred on the rocket's pad.
   const physicsUrl = '../gen/physics.wgsl';
@@ -182,6 +181,12 @@ async function main() {
   const physics = new PhysicsWorld(gpu.device, physicsModule, world, {
     materials: SURROUNDINGS.materials, origin: rocket.position, gravity: { from: planetoid, gm: GM },
   });
+  // The scene is an overlapping group of the world's objects, each body's
+  // bounds padded by how far it may move before the next compile. Its
+  // overlaps are the broad phase: the only pairs physics tests for contact.
+  const sceneSpec = () => world.sceneSpec(SURROUNDINGS, { bounds: (o) => physics.boundsOf(o) });
+  const scene = gpu.createScene(sceneSpec());
+  physics.setCandidates(world.overlappingPairs(scene.overlaps));
   // Looking forward from the mount to start, pitched down a little so the
   // ground is in view.
   const camera = new AttachedCamera(mount, { pitch: -0.2 });
@@ -234,7 +239,8 @@ async function main() {
   // time moves on by dt, seconds since the last frame, clamped so a stall
   // doesn't become a leap; the physics steps; if anything with geometry
   // moved, the scene follows (a full rebuild, for now; see DESIGN.md on
-  // moving nodes in place); then the view is drawn.
+  // moving nodes in place), and with it which pairs physics tests; then
+  // the view is drawn.
   let last = performance.now();
   function frame(now) {
     requestAnimationFrame(frame);
@@ -254,7 +260,10 @@ async function main() {
     world.update(dt);
     const substeps = physics.update(dt, profiler.pass('physics'));
     if (substeps === 0) profiler.skipped('physics');
-    if (world.geometryMoved()) scene.update(world.sceneSpec(SURROUNDINGS));
+    if (world.geometryMoved()) {
+      scene.update(sceneSpec());
+      physics.setCandidates(world.overlappingPairs(scene.overlaps));
+    }
 
     const enc = gpu.device.createCommandEncoder();
     if (!view.encode(enc, { computeTimestamps: profiler.pass('render'), blitTimestamps: profiler.pass('blit') })) {
@@ -266,6 +275,7 @@ async function main() {
 
     profiler.extra = {
       bodies: String(physics.bodies.length),
+      'pairs (paths)': String(physics.pairCount),
       'substeps/frame': String(substeps),
       pixels: `${(view.pixelCount / 1e6).toFixed(2)} M`,
     };

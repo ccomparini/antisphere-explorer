@@ -13,6 +13,7 @@ import { PhysicsWorld } from './physics-world.js';
 import { World, WorldObject } from './world.js';
 import { fromAxisAngle } from './quat.js';
 import { Contact, ContactQuery, viewsOf } from '../gen/layouts.js';
+import { compileScene } from '../antisphere-scene.js';
 
 const repo = new URL('../../', import.meta.url);
 
@@ -492,6 +493,70 @@ gpuTest('PhysicsWorld.add fires a body in mid-run, and what was moving keeps mov
   near(560 - ball.position[2], fall(1.5), 0.1, 'the ball fell on from where it was');
   near(capsule.position[1], 20 + 25 * 0.5, 0.2, 'the capsule went its own way');
   near(capsule.position[2], 520 - 0.5 * 9.81 * (500 / 520) ** 2 * 0.25, 0.1, 'and fell as it went');
+  await physics.reading;
+  physics.destroy();
+});
+
+gpuTest('only the pairs set are tested: with none, a sphere falls through the ground', async () => {
+  const { particles, body } = sphereBody([0, 0, 1], 0.5, 0);
+  const s = onGround(particles, [body]);
+  s.setPairs([]);
+  assert.equal(s.pairCount, 0);
+  s.step(1);
+  assert.ok(centreOf(await s.read(), 0)[2] < -1, 'fell through');
+  s.destroy();
+  const t = onGround(sphereBody([0, 0, 1], 0.5, 0).particles, [sphereBody([0, 0, 1], 0.5, 0).body]);
+  t.setPairs([]);
+  t.setPairs([{ body: 0, other: 1 }]);            // the ground, back again
+  t.step(1);
+  near(centreOf(await t.read(), 0)[2], 0.5, 0.02, 'landed');
+  t.destroy();
+});
+
+gpuTest('an overlapping group of the world is the broad phase: far pairs untested, and everything still lands', async () => {
+  // A ball on the ground, one falling from 60 m (too far to touch anything
+  // at first; its bounds must grow with its speed in time to meet the
+  // ground's), and two rods apart from them, all around a planet.
+  const world = new World();
+  const planet = world.add(new WorldObject('planet', { geometry: { sphere: { center: [0, 0, 0], radius: 500 }, material: 'm' } }));
+  const ball = (name, at) => world.add(new WorldObject(name, {
+    position: at, geometry: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'm' },
+    body: { mass: 10, centre: 0, inertia: 0.4, radius: 1 },
+  }));
+  const rod = (name, at) => world.add(new WorldObject(name, {
+    position: at,                                   // along Y: lying down
+    geometry: { intersect: [
+      { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.3 }, material: 'm' },
+      { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
+    ] },
+    body: { mass: 10, centre: 0, inertia: 16 / 12, radius: 2.1 },
+  }));
+  const low = ball('low', [0, 0, 501.5]);
+  const high = ball('high', [8, 0, 560]);
+  const rods = [rod('rod1', [20, 0, 502]), rod('rod2', [-20, 0, 502])];
+  const physics = new PhysicsWorld(device, module, world, {
+    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+  });
+  const all = physics.pairCount;
+  const broadPhase = () => {
+    const built = compileScene(world.sceneSpec({ materials: MATERIALS }, { bounds: (o) => physics.boundsOf(o) }));
+    physics.setCandidates(world.overlappingPairs(built.overlaps));
+  };
+  broadPhase();
+  // Each body against the planet but the high ball: three bodies, and
+  // path pairs 1 (ball), 1, 1 (rods).
+  assert.equal(physics.pairCount, 3, `pairs at first (of ${all})`);
+  for (let f = 0; f < 5 * 60; f++) {
+    physics.update(1 / 60);
+    await physics.reading;
+    physics.update(0);
+    broadPhase();
+  }
+  const up = (o) => Math.hypot(...o.position) - 500;
+  near(up(low), 1, 0.05, 'the low ball on the ground');
+  near(up(high), 1, 0.05, 'the high ball landed, not fallen through');
+  for (const r of rods) near(up(r), 0.3, 0.05, 'a rod lying on the ground');
+  assert.equal(physics.pairCount, 4, 'each body against the planet, and nothing else');
   await physics.reading;
   physics.destroy();
 });

@@ -639,6 +639,7 @@ struct SimParams {
   body_count     : u32,
   first_static   : u32,        // solids from here on collide but never move
   static_count   : u32,
+  pair_count     : u32,        // path pairs for detect() to try (see pathPairs)
 };
 
 @group(0) @binding(5) var<storage, read_write> particles : array<Particle>;
@@ -912,8 +913,9 @@ fn originOf(b : u32) -> vec3<f32> {
 }
 
 // A path of a body and a path of something it may touch - a static solid,
-// or another body - to test for contact. The host lists every such pair
-// once, when the simulation is made, and detect() takes one each. (One
+// or another body - to test for contact. The host lists them (all of them
+// to start with; then whichever a broad phase says may touch), and
+// detect() takes one each. (One
 // thread per pair of bodies, trying each pair of their paths in turn, took
 // 3 ms a substep for one capsule on the ground, and 14 ms more for five
 // capsules touching: the pairs' paths ran one after another.)
@@ -933,7 +935,7 @@ struct PathPair {
 @compute @workgroup_size(64)
 fn detect(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
-  if (i >= arrayLength(&pathPairs)) { return; }
+  if (i >= sim.pair_count) { return; }
   let job = pathPairs[i];
   let a = job.body;
   let b = job.other;
@@ -1162,4 +1164,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":175},{"path":"shaders/physics.wgsls","offset":253,"lines":911}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":175},{"path":"shaders/physics.wgsls","offset":253,"lines":913}]

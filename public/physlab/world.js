@@ -94,11 +94,18 @@ export class World {
    * placing it wants).
    *
    * @param {object} [surroundings]  { materials, lights }, which aren't objects (yet)
+   * @param {object} [opts]
+   * @param {(o: WorldObject) => ({ center, radius }|null)} [opts.bounds]
+   *   Makes the root an overlapping group (scene-format.md) instead of a
+   *   union, with each object's bounds from this where it gives one. The
+   *   compiled scene's overlaps then say which objects may touch; their
+   *   members index placed(), the objects in the scene at this call.
    */
-  sceneSpec({ materials = {}, lights = [] } = {}) {
+  sceneSpec({ materials = {}, lights = [] } = {}, { bounds = null } = {}) {
     const placed = this.objects.filter((o) => o.geometry);
     if (!placed.length) throw new Error('no object in the world has any geometry to draw');
     this._built = this._poses();
+    this._placed = placed;
 
     const objects = {};
     const uses = placed.map((o) => {
@@ -107,14 +114,25 @@ export class World {
       const { axis, radians } = toAxisAngle(o.orientation);
       if (radians !== 0) use.rotate = { axis, radians };
       if (o.position.some((v) => v !== 0)) use.translate = o.position.slice();
+      const b = bounds?.(o);
+      if (b) use.bounds = b;
       return use;
     });
-    return {
-      materials,
-      lights,
-      objects,
-      root: uses.length === 1 ? uses[0] : { union: uses },
-    };
+    let root = uses.length === 1 ? uses[0] : { union: uses };
+    if (bounds) root = { group: uses, overlapping: true };
+    return { materials, lights, objects, root };
+  }
+
+  /** The objects in the scene as of the last sceneSpec(), in its order. */
+  placed() { return this._placed ?? []; }
+
+  /**
+   * The pairs of objects a compiled scene says may touch: its root
+   * group's overlaps (sceneSpec with bounds), as [object, object].
+   */
+  overlappingPairs(overlaps) {
+    const placed = this.placed();
+    return overlaps.filter((o) => o.group === 'root').map(({ members: [i, j] }) => [placed[i], placed[j]]);
   }
 
   /** Has anything with geometry moved, turned or appeared since the last sceneSpec()? */

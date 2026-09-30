@@ -720,6 +720,7 @@ export class SimParams {
     body_count: Object.freeze({ offset: 24, type: 'u32' }),
     first_static: Object.freeze({ offset: 28, type: 'u32' }),
     static_count: Object.freeze({ offset: 32, type: 'u32' }),
+    pair_count: Object.freeze({ offset: 36, type: 'u32' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * SimParams.STRIDE)); }
@@ -751,6 +752,9 @@ export class SimParams {
     if (values.static_count !== undefined) {
       u32[w + 8] = values.static_count;
     }
+    if (values.pair_count !== undefined) {
+      u32[w + 9] = values.pair_count;
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -763,6 +767,7 @@ export class SimParams {
       body_count: u32[w + 6],
       first_static: u32[w + 7],
       static_count: u32[w + 8],
+      pair_count: u32[w + 9],
     };
   }
 }
