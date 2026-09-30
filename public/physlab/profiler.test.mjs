@@ -77,3 +77,19 @@ test('an idle pass shows no time and leaves the total, at once', { skip }, async
   profiler._show();
   assert.match(panel.cells.blit.textContent, /ms$/);
 });
+
+test('frames in flight: counted at submit, uncounted as each completes', { skip }, async () => {
+  const panel = fakePanel();
+  const profiler = new FrameProfiler(device, true, ['render'], panel);
+  // Three frames submitted back to back, none waited for: all three are
+  // in flight until the GPU has done them.
+  for (let f = 0; f < 3; f++) await frame(profiler, ['render'], false);
+  assert.equal(profiler.inFlight, 3);
+  await settled(profiler);
+  await new Promise((r) => setTimeout(r, 10));        // the completions' callbacks
+  assert.equal(profiler.inFlight, 0);
+  profiler._show();
+  assert.equal(panel.cells.flight.textContent, '0 (peak 3)');
+  profiler._show();                                    // the peak starts again from now
+  assert.equal(panel.cells.flight.textContent, '0 (peak 0)');
+});

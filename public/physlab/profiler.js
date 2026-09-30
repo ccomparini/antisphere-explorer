@@ -15,6 +15,14 @@
 // counts for nothing in the total, rather than going on showing its last
 // average. That is different from skipped(): a pass that didn't run this
 // frame, as physics doesn't when a frame is too short for a substep.
+//
+// submit→done is latency, not work: onSubmittedWorkDone() waits for
+// everything submitted so far, frames queued ahead of this one included.
+// Frames in flight says how many are queued: counted at each end(),
+// uncounted as each one's work completes, shown as the count now and the
+// most since the last update. A GPU that can't keep up shows as several,
+// until the browser stops handing out canvas images. (The browser delivers
+// completions on its own schedule, which can add one.)
 
 import { createTimestampQuery } from '../gpu-setup.js';
 
@@ -43,6 +51,8 @@ export class FrameProfiler {
     this.passes = passes;
     this.ts = createTimestampQuery(device, canTimestamp, passes.length * 2);
     this.pending = false;
+    this.inFlight = 0;            // frames submitted whose work hasn't completed
+    this.peakInFlight = 0;        // the most since the last _show()
     this.timing = false;          // whether this frame's passes are timed
     this.written = new Set();     // passes that actually ran this frame
     this.avg = { frame: rolling(30), cpu: rolling(30), done: rolling(30) };
@@ -57,6 +67,7 @@ export class FrameProfiler {
     panel.innerHTML = [
       row('fps', 'fps'), row('frame', 'frame'), row('cpu', 'cpu'),
       ...passes.map((p) => row(p, `gpu ${p}`)), row('gpu', 'gpu total'), row('done', 'submit→done'),
+      row('flight', 'frames in flight'),
       '<canvas class="spark" width="240" height="40"></canvas>',
       '<div class="extra"></div><div class="note"></div>',
     ].join('');
@@ -110,7 +121,10 @@ export class FrameProfiler {
    */
   end(frameMs, cpuMs) {
     const submitted = performance.now();
-    this.device.queue.onSubmittedWorkDone().then(() => this.avg.done(performance.now() - submitted));
+    this.inFlight++;
+    this.peakInFlight = Math.max(this.peakInFlight, this.inFlight);
+    this.device.queue.onSubmittedWorkDone().then(() => this.avg.done(performance.now() - submitted))
+      .finally(() => { this.inFlight--; });
     if (this.timing) {
       this.pending = true;
       const ran = [...this.written];
@@ -153,6 +167,8 @@ export class FrameProfiler {
     }
     c.gpu.textContent = this.ts && any ? ms(gpu) : 'n/a';
     c.done.textContent = ms(this.avg.done());
+    c.flight.textContent = `${this.inFlight} (peak ${this.peakInFlight})`;
+    this.peakInFlight = this.inFlight;
     this.panel.querySelector('.extra').innerHTML =
       Object.entries(this.extra).map(([k, v]) => row(null, k, v)).join('');
     this._spark();
