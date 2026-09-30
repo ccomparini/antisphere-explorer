@@ -544,31 +544,86 @@ fn tightest(pa : Path, p : vec3<f32>) -> Region {
  *    line - A's first, then B's, keeping each only if it is still in both.
  *    Where it doesn't curve (a flat face) there is no such point, and the
  *    one it has stays, which is also what holds a tilted base's low rim.
+ * 6. A side made only of planes - a polyhedron - has corners, and a
+ *    corner in the other side is where it is deepest, and needs no
+ *    search: settling (3) crawls into the narrow tip of a corner sunk in
+ *    the ground so slowly that 8 rounds missed an octahedron's corner
+ *    33 cm deep. So each side's corners are tried too (deepestCorner),
+ *    and the deepest contact of all is kept. The search is still needed:
+ *    where edges cross, no corner is in anything.
  */
 fn pathContact(pa : Path, pb : Path) -> Contact {
   let m = meetingPoint(pa, pb);
   if (m.w == 0.0) { return NO_CONTACT; }
   let p = settleInto(pa, pb, m.xyz);
   var c = contactAt(pa, pb, p);
-  if (c.found == 0u) { return c; }
-  // Each side's support point faces the other's surface: its outward
-  // normal there is the reverse of the other side's. (Its own normal at an
-  // off-centre point would just point back through that point.)
-  let ra = tightest(pa, c.point);
-  let rb = tightest(pb, c.point);
-  let outOfA = -regionOutward(rb, c.point);
-  if (curvesAlong(ra, outOfA)) {
-    let x = supportPoint(ra, outOfA, c.point);
-    let better = contactAt(pa, pb, x);
-    if (better.found != 0u) { c = better; }
+  if (c.found != 0u) {
+    // Each side's support point faces the other's surface: its outward
+    // normal there is the reverse of the other side's. (Its own normal at
+    // an off-centre point would just point back through that point.)
+    let ra = tightest(pa, c.point);
+    let rb = tightest(pb, c.point);
+    let outOfA = -regionOutward(rb, c.point);
+    if (curvesAlong(ra, outOfA)) {
+      let x = supportPoint(ra, outOfA, c.point);
+      let better = contactAt(pa, pb, x);
+      if (better.found != 0u) { c = better; }
+    }
+    let outOfB = -regionOutward(ra, c.point);
+    if (curvesAlong(rb, outOfB)) {
+      let x = supportPoint(rb, outOfB, c.point);
+      let better = contactAt(pa, pb, x);
+      if (better.found != 0u) { c = better; }
+    }
   }
-  let outOfB = -regionOutward(ra, c.point);
-  if (curvesAlong(rb, outOfB)) {
-    let x = supportPoint(rb, outOfB, c.point);
-    let better = contactAt(pa, pb, x);
-    if (better.found != 0u) { c = better; }
+  for (var side = 0u; side < 2u; side = side + 1u) {
+    var corners = pa;
+    if (side == 1u) { corners = pb; }
+    let k = deepestCorner(corners, pa, pb);
+    if (k.found != 0u && (c.found == 0u || k.depth > c.depth)) { c = k; }
   }
   return c;
+}
+
+// The most planes a path can have for its corners to be tried: every
+// three of them meet at a point, so twelve is 220 points.
+const MAX_CORNER_PLANES : u32 = 12u;
+
+// If path pv is all planes, the deepest of its corners - points where
+// three of them meet, and in all the rest - that makes a contact between
+// pa and pb (one of which pv is); NO_CONTACT otherwise.
+fn deepestCorner(pv : Path, pa : Path, pb : Path) -> Contact {
+  if (pv.count < 3u || pv.count > MAX_CORNER_PLANES) { return NO_CONTACT; }
+  for (var i = 0u; i < pv.count; i = i + 1u) {
+    let nd = nodes[regions[pv.first + i].node];
+    if (nd.curvature_perp != 0.0 || nd.curvature_delta != 0.0) { return NO_CONTACT; }
+  }
+  // Plane r as n.x < d, inside: sign (linear.x + const) < 0.
+  var best = NO_CONTACT;
+  for (var i = 0u; i < pv.count; i = i + 1u) {
+    let ri = regions[pv.first + i];
+    let ni = ri.sign * nodes[ri.node].linear;
+    let di = -ri.sign * nodes[ri.node].const_term;
+    for (var j = i + 1u; j < pv.count; j = j + 1u) {
+      let rj = regions[pv.first + j];
+      let nj = rj.sign * nodes[rj.node].linear;
+      let dj = -rj.sign * nodes[rj.node].const_term;
+      for (var k = j + 1u; k < pv.count; k = k + 1u) {
+        let rk = regions[pv.first + k];
+        let nk = rk.sign * nodes[rk.node].linear;
+        let dk = -rk.sign * nodes[rk.node].const_term;
+        let jk = cross(nj, nk);
+        let det = dot(ni, jk);
+        if (abs(det) < 1e-6 * length(ni) * length(nj) * length(nk)) { continue; }   // parallel, near enough
+        let x = (di * jk + dj * cross(nk, ni) + dk * cross(ni, nj)) / det;
+        // A corner of the solid only if it is in (or on) every other plane.
+        if (pathDistance(pv, x) > 1e-4) { continue; }
+        let c = contactAt(pa, pb, x);
+        if (c.found != 0u && (best.found == 0u || c.depth > best.depth)) { best = c; }
+      }
+    }
+  }
+  return best;
 }
 
 // -- batch contacts, for tests and tools ----------------------------------------------
@@ -785,21 +840,56 @@ fn frameOf(x0 : vec3<f32>, x1 : vec3<f32>, m0 : f32, m1 : f32) -> Frame {
   return Frame(c, m, axisOf(x0, x1), i);
 }
 
-// A node given in the body's coordinates (coaxial with +Y), placed with
-// its local origin at o and its Y axis along u. With K = k I + dk a a^T:
-// the axis turns to u, the curvatures stay, and translating by o takes
-// linear to linear - 2 K o and const to const + o.K.o - linear.o.
-fn placeCoaxial(nd : Node, o : vec3<f32>, u : vec3<f32>) -> Node {
+// Each body's orientation, as a quaternion (x, y, z, w) taking its own
+// coordinates to the simulation's. Two particles fix only its axis, so
+// the rest - its roll about that axis - is carried along: each substep the
+// orientation turns the shortest way from where it put the axis to where
+// the particles now say it is. Nothing turns a body about its own axis
+// (push() gives no roll), so roll is kept, not simulated. The host sets
+// each body's to start with and reads them back to draw the bodies, so
+// what is drawn is what collides.
+@group(0) @binding(15) var<storage, read_write> turns : array<vec4<f32>>;
+
+// v turned by unit quaternion q.
+fn quatRotate(q : vec4<f32>, v : vec3<f32>) -> vec3<f32> {
+  let t = 2.0 * cross(q.xyz, v);
+  return v + q.w * t + cross(q.xyz, t);
+}
+
+// a then b: the turn that is b after a.
+fn quatAfter(b : vec4<f32>, a : vec4<f32>) -> vec4<f32> {
+  return vec4<f32>(b.w * a.xyz + a.w * b.xyz + cross(b.xyz, a.xyz), b.w * a.w - dot(b.xyz, a.xyz));
+}
+
+// The shortest turn taking unit vector a to unit vector b; turned right
+// round, half a turn about any line square to a (as quat.js's fromTo).
+fn quatFromTo(a : vec3<f32>, b : vec3<f32>) -> vec4<f32> {
+  let c = dot(a, b);
+  if (c < -0.999999) {
+    var other = vec3<f32>(1.0, 0.0, 0.0);
+    if (abs(a.x) >= 0.9) { other = vec3<f32>(0.0, 1.0, 0.0); }
+    return vec4<f32>(normalize(cross(a, other)), 0.0);
+  }
+  return normalize(vec4<f32>(cross(a, b), 1.0 + c));
+}
+
+// A node given in the body's coordinates, placed with its local origin at
+// o and turned by q. With K = k I + dk a a^T: the axis and the linear term
+// turn, the curvatures stay, and translating by o takes linear to
+// linear - 2 K o and const to const + o.K.o - linear.o.
+fn placeTurned(nd : Node, o : vec3<f32>, q : vec4<f32>) -> Node {
   var w = nd;
-  let ly = nd.linear.y;                       // coaxial: along Y, or nothing
-  let ko = nd.curvature_perp * o + nd.curvature_delta * dot(u, o) * u;
-  w.axis = u;
-  w.linear = ly * u - 2.0 * ko;
-  w.const_term = nd.const_term + dot(o, ko) - ly * dot(u, o);
+  let a = quatRotate(q, nd.axis);
+  let lin = quatRotate(q, nd.linear);
+  let ko = nd.curvature_perp * o + nd.curvature_delta * dot(a, o) * a;
+  w.axis = a;
+  w.linear = lin - 2.0 * ko;
+  w.const_term = nd.const_term + dot(o, ko) - dot(lin, o);
   return w;
 }
 
-// Place each body's solid where its particles now are.
+// Turn each body's orientation onto its particles' axis, and place its
+// solid there.
 @compute @workgroup_size(64)
 fn pose(@builtin(global_invocation_id) gid : vec3<u32>) {
   let b = gid.x;
@@ -808,10 +898,13 @@ fn pose(@builtin(global_invocation_id) gid : vec3<u32>) {
   let x0 = particles[body.p0].pos;
   let u = axisOf(x0, particles[body.p1].pos);
   let o = x0 - body.a0 * u;
+  let was = turns[b];
+  let q = normalize(quatAfter(quatFromTo(quatRotate(was, vec3<f32>(0.0, 1.0, 0.0)), u), was));
+  turns[b] = q;
   let solid = solids[body.solid];
   for (var n = 0u; n < solid.node_count; n = n + 1u) {
     let at = solid.first_node + n;
-    posedNodes[at] = placeCoaxial(localNodes[at], o, u);
+    posedNodes[at] = placeTurned(localNodes[at], o, q);
   }
 }
 
@@ -1164,4 +1257,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":175},{"path":"shaders/physics.wgsls","offset":253,"lines":913}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":175},{"path":"shaders/physics.wgsls","offset":253,"lines":1006}]

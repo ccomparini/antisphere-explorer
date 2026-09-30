@@ -32,8 +32,9 @@ export class WorldObject {
    * @param {object|null} [opts.body]  makes it a simulated body (physics-world.js):
    *   { mass, centre, inertia, radius, friction?, compliance? } - its centre of
    *   mass on its local +Y, its inertia across that axis per unit mass, and
-   *   how far its geometry reaches from its origin. Its geometry must be
-   *   coaxial with +Y.
+   *   how far its geometry reaches from its origin. Its body's axis is its
+   *   +Y; any shape will do, but its roll about that axis is carried, not
+   *   simulated (see physics.js).
    */
   constructor(name, { position = [0, 0, 0], orientation = identity(), geometry = null,
                       update = null, body = null } = {}) {

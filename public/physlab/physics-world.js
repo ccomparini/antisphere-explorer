@@ -51,7 +51,7 @@ export class PhysicsWorld {
     this.staticObjects = world.objects.filter((o) => o.geometry && !o.body);
     this.statics = this.staticObjects.map((o) => compileSolid(o.geometry, materials, place(o)));
     this.candidates = null;               // [[object, object]] from setCandidates, or every pair
-    this.sim = this._simulate([]);
+    this.sim = this._simulate();
     this.reading = null;
     this.latest = null;
     this.joining = [];                    // bodies added since the simulation was built
@@ -81,9 +81,10 @@ export class PhysicsWorld {
     return this.solids.get(geometry);
   }
 
-  // A simulation of every body: those `from` has (its particles, as read)
-  // carry on as they were; the rest start at their objects' poses.
-  _simulate(from) {
+  // A simulation of every body: those `from` has (a readState(): their
+  // particles and orientations) carry on as they were; the rest start at
+  // their objects' poses.
+  _simulate(from = { particles: [], turns: [] }) {
     const particles = [], bodies = [];
     this.bodies.forEach((o, k) => {
       const b = o.body;
@@ -92,14 +93,17 @@ export class PhysicsWorld {
       const u = rotate(o.orientation, [0, 1, 0]);
       const at = (y) => sub(add(o.position, scale(u, y)), this.origin);
       const inv = 2 / b.mass;
-      if (2 * k + 1 < from.length) {
-        particles.push({ ...from[2 * k], invMass: inv, body: k }, { ...from[2 * k + 1], invMass: inv, body: k });
+      const carried = k < from.turns.length;
+      if (carried) {
+        const q = from.particles;
+        particles.push({ ...q[2 * k], invMass: inv, body: k }, { ...q[2 * k + 1], invMass: inv, body: k });
       } else {
         particles.push({ pos: at(a0), vel, invMass: inv, body: k }, { pos: at(a1), vel, invMass: inv, body: k });
       }
       bodies.push({
         p0: 2 * k, p1: 2 * k + 1, rest: d, compliance: b.compliance ?? 0, thrust,
         solid: this._solidOf(o.geometry), a0, a1, radius: b.radius, friction: b.friction ?? 0.5,
+        turn: carried ? from.turns[k] : o.orientation,
       });
     });
     return new PhysicsSim(this.device, this.module, {
@@ -113,11 +117,11 @@ export class PhysicsWorld {
   async _rebuild() {
     this.joining = [];
     if (this.reading) await this.reading;
-    const qs = await this.sim.read();
+    const state = await this.sim.readState();
     const old = this.sim;
-    this._apply(qs);
+    this._apply(state);
     this.latest = null;
-    this.sim = this._simulate(qs);
+    this.sim = this._simulate(state);
     old.destroy();
     this._useCandidates();
   }
@@ -207,25 +211,26 @@ export class PhysicsWorld {
     if (!this.reading) {
       // A read can fail if the simulation is torn down under it; that one
       // is simply dropped.
-      this.reading = this.sim.read().then((qs) => { this.latest = qs; }, () => {})
+      this.reading = this.sim.readState().then((state) => { this.latest = state; }, () => {})
         .finally(() => { this.reading = null; });
     }
     return substeps;
   }
 
-  // A body's pose from its particles: origin a0 back along the axis from
-  // p0, and the old orientation turned the shortest way onto the new axis
-  // (its roll doesn't show, and this keeps it from jumping).
-  _apply(particles) {
+  // A body's pose from a readState(): origin a0 back along the axis from
+  // p0, and the orientation the simulation carries (the roll it keeps)
+  // turned the shortest way onto the particles' axis - as the next pose()
+  // will, since the particles have moved on a little since the last one.
+  _apply({ particles, turns }) {
     this.bodies.forEach((o, k) => {
-      if (2 * k + 1 >= particles.length) return;           // not simulated yet
+      if (k >= turns.length) return;                       // not simulated yet
       this.placement[k].speed = Math.max(Math.hypot(...particles[2 * k].vel), Math.hypot(...particles[2 * k + 1].vel));
       const p0 = add(particles[2 * k].pos, this.origin);
       const p1 = add(particles[2 * k + 1].pos, this.origin);
       const u = unit(sub(p1, p0));
       o.setPosition(sub(p0, scale(u, this.placement[k].a0)));
-      const was = rotate(o.orientation, [0, 1, 0]);
-      o.orientation = normalize(multiply(fromTo(was, u), o.orientation));
+      const q = normalize(turns[k]);
+      o.orientation = normalize(multiply(fromTo(rotate(q, [0, 1, 0]), u), q));
     });
   }
 

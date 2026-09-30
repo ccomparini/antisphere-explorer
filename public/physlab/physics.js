@@ -53,26 +53,6 @@ export function packSolids(solids) {
 
 // -- running it ---------------------------------------------------------------------
 
-/**
- * A body's solid must be coaxial with +Y: every node a surface of
- * revolution about the Y axis (its axis along Y, or no axis at all, and its
- * linear term along Y). Then placing it needs only an axis and an origin -
- * see placeCoaxial in the shader. Throws otherwise, naming the node.
- */
-export function checkCoaxial(solid, what = 'body') {
-  const tiny = (v, scale) => Math.abs(v) <= 1e-9 * Math.max(1, scale);
-  solid.nodes.forEach((nd, i) => {
-    if (i === 0) return;                      // node 0 is reserved, and empty
-    const { axis, k_par, k_perp, linear } = nd.prim;
-    const scale = Math.max(Math.abs(k_par), Math.abs(k_perp), Math.hypot(...linear));
-    const axial = tiny(k_par - k_perp, scale) || (tiny(axis[0], 1) && tiny(axis[2], 1));
-    if (!axial || !tiny(linear[0], scale) || !tiny(linear[2], scale)) {
-      throw new Error(`${what}: node ${i} is not a surface of revolution about +Y, ` +
-                      'which a two-particle body needs (its roll would matter)');
-    }
-  });
-}
-
 // Compute pipelines by module and entry point: making them is the slow part
 // of making a simulation, and physics-world.js makes a new one each time a
 // body is added.
@@ -99,10 +79,15 @@ export class PhysicsSim {
    * @param {GPUShaderModule} module  gen/physics.wgsl
    * @param {object} setup
    * @param {{ pos, vel?, invMass, body }[]} setup.particles
-   * @param {{ p0, p1, rest, compliance?, thrust?, solid?, a0?, a1?, radius?, friction? }[]} setup.bodies
-   *   solid: a compileSolid() in the body's coordinates, coaxial with +Y;
+   * @param {{ p0, p1, rest, compliance?, thrust?, solid?, a0?, a1?, radius?, friction?, turn? }[]} setup.bodies
+   *   solid: a compileSolid() in the body's coordinates, its axis +Y;
    *   a0, a1: where p0 and p1 sit on its Y axis; radius: how far it
-   *   reaches from its origin; friction: Coulomb coefficient
+   *   reaches from its origin; friction: Coulomb coefficient; turn: its
+   *   orientation to start with, a quaternion [x, y, z, w] (identity by
+   *   default). Two particles fix only the axis, so the shader carries
+   *   the roll along, turning the shortest way as the axis moves (see
+   *   pose()); a solid of revolution about +Y doesn't show it, anything
+   *   else does.
    * @param {object[]} [setup.statics]      compileSolid()s that collide but never move
    * @param {number[]} setup.gravityCentre  in simulation coordinates
    * @param {number} setup.gm               gravity is gm / r^2
@@ -133,7 +118,6 @@ export class PhysicsSim {
     // placed differently), then the statics, which the shader finds from
     // first_static on. A body with no solid gets an empty one.
     const EMPTY = { nodes: [], paths: [] };
-    bodies.forEach((b, i) => { if (b.solid) checkCoaxial(b.solid, `body ${i}`); });
     const packed = packSolids([...bodies.map((b) => b.solid ?? EMPTY), ...statics]);
     const solidViews = Solid.allocate(Math.max(1, packed.ranges.length));
     packed.ranges.forEach((r, i) => Solid.write(solidViews, i, {
@@ -153,7 +137,12 @@ export class PhysicsSim {
     });
     this.params = device.createBuffer({ size: SimParams.SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     device.queue.writeBuffer(this.params, 0, params.buffer);
-    this.readBuf = device.createBuffer({ size: pv.buffer.byteLength,
+    const turns = new Float32Array(4 * Math.max(1, bodies.length));
+    bodies.forEach((b, i) => turns.set(b.turn ?? [0, 0, 0, 1], 4 * i));
+    this.turns = storage(turns, GPUBufferUsage.COPY_SRC);
+    // Read back together: the particles, then the turns.
+    this.particleBytes = pv.buffer.byteLength;
+    this.readBuf = device.createBuffer({ size: this.particleBytes + turns.byteLength,
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
 
     // Buffers by their binding number in shaders/physics.wgsls. An 'auto'
@@ -185,6 +174,7 @@ export class PhysicsSim {
       0: posedNodes, 1: regionBuf, 2: pathBuf,
       5: this.particles, 6: this.bodies, 7: this.params,
       8: solidBuf, 9: localNodes, 10: posedNodes, 11: this.contacts, 12: this.contactCount, 13: corrections,
+      15: this.turns,
     };
     this.buffers = buffers;
     const stage = (entryPoint, bindings) => {
@@ -199,7 +189,7 @@ export class PhysicsSim {
       predict: stage('predict', [5, 6, 7]),
       solveDistance: stage('solveDistance', [5, 6, 7]),
       updateVelocity: stage('updateVelocity', [5, 7]),
-      pose: stage('pose', [5, 6, 7, 8, 9, 10]),
+      pose: stage('pose', [5, 6, 7, 8, 9, 10, 15]),
       clearContacts: stage('clearContacts', [12]),
       solveContacts: stage('solveContacts', [5, 6, 7, 11, 12, 13]),
       applyCorrections: stage('applyCorrections', [5, 7, 13]),
@@ -307,17 +297,28 @@ export class PhysicsSim {
   }
 
   /** The particles as they are now: [{ pos, vel }]. */
-  async read() {
+  async read() { return (await this.readState()).particles; }
+
+  /**
+   * The particles, [{ pos, vel }], and each body's orientation as the last
+   * pose() left it, [[x, y, z, w]].
+   */
+  async readState() {
     const enc = this.device.createCommandEncoder();
-    enc.copyBufferToBuffer(this.particles, 0, this.readBuf, 0, this.readBuf.size);
+    enc.copyBufferToBuffer(this.particles, 0, this.readBuf, 0, this.particleBytes);
+    enc.copyBufferToBuffer(this.turns, 0, this.readBuf, this.particleBytes, this.readBuf.size - this.particleBytes);
     this.device.queue.submit([enc.finish()]);
     await this.readBuf.mapAsync(GPUMapMode.READ);
-    const views = viewsOf(this.readBuf.getMappedRange().slice(0));
+    const raw = this.readBuf.getMappedRange().slice(0);
     this.readBuf.unmap();
-    return Array.from({ length: this.particleCount }, (_, i) => {
+    const views = viewsOf(raw.slice(0, this.particleBytes));
+    const particles = Array.from({ length: this.particleCount }, (_, i) => {
       const { pos, vel } = Particle.read(views, i);
       return { pos, vel };
     });
+    const t = new Float32Array(raw, this.particleBytes);
+    const turns = Array.from({ length: this.bodyCount }, (_, i) => Array.from(t.subarray(4 * i, 4 * i + 4)));
+    return { particles, turns };
   }
 
   /** The contacts the last substep found: [{ point, depth, normal, body, other }]. */
@@ -337,7 +338,7 @@ export class PhysicsSim {
   }
 
   destroy() {
-    for (const b of [this.particles, this.bodies, this.params, this.readBuf, this.contacts,
+    for (const b of [this.particles, this.bodies, this.turns, this.params, this.readBuf, this.contacts,
                      this.contactCount, this.pairBuf, ...this.collision]) b.destroy();
   }
 }

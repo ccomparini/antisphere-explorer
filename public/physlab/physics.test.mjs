@@ -11,7 +11,8 @@ import { buildAll } from '../../tools/shader-build/index.js';
 import { compileSolid, packSolids, PhysicsSim } from './physics.js';
 import { PhysicsWorld } from './physics-world.js';
 import { World, WorldObject } from './world.js';
-import { fromAxisAngle } from './quat.js';
+import { fromAxisAngle, multiply, rotate } from './quat.js';
+import { octahedron, octahedronBody } from './shapes.js';
 import { Contact, ContactQuery, viewsOf } from '../gen/layouts.js';
 import { compileScene } from '../antisphere-scene.js';
 
@@ -557,6 +558,89 @@ gpuTest('an overlapping group of the world is the broad phase: far pairs unteste
   near(up(high), 1, 0.05, 'the high ball landed, not fallen through');
   for (const r of rods) near(up(r), 0.3, 0.05, 'a rod lying on the ground');
   assert.equal(physics.pairCount, 4, 'each body against the planet, and nothing else');
+  await physics.reading;
+  physics.destroy();
+});
+
+gpuTest('an octahedron, turned and rolled, lands on the ground as it is drawn', async () => {
+  // Its faces aren't surfaces of revolution about its axis, so where they
+  // are depends on its roll: the simulation carries that, and the object
+  // is drawn with the orientation the simulation reads back. Resting, the
+  // octahedron as drawn must reach the ground and not below it, and
+  // nothing should still be moving. (Not necessarily on a face: dropped
+  // corner first, the third balances on that corner, as nothing turns a
+  // two-particle body about its own axis, and here that is the way it
+  // would topple.)
+  const a = 1.5;
+  const world = new World();
+  const planet = world.add(new WorldObject('planet', { geometry: { sphere: { center: [0, 0, 0], radius: 500 }, material: 'm' } }));
+  for (const [k, turn] of [
+    fromAxisAngle([1, 0.3, 0], 0.7),                                            // tilted
+    multiply(fromAxisAngle([0.2, 0, 1], 1.1), fromAxisAngle([0, 1, 0], 0.6)),   // rolled, then tilted
+    fromAxisAngle([0, 1, 0], 0.785),                                            // upright, rolled 45 degrees
+  ].entries()) {
+    world.add(new WorldObject(`octahedron${k}`, {
+      position: [8 * k, 0, 504], orientation: turn,
+      geometry: octahedron(a, 'm'), body: octahedronBody(a, { mass: 50, friction: 0.6 }),
+    }));
+  }
+  const physics = new PhysicsWorld(device, module, world, {
+    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+  });
+  for (let f = 0; f < 6 * 60; f++) { physics.update(1 / 60); await physics.reading; }
+  physics.update(0);
+  const corners = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+  for (const o of physics.bodies) {
+    // Height of each corner as drawn, above the planet's surface.
+    const heights = corners.map((c) => {
+      const p = rotate(o.orientation, c.map((v) => a * v)).map((v, i) => v + o.position[i]);
+      return Math.hypot(...p) - 500;
+    });
+    const low = Math.min(...heights);
+    assert.ok(Math.abs(low) < 0.03, `${o.name}: its lowest corner as drawn is ${low.toFixed(3)} m from the ground`);
+    assert.ok(physics.placement[physics.bodies.indexOf(o)].speed < 0.05, `${o.name} still moving`);
+  }
+  await physics.reading;
+  physics.destroy();
+});
+
+gpuTest('an octahedron dropped on another never goes into it, and both come to rest', async () => {
+  // Both turned and rolled: where one's corners and faces are, relative to
+  // the other's, depends on both rolls. At no frame may a corner of either
+  // be inside the other, as each is drawn (in the other's own frame, the
+  // solid is |x| + |y| + |z| < a), though they must touch. (Where the upper
+  // one ends up - on the lower, or slid off its sloping face - isn't the
+  // point.)
+  const a = 1.5;
+  const world = new World();
+  const planet = world.add(new WorldObject('planet', { geometry: { sphere: { center: [0, 0, 0], radius: 500 }, material: 'm' } }));
+  const octa = (name, position, orientation) => world.add(new WorldObject(name, {
+    position, orientation, geometry: octahedron(a, 'm'), body: octahedronBody(a, { mass: 50, friction: 0.8 }),
+  }));
+  const lower = octa('lower', [0, 0, 501.5], fromAxisAngle([0.3, 1, 0.1], 0.9));
+  const upper = octa('upper', [0.1, 0.1, 505], multiply(fromAxisAngle([1, 0, 0.4], 0.8), fromAxisAngle([0, 1, 0], 0.3)));
+  const physics = new PhysicsWorld(device, module, world, {
+    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+  });
+  const corners = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+  const cornersOf = (o) => corners.map((c) => rotate(o.orientation, c.map((v) => a * v)).map((v, i) => v + o.position[i]));
+  const inverse = (q) => [-q[0], -q[1], -q[2], q[3]];
+  const depthIn = (p, o) => {          // how far p is inside o (negative: outside)
+    const local = rotate(inverse(o.orientation), p.map((v, i) => v - o.position[i]));
+    return (a - (Math.abs(local[0]) + Math.abs(local[1]) + Math.abs(local[2]))) / Math.sqrt(3);
+  };
+  const deepestNow = () => Math.max(...cornersOf(upper).map((p) => depthIn(p, lower)),
+                                    ...cornersOf(lower).map((p) => depthIn(p, upper)));
+  let deepest = -Infinity;
+  for (let f = 0; f < 8 * 60; f++) {
+    physics.update(1 / 60);
+    await physics.reading;
+    physics.update(0);
+    deepest = Math.max(deepest, deepestNow());
+  }
+  assert.ok(deepest > -0.05, `they never touched: ${deepest.toFixed(3)} m apart at closest`);
+  assert.ok(deepest < 0.05, `a corner went ${deepest.toFixed(3)} m into the other`);
+  for (const o of [lower, upper]) assert.ok(physics.placement[physics.bodies.indexOf(o)].speed < 0.05, `${o.name} still moving`);
   await physics.reading;
   physics.destroy();
 });

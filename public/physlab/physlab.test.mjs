@@ -8,6 +8,7 @@ import { World, WorldObject } from './world.js';
 import { AttachedCamera } from './camera.js';
 import { FlightControl, levelOrientation } from './flight.js';
 import { compileScene } from '../antisphere-scene.js';
+import { octahedron } from './shapes.js';
 
 const near = (a, b, eps = 1e-9) => {
   if (Array.isArray(a)) a.forEach((v, i) => near(v, b[i], eps));
@@ -305,5 +306,40 @@ test('fromTo is the shortest turn from one direction to another', () => {
     const q = fromTo(a, b);
     near(rotate(q, a), b, 1e-12);
     if (Math.abs(dot(a, b)) < 0.999) near(rotate(q, cross(a, b)), cross(a, b), 1e-12);   // about their common perpendicular
+  }
+});
+
+// -- shapes -------------------------------------------------------------------------
+
+test('an octahedron is the eight planes, the four at the +Y corner first, solid where |x| + |y| + |z| < a', () => {
+  const a = 1.5;
+  const built = compileScene({ materials: { m: {} }, lights: [], root: octahedron(a, 'm') });
+  const planes = built.nodes.slice(1);
+  assert.equal(planes.length, 8);
+  // A plane's linear term is along its normal: +y for the first four.
+  planes.forEach((n, i) => assert.equal(Math.sign(n.prim.linear[1]), i < 4 ? 1 : -1, `plane ${i + 1}`));
+  // Solid by trace()'s rule: descend by the sign of H, solid at an empty
+  // inside, empty at an empty outside.
+  const H = (p, R) => {
+    const along = p.axis[0] * R[0] + p.axis[1] * R[1] + p.axis[2] * R[2];
+    return p.k_perp * (R[0] ** 2 + R[1] ** 2 + R[2] ** 2) + (p.k_par - p.k_perp) * along * along
+      + 2 * (p.linear[0] * R[0] + p.linear[1] * R[1] + p.linear[2] * R[2]) + p.constant;
+  };
+  const solid = (R) => {
+    let i = 1;
+    for (;;) {
+      const nd = built.nodes[i];
+      const next = H(nd.prim, R) < 0 ? nd.inside : nd.outside;
+      if (!next) return H(nd.prim, R) < 0;
+      i = next;
+    }
+  };
+  let seed = 5;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647 * 4 - 2;
+  for (let k = 0; k < 2000; k++) {
+    const R = [rnd(), rnd(), rnd()];
+    const l1 = Math.abs(R[0]) + Math.abs(R[1]) + Math.abs(R[2]);
+    if (Math.abs(l1 - a) < 1e-6) continue;
+    assert.equal(solid(R), l1 < a, `at ${R.map((v) => v.toFixed(2))}`);
   }
 });
