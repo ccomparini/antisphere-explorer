@@ -19,6 +19,7 @@ import { attachFlightInput } from './flight-input.js';
 import { fromBasis, fromAxisAngle, multiply } from './quat.js';
 import { PhysicsWorld } from './physics-world.js';
 import { loadText, checkShader } from '../gpu-setup.js';
+import { FrameProfiler } from './profiler.js';
 
 // Not objects (yet): what the objects are made of, and what lights them.
 const SURROUNDINGS = {
@@ -203,11 +204,24 @@ async function main() {
   showStatus();
 
   const view = gpu.createRenderer(canvas, { scene, camera });
-  // Before each frame is drawn, time moves on: dt is seconds since the last
-  // frame, clamped by ASContext so a stall doesn't become a leap. If
-  // anything with geometry moved, the scene follows (a full rebuild, for
-  // now; see DESIGN.md on moving nodes in place).
-  gpu.onFrame((dt) => {
+  const profiler = new FrameProfiler(gpu.device, gpu.canTimestamp, ['render', 'blit', 'physics'],
+                                     document.getElementById('prof'));
+
+  // The frame loop, run here rather than by ASContext.start() so the
+  // profiler can time the render passes as they're encoded. Each frame:
+  // time moves on by dt, seconds since the last frame, clamped so a stall
+  // doesn't become a leap; the physics steps; if anything with geometry
+  // moved, the scene follows (a full rebuild, for now; see DESIGN.md on
+  // moving nodes in place); then the view is drawn.
+  let last = performance.now();
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const frameMs = now - last;
+    const dt = Math.min(0.1, frameMs / 1000);
+    last = now;
+    const cpuStart = performance.now();
+    profiler.begin();
+
     // Flying a simulated body is thrust along its own axes; anything else
     // the controls move directly.
     for (const o of physics.bodies) {
@@ -216,10 +230,26 @@ async function main() {
     if (physics.simulates(flight.object)) flight.pendingYaw = 0;   // turning a body needs a torque; not yet
     else flight.update(dt);
     world.update(dt);
-    physics.update(dt);
+    const substeps = physics.update(dt, profiler.pass('physics'));
+    if (substeps === 0) profiler.skipped('physics');
     if (world.geometryMoved()) scene.update(world.sceneSpec(SURROUNDINGS));
-  });
-  gpu.start();
 
-  window.physlab = { world, camera, flight, scene, view, gpu, physics };
+    const enc = gpu.device.createCommandEncoder();
+    if (!view.encode(enc, { computeTimestamps: profiler.pass('render'), blitTimestamps: profiler.pass('blit') })) {
+      profiler.skipped('render');
+      profiler.skipped('blit');
+    }
+    profiler.resolve(enc);
+    gpu.device.queue.submit([enc.finish()]);
+
+    profiler.extra = {
+      bodies: String(physics.bodies.length),
+      'substeps/frame': String(substeps),
+      pixels: `${(view.pixelCount / 1e6).toFixed(2)} M`,
+    };
+    profiler.end(frameMs, performance.now() - cpuStart);
+  }
+  requestAnimationFrame(frame);
+
+  window.physlab = { world, camera, flight, scene, view, gpu, physics, profiler };
 }

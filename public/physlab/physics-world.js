@@ -69,10 +69,11 @@ export class PhysicsWorld {
   /**
    * Advance by dt seconds, and bring each body object to where its
    * particles were last read - a frame behind, since reading back waits for
-   * the GPU and this doesn't.
+   * the GPU and this doesn't. Returns how many substeps ran; with
+   * `timestampWrites`, their pass is timed (see PhysicsSim.step).
    */
-  update(dt) {
-    this.sim.step(dt);
+  update(dt, timestampWrites) {
+    const substeps = this.sim.step(dt, timestampWrites);
     if (this.latest) { this._apply(this.latest); this.latest = null; }
     if (!this.reading) {
       // A read can fail if the simulation is torn down under it; that one
@@ -80,6 +81,7 @@ export class PhysicsWorld {
       this.reading = this.sim.read().then((qs) => { this.latest = qs; }, () => {})
         .finally(() => { this.reading = null; });
     }
+    return substeps;
   }
 
   // A body's pose from its particles: origin a0 back along the axis from

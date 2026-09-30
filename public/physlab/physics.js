@@ -201,18 +201,22 @@ export class PhysicsSim {
     this.device.queue.writeBuffer(this.bodies, at, this.bodyViews.buffer, at, 12);
   }
 
-  /** Run whole substeps for dt seconds of time (the remainder carries over); returns how many. */
-  step(dt) {
+  /**
+   * Run whole substeps for dt seconds of time (the remainder carries over);
+   * returns how many. `timestampWrites`, if given, times the pass they run
+   * in (only written when there is at least one).
+   */
+  step(dt, timestampWrites) {
     this.pending += dt;
     const n = Math.floor(this.pending / this.h + 1e-9);
     this.pending -= n * this.h;
-    if (n > 0) this.substeps(n);
+    if (n > 0) this.substeps(n, timestampWrites);
     return n;
   }
 
-  substeps(n) {
+  substeps(n, timestampWrites) {
     const enc = this.device.createCommandEncoder();
-    const pass = enc.beginComputePass();
+    const pass = enc.beginComputePass(timestampWrites ? { timestampWrites } : {});
     const run = ({ pipeline, bindGroup }, count) => {
       pass.setPipeline(pipeline);
       pass.setBindGroup(0, bindGroup);

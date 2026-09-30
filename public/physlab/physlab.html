@@ -13,6 +13,16 @@
     font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
     color: #7f8a99; text-shadow: 0 1px 2px rgba(0,0,0,.8);
   }
+  #prof {
+    position: fixed; right: 14px; top: 14px; min-width: 15rem; padding: 10px 12px;
+    background: rgba(10,13,17,.82); border: 1px solid #1e2530; border-radius: 8px;
+    font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; color: #8b95a5;
+    pointer-events: none;
+  }
+  #prof .r { display: flex; justify-content: space-between; gap: 2em; }
+  #prof .r b { color: #cbd5e1; font-weight: 500; font-variant-numeric: tabular-nums; }
+  #prof .spark { display: block; margin: 6px 0; width: 100%; height: 40px; }
+  #prof .note { color: #6b7686; }
   #err {
     position: fixed; inset: 0; place-items: center; padding: 2rem;
     font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -23,6 +33,7 @@
 <body>
 <canvas id="c"></canvas>
 <div id="hint"><span id="status"></span><br>click to look (Esc lets go) · WASD move (thrust, for a simulated body) · E/Q up/down · Shift fast · ←/→ what to fly · ↑/↓ what to look at</div>
+<div id="prof"></div>
 <div id="err" hidden></div>
 <script type="module" src="./physlab.js"></script>
 </body>
