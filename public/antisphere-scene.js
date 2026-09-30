@@ -417,12 +417,22 @@ function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = nul
 // Union: returns a tree whose interior is the union of both interiors. A
 // null child means no further subdivision, so on the inside it is a region
 // in its own right and stays; on the outside it is where `other` goes.
-function union(t, other) {
+//
+// Memoized, as are complement() and the tree transforms below: a subtree
+// reachable along several paths (every operand after the first, once a
+// union has grafted it onto each of a tree's empty outsides) is rebuilt
+// once and stays shared. Without it, folding a union of n objects rebuilt
+// the earlier ones once per path, and the tree doubled with each: 16
+// capsules in physlab compiled to 196,613 nodes.
+function union(t, other, memo = new Map()) {
   if (!t) return other;
-  return node(t.prim,
-              t.inside ? union(t.inside, other) : null,
-              union(t.outside, other),
-              t.material, t.env, t.prov);
+  if (memo.has(t)) return memo.get(t);
+  const out = node(t.prim,
+                   t.inside ? union(t.inside, other, memo) : null,
+                   union(t.outside, other, memo),
+                   t.material, t.env, t.prov);
+  memo.set(t, out);
+  return out;
 }
 
 // Intersection: by De Morgan, what is inside both is what is outside
@@ -449,12 +459,15 @@ function intersect(t, other) {
 //
 // Materials and provenance are kept, so a complemented region carries its
 // own look, and clicking a cut face still selects whatever cut it.
-function complement(t) {
+function complement(t, memo = new Map()) {
   if (!t) return t;
-  return node(complementSurface(t.prim),
-              complement(t.outside),
-              complement(t.inside),
-              t.material, t.env, t.prov);
+  if (memo.has(t)) return memo.get(t);
+  const out = node(complementSurface(t.prim),
+                   complement(t.outside, memo),
+                   complement(t.inside, memo),
+                   t.material, t.env, t.prov);
+  memo.set(t, out);
+  return out;
 }
 
 // Difference: what is interior to t and not to other.
@@ -531,12 +544,15 @@ function rotationRows(axis, radians) {
 // of copying and hand-editing every number in it per instance. A
 // translated copy is genuinely different geometry from the original, so
 // unlike a plain "use" it can't share nodes with it once flattened.
-function translateTree(t, offset) {
+function translateTree(t, offset, memo = new Map()) {
   if (!t) return t;
-  return node(translatePrim(t.prim, offset),
-              translateTree(t.inside, offset),
-              translateTree(t.outside, offset),
-              t.material, t.env, t.prov);
+  if (memo.has(t)) return memo.get(t);
+  const out = node(translatePrim(t.prim, offset),
+                   translateTree(t.inside, offset, memo),
+                   translateTree(t.outside, offset, memo),
+                   t.material, t.env, t.prov);
+  memo.set(t, out);
+  return out;
 }
 
 // Re-attribute to `to` every node that `from` owns, copying them - and any
@@ -571,17 +587,27 @@ function rotateTree(t, rows, pivot) {
     const turned = rotatePrim(local, rows);
     return translatePrim(turned, pivot);
   };
-  const walk = (u) => (!u ? u
-    : node(turn(u.prim), walk(u.inside), walk(u.outside), u.material, u.env, u.prov));
-  return walk(t);
+  return mapTree(t, turn);
 }
 
 function scaleTree(t, factor, pivot) {
   if (!t) return t;
   const back = pivot.map((v) => -v);
   const grow = (prim) => translatePrim(scalePrim(translatePrim(prim, back), factor), pivot);
-  const walk = (u) => (!u ? u
-    : node(grow(u.prim), walk(u.inside), walk(u.outside), u.material, u.env, u.prov));
+  return mapTree(t, grow);
+}
+
+// A copy of a subtree with every primitive changed by f, shared structure
+// kept shared.
+function mapTree(t, f) {
+  const memo = new Map();
+  const walk = (u) => {
+    if (!u) return u;
+    if (memo.has(u)) return memo.get(u);
+    const out = node(f(u.prim), walk(u.inside), walk(u.outside), u.material, u.env, u.prov);
+    memo.set(u, out);
+    return out;
+  };
   return walk(t);
 }
 
@@ -1407,10 +1433,12 @@ export function compileScene(rawSpec, options = {}) {
   // The CSG combinations, all of them arrays of subtrees and all built the
   // same way: fold the operands together with the matching operator.
   // "group" is separate, being a union plus a disjointness claim.
+  // (Wrapped: reduce() passes an index and the array too, and union() would
+  // take the index for its memo.)
   const COMBINERS = {
-    union,
-    intersect,
-    difference,
+    union: (a, b) => union(a, b),
+    intersect: (a, b) => intersect(a, b),
+    difference: (a, b) => difference(a, b),
   };
 
   const COMBINER_HELP = {
