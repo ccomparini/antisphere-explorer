@@ -904,27 +904,6 @@ fn recordPair(pa : Path, pb : Path, c : Contact, b : u32, other : u32, reach : f
   }
 }
 
-// Every body against every static solid: contacts for each pair of their
-// paths that meet (recordPair). Under a tilted base the first point is the
-// low rim, which is where the righting push belongs.
-@compute @workgroup_size(64)
-fn detect(@builtin(global_invocation_id) gid : vec3<u32>) {
-  let i = gid.x;
-  if (i >= sim.body_count * sim.static_count) { return; }
-  let b = i / sim.static_count;
-  let other = sim.first_static + i % sim.static_count;
-  let sa = solids[bodies[b].solid];
-  let sb = solids[other];
-  for (var ia = 0u; ia < sa.path_count; ia = ia + 1u) {
-    for (var ib = 0u; ib < sb.path_count; ib = ib + 1u) {
-      let pa = paths[sa.first_path + ia];
-      let pb = paths[sb.first_path + ib];
-      let c = pathContact(pa, pb);
-      if (c.found != 0u) { recordPair(pa, pb, c, b, other, bodies[b].radius, sideOf(b).f.centre); }
-    }
-  }
-}
-
 // Where a body's solid is centred: its local origin, placed.
 fn originOf(b : u32) -> vec3<f32> {
   let body = bodies[b];
@@ -932,33 +911,43 @@ fn originOf(b : u32) -> vec3<f32> {
   return x0 - body.a0 * axisOf(x0, particles[body.p1].pos);
 }
 
-// Every pair of bodies, once: first whether their bounding spheres (each
-// `radius` about its placed origin) even meet, then a contact for each
-// pair of their paths that do.
+// A path of a body and a path of something it may touch - a static solid,
+// or another body - to test for contact. The host lists every such pair
+// once, when the simulation is made, and detect() takes one each. (One
+// thread per pair of bodies, trying each pair of their paths in turn, took
+// 3 ms a substep for one capsule on the ground, and 14 ms more for five
+// capsules touching: the pairs' paths ran one after another.)
+struct PathPair {
+  body   : u32,
+  other  : u32,       // another body (< body_count), or a static solid
+  path_a : u32,       // into paths: one of body's
+  path_b : u32,       // and one of other's
+};
+
+@group(0) @binding(14) var<storage, read> pathPairs : array<PathPair>;
+
+// A contact for each pair of paths that meet (recordPair). Two bodies are
+// tried only if their bounding spheres (each `radius` about its placed
+// origin) meet. Under a tilted base the first point is the low rim, which
+// is where the righting push belongs.
 @compute @workgroup_size(64)
-fn detectBodies(@builtin(global_invocation_id) gid : vec3<u32>) {
+fn detect(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
-  let n = sim.body_count;
-  if (i >= n * n) { return; }
-  let a = i / n;
-  let b = i % n;
-  if (a >= b) { return; }
-  if (distance(originOf(a), originOf(b)) > bodies[a].radius + bodies[b].radius) { return; }
-  let sa = solids[bodies[a].solid];
-  let sb = solids[bodies[b].solid];
-  // A manifold spreads round the smaller one, whose face is the one to hold.
-  var smaller = sideOf(a).f.centre;
-  if (bodies[b].radius < bodies[a].radius) { smaller = sideOf(b).f.centre; }
-  for (var ia = 0u; ia < sa.path_count; ia = ia + 1u) {
-    for (var ib = 0u; ib < sb.path_count; ib = ib + 1u) {
-      let pa = paths[sa.first_path + ia];
-      let pb = paths[sb.first_path + ib];
-      let c = pathContact(pa, pb);
-      if (c.found != 0u) {
-        recordPair(pa, pb, c, a, b, min(bodies[a].radius, bodies[b].radius), smaller);
-      }
-    }
+  if (i >= arrayLength(&pathPairs)) { return; }
+  let job = pathPairs[i];
+  let a = job.body;
+  let b = job.other;
+  var reach = bodies[a].radius;
+  var centre = sideOf(a).f.centre;
+  if (b < sim.body_count) {
+    if (distance(originOf(a), originOf(b)) > bodies[a].radius + bodies[b].radius) { return; }
+    // A manifold spreads round the smaller one, whose face is the one to hold.
+    if (bodies[b].radius < reach) { reach = bodies[b].radius; centre = sideOf(b).f.centre; }
   }
+  let pa = paths[job.path_a];
+  let pb = paths[job.path_b];
+  let c = pathContact(pa, pb);
+  if (c.found != 0u) { recordPair(pa, pb, c, a, b, reach, centre); }
 }
 
 // How much a push along dir at r (from the centre) moves that point, per
@@ -1173,4 +1162,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":175},{"path":"shaders/physics.wgsls","offset":253,"lines":922}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":175},{"path":"shaders/physics.wgsls","offset":253,"lines":911}]

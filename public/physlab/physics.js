@@ -8,7 +8,7 @@
 
 import { compileScene, packNodes } from '../antisphere-scene.js';
 import { interiorPaths } from '../overlap.js';
-import { Body, BodyContact, Particle, Path, Region, SimParams, Solid, viewsOf } from '../gen/layouts.js';
+import { Body, BodyContact, Particle, Path, PathPair, Region, SimParams, Solid, viewsOf } from '../gen/layouts.js';
 
 /**
  * A geometry subtree (scene-format.md) as a solid: { nodes, paths }. With
@@ -175,13 +175,30 @@ export class PhysicsSim {
       storage(packed.regions), storage(packed.paths),
       device.createBuffer({ size: Math.max(16, particles.length * 16), usage: GPUBufferUsage.STORAGE }),
     ];
-    const [solidBuf, localNodes, posedNodes, regionBuf, pathBuf, corrections] = this.collision;
+    // Every path of every body against every path of each static and of
+    // each later body: what detect() takes, one pair a thread.
+    const pairs = [];
+    const range = packed.ranges;
+    const pathsOf = (s) => Array.from({ length: range[s].pathCount }, (_, k) => range[s].firstPath + k);
+    bodies.forEach((_, b) => {
+      const others = [...statics.map((_, k) => bodies.length + k),
+                      ...bodies.map((_, k) => k).filter((k) => k > b)];
+      for (const other of others) {
+        for (const path_a of pathsOf(b)) for (const path_b of pathsOf(other)) pairs.push({ body: b, other, path_a, path_b });
+      }
+    });
+    const pairViews = PathPair.allocate(Math.max(1, pairs.length));
+    pairs.forEach((q, i) => PathPair.write(pairViews, i, q));
+    this.collision.push(storage(pairViews.buffer));
+    this.pairCount = pairs.length;
+    const [solidBuf, localNodes, posedNodes, regionBuf, pathBuf, corrections, pairBuf] = this.collision;
     this.posedNodes = posedNodes;
 
     const buffers = {
       0: posedNodes, 1: regionBuf, 2: pathBuf,
       5: this.particles, 6: this.bodies, 7: this.params,
       8: solidBuf, 9: localNodes, 10: posedNodes, 11: this.contacts, 12: this.contactCount, 13: corrections,
+      14: pairBuf,
     };
     const stage = (entryPoint, bindings) => {
       const pipeline = pipelineOf(device, module, entryPoint);
@@ -197,15 +214,13 @@ export class PhysicsSim {
       updateVelocity: stage('updateVelocity', [5, 7]),
       pose: stage('pose', [5, 6, 7, 8, 9, 10]),
       clearContacts: stage('clearContacts', [12]),
-      detect: stage('detect', [0, 1, 2, 5, 6, 7, 8, 11, 12]),
-      detectBodies: stage('detectBodies', [0, 1, 2, 5, 6, 7, 8, 11, 12]),
+      detect: stage('detect', [0, 1, 2, 5, 6, 7, 11, 12, 14]),
       solveContacts: stage('solveContacts', [5, 6, 7, 11, 12, 13]),
       applyCorrections: stage('applyCorrections', [5, 7, 13]),
       solveContactVelocities: stage('solveContactVelocities', [5, 6, 7, 11, 12, 13]),
       applyVelocityCorrections: stage('applyVelocityCorrections', [5, 7, 13]),
     };
-    this.pairCount = bodies.length * statics.length;
-    this.collides = this.pairCount > 0 || bodies.length > 1;
+    this.collides = this.pairCount > 0;
     this.contactRounds = iterations;
   }
 
@@ -243,8 +258,7 @@ export class PhysicsSim {
       if (this.collides) {
         run(this.stages.pose, this.bodyCount);
         run(this.stages.clearContacts, 1);
-        if (this.pairCount > 0) run(this.stages.detect, this.pairCount);
-        if (this.bodyCount > 1) run(this.stages.detectBodies, this.bodyCount * this.bodyCount);
+        run(this.stages.detect, this.pairCount);
         for (let k = 0; k < this.contactRounds; k++) {
           run(this.stages.solveContacts, this.contactCapacity);
           run(this.stages.applyCorrections, this.particleCount);

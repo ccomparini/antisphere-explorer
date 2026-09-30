@@ -887,3 +887,45 @@ export class BodyContact {
     };
   }
 }
+
+export class PathPair {
+  static SIZE = 16;
+  static ALIGN = 4;
+  static STRIDE = 16;
+  static FIELDS = Object.freeze({
+    body: Object.freeze({ offset: 0, type: 'u32' }),
+    other: Object.freeze({ offset: 4, type: 'u32' }),
+    path_a: Object.freeze({ offset: 8, type: 'u32' }),
+    path_b: Object.freeze({ offset: 12, type: 'u32' }),
+  });
+
+  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * PathPair.STRIDE)); }
+  static write(views, index, values) { PathPair.writeAt(views, index * PathPair.STRIDE, values); }
+  static read(views, index) { return PathPair.readAt(views, index * PathPair.STRIDE); }
+
+  static writeAt(views, byteOffset, values) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    if (values.body !== undefined) {
+      u32[w] = values.body;
+    }
+    if (values.other !== undefined) {
+      u32[w + 1] = values.other;
+    }
+    if (values.path_a !== undefined) {
+      u32[w + 2] = values.path_a;
+    }
+    if (values.path_b !== undefined) {
+      u32[w + 3] = values.path_b;
+    }
+  }
+
+  static readAt(views, byteOffset) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    return {
+      body: u32[w],
+      other: u32[w + 1],
+      path_a: u32[w + 2],
+      path_b: u32[w + 3],
+    };
+  }
+}
