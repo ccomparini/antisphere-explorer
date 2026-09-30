@@ -301,18 +301,21 @@ It is said in terms of nodes alone, which only divide space. A member
 (`null` included), and defers everywhere else through its absent outsides.
 Where members overlap, the earlier one's claim stands, as in a `"union"`.
 
-- **Dividers.** The compiler first splits the members among dividing
-  surfaces, top-down: a plane (square to an axis or a body diagonal) or a
-  sphere, placed in a gap between members where there is one, keeping each
-  side as small as it can. A member wholly on one side goes there; one
-  that crosses the divider, or has no bound, goes to both, shared. A
-  divider has something on both sides, or defers on one - never an absent
-  inside, which would claim that side.
-- **Folding.** The few members left in each cell are folded in, in their
-  order: each is grafted into the absent outsides of those before it, but
-  only where it may be. So an earlier member's own surfaces divide the space
-  for later ones: a ball beyond one face of an octahedron hangs off that
-  face alone.
+- **Folding.** Members are folded in, in their order: each is grafted
+  into the absent outsides of those before it, but only where it may be.
+  So an earlier member's own surfaces divide the space for later ones: a
+  ball beyond one face of an octahedron hangs off that face alone, and two
+  cubes side by side are just one hung off the other's face.
+- **Dividers, only where needed.** Members whose outside is everything else
+  (spheres, mostly) leave each later one only that outside, so a fold of
+  them is a chain, which rays walk member by member. Where a fold would
+  chain more than a few members, they are split among dividing surfaces
+  instead: a plane (square to an axis or a body diagonal) or a sphere,
+  placed in a gap between members where there is one. A member wholly on
+  one side goes there; one that crosses the divider, or has no bound, goes
+  to both, shared; and each side is folded, or divided again, the same
+  way. A divider has something on both sides, or defers on one - never an
+  absent inside, which would claim that side.
 - **Overlaps.** Where a member reaches a region an earlier one claims, and
   can't be proved clear of it, the two may overlap. `compileScene()` returns
   them as `overlaps`: one `{ "group": <its path>, "members": [i, j] }` per

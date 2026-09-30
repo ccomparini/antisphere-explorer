@@ -1391,9 +1391,9 @@ export function compileScene(rawSpec, options = {}) {
     return left.length ? left : null;
   }
 
-  // Members are folded in no more than this many at a time; more than
-  // that are divided first.
-  const FOLD_AT_MOST = 2;
+  // The longest chain of members a fold may make before they are divided
+  // (see divide in buildGroup).
+  const MAX_CHAIN = 4;
 
   // Divider directions: planes square to the axes and the four body
   // diagonals (and spheres, see chooseDivider).
@@ -1488,11 +1488,13 @@ export function compileScene(rawSpec, options = {}) {
       };
       walk(t);
     };
-    const found = new Map();               // "i,j" -> [i, j]
+    const found = new Map();               // "i,j" -> [i, j], from the folds kept
+    // Each fold collects its own reports, kept only if the fold is.
+    let folding = null;
     const report = (a, b) => {
       if (a === undefined || a === b) return;
       const pair = a < b ? [a, b] : [b, a];
-      found.set(pair.join(), pair);
+      folding.set(pair.join(), pair);
     };
 
     for (const m of members) m.shape = testShapeOf(m.tree);
@@ -1500,6 +1502,7 @@ export function compileScene(rawSpec, options = {}) {
     // Fold `list` in, in order: each member grafted into the absent
     // outsides of what the ones before it made, where it may be.
     const fold = (list) => {
+    folding = new Map();
     let acc = null;
     const earlier = [];
     for (const m of list) {
@@ -1551,18 +1554,44 @@ export function compileScene(rawSpec, options = {}) {
       mark(m.tree, m.index);
       earlier.push(m.index);
     }
-    return acc;
+    return { tree: acc, reports: folding };
     };
 
-    // Divide the members among dividers first, top-down, and fold them in
-    // only a few at a time (see chooseDivider): folding a long list makes
-    // a chain as long - each member's absent outside takes the next - and
-    // rays walk all of it. Members are kept in order within each cell, so
-    // where they overlap the earlier claim still stands.
+    // The most members met one after another on any way down a tree:
+    // how many a ray may have to get through, one by one.
+    const chainOf = (t) => {
+      const memo = new Map();
+      const walk = (n) => {
+        if (!n) return 0;
+        if (memo.has(n)) return memo.get(n);
+        memo.set(n, 0);                    // (a cycle can't happen; this just guards)
+        const own = memberOf.get(n);
+        const next = (c) => (c ? walk(c) + (memberOf.get(c) !== own ? 1 : 0) : 0);
+        const len = Math.max(next(n.inside), next(n.outside));
+        memo.set(n, len);
+        return len;
+      };
+      return t ? 1 + walk(t) : 0;
+    };
+    const keep = (folded) => {
+      for (const [k, pair] of folded.reports) found.set(k, pair);
+      return folded.tree;
+    };
+
+    // Fold first; divide only where that makes a long chain. Members whose
+    // surfaces divide space (planes: a cube, an octahedron) spread the
+    // later ones over their faces and need no dividers. But a member whose
+    // outside is everything else (a sphere) leaves the next only its
+    // outside, and so on: a chain, which rays walk member by member, and
+    // which, long enough, overflows trace()'s stack. Then the members are
+    // divided (chooseDivider) and each side tried the same way. Members
+    // keep their order within each side, so where they overlap the earlier
+    // claim still stands.
     const divide = (list) => {
-      if (list.length <= FOLD_AT_MOST) return fold(list);
+      const folded = fold(list);
+      if (list.length <= 1 || chainOf(folded.tree) <= MAX_CHAIN) return keep(folded);
       const split = chooseDivider(list);
-      if (!split) return fold(list);
+      if (!split) return keep(folded);
       const inside = divide(split.inside), outside = divide(split.outside);
       // A divider has both children, or defers on one side: never an
       // absent inside, which would claim that side, and hide whatever is
