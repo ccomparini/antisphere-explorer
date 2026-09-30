@@ -3,14 +3,14 @@
 // panel with a frame-time sparkline.
 //
 // GPU timestamps can only be written at pass boundaries, so what is timed
-// is whole passes, each by name ('render', 'blit', 'physics'). A frame
+// is whole passes, each by name ('render', 'physics'). A frame
 // asks for a pass's timestampWrites, hands them to the pass, then
 // resolves everything into its command encoder; the readback lands a frame
 // or more later, and a frame arriving while one is pending isn't timed.
 // Browsers may quantize timestamps (Chrome to 100 us by default), so read
 // these as milliseconds, not microseconds.
 //
-// A pass that isn't running at all (the blit, when the renderer writes
+// A pass that isn't running at all (a blit, say, when the renderer writes
 // straight to the canvas) is declared idle, so that it reads "-" and
 // counts for nothing in the total, rather than going on showing its last
 // average. That is different from skipped(): a pass that didn't run this

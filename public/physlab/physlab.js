@@ -231,7 +231,10 @@ async function main() {
   showStatus();
 
   const view = gpu.createRenderer(canvas, { scene, camera });
-  const profiler = new FrameProfiler(gpu.device, gpu.canTimestamp, ['render', 'blit', 'physics'],
+  // The blit isn't timed: its work is a single full-screen triangle, and on
+  // macOS its timestamps took in waiting for the screen's image (40 ms, in
+  // 17 ms frames), which only misled.
+  const profiler = new FrameProfiler(gpu.device, gpu.canTimestamp, ['render', 'physics'],
                                      document.getElementById('prof'));
 
   // The frame loop, run here rather than by ASContext.start() so the
@@ -266,14 +269,7 @@ async function main() {
     }
 
     const enc = gpu.device.createCommandEncoder();
-    // Writing straight to the canvas (setDirectOut) there is no blit pass:
-    // it isn't asked to time one, and the profiler is told it's idle.
-    if (view.directOut) profiler.idle('blit');
-    const blit = view.directOut ? undefined : profiler.pass('blit');
-    if (!view.encode(enc, { computeTimestamps: profiler.pass('render'), blitTimestamps: blit })) {
-      profiler.skipped('render');
-      profiler.skipped('blit');
-    }
+    if (!view.encode(enc, { computeTimestamps: profiler.pass('render') })) profiler.skipped('render');
     profiler.resolve(enc);
     gpu.device.queue.submit([enc.finish()]);
 
