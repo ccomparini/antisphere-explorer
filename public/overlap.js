@@ -168,10 +168,32 @@ export function regionsOverlap(primA, signA, primB, signB) {
     .margin < -CERTAIN;
 }
 
-/** Proved apart, with room to spare. Touching counts as apart. */
-export function regionsDisjoint(primA, signA, primB, signB) {
-  return separation(matrixOf(primA, signA), matrixOf(primB, signB), { decide: true })
-    .margin > -CERTAIN;
+/**
+ * A matrix re-expressed in a frame at centre `c` with unit length `L`:
+ * with R = c + L R', X = T X' for T = [L I, c; 0, 1], and H is X'^T T^T Q T X'.
+ * A congruence, applied to both regions alike, keeps any certificate a
+ * certificate (T^T (Q_b + mu Q_a) T is PSD exactly when the pencil is).
+ */
+export function inFrame(m, { c, L }) {
+  const t = [[L, 0, 0, c[0]], [0, L, 0, c[1]], [0, 0, L, c[2]], [0, 0, 0, 1]];
+  const mt = m.map((row) => [0, 1, 2, 3].map((j) => row.reduce((s, v, k) => s + v * t[k][j], 0)));
+  return [0, 1, 2, 3].map((i) => [0, 1, 2, 3].map((j) => t.reduce((s, row, k) => s + row[i] * mt[k][j], 0)));
+}
+
+/**
+ * Proved apart, with room to spare. Touching counts as apart.
+ *
+ * `frame` ({ c, L }), if given, is where to measure: a centre and a length
+ * near the smaller of the two. Far from the origin, or at very different
+ * sizes, scaling each matrix by its largest entry leaves the pencil's
+ * eigenvalues tiny - a 500 m planet's outside and a 2 m ball sitting in it
+ * read a margin of -8e-11, which passed for touching (CERTAIN), and so for
+ * disjoint. In the smaller one's own frame the same overlap reads clearly.
+ */
+export function regionsDisjoint(primA, signA, primB, signB, frame = null) {
+  let qa = matrixOf(primA, signA), qb = matrixOf(primB, signB);
+  if (frame) { qa = inFrame(qa, frame); qb = inFrame(qb, frame); }
+  return separation(qa, qb, { decide: true }).margin > -CERTAIN;
 }
 
 // ---------------------------------------------------------------------------

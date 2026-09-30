@@ -105,6 +105,28 @@ test('the sign picks the other side of a node', () => {
   assert.equal(regionsOverlap(outer, -1, inner, -1), true);
 });
 
+test('measured in a frame near the smaller one, a small ball beside a big one is decided right', () => {
+  // A planet 500 m across and a 2 m ball: scaled for the planet, a real
+  // overlap between the ball and the planet's outside read a margin of
+  // -8e-11, within what counts as touching, so "disjoint". In the ball's
+  // own frame (a congruence, so the proof means the same) it reads clearly.
+  const planet = primOf({ sphere: { center: [0, 0, 0], radius: 500 } });
+  const at = (c, r) => ({ prim: primOf({ sphere: { center: c, radius: r } }), frame: { c, L: r } });
+  const cases = [
+    // centre, radius, apart from the planet's inside, from its outside
+    [[20, 0, 502], 2.2, true, false],     // just above the ground
+    [[0, 0, 600], 2, true, false],        // well above
+    [[0, 0, 501], 2, false, false],       // half sunk
+    [[0, 0, 502], 2, true, false],        // resting on it: touching is apart
+    [[0, 0, 30], 2, false, true],         // deep inside
+  ];
+  for (const [c, r, fromInside, fromOutside] of cases) {
+    const { prim, frame } = at(c, r);
+    assert.equal(regionsDisjoint(planet, 1, prim, 1, frame), fromInside, `${c} r ${r}: the planet's inside`);
+    assert.equal(regionsDisjoint(planet, -1, prim, 1, frame), fromOutside, `${c} r ${r}: its outside`);
+  }
+});
+
 test('touching counts as apart, and the margin says how close', () => {
   const touch = separation(matrixOf(primOf(ball(-1, 1)), 1), matrixOf(primOf(ball(1, 1)), 1));
   const clear = separation(matrixOf(primOf(ball(-3, 1)), 1), matrixOf(primOf(ball(3, 1)), 1));
