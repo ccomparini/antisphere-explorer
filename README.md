@@ -8,6 +8,9 @@ This means that CSG operations can be performed in the traditional way, with the
 
 This is raycaster implemented using this concept.
 
+The model as it stands now (nodes are general quadrics of revolution these
+days), and where it is going, is in [DESIGN.md](DESIGN.md).
+
 ## Shaders
 
 The shader sources live in `shaders/` as `.wgsls` files ("WGSL source"):
