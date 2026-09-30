@@ -481,6 +481,9 @@ gpuTest('PhysicsWorld.add fires a body in mid-run, and what was moving keeps mov
   }));
   physics.add(capsule, [0, 25, 0]);
   assert.equal(physics.simulates(capsule), true);
+  // physlab sets every body's thrust each frame, the newcomer's included,
+  // before the simulation has room for it.
+  for (const o of physics.bodies) physics.setThrust(o, [0, 0, 0]);
   await run(31);                                  // the first frame rebuilds, and runs nothing
   physics.update(0);
   await physics.reading;

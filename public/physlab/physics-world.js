@@ -34,7 +34,7 @@ export class PhysicsWorld {
     this.gravity = gravity;
     this.solids = new Map();              // compiled solids, by geometry object
     this.bodies = [];
-    this.placement = [];                  // per body: { a0, vel } until it is in a simulation
+    this.placement = [];                  // per body: { a0, d, vel (until simulated), thrust }
     for (const o of world.objects.filter((o) => o.body)) this._enlist(o, [0, 0, 0]);
     const place = (o) => {
       const { axis, radians } = toAxisAngle(o.orientation);
@@ -64,7 +64,7 @@ export class PhysicsWorld {
     const b = o.body;
     const d = 2 * Math.sqrt(b.inertia);          // two half-masses: 2 (m/2) (d/2)^2 = I
     this.bodies.push(o);
-    this.placement.push({ a0: (b.centre ?? 0) - d / 2, d, vel });
+    this.placement.push({ a0: (b.centre ?? 0) - d / 2, d, vel, thrust: [0, 0, 0] });
   }
 
   _solidOf(geometry) {
@@ -78,7 +78,7 @@ export class PhysicsWorld {
     const particles = [], bodies = [];
     this.bodies.forEach((o, k) => {
       const b = o.body;
-      const { a0, d, vel } = this.placement[k];
+      const { a0, d, vel, thrust } = this.placement[k];
       const a1 = a0 + d;
       const u = rotate(o.orientation, [0, 1, 0]);
       const at = (y) => sub(add(o.position, scale(u, y)), this.origin);
@@ -89,7 +89,7 @@ export class PhysicsWorld {
         particles.push({ pos: at(a0), vel, invMass: inv, body: k }, { pos: at(a1), vel, invMass: inv, body: k });
       }
       bodies.push({
-        p0: 2 * k, p1: 2 * k + 1, rest: d, compliance: b.compliance ?? 0,
+        p0: 2 * k, p1: 2 * k + 1, rest: d, compliance: b.compliance ?? 0, thrust,
         solid: this._solidOf(o.geometry), a0, a1, radius: b.radius, friction: b.friction ?? 0.5,
       });
     });
@@ -116,9 +116,15 @@ export class PhysicsWorld {
   simulates(object) { return this.bodies.includes(object); }
 
   /** An extra acceleration on a body, in world axes (a motor), m/s^2. */
+  // Kept here as well, so that a rebuild carries it over, and so a body
+  // added but not yet in the simulation (add()) can have one: its thrust
+  // goes in when it does, rather than past the end of the old simulation's
+  // buffers.
   setThrust(object, accel) {
     const k = this.bodies.indexOf(object);
-    if (k >= 0) this.sim.setThrust(k, accel);
+    if (k < 0) return;
+    this.placement[k].thrust = accel.slice();
+    if (k < this.sim.bodyCount) this.sim.setThrust(k, accel);
   }
 
   /**

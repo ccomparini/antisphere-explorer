@@ -228,7 +228,7 @@ export class PhysicsSim {
   setThrust(body, thrust) {
     Body.write(this.bodyViews, body, { thrust });
     const at = body * Body.STRIDE + Body.FIELDS.thrust.offset;
-    this.device.queue.writeBuffer(this.bodies, at, this.bodyViews.buffer, at, 12);
+    this.device.queue.writeBuffer(this.bodies, at, this.bodyViews.buffer, at, 12);   // vec3<f32>: 12 bytes
   }
 
   /**
