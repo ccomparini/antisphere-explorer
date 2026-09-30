@@ -152,3 +152,109 @@ fn contactFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let q = contactQueries[i];
   contactResults[i] = pathContact(paths[q.path_a], paths[q.path_b]);
 }
+
+// -- bodies: points joined by constraints ------------------------------------------
+//
+// Position-based (XPBD): each substep predicts where every particle goes
+// under gravity and any thrust, then corrects the predictions to satisfy
+// the constraints, and takes velocity from how far each actually moved.
+//
+// Coordinates are the simulation's own: the host shifts everything by an
+// origin near the action (a floating origin), so that f32 positions keep
+// their resolution. 500 m out, f32 resolves ~6e-5 m, which as a velocity
+// over a 1/240 s substep is ~0.015 m/s of noise; 20 m out it is 25 times
+// less. So gravity's centre is a parameter, not the origin.
+
+struct Particle {
+  pos      : vec3<f32>,
+  inv_mass : f32,       // 0: pinned, never moved
+  vel      : vec3<f32>,
+  body     : u32,       // the body it belongs to
+  start    : vec3<f32>, // where it was at the start of this substep
+};
+
+// A body: two particles and what joins them, for now. Its geometry comes
+// with collisions.
+struct Body {
+  p0         : u32,
+  p1         : u32,
+  rest       : f32,        // the particles' distance apart, unstressed
+  compliance : f32,        // XPBD compliance of that distance, m/N; 0 is rigid
+  thrust     : vec3<f32>,  // extra acceleration on both particles (a motor), m/s^2
+};
+
+struct SimParams {
+  gravity_centre : vec3<f32>,  // in simulation coordinates
+  gm             : f32,        // G times the planet's mass: gravity is gm / r^2
+  h              : f32,        // substep, seconds
+  particle_count : u32,
+  body_count     : u32,
+};
+
+@group(0) @binding(5) var<storage, read_write> particles : array<Particle>;
+@group(0) @binding(6) var<storage, read> bodies : array<Body>;
+@group(0) @binding(7) var<uniform> sim : SimParams;
+
+fn gravityAt(p : vec3<f32>) -> vec3<f32> {
+  let r = sim.gravity_centre - p;
+  let d2 = max(dot(r, r), 1e-6);
+  return sim.gm * r / (d2 * sqrt(d2));
+}
+
+// 1. Predict: velocity from gravity and thrust, position from velocity.
+@compute @workgroup_size(64)
+fn predict(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= sim.particle_count) { return; }
+  var q = particles[i];
+  q.start = q.pos;
+  if (q.inv_mass > 0.0) {
+    q.vel = q.vel + (gravityAt(q.pos) + bodies[q.body].thrust) * sim.h;
+    q.pos = q.pos + q.vel * sim.h;
+  }
+  particles[i] = q;
+}
+
+// 2. Solve: each body's distance constraint. A particle belongs to one
+// body, so bodies can be solved in parallel without contention.
+@compute @workgroup_size(64)
+fn solveDistance(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let b = gid.x;
+  if (b >= sim.body_count) { return; }
+  let body = bodies[b];
+  var a = particles[body.p0];
+  var c = particles[body.p1];
+  let w = a.inv_mass + c.inv_mass;
+  let d = c.pos - a.pos;
+  let len = length(d);
+  let alpha = body.compliance / (sim.h * sim.h);
+  if (w + alpha <= 0.0 || len < 1e-9) { return; }
+  // XPBD with a fresh multiplier each substep: dlambda = -C / (w + alpha),
+  // moving each end along the line by its share of inverse mass.
+  let dl = -(len - body.rest) / (w + alpha);
+  let n = d / len;
+  a.pos = a.pos - a.inv_mass * dl * n;
+  c.pos = c.pos + c.inv_mass * dl * n;
+  particles[body.p0] = a;
+  particles[body.p1] = c;
+}
+
+// 3. Velocity from where each particle actually got to. That is
+// (pos - start) / h, but taken as the predicted velocity plus only what the
+// constraints changed: v + (pos - predicted) / h. The same in exact
+// arithmetic, and far better in f32, where pos - start is a small
+// difference of large numbers - 600 m out, the textbook form puts a free
+// fall 12 cm off in a second, and an orbit 1.8% off in ten. The predicted
+// position is recomputed exactly as predict() made it, so a particle no
+// constraint moved keeps its velocity bit for bit.
+@compute @workgroup_size(64)
+fn updateVelocity(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= sim.particle_count) { return; }
+  var q = particles[i];
+  if (q.inv_mass > 0.0) {
+    let predicted = q.start + q.vel * sim.h;
+    q.vel = q.vel + (q.pos - predicted) / sim.h;
+  }
+  particles[i] = q;
+}

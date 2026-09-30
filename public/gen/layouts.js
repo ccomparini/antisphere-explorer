@@ -573,3 +573,154 @@ export class Contact {
     };
   }
 }
+
+export class Particle {
+  static SIZE = 48;
+  static ALIGN = 16;
+  static STRIDE = 48;
+  static FIELDS = Object.freeze({
+    pos: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
+    inv_mass: Object.freeze({ offset: 12, type: 'f32' }),
+    vel: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
+    body: Object.freeze({ offset: 28, type: 'u32' }),
+    start: Object.freeze({ offset: 32, type: 'vec3<f32>' }),
+  });
+
+  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Particle.STRIDE)); }
+  static write(views, index, values) { Particle.writeAt(views, index * Particle.STRIDE, values); }
+  static read(views, index) { return Particle.readAt(views, index * Particle.STRIDE); }
+
+  static writeAt(views, byteOffset, values) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    if (values.pos !== undefined) {
+      f32[w] = values.pos[0];
+      f32[w + 1] = values.pos[1];
+      f32[w + 2] = values.pos[2];
+    }
+    if (values.inv_mass !== undefined) {
+      f32[w + 3] = values.inv_mass;
+    }
+    if (values.vel !== undefined) {
+      f32[w + 4] = values.vel[0];
+      f32[w + 5] = values.vel[1];
+      f32[w + 6] = values.vel[2];
+    }
+    if (values.body !== undefined) {
+      u32[w + 7] = values.body;
+    }
+    if (values.start !== undefined) {
+      f32[w + 8] = values.start[0];
+      f32[w + 9] = values.start[1];
+      f32[w + 10] = values.start[2];
+    }
+  }
+
+  static readAt(views, byteOffset) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    return {
+      pos: [f32[w], f32[w + 1], f32[w + 2]],
+      inv_mass: f32[w + 3],
+      vel: [f32[w + 4], f32[w + 5], f32[w + 6]],
+      body: u32[w + 7],
+      start: [f32[w + 8], f32[w + 9], f32[w + 10]],
+    };
+  }
+}
+
+export class Body {
+  static SIZE = 32;
+  static ALIGN = 16;
+  static STRIDE = 32;
+  static FIELDS = Object.freeze({
+    p0: Object.freeze({ offset: 0, type: 'u32' }),
+    p1: Object.freeze({ offset: 4, type: 'u32' }),
+    rest: Object.freeze({ offset: 8, type: 'f32' }),
+    compliance: Object.freeze({ offset: 12, type: 'f32' }),
+    thrust: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
+  });
+
+  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Body.STRIDE)); }
+  static write(views, index, values) { Body.writeAt(views, index * Body.STRIDE, values); }
+  static read(views, index) { return Body.readAt(views, index * Body.STRIDE); }
+
+  static writeAt(views, byteOffset, values) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    if (values.p0 !== undefined) {
+      u32[w] = values.p0;
+    }
+    if (values.p1 !== undefined) {
+      u32[w + 1] = values.p1;
+    }
+    if (values.rest !== undefined) {
+      f32[w + 2] = values.rest;
+    }
+    if (values.compliance !== undefined) {
+      f32[w + 3] = values.compliance;
+    }
+    if (values.thrust !== undefined) {
+      f32[w + 4] = values.thrust[0];
+      f32[w + 5] = values.thrust[1];
+      f32[w + 6] = values.thrust[2];
+    }
+  }
+
+  static readAt(views, byteOffset) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    return {
+      p0: u32[w],
+      p1: u32[w + 1],
+      rest: f32[w + 2],
+      compliance: f32[w + 3],
+      thrust: [f32[w + 4], f32[w + 5], f32[w + 6]],
+    };
+  }
+}
+
+export class SimParams {
+  static SIZE = 32;
+  static ALIGN = 16;
+  static STRIDE = 32;
+  static FIELDS = Object.freeze({
+    gravity_centre: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
+    gm: Object.freeze({ offset: 12, type: 'f32' }),
+    h: Object.freeze({ offset: 16, type: 'f32' }),
+    particle_count: Object.freeze({ offset: 20, type: 'u32' }),
+    body_count: Object.freeze({ offset: 24, type: 'u32' }),
+  });
+
+  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * SimParams.STRIDE)); }
+  static write(views, index, values) { SimParams.writeAt(views, index * SimParams.STRIDE, values); }
+  static read(views, index) { return SimParams.readAt(views, index * SimParams.STRIDE); }
+
+  static writeAt(views, byteOffset, values) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    if (values.gravity_centre !== undefined) {
+      f32[w] = values.gravity_centre[0];
+      f32[w + 1] = values.gravity_centre[1];
+      f32[w + 2] = values.gravity_centre[2];
+    }
+    if (values.gm !== undefined) {
+      f32[w + 3] = values.gm;
+    }
+    if (values.h !== undefined) {
+      f32[w + 4] = values.h;
+    }
+    if (values.particle_count !== undefined) {
+      u32[w + 5] = values.particle_count;
+    }
+    if (values.body_count !== undefined) {
+      u32[w + 6] = values.body_count;
+    }
+  }
+
+  static readAt(views, byteOffset) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    return {
+      gravity_centre: [f32[w], f32[w + 1], f32[w + 2]],
+      gm: f32[w + 3],
+      h: f32[w + 4],
+      particle_count: u32[w + 5],
+      body_count: u32[w + 6],
+    };
+  }
+}

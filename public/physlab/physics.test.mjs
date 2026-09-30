@@ -8,7 +8,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { buildAll } from '../../tools/shader-build/index.js';
-import { compileSolid, packSolids } from './physics.js';
+import { compileSolid, packSolids, PhysicsSim } from './physics.js';
 import { Contact, ContactQuery, viewsOf } from '../gen/layouts.js';
 
 const repo = new URL('../../', import.meta.url);
@@ -152,4 +152,60 @@ gpuTest('a tilted rod whose lower end dips into the ground has its contact at th
   // Its lowest corner is at s = 5.5, 0.5 below the axis there: z = -0.57.
   const lowest = at(5.5)[2] - 0.5 / Math.hypot(1, 0.2);
   assert.ok(c.depth > 0 && c.depth <= -lowest + 1e-2, `depth ${c.depth}, deepest ${-lowest}`);
+});
+
+// -- particles, gravity and constraints -------------------------------------------
+
+const GM = 9.81 * 500 * 500;               // 9.81 m/s^2 at 500 m
+const gAt = (r) => GM / (r * r);
+const sim = (particles, bodies, extra = {}) =>
+  new PhysicsSim(device, module, { particles, bodies, gravityCentre: [0, 0, 0], gm: GM, ...extra });
+const alone = (pos, vel, body = 0) => ({ pos, vel, invMass: 1, body });
+const point = { p0: 0, p1: 0, rest: 0 };   // a body of one particle: nothing to hold together
+
+gpuTest('a dropped particle falls as 1/2 g t^2', async () => {
+  const s = sim([alone([0, 0, 600])], [point]);
+  assert.equal(s.step(1.0), 240);
+  const [q] = await s.read();
+  const g = gAt(600);                      // barely changes over a 3.4 m drop
+  near(q.pos[2], 600 - 0.5 * g, 0.03, 'height after 1 s');
+  near(q.vel[2], -g, 0.05, 'speed after 1 s');
+  near([q.pos[0], q.pos[1]], [0, 0], 1e-6, 'straight down');
+  s.destroy();
+});
+
+gpuTest('a circular orbit keeps its radius', async () => {
+  const r = 600, v = Math.sqrt(GM / r);
+  const s = sim([alone([r, 0, 0], [0, v, 0])], [point]);
+  let most = 0;
+  for (let t = 0; t < 10; t++) {
+    s.step(1);
+    const [q] = await s.read();
+    most = Math.max(most, Math.abs(Math.hypot(...q.pos) - r) / r);
+  }
+  assert.ok(most < 2e-3, `radius strays by ${(most * 100).toFixed(3)}%`);
+  s.destroy();
+});
+
+gpuTest('a rigid rod keeps its length while it tumbles, and its centre falls freely', async () => {
+  const s = sim(
+    [alone([-2, 0, 600], [0, 0, 5]), alone([2, 0, 600], [0, 0, -5])],
+    [{ p0: 0, p1: 1, rest: 4 }],
+  );
+  s.step(1);
+  const [a, b] = await s.read();
+  near(Math.hypot(...a.pos.map((v, i) => v - b.pos[i])), 4, 1e-3, 'length');
+  near((a.pos[2] + b.pos[2]) / 2, 600 - 0.5 * gAt(600), 0.05, 'centre height');
+  assert.ok(Math.abs(a.pos[2] - b.pos[2]) > 1, 'it turned');
+  s.destroy();
+});
+
+gpuTest('thrust equal to gravity hovers; a pinned particle never moves', async () => {
+  const s = sim([alone([0, 0, 600]), { pos: [5, 0, 600], invMass: 0, body: 1 }], [point, { p0: 1, p1: 1, rest: 0 }]);
+  s.setThrust(0, [0, 0, gAt(600)]);
+  s.step(1);
+  const [hover, pinned] = await s.read();
+  near(hover.pos, [0, 0, 600], 2e-3, 'hovering');
+  assert.deepEqual(pinned.pos, [5, 0, 600]);
+  s.destroy();
 });
