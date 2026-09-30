@@ -7,7 +7,9 @@
 // renderer builds right and up from forward.
 //
 // Two modes:
-//   'forward'  look along the object's +Y, with its +Z as up
+//   'forward'  look along the object's +Y, with its +Z as up, tilted by
+//              `pitch` radians about the object's +X (positive looks up):
+//              a head on a body, so the object itself can stay level
 //   'lookAt'   look from the object at `target`, a point held by reference:
 //              give it another object's position array and the camera
 //              follows that object as it moves. With no target it looks
@@ -26,12 +28,14 @@ export class AttachedCamera {
    * @param {string} [opts.mode]       'forward' (default) or 'lookAt'
    * @param {number[]} [opts.target]   the point 'lookAt' looks at, kept by reference
    * @param {number} [opts.fovY]       vertical field of view, radians
+   * @param {number} [opts.pitch]      'forward' only: radians up (+) or down (-)
    */
-  constructor(object, { mode = 'forward', target = null, fovY = 0.9 } = {}) {
+  constructor(object, { mode = 'forward', target = null, fovY = 0.9, pitch = 0 } = {}) {
     this.object = object;
     this.mode = mode;
     this.target = target;
     this.fovY = fovY;
+    this.pitch = pitch;
     this.projection = 'perspective';
   }
 
@@ -45,7 +49,13 @@ export class AttachedCamera {
     const eye = this.object.position.slice();
     const { x, y, z } = this.object.axes();
     if (this.mode === 'forward' || !this.target) {
-      return { eye, forward: y, right: x, up: z };
+      const c = Math.cos(this.pitch), s = Math.sin(this.pitch);
+      return {
+        eye,
+        forward: [c * y[0] + s * z[0], c * y[1] + s * z[1], c * y[2] + s * z[2]],
+        right: x,
+        up: [c * z[0] - s * y[0], c * z[1] - s * y[1], c * z[2] - s * y[2]],
+      };
     }
     const forward = unit(sub(this.target, eye));
     // Up is the object's +Z, as near as it can be while square to the line

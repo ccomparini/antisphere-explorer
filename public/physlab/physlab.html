@@ -8,6 +8,11 @@
   :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #0b0d10; overflow: hidden; }
   canvas { display: block; width: 100vw; height: 100vh; }
+  #hint {
+    position: fixed; left: 14px; bottom: 12px; pointer-events: none;
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #7f8a99; text-shadow: 0 1px 2px rgba(0,0,0,.8);
+  }
   #err {
     position: fixed; inset: 0; place-items: center; padding: 2rem;
     font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -17,6 +22,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="hint">click to look (Esc lets go) · WASD move · E/Q up/down · Shift fast · V camera mode</div>
 <div id="err" hidden></div>
 <script type="module" src="./physlab.js"></script>
 </body>
