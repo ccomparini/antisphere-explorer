@@ -105,7 +105,7 @@ function assertFrame({ forward, right, up }) {
   near(cross(right, forward), up, 1e-9);
 }
 
-test("'forward' looks along the object's +Y with its +Z up", () => {
+test("with no target, the camera looks along the object's +Y with its +Z up", () => {
   const mount = new WorldObject('m', { position: [1, 2, 3] });
   const cam = new AttachedCamera(mount);
   let b = cam.basis();
@@ -120,11 +120,11 @@ test("'forward' looks along the object's +Y with its +Z up", () => {
   }
 });
 
-test("'lookAt' looks at its target, keeping as much of the object's +Z up as it can", () => {
+test("with a target, the camera looks at it, keeping as much of the object's +Z up as it can", () => {
   const mount = new WorldObject('m', { position: [0, 0, 520] });
   const planet = new WorldObject('p', { position: [0, 0, 0] });
   const beacon = new WorldObject('b', { position: [100, 0, 520] });
-  const cam = new AttachedCamera(mount, { mode: 'lookAt', target: beacon.position });
+  const cam = new AttachedCamera(mount, { target: beacon.position });
 
   let b = cam.basis();
   near(b.forward, [1, 0, 0]);
@@ -145,14 +145,11 @@ test("'lookAt' looks at its target, keeping as much of the object's +Z up as it 
   near(b.up, [0, 1, 0]);
   assertFrame(b);
 
-  // With no target it looks forward.
+  // With no target it looks forward; so it does when the target is itself.
   cam.target = null;
   near(cam.basis().forward, [0, 1, 0]);
-});
-
-test('an unknown camera mode is refused', () => {
-  const cam = new AttachedCamera(new WorldObject('m'));
-  assert.throws(() => { cam.mode = 'orbit'; }, /not one of forward, lookAt/);
+  cam.target = mount.position;
+  near(cam.basis().forward, [0, 1, 0]);
 });
 
 // -- time ---------------------------------------------------------------------------
@@ -177,14 +174,14 @@ test('World.update gives every object its update, with dt and the world', () => 
 
 // -- looking and flying -----------------------------------------------------------
 
-test("pitch tilts 'forward' about the object's +X, and 'lookAt' ignores it", () => {
+test('pitch tilts the forward look about the object\'s +X; a target overrides it', () => {
   const mount = new WorldObject('m', { position: [0, 0, 10] });
-  const cam = new AttachedCamera(mount, { pitch: 0.3, target: [5, 0, 10] });
+  const cam = new AttachedCamera(mount, { pitch: 0.3 });
   const b = cam.basis();
   near(b.forward, [0, Math.cos(0.3), Math.sin(0.3)]);             // up is positive
   near(b.right, [1, 0, 0]);
   assertFrame(b);
-  cam.mode = 'lookAt';
+  cam.target = [5, 0, 10];
   near(cam.basis().forward, [1, 0, 0]);
 });
 
@@ -250,4 +247,55 @@ test('whatever it does, the mount stays upright: +Z straight away from the centr
     near(z, radial(mount.position), 1e-9);
     near(cross(y, z), x, 1e-9);
   }
+});
+
+test('flying some other object moves it on its own axes, and leaves it that way up', () => {
+  const { mount, camera, flight } = flier(0.3);
+  const rocket = new WorldObject('rocket', {
+    position: [0, 0, 504],
+    orientation: fromBasis([0, 1, 0], [0, 0, 1], [1, 0, 0]),        // standing: +Y up, +Z east, +X = Y x Z
+  });
+  flight.attach(rocket);
+  const mountAt = mount.position.slice();
+  flight.press('forward');
+  flight.update(1);
+  near(rocket.position, [0, 0, 514]);                                 // nose first: straight up
+  near(rocket.axes().y, [0, 0, 1]);                                   // not laid flat
+  assert.deepEqual(mount.position, mountAt);                          // the camera's mount stays put
+  flight.releaseAll();
+  flight.look(Math.PI / 2, 0);
+  flight.update(0.1);
+  near(rocket.axes().y, [0, 1, 0], 1e-9);                             // a quarter right, about its own +Z: to where +X was
+  near(rocket.axes().z, [1, 0, 0], 1e-9);
+  assert.equal(camera.pitch, 0.3);                                    // looking up/down is still the camera's
+});
+
+test('without input nothing moves or turns', () => {
+  const { mount, flight } = flier();
+  const standing = new WorldObject('r', { position: [0, 0, 504], orientation: fromAxisAngle([1, 0, 0], 0.7) });
+  for (const o of [mount, standing]) {
+    flight.attach(o);
+    const [p, q] = [o.position.slice(), o.orientation.slice()];
+    flight.update(1);
+    assert.deepEqual([o.position, o.orientation], [p, q]);
+  }
+});
+
+test('geometryMoved says when the scene must be rebuilt', () => {
+  const world = new World();
+  const planet = world.add(new WorldObject('planet', { geometry: ball(500) }));
+  const mount = world.add(new WorldObject('mount', { position: [0, 0, 520] }));
+  assert.equal(world.geometryMoved(), true);                        // never built
+  world.sceneSpec(ROCK);
+  assert.equal(world.geometryMoved(), false);
+  mount.setPosition([1, 0, 520]);                                    // no geometry: no matter
+  assert.equal(world.geometryMoved(), false);
+  planet.setPosition([0, 0, 1]);
+  assert.equal(world.geometryMoved(), true);
+  world.sceneSpec(ROCK);
+  planet.orientation = fromAxisAngle([0, 0, 1], 0.1);
+  assert.equal(world.geometryMoved(), true);
+  world.sceneSpec(ROCK);
+  world.add(new WorldObject('rock', { geometry: ball(1) }));
+  assert.equal(world.geometryMoved(), true);                        // something new to draw
 });

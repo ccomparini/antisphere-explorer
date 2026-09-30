@@ -11,6 +11,12 @@
 // It gives every object its own update(dt, world). An object's behaviour is
 // either an `update` function given when it is made, or a subclass's
 // update(); by default an object does nothing.
+//
+// When an object with geometry moves, the scene has to follow. sceneSpec()
+// remembers where everything with geometry was; geometryMoved() says
+// whether any of it has moved (or appeared) since. For now following means
+// rebuilding the scene; moving objects' nodes in place comes later (see
+// DESIGN.md, "Moving objects").
 
 import { identity, normalize, axes, toAxisAngle } from './quat.js';
 
@@ -54,6 +60,7 @@ export class WorldObject {
 export class World {
   constructor() {
     this.objects = [];
+    this._built = null;           // poses at the last sceneSpec(), by object name
   }
 
   /**
@@ -85,6 +92,7 @@ export class World {
   sceneSpec({ materials = {}, lights = [] } = {}) {
     const placed = this.objects.filter((o) => o.geometry);
     if (!placed.length) throw new Error('no object in the world has any geometry to draw');
+    this._built = this._poses();
 
     const objects = {};
     const uses = placed.map((o) => {
@@ -101,5 +109,18 @@ export class World {
       objects,
       root: uses.length === 1 ? uses[0] : { union: uses },
     };
+  }
+
+  /** Has anything with geometry moved, turned or appeared since the last sceneSpec()? */
+  geometryMoved() {
+    const now = this._poses();
+    if (!this._built || now.size !== this._built.size) return true;
+    for (const [name, pose] of now) if (this._built.get(name) !== pose) return true;
+    return false;
+  }
+
+  _poses() {
+    return new Map(this.objects.filter((o) => o.geometry)
+      .map((o) => [o.name, `${o.position.join()}|${o.orientation.join()}`]));
   }
 }
