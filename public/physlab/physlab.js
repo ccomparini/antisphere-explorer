@@ -266,7 +266,11 @@ async function main() {
     }
 
     const enc = gpu.device.createCommandEncoder();
-    if (!view.encode(enc, { computeTimestamps: profiler.pass('render'), blitTimestamps: profiler.pass('blit') })) {
+    // Writing straight to the canvas (setDirectOut) there is no blit pass:
+    // it isn't asked to time one, and the profiler is told it's idle.
+    if (view.directOut) profiler.idle('blit');
+    const blit = view.directOut ? undefined : profiler.pass('blit');
+    if (!view.encode(enc, { computeTimestamps: profiler.pass('render'), blitTimestamps: blit })) {
       profiler.skipped('render');
       profiler.skipped('blit');
     }

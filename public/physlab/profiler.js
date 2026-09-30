@@ -9,16 +9,24 @@
 // or more later, and a frame arriving while one is pending isn't timed.
 // Browsers may quantize timestamps (Chrome to 100 us by default), so read
 // these as milliseconds, not microseconds.
+//
+// A pass that isn't running at all (the blit, when the renderer writes
+// straight to the canvas) is declared idle, so that it reads "-" and
+// counts for nothing in the total, rather than going on showing its last
+// average. That is different from skipped(): a pass that didn't run this
+// frame, as physics doesn't when a frame is too short for a substep.
 
 import { createTimestampQuery } from '../gpu-setup.js';
 
 // Rolling means, so the readout doesn't flicker.
 function rolling(n) {
   const buf = [];
-  return (x) => {
+  const avg = (x) => {
     if (x !== undefined) { buf.push(x); if (buf.length > n) buf.shift(); }
     return buf.length ? buf.reduce((a, b) => a + b, 0) / buf.length : NaN;
   };
+  avg.clear = () => { buf.length = 0; };
+  return avg;
 }
 
 const ms = (x) => (Number.isFinite(x) ? `${x.toFixed(2)} ms` : '-');
@@ -39,6 +47,7 @@ export class FrameProfiler {
     this.written = new Set();     // passes that actually ran this frame
     this.avg = { frame: rolling(30), cpu: rolling(30), done: rolling(30) };
     for (const p of passes) this.avg[p] = rolling(30);
+    this.idlePasses = new Set();  // passes not running at all (idle())
     this.history = new Array(120).fill(0);
     this.frames = 0;
     this.fps = 0;
@@ -66,6 +75,7 @@ export class FrameProfiler {
 
   /** timestampWrites for pass `name` this frame, or undefined when not timing. */
   pass(name) {
+    this.idlePasses.delete(name);
     if (!this.timing) return undefined;
     const i = this.passes.indexOf(name);
     this.written.add(name);
@@ -74,6 +84,17 @@ export class FrameProfiler {
 
   /** A pass that was asked for but didn't run this frame (so has no times). */
   skipped(name) { this.written.delete(name); }
+
+  /**
+   * A pass that isn't running at all now: it shows no time, and none in
+   * the total, until it is asked for again with pass(). Times still on
+   * their way back from before are dropped.
+   */
+  idle(name) {
+    this.idlePasses.add(name);
+    this.written.delete(name);
+    this.avg[name].clear();
+  }
 
   /** Resolve this frame's timestamps into `enc`, before it is finished. */
   resolve(enc) {
@@ -97,6 +118,7 @@ export class FrameProfiler {
         const t = new BigInt64Array(this.ts.readBuf.getMappedRange().slice(0));
         this.ts.readBuf.unmap();
         for (const name of ran) {
+          if (this.idlePasses.has(name)) continue;          // gone idle since
           const i = this.passes.indexOf(name);
           const ns = Number(t[2 * i + 1] - t[2 * i]);
           // Counters occasionally reset, showing as negative or wild gaps.
