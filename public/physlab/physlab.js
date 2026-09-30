@@ -8,7 +8,8 @@ import { ASContext } from '../as-context.js';
 import '../as-renderer.js';           // registers the renderer ASContext.createRenderer makes
 import { World, WorldObject } from './world.js';
 import { AttachedCamera } from './camera.js';
-import { fromAxisAngle, fromBasis, multiply } from './quat.js';
+import { FlightControl, levelOrientation } from './flight.js';
+import { attachFlightInput } from './flight-input.js';
 
 // Not objects (yet): what the objects are made of, and what lights them.
 const SURROUNDINGS = {
@@ -25,8 +26,6 @@ const SURROUNDINGS = {
 
 const RADIUS = 500;
 
-const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-
 function buildWorld() {
   const world = new World();
 
@@ -37,15 +36,13 @@ function buildWorld() {
 
   // Something to carry the camera, with no geometry of its own: 20 m up,
   // 10 degrees off the north pole (the checker's longitudes pinch at the
-  // pole). Its +Z points straight up from the ground, its +Y east, and it
-  // leans forward a little so the ground is in view.
+  // pole), upright - its +Z straight away from the planet - and facing east.
   const lat = (80 * Math.PI) / 180;
   const up = [0, -Math.cos(lat), Math.sin(lat)];
-  const east = [1, 0, 0];
-  const standing = fromBasis(cross(east, up), east, up);            // x = y cross z
+  const position = up.map((v) => v * (RADIUS + 20));
   const mount = world.add(new WorldObject('mount', {
-    position: up.map((v) => v * (RADIUS + 20)),
-    orientation: multiply(standing, fromAxisAngle([1, 0, 0], -0.2)),   // lean first, then stand
+    position,
+    orientation: levelOrientation(position, [1, 0, 0]),
   }));
 
   return { world, planetoid, mount };
@@ -71,15 +68,18 @@ async function main() {
   });
   const { world, planetoid, mount } = buildWorld();
   const scene = gpu.createScene(world.sceneSpec(SURROUNDINGS));
-  // 'forward' looks along the mount's +Y; 'lookAt' looks at the target,
-  // here the planetoid's centre.
-  const camera = new AttachedCamera(mount, { mode: 'forward', target: planetoid.position });
+  // 'forward' looks along the mount's +Y, pitched down a little so the
+  // ground is in view; 'lookAt' looks at the target, here the planetoid's
+  // centre. V switches.
+  const camera = new AttachedCamera(mount, { mode: 'forward', target: planetoid.position, pitch: -0.2 });
+  const flight = new FlightControl(camera);
+  mount.behaviour = (self, dt) => flight.update(dt);
+  attachFlightInput(canvas, flight);
   const view = gpu.createRenderer(canvas, { scene, camera });
   // Before each frame is drawn, time moves on: dt is seconds since the last
   // frame, clamped by ASContext so a stall doesn't become a leap.
   gpu.onFrame((dt) => world.update(dt));
   gpu.start();
 
-  // No controls yet; from the console, e.g. physlab.camera.mode = 'lookAt'.
-  window.physlab = { world, camera, scene, view, gpu };
+  window.physlab = { world, camera, flight, scene, view, gpu };
 }

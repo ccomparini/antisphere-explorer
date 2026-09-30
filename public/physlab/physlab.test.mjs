@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { identity, fromAxisAngle, multiply, rotate, axes, fromBasis, toAxisAngle, normalize } from './quat.js';
 import { World, WorldObject } from './world.js';
 import { AttachedCamera } from './camera.js';
+import { FlightControl, levelOrientation } from './flight.js';
 import { compileScene } from '../antisphere-scene.js';
 
 const near = (a, b, eps = 1e-9) => {
@@ -172,4 +173,81 @@ test('World.update gives every object its update, with dt and the world', () => 
   assert.deepEqual(calls, [['spinner', 0.25, true], ['spinner', 0.5, true]]);
   assert.deepEqual(drifter.position, [0.75, 0, 0]);
   assert.equal(spinner.behaviour !== null, true);
+});
+
+// -- looking and flying -----------------------------------------------------------
+
+test("pitch tilts 'forward' about the object's +X, and 'lookAt' ignores it", () => {
+  const mount = new WorldObject('m', { position: [0, 0, 10] });
+  const cam = new AttachedCamera(mount, { pitch: 0.3, target: [5, 0, 10] });
+  const b = cam.basis();
+  near(b.forward, [0, Math.cos(0.3), Math.sin(0.3)]);             // up is positive
+  near(b.right, [1, 0, 0]);
+  assertFrame(b);
+  cam.mode = 'lookAt';
+  near(cam.basis().forward, [1, 0, 0]);
+});
+
+const radial = (p) => p.map((v) => v / Math.hypot(...p));
+
+test('levelOrientation stands the frame on the radial and keeps the heading', () => {
+  const p = [100, -200, 300];
+  const { x, y, z } = axes(levelOrientation(p, [1, 0, 0]));
+  near(z, radial(p), 1e-12);
+  near(dot(y, z), 0, 1e-12);
+  assert.ok(y[0] > 0.9, 'still facing mostly +X');
+  near(cross(y, z), x, 1e-12);
+  // A heading straight up still gives a proper frame.
+  near(axes(levelOrientation(p, radial(p))).z, radial(p), 1e-12);
+});
+
+function flier(pitch = 0) {
+  const position = [0, 0, 520];
+  const mount = new WorldObject('mount', { position, orientation: levelOrientation(position, [1, 0, 0]) });
+  const camera = new AttachedCamera(mount, { pitch });
+  return { mount, camera, flight: new FlightControl(camera, { speed: 10, boost: 5 }) };
+}
+
+test('forward flies where the camera looks, at speed, faster with fast held', () => {
+  const { mount, camera, flight } = flier(0.2);
+  const view = camera.basis().forward;
+  flight.press('forward');
+  flight.update(0.5);
+  near(mount.position, [0, 0, 520].map((v, i) => v + view[i] * 10 * 0.5), 1e-9);
+  const before = mount.position.slice();
+  flight.press('fast');
+  flight.update(0.1);
+  near(Math.hypot(...mount.position.map((v, i) => v - before[i])), 10 * 5 * 0.1, 1e-9);
+  flight.releaseAll();
+  const still = mount.position.slice();
+  flight.update(1);
+  assert.deepEqual(mount.position, still);                      // nothing held, nothing moves
+});
+
+test('turning right swings the heading toward +X, and pitch is clamped short of vertical', () => {
+  const { mount, camera, flight } = flier();
+  const { x } = mount.axes();
+  flight.look(Math.PI / 2, 0);
+  flight.update(0.01);
+  near(mount.axes().y, x, 1e-9);                                // a quarter turn right
+  flight.look(0, 10);
+  assert.ok(camera.pitch < Math.PI / 2 && camera.pitch > 1.4);
+  flight.look(0, -20);
+  assert.ok(camera.pitch > -Math.PI / 2 && camera.pitch < -1.4);
+});
+
+test('whatever it does, the mount stays upright: +Z straight away from the centre', () => {
+  const { mount, flight } = flier(0.4);
+  let seed = 3;
+  const r = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const actions = ['forward', 'back', 'left', 'right', 'up', 'down', 'fast'];
+  for (let i = 0; i < 500; i++) {
+    flight.releaseAll();
+    for (const a of actions) if (r() < 0.4) flight.press(a);
+    flight.look((r() - 0.5) * 0.4, (r() - 0.5) * 0.2);
+    flight.update(0.05);
+    const { x, y, z } = mount.axes();
+    near(z, radial(mount.position), 1e-9);
+    near(cross(y, z), x, 1e-9);
+  }
 });
