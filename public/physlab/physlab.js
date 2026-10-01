@@ -28,10 +28,7 @@ import { FrameProfiler } from './profiler.js';
 // Not objects (yet): what the objects are made of, and what lights them.
 const SURROUNDINGS = {
   materials: {
-    // Sphere surface coordinates are longitude and latitude in radians,
-    // over scale: 0.02 makes squares of 0.02 rad, about 10 m here.
-    rock: { albedo: [0.46, 0.43, 0.39], albedo2: [0.31, 0.29, 0.27],
-            pattern: 'checker', scale: 0.02 },
+    rock: { albedo: [0.46, 0.43, 0.39], albedo2: [0.31, 0.29, 0.27], pattern: 'noise' },
     hull: { albedo: [0.85, 0.85, 0.88] },
     nose: { albedo: [0.80, 0.15, 0.10] },
     ball: { albedo: [0.20, 0.45, 0.80] },
@@ -60,7 +57,7 @@ const FIRE_AHEAD = 3;
 // The disintegration ray's hole: its radius when it appears, how fast it
 // grows while P is held (m/s), and the most it grows to, in meters.
 const HOLE_START = 0.1;
-const HOLE_GROWTH = 0.1;
+const HOLE_GROWTH = 1.0;
 const HOLE_MAX = 20;
 
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -107,8 +104,8 @@ function buildWorld() {
   }));
 
   // Something to carry the camera, with no geometry of its own: 20 m up,
-  // 10 degrees off the north pole (the checker's longitudes pinch at the
-  // pole), upright - its +Z straight away from the planet - and facing east.
+  // 10 degrees off the north pole, upright - its +Z straight away from the
+  // planet - and facing east.
   const lat = (80 * Math.PI) / 180;
   const up = [0, -Math.cos(lat), Math.sin(lat)];
   const position = up.map((v) => v * (RADIUS + 20));
