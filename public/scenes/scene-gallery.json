@@ -17,7 +17,7 @@
   "materials": {
     "sky":     { "kind": "unlit", "albedo": [0.07, 0.09, 0.14] },
     "floor":   { "albedo": [0.30, 0.31, 0.34], "albedo2": [0.17, 0.18, 0.21],
-                 "pattern": "checker", "scale": 0.5 },
+                 "pattern": "checker", "scale": 2 },
     "stone":   { "albedo": [0.42, 0.40, 0.38] },
     "clay":    { "albedo": [0.72, 0.45, 0.32] },
     "moss":    { "albedo": [0.35, 0.52, 0.32] },

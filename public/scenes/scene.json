@@ -29,7 +29,7 @@
         0.18
       ],
       "pattern": "checker",
-      "scale": 1.0
+      "scale": 1
     },
     "stone": {
       "albedo": [
@@ -43,7 +43,7 @@
         0.35
       ],
       "pattern": "checker",
-      "scale": 2.6
+      "scale": 0.3846
     },
     "core": {
       "kind": "emissive",

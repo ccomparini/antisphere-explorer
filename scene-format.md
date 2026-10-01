@@ -49,7 +49,7 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 | `albedo`   | `[r, g, b]`                                    | `[0.7, 0.7, 0.7]`| base surface color |
 | `albedo2`  | `[r, g, b]`                                    | `[0.3, 0.3, 0.3]`| secondary color, used by the `"checker"` pattern |
 | `pattern`  | `"flat"` \| `"checker"`                        | `"flat"`         | how `albedo`/`albedo2` are combined across the surface |
-| `scale`    | number                                          | `1`              | checker pattern tile scale |
+| `scale`    | number                                          | `1`              | checker pattern tile size: larger is bigger tiles |
 | `solid`    | boolean                                         | `true`           | whether this material counts as solid geometry (`false` for e.g. water, glass, or a material only ever used on a purely spatial-subdivision node) |
 
 `kind`-specific extra fields:

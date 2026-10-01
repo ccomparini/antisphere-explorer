@@ -5,13 +5,13 @@
       "albedo": [0.34, 0.36, 0.39],
       "albedo2": [0.15, 0.16, 0.19],
       "pattern": "checker",
-      "scale": 1.0
+      "scale": 1
     },
     "stone": {
       "albedo": [0.58, 0.53, 0.46],
       "albedo2": [0.44, 0.40, 0.36],
       "pattern": "checker",
-      "scale": 2.4
+      "scale": 0.4167
     },
     "core": {
       "kind": "emissive",

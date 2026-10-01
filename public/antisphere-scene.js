@@ -1010,10 +1010,14 @@ export function compileScene(rawSpec, options = {}) {
       at(`materials.${name}`, `unknown kind "${def.kind}". Known kinds: ` +
                               Object.keys(KINDS).join(', '));
     }
+    const scale = def.scale ?? 1;
+    if (!(typeof scale === 'number' && scale > 0 && Number.isFinite(scale))) {
+      at(`materials.${name}.scale`, `must be a positive number, got ${JSON.stringify(def.scale)}`);
+    }
     table.push({
       albedo:  def.albedo  ?? [0.7, 0.7, 0.7],
       albedo2: def.albedo2 ?? [0.3, 0.3, 0.3],
-      scale:   def.scale   ?? 1,
+      scale,
       kind:    kind.id,
       params:  kind.params(def),
       pattern,

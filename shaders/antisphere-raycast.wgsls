@@ -25,7 +25,7 @@ struct Material {
   pattern : u32,       // albedo modulation, independent of kind
   params  : vec2<f32>, // kind-specific
   albedo  : vec3<f32>,
-  scale   : f32,
+  scale   : f32,       // pattern tile size: larger is bigger tiles
   albedo2 : vec3<f32>,
   solid   : u32,       // 0 or 1; used to determine if it stops rays
 };
@@ -589,7 +589,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     hit.normal = normalize(gradAt(nd, hit.position));
     if (dot(hit.normal, dir) > 0.0) { hit.normal = -hit.normal; }   // face the ray
     hit.toViewer = -dir;
-    hit.surfaceCoords = frame(nd, hit.position) * materials[nd.material].scale;
+    hit.surfaceCoords = frame(nd, hit.position) / materials[nd.material].scale;
     N = hit.normal;
     col = shade(hit);
   }

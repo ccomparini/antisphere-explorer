@@ -29,7 +29,7 @@ const SURROUNDINGS = {
     // Sphere surface coordinates are longitude and latitude in radians,
     // times scale: 50 makes squares of 0.02 rad, about 10 m here.
     rock: { albedo: [0.46, 0.43, 0.39], albedo2: [0.31, 0.29, 0.27],
-            pattern: 'checker', scale: 50 },
+            pattern: 'checker', scale: 0.02 },
     hull: { albedo: [0.85, 0.85, 0.88] },
     nose: { albedo: [0.80, 0.15, 0.10] },
     ball: { albedo: [0.20, 0.45, 0.80] },
