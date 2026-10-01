@@ -11,7 +11,8 @@
 import { configureCanvas, createCameraUniform } from './gpu-setup.js';
 import { ASContext } from './as-context.js';
 import { ASCamera } from './as-camera.js';
-import { Camera } from './gen/layouts.js';
+import { BINDINGS, Camera } from './gen/layouts.js';
+import { bindGroup } from './bind-group.js';
 
 export const DEBUG_VIEWS = ['shaded', 'node visits', 'shadow rays', 'stack depth',
                             'material id', 'normals'];
@@ -145,22 +146,9 @@ export class ASRenderer {
     if (this._pipeGen === this.context.generation &&
         this._sceneGen === this.scene.generation) return;
 
-    this.computeBG = device.createBindGroup({
-      layout: pipelines.compute.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.cam.buffer } },
-        { binding: 1, resource: { buffer: this.scene.nodeBuf } },
-        { binding: 2, resource: this.tex.createView() },
-        { binding: 3, resource: { buffer: this.scene.lightBuf } },
-        { binding: 4, resource: { buffer: this.scene.matBuf } },
-      ],
-    });
-    this.blitBG = device.createBindGroup({
-      layout: pipelines.blit.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: this.tex.createView() },
-        { binding: 1, resource: this.sampler },
-      ],
+    this.computeBG = this._computeBindGroup(pipelines.compute, this.tex.createView());
+    this.blitBG = bindGroup(device, pipelines.blit, BINDINGS.blit, ['vs', 'fs'], {
+      src: this.tex.createView(), samp: this.sampler,
     });
     this._pipeGen = this.context.generation;
     this._sceneGen = this.scene.generation;
@@ -169,15 +157,14 @@ export class ASRenderer {
   // The swap chain hands back a different texture every frame, so the direct
   // path cannot cache its bind group.
   _directBindGroup(view) {
-    return this.context.device.createBindGroup({
-      layout: this.context.pipelines.computeDirect.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.cam.buffer } },
-        { binding: 1, resource: { buffer: this.scene.nodeBuf } },
-        { binding: 2, resource: view },
-        { binding: 3, resource: { buffer: this.scene.lightBuf } },
-        { binding: 4, resource: { buffer: this.scene.matBuf } },
-      ],
+    return this._computeBindGroup(this.context.pipelines.computeDirect, view);
+  }
+
+  // main() in antisphere-raycast.wgsls, drawing into `view`.
+  _computeBindGroup(pipeline, view) {
+    return bindGroup(this.context.device, pipeline, BINDINGS['antisphere-raycast'], 'main', {
+      cam: this.cam.buffer, nodes: this.scene.nodeBuf, outTex: view,
+      lights: this.scene.lightBuf, materials: this.scene.matBuf,
     });
   }
 

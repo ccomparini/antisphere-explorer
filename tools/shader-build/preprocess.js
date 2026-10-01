@@ -24,6 +24,9 @@
 // compile error's line maps back to the source by one subtraction (see
 // public/shader-map.js).
 //
+// Resources take no @group or @binding: after linking, the build numbers
+// them (bindings.js).
+//
 // One limit: a '#' at the start of a line inside a /* */ comment is still
 // read as a directive. Write such comments with a leading '*' or '//'.
 

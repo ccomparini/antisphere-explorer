@@ -165,9 +165,9 @@ test('generated classes write and read every kind of field', async () => {
 test('the build links, maps layout errors to their source, and refuses clashing layouts', async () => {
   const tree = {
     'shaders/node.wgsls': 'struct N { x : f32 }',
-    'shaders/a.wgsls': '#import "node.wgsls"\n@group(0) @binding(0) var<storage> n : array<N>;',
-    'shaders/b.wgsls': 'struct N { x : u32, y : u32 }\n@group(0) @binding(0) var<storage> n : N;',
-    'shaders/bad.wgsls': '#import "node.wgsls"\n\nstruct B {\n  flag : bool,\n}\n@group(0) @binding(0) var<storage> b : B;',
+    'shaders/a.wgsls': '#import "node.wgsls"\nvar<storage> n : array<N>;',
+    'shaders/b.wgsls': 'struct N { x : u32, y : u32 }\nvar<storage> n : N;',
+    'shaders/bad.wgsls': '#import "node.wgsls"\n\nstruct B {\n  flag : bool,\n}\nvar<storage> b : B;',
   };
   const read = (p) => { if (!(p in tree)) throw new Error('no file'); return tree[p]; };
   const files = await buildAll({

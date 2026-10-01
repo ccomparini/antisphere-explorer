@@ -20,6 +20,7 @@ import { matrixOf, separation } from './overlap.js';
 import { sharedStructs } from '../tools/shader-build/layout.js';
 import { emitModule } from '../tools/shader-build/emit-js.js';
 import { buildAll } from '../tools/shader-build/index.js';
+import { bindGroup } from './bind-group.js';
 
 // -- a device, or a reason there isn't one ------------------------------------
 
@@ -479,4 +480,70 @@ gpuTest('generated layouts match Dawn for every struct the shaders share', async
 
 gpuTest('generated layouts match Dawn for matrices, nested arrays, @align and @size', async () => {
   assert.deepEqual(await checkLayouts(LAYOUT_ZOO), ['Inner', 'Zoo']);
+});
+
+// -- each entry point's bindings against Dawn's ------------------------------------
+//
+// tools/shader-build/bindings.js works out which resources each entry point
+// uses, and bind-group.js binds just those; a pipeline made with 'auto'
+// wants exactly the ones the compiler sees used. So for every entry point of
+// every output: a pipeline, and a bind group from stand-in resources of the
+// declared kinds, with no validation error.
+
+/** A resource of the kind a declaration names: var<uniform>, var<storage>, a texture or sampler. */
+function standIn(space, type) {
+  if (space === 'uniform' || space === 'storage') {
+    return ctx.device.createBuffer({ size: 65536, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM });
+  }
+  if (type.startsWith('sampler')) return ctx.device.createSampler();
+  const storage = type.match(/^texture_storage_2d<(\w+)/);
+  return ctx.device.createTexture({
+    size: [4, 4], format: storage ? storage[1] : 'rgba8unorm',
+    usage: storage ? GPUTextureUsage.STORAGE_BINDING : GPUTextureUsage.TEXTURE_BINDING,
+  }).createView();
+}
+
+gpuTest('every entry point binds exactly the resources it uses', async () => {
+  // Built here and now, as the layout check above is.
+  const config = JSON.parse(await readFile(new URL('../shaders/build.json', here), 'utf8'));
+  const files = await buildAll(config, (path) => readFile(new URL(`../${path}`, here), 'utf8'));
+  const layouts = files.find((f) => f.path === config.layouts).content;
+  const { BINDINGS } = await import(`data:text/javascript,${encodeURIComponent(layouts)}`);
+  const { device } = ctx;
+  let checked = 0;
+  for (const output of config.outputs) {
+    const name = output.out.slice(output.out.lastIndexOf('/') + 1).replace(/\.wgsl$/, '');
+    const code = files.find((f) => f.path === output.out).content;
+    const shader = BINDINGS[name];
+    const resources = {};
+    for (const [, space, res, type] of code.matchAll(/@binding\(\d+\) var(?:<(\w+)[^>]*>)? (\w+) : ([^;]+);/g)) {
+      resources[res] = standIn(space, type);
+    }
+    assert.deepEqual(Object.keys(resources).sort(), Object.keys(shader.slots).sort(), `${name}: resources`);
+    const stages = Object.fromEntries([...code.matchAll(/@(compute|vertex|fragment)\b[^{;]*?\bfn\s+(\w+)/g)]
+      .map(([, stage, entry]) => [entry, stage]));
+    assert.deepEqual(Object.keys(stages).sort(), Object.keys(shader.entries).sort(), `${name}: entry points`);
+
+    const module = device.createShaderModule({ code });
+    const vertex = Object.keys(stages).filter((e) => stages[e] === 'vertex');
+    const fragment = Object.keys(stages).filter((e) => stages[e] === 'fragment');
+    const pipelines = Object.keys(stages).filter((e) => stages[e] === 'compute').map((entry) => [entry,
+      () => device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: entry } })]);
+    if (vertex.length || fragment.length) {
+      assert.ok(vertex.length === 1 && fragment.length === 1, `${name}: one vertex and one fragment stage`);
+      pipelines.push([[vertex[0], fragment[0]], () => device.createRenderPipeline({
+        layout: 'auto',
+        vertex: { module, entryPoint: vertex[0] },
+        fragment: { module, entryPoint: fragment[0], targets: [{ format: 'rgba8unorm' }] },
+      })]);
+    }
+    for (const [entries, make] of pipelines) {
+      device.pushErrorScope('validation');
+      bindGroup(device, make(), shader, entries, resources);
+      const err = await device.popErrorScope();
+      assert.equal(err?.message, undefined, `${name}: ${[entries].flat().join(' + ')}`);
+      checked++;
+    }
+  }
+  assert.ok(checked >= 16, `only ${checked} pipelines checked`);
 });

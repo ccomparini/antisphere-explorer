@@ -39,7 +39,8 @@ const roundUp = (align, n) => Math.ceil(n / align) * align;
 
 // -- tokens ---------------------------------------------------------------------------
 
-function tokenize(code) {
+/** WGSL's tokens, comments dropped: { t, line, at } with `at` the offset in code. */
+export function tokenize(code) {
   const tokens = [];
   let line = 1;
   const re = /\s+|\/\/[^\n]*|\/\*|0[xX][0-9a-fA-F]+[iu]?|(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?[iufh]?|[A-Za-z_]\w*|./gy;
@@ -61,7 +62,7 @@ function tokenize(code) {
       for (const c of t) if (c === '\n') line++;
       continue;
     }
-    tokens.push({ t, line });
+    tokens.push({ t, line, at: m.index });
   }
   return tokens;
 }

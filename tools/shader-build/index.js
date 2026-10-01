@@ -14,15 +14,21 @@
 //
 // Each output is its entry linked with everything it imports (see
 // preprocess.js), under a do-not-edit header, with its source map as the
-// last line (see public/shader-map.js). The layouts module has a class for
-// every struct any output shares with the host (see layout.js, emit-js.js).
+// last line (see public/shader-map.js). Each output's resources are given
+// their bindings on the way (see bindings.js). The layouts module has a
+// class for every struct any output shares with the host (see layout.js,
+// emit-js.js), and BINDINGS, each output's bindings by name.
 
 import { build, ShaderSourceError } from './preprocess.js';
 import { sharedStructs, LayoutError } from './layout.js';
-import { emitModule } from './emit-js.js';
+import { assignBindings, BindingError } from './bindings.js';
+import { emitModule, emitBindings } from './emit-js.js';
 import { mapLine } from '../../public/shader-map.js';
 
 const TOOL = 'tools/build-shaders.mjs';
+
+/** What BINDINGS calls an output: its file's name, less .wgsl. */
+const outputName = (out) => out.slice(out.lastIndexOf('/') + 1).replace(/\.wgsl$/, '');
 
 function wgslHeader(entry) {
   return [
@@ -42,15 +48,20 @@ function wgslHeader(entry) {
 export async function buildAll(config, read, { warn = console.warn } = {}) {
   const files = [];
   const shared = new Map();                 // struct name -> { layout, from }
+  const bindings = {};                      // output name -> { slots, entries }
 
   for (const output of config.outputs) {
-    const { code, map } = await build(output.entry, { defines: output.defines ?? {}, read, warn });
+    const linked = await build(output.entry, { defines: output.defines ?? {}, read, warn });
+    const { map } = linked;
 
-    let structs;
+    let code, structs;
     try {
+      const assigned = assignBindings(linked.code);
+      code = assigned.code;
+      bindings[outputName(output.out)] = { slots: assigned.slots, entries: assigned.entries };
       structs = sharedStructs(code);
     } catch (e) {
-      if (!(e instanceof LayoutError)) throw e;
+      if (!(e instanceof LayoutError || e instanceof BindingError)) throw e;
       const at = mapLine(map, e.line);
       throw at ? new ShaderSourceError(at.path, at.line, e.message) : e;
     }
@@ -78,7 +89,8 @@ export async function buildAll(config, read, { warn = console.warn } = {}) {
       '// Edit the structs under shaders/ and run `npm run shaders`. See',
       '// tools/shader-build/emit-js.js for what each class offers.',
     ].join('\n');
-    files.push({ path: config.layouts, content: emitModule([...shared.values()].map((s) => s.layout), header) });
+    files.push({ path: config.layouts,
+                 content: emitModule([...shared.values()].map((s) => s.layout), header) + emitBindings(bindings) });
   }
   return files;
 }

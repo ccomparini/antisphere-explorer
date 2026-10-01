@@ -21,8 +21,8 @@ struct VOut {
   return out;
 }
 
-@group(0) @binding(0) var src : texture_2d<f32>;
-@group(0) @binding(1) var samp : sampler;
+var src : texture_2d<f32>;
+var samp : sampler;
 
 @fragment fn fs(in : VOut) -> @location(0) vec4<f32> {
   return textureSample(src, samp, in.uv);

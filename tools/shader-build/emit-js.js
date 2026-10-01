@@ -137,3 +137,26 @@ export function viewsOf(buffer) {
 
 ${structs.map(structClass).join('\n')}`;
 }
+
+/**
+ * Each output's bindings, as BINDINGS, for public/bind-group.js:
+ * { [output]: { slots: { name: binding }, entries: { entryPoint: [name, ...] } } }
+ * (see bindings.js). `tables` maps an output's name to assignBindings()'s
+ * slots and entries.
+ */
+export function emitBindings(tables) {
+  const freeze = (o) => `Object.freeze(${JSON.stringify(o)})`;
+  const outputs = Object.entries(tables).map(([output, { slots, entries }]) => {
+    const lists = Object.entries(entries).map(([e, names]) => `      ${JSON.stringify(e)}: ${freeze(names)},`);
+    return `  ${JSON.stringify(output)}: Object.freeze({\n` +
+           `    slots: ${freeze(slots)},\n` +
+           `    entries: Object.freeze({\n${lists.join('\n')}\n    }),\n` +
+           '  }),';
+  });
+  return `
+/** Each shader's resources: their bindings, and which each entry point uses. */
+export const BINDINGS = Object.freeze({
+${outputs.join('\n')}
+});
+`;
+}

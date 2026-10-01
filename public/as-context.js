@@ -17,7 +17,8 @@ import {
 import {
   compileScene, packNodes, packMaterials, packLights, loadImports,
 } from './antisphere-scene.js';
-import { OverlapQuery, OverlapResult, RayQuery, Seg, viewsOf } from './gen/layouts.js';
+import { BINDINGS, OverlapQuery, OverlapResult, RayQuery, Seg, viewsOf } from './gen/layouts.js';
+import { bindGroup } from './bind-group.js';
 
 const MAX_TRACE_RAYS = 16;
 const MAX_OVERLAP_PAIRS = 1024;
@@ -283,21 +284,15 @@ export class ASScene {
     }));
     device.queue.writeBuffer(rq.rayBuf, 0, queries.buffer);
 
-    const bindGroup = device.createBindGroup({
-      layout: pipelines.traceFrom.getBindGroupLayout(0),
-      entries: [
-        { binding: 1, resource: { buffer: this.nodeBuf } },
-        { binding: 4, resource: { buffer: this.matBuf } },
-        { binding: 5, resource: { buffer: rq.rayBuf } },
-        { binding: 6, resource: { buffer: rq.resultBuf } },
-      ],
+    const group = bindGroup(device, pipelines.traceFrom, BINDINGS['antisphere-raycast'], 'traceFrom', {
+      nodes: this.nodeBuf, materials: this.matBuf, rayQueries: rq.rayBuf, rayResults: rq.resultBuf,
     });
 
     const bytes = rays.length * Seg.STRIDE;
     const enc = device.createCommandEncoder();
     const pass = enc.beginComputePass();
     pass.setPipeline(pipelines.traceFrom);
-    pass.setBindGroup(0, bindGroup);
+    pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(1);
     pass.end();
     enc.copyBufferToBuffer(rq.resultBuf, 0, rq.readBuf, 0, bytes);
@@ -370,20 +365,15 @@ export class ASScene {
     }));
     device.queue.writeBuffer(buffers.queryBuf, 0, queries.buffer);
 
-    const bindGroup = device.createBindGroup({
-      layout: pipelines.overlapFrom.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: this.nodeBuf } },
-        { binding: 16, resource: { buffer: buffers.queryBuf } },
-        { binding: 17, resource: { buffer: buffers.resultBuf } },
-      ],
+    const group = bindGroup(device, pipelines.overlapFrom, BINDINGS.overlap, 'overlapFrom', {
+      nodes: this.nodeBuf, overlapQueries: buffers.queryBuf, overlapResults: buffers.resultBuf,
     });
 
     const bytes = pairs.length * OverlapResult.STRIDE;
     const enc = device.createCommandEncoder();
     const pass = enc.beginComputePass();
     pass.setPipeline(pipelines.overlapFrom);
-    pass.setBindGroup(0, bindGroup);
+    pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(Math.ceil(pairs.length / 64));
     pass.end();
     enc.copyBufferToBuffer(buffers.resultBuf, 0, buffers.readBuf, 0, bytes);

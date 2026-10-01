@@ -80,10 +80,9 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // overlap certificate for two quadric regions, and overlapFrom(), batches
 // of queries by it. Builds public/gen/overlap.wgsl.
 //
-// physics.wgsls (contacts) imports this whole file, since #import is a
-// plain include: so the bindings here are ones physics can share. nodes
-// (0) is the same buffer in both; the queries and their results take 16
-// and 17, past all of physics'.
+// physics.wgsls (contacts) imports this whole file, nodes included, and
+// so gets the batch queries too, unused. (The build numbers each output's
+// bindings, so they can't clash: see tools/shader-build/bindings.js.)
 
 
 
@@ -309,8 +308,8 @@ struct OverlapResult {
   mu     : f32,    // the multiplier that proved it
 };
 
-@group(0) @binding(16) var<storage, read> overlapQueries : array<OverlapQuery>;
-@group(0) @binding(17) var<storage, read_write> overlapResults : array<OverlapResult>;
+@group(0) @binding(1) var<storage, read> overlapQueries : array<OverlapQuery>;
+@group(0) @binding(2) var<storage, read_write> overlapResults : array<OverlapResult>;
 
 @compute @workgroup_size(64)
 fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
@@ -322,4 +321,4 @@ fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   overlapResults[i] = OverlapResult(c.margin, c.mu);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":246}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":245}]

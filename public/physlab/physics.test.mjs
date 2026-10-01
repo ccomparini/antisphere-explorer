@@ -13,7 +13,8 @@ import { PhysicsWorld } from './physics-world.js';
 import { World, WorldObject } from './world.js';
 import { fromAxisAngle, multiply, rotate } from './quat.js';
 import { octahedron, octahedronBody } from './shapes.js';
-import { Contact, ContactQuery, viewsOf } from '../gen/layouts.js';
+import { BINDINGS, Contact, ContactQuery, viewsOf } from '../gen/layouts.js';
+import { bindGroup } from '../bind-group.js';
 import { compileScene } from '../antisphere-scene.js';
 
 const repo = new URL('../../', import.meta.url);
@@ -71,20 +72,14 @@ async function contacts(pairs) {
   const bytes = pairs.length * Contact.STRIDE;
   const results = device.createBuffer({ size: bytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   const readBuf = device.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  const bindGroup = device.createBindGroup({
-    layout: pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: storage(packed.nodes) } },
-      { binding: 1, resource: { buffer: storage(packed.regions) } },
-      { binding: 2, resource: { buffer: storage(packed.paths) } },
-      { binding: 3, resource: { buffer: storage(queries.buffer) } },
-      { binding: 4, resource: { buffer: results } },
-    ],
+  const group = bindGroup(device, pipeline, BINDINGS.physics, 'contactFrom', {
+    nodes: storage(packed.nodes), regions: storage(packed.regions), paths: storage(packed.paths),
+    contactQueries: storage(queries.buffer), contactResults: results,
   });
   const enc = device.createCommandEncoder();
   const pass = enc.beginComputePass();
   pass.setPipeline(pipeline);
-  pass.setBindGroup(0, bindGroup);
+  pass.setBindGroup(0, group);
   pass.dispatchWorkgroups(Math.ceil(pairs.length / 64));
   pass.end();
   enc.copyBufferToBuffer(results, 0, readBuf, 0, bytes);

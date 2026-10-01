@@ -946,3 +946,44 @@ export class PathPair {
     };
   }
 }
+
+/** Each shader's resources: their bindings, and which each entry point uses. */
+export const BINDINGS = Object.freeze({
+  "antisphere-raycast": Object.freeze({
+    slots: Object.freeze({"cam":0,"nodes":1,"outTex":2,"lights":3,"materials":4,"rayQueries":5,"rayResults":6}),
+    entries: Object.freeze({
+      "traceFrom": Object.freeze(["nodes","materials","rayQueries","rayResults"]),
+      "main": Object.freeze(["cam","nodes","outTex","lights","materials"]),
+    }),
+  }),
+  "overlap": Object.freeze({
+    slots: Object.freeze({"nodes":0,"overlapQueries":1,"overlapResults":2}),
+    entries: Object.freeze({
+      "overlapFrom": Object.freeze(["nodes","overlapQueries","overlapResults"]),
+    }),
+  }),
+  "physics": Object.freeze({
+    slots: Object.freeze({"nodes":0,"overlapQueries":1,"overlapResults":2,"regions":3,"paths":4,"contactQueries":5,"contactResults":6,"particles":7,"bodies":8,"sim":9,"solids":10,"localNodes":11,"posedNodes":12,"bodyContacts":13,"contactCount":14,"corrections":15,"turns":16,"pathPairs":17}),
+    entries: Object.freeze({
+      "overlapFrom": Object.freeze(["nodes","overlapQueries","overlapResults"]),
+      "contactFrom": Object.freeze(["nodes","regions","paths","contactQueries","contactResults"]),
+      "predict": Object.freeze(["particles","bodies","sim"]),
+      "solveDistance": Object.freeze(["particles","bodies","sim"]),
+      "updateVelocity": Object.freeze(["particles","sim"]),
+      "pose": Object.freeze(["particles","bodies","sim","solids","localNodes","posedNodes","turns"]),
+      "clearContacts": Object.freeze(["contactCount"]),
+      "detect": Object.freeze(["nodes","regions","paths","particles","bodies","sim","bodyContacts","contactCount","pathPairs"]),
+      "solveContacts": Object.freeze(["particles","bodies","sim","bodyContacts","contactCount","corrections"]),
+      "applyCorrections": Object.freeze(["particles","sim","corrections"]),
+      "solveContactVelocities": Object.freeze(["particles","bodies","sim","bodyContacts","contactCount","corrections"]),
+      "applyVelocityCorrections": Object.freeze(["particles","sim","corrections"]),
+    }),
+  }),
+  "blit": Object.freeze({
+    slots: Object.freeze({"src":0,"samp":1}),
+    entries: Object.freeze({
+      "vs": Object.freeze([]),
+      "fs": Object.freeze(["src","samp"]),
+    }),
+  }),
+});

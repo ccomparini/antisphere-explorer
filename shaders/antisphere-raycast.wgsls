@@ -101,11 +101,11 @@ struct Light {
   pad1  : f32,
 };
 
-@group(0) @binding(0) var<uniform> cam : Camera;
-@group(0) @binding(1) var<storage, read> nodes : array<Node>;
-@group(0) @binding(2) var outTex : texture_storage_2d<rgba8unorm, write>;
-@group(0) @binding(3) var<storage, read> lights : array<Light>;
-@group(0) @binding(4) var<storage, read> materials : array<Material>;
+var<uniform> cam : Camera;
+var<storage, read> nodes : array<Node>;
+var outTex : texture_storage_2d<rgba8unorm, write>;
+var<storage, read> lights : array<Light>;
+var<storage, read> materials : array<Material>;
 
 // A stack entry is a piece of work not yet done: an interval of the ray and
 // the node that interval still has to be tested against. Plain fields
@@ -332,8 +332,8 @@ struct RayQuery {
   tMax : f32,
 };
 
-@group(0) @binding(5) var<storage, read> rayQueries : array<RayQuery>;
-@group(0) @binding(6) var<storage, read_write> rayResults : array<Seg>;
+var<storage, read> rayQueries : array<RayQuery>;
+var<storage, read_write> rayResults : array<Seg>;
 
 @compute @workgroup_size(64)
 fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {

@@ -80,10 +80,9 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // overlap certificate for two quadric regions, and overlapFrom(), batches
 // of queries by it. Builds public/gen/overlap.wgsl.
 //
-// physics.wgsls (contacts) imports this whole file, since #import is a
-// plain include: so the bindings here are ones physics can share. nodes
-// (0) is the same buffer in both; the queries and their results take 16
-// and 17, past all of physics'.
+// physics.wgsls (contacts) imports this whole file, nodes included, and
+// so gets the batch queries too, unused. (The build numbers each output's
+// bindings, so they can't clash: see tools/shader-build/bindings.js.)
 
 
 
@@ -309,8 +308,8 @@ struct OverlapResult {
   mu     : f32,    // the multiplier that proved it
 };
 
-@group(0) @binding(16) var<storage, read> overlapQueries : array<OverlapQuery>;
-@group(0) @binding(17) var<storage, read_write> overlapResults : array<OverlapResult>;
+@group(0) @binding(1) var<storage, read> overlapQueries : array<OverlapQuery>;
+@group(0) @binding(2) var<storage, read_write> overlapResults : array<OverlapResult>;
 
 @compute @workgroup_size(64)
 fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
@@ -330,7 +329,7 @@ fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
 // them from a compiled tree. Two solids touch where some path of one and
 // some path of the other share a point.
 
-// overlap.wgsls brings node.wgsls, and the nodes at binding 0.
+// overlap.wgsls brings node.wgsls, and nodes.
 
 
 struct Region {
@@ -351,8 +350,8 @@ struct Contact {
   found  : u32,       // 1 if there is a contact, and the rest means something
 };
 
-@group(0) @binding(1) var<storage, read> regions : array<Region>;
-@group(0) @binding(2) var<storage, read> paths : array<Path>;
+@group(0) @binding(3) var<storage, read> regions : array<Region>;
+@group(0) @binding(4) var<storage, read> paths : array<Path>;
 
 // How far outside a region p is (negative inside), measured along the
 // gradient: on the line p + s n, n = grad H / |grad H|, H is exactly the
@@ -703,8 +702,8 @@ struct ContactQuery {
   path_b : u32,
 };
 
-@group(0) @binding(3) var<storage, read> contactQueries : array<ContactQuery>;
-@group(0) @binding(4) var<storage, read_write> contactResults : array<Contact>;
+@group(0) @binding(5) var<storage, read> contactQueries : array<ContactQuery>;
+@group(0) @binding(6) var<storage, read_write> contactResults : array<Contact>;
 
 @compute @workgroup_size(64)
 fn contactFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
@@ -767,9 +766,9 @@ struct SimParams {
   pair_count     : u32,        // path pairs for detect() to try (see pathPairs)
 };
 
-@group(0) @binding(5) var<storage, read_write> particles : array<Particle>;
-@group(0) @binding(6) var<storage, read> bodies : array<Body>;
-@group(0) @binding(7) var<uniform> sim : SimParams;
+@group(0) @binding(7) var<storage, read_write> particles : array<Particle>;
+@group(0) @binding(8) var<storage, read> bodies : array<Body>;
+@group(0) @binding(9) var<uniform> sim : SimParams;
 
 fn gravityAt(p : vec3<f32>) -> vec3<f32> {
   let r = sim.gravity_centre - p;
@@ -875,12 +874,12 @@ struct BodyContact {
   other_axis  : vec3<f32>,
 };
 
-@group(0) @binding(8) var<storage, read> solids : array<Solid>;
-@group(0) @binding(9) var<storage, read> localNodes : array<Node>;
-@group(0) @binding(10) var<storage, read_write> posedNodes : array<Node>;
-@group(0) @binding(11) var<storage, read_write> bodyContacts : array<BodyContact>;
-@group(0) @binding(12) var<storage, read_write> contactCount : atomic<u32>;
-@group(0) @binding(13) var<storage, read_write> corrections : array<atomic<i32>>;
+@group(0) @binding(10) var<storage, read> solids : array<Solid>;
+@group(0) @binding(11) var<storage, read> localNodes : array<Node>;
+@group(0) @binding(12) var<storage, read_write> posedNodes : array<Node>;
+@group(0) @binding(13) var<storage, read_write> bodyContacts : array<BodyContact>;
+@group(0) @binding(14) var<storage, read_write> contactCount : atomic<u32>;
+@group(0) @binding(15) var<storage, read_write> corrections : array<atomic<i32>>;
 
 // Corrections are summed as integers, in units of 2^-20 m: WGSL atomics
 // are integers only, and that is a micron's resolution with a kilometre
@@ -918,7 +917,7 @@ fn frameOf(x0 : vec3<f32>, x1 : vec3<f32>, m0 : f32, m1 : f32) -> Frame {
 // (push() gives no roll), so roll is kept, not simulated. The host sets
 // each body's to start with and reads them back to draw the bodies, so
 // what is drawn is what collides.
-@group(0) @binding(15) var<storage, read_write> turns : array<vec4<f32>>;
+@group(0) @binding(16) var<storage, read_write> turns : array<vec4<f32>>;
 
 // v turned by unit quaternion q.
 fn quatRotate(q : vec4<f32>, v : vec3<f32>) -> vec3<f32> {
@@ -1089,7 +1088,7 @@ struct PathPair {
   path_b : u32,       // and one of other's
 };
 
-@group(0) @binding(14) var<storage, read> pathPairs : array<PathPair>;
+@group(0) @binding(17) var<storage, read> pathPairs : array<PathPair>;
 
 // A contact for each pair of paths that meet (recordPair). Two bodies are
 // tried only if their bounding spheres (each `radius` about its placed
@@ -1327,4 +1326,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":246},{"path":"shaders/physics.wgsls","offset":324,"lines":1005}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":245},{"path":"shaders/physics.wgsls","offset":323,"lines":1005}]

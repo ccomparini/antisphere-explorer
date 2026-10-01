@@ -25,6 +25,16 @@ valid WGSL themselves, hence the extension.
     #error "message"           stop the build
     #warning "message"         print a warning and carry on
 
+Resources (`var<uniform>`, `var<storage, ...>`, textures, samplers) are
+declared with no `@group` or `@binding`; the build numbers them, per output:
+
+    var<storage, read> nodes : array<Node>;
+
+Since `#import` is a plain include, hand-numbered bindings had to agree across
+every file an output pulls in. JS binds by name instead, with `bindGroup()`
+in `public/bind-group.js`, which supplies just the resources the pipeline's
+entry points use.
+
 The page doesn't read `shaders/`: it loads plain WGSL from `public/gen/`,
 which the build writes (and which is committed, so the page serves as-is):
 
@@ -34,7 +44,10 @@ which the build writes (and which is committed, so the page serves as-is):
 `shaders/build.json` lists the outputs. The build also writes
 `public/gen/layouts.js`, a class for every struct a shader shares with JS
 through a uniform or storage buffer, laid out by WGSL's rules, so the JS
-never spells out an offset. Compile errors are reported at their line in
+never spells out an offset, and `BINDINGS`: each output's resources by
+name, with the binding the build gave each and the ones each entry point
+uses (worked out from its calls; see `tools/shader-build/bindings.js`).
+Compile errors are reported at their line in
 `shaders/`. With the watcher running, R in the page reloads the shaders; a
 change to a shared struct also changes `layouts.js`, which needs a full page
 reload.

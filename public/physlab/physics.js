@@ -8,7 +8,8 @@
 
 import { compileScene, packNodes } from '../antisphere-scene.js';
 import { interiorPaths } from '../overlap.js';
-import { Body, BodyContact, Particle, Path, PathPair, Region, SimParams, Solid, viewsOf } from '../gen/layouts.js';
+import { BINDINGS, Body, BodyContact, Particle, Path, PathPair, Region, SimParams, Solid, viewsOf } from '../gen/layouts.js';
+import { bindGroup } from '../bind-group.js';
 
 /**
  * A geometry subtree (scene-format.md) as a solid: { nodes, paths }. With
@@ -170,31 +171,30 @@ export class PhysicsSim {
     this.staticCount = statics.length;
     this.paramViews = params;
 
+    // Every buffer by its name in the shader; each stage binds the ones its
+    // entry point uses (BINDINGS.physics). The placed nodes are what contact
+    // detection reads as `nodes`.
     const buffers = {
-      0: posedNodes, 1: regionBuf, 2: pathBuf,
-      5: this.particles, 6: this.bodies, 7: this.params,
-      8: solidBuf, 9: localNodes, 10: posedNodes, 11: this.contacts, 12: this.contactCount, 13: corrections,
-      15: this.turns,
+      nodes: posedNodes, regions: regionBuf, paths: pathBuf,
+      particles: this.particles, bodies: this.bodies, sim: this.params,
+      solids: solidBuf, localNodes, posedNodes, bodyContacts: this.contacts, contactCount: this.contactCount,
+      corrections, turns: this.turns,
     };
     this.buffers = buffers;
-    const stage = (entryPoint, bindings) => {
+    const stage = (entryPoint) => {
       const pipeline = pipelineOf(device, module, entryPoint);
-      const bindGroup = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: bindings.map((binding) => ({ binding, resource: { buffer: buffers[binding] } })),
-      });
-      return { pipeline, bindGroup };
+      return { pipeline, bindGroup: bindGroup(device, pipeline, BINDINGS.physics, entryPoint, buffers, entryPoint) };
     };
     this.stages = {
-      predict: stage('predict', [5, 6, 7]),
-      solveDistance: stage('solveDistance', [5, 6, 7]),
-      updateVelocity: stage('updateVelocity', [5, 7]),
-      pose: stage('pose', [5, 6, 7, 8, 9, 10, 15]),
-      clearContacts: stage('clearContacts', [12]),
-      solveContacts: stage('solveContacts', [5, 6, 7, 11, 12, 13]),
-      applyCorrections: stage('applyCorrections', [5, 7, 13]),
-      solveContactVelocities: stage('solveContactVelocities', [5, 6, 7, 11, 12, 13]),
-      applyVelocityCorrections: stage('applyVelocityCorrections', [5, 7, 13]),
+      predict: stage('predict'),
+      solveDistance: stage('solveDistance'),
+      updateVelocity: stage('updateVelocity'),
+      pose: stage('pose'),
+      clearContacts: stage('clearContacts'),
+      solveContacts: stage('solveContacts'),
+      applyCorrections: stage('applyCorrections'),
+      solveContactVelocities: stage('solveContactVelocities'),
+      applyVelocityCorrections: stage('applyVelocityCorrections'),
     };
     this.stage = stage;
     this.collides = bodies.length > 0 && (statics.length > 0 || bodies.length > 1);
@@ -229,8 +229,8 @@ export class PhysicsSim {
       this.pairBuf?.destroy();
       this.pairBuf = this.device.createBuffer({ size: Math.max(64, 2 * list.length) * PathPair.STRIDE,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-      this.buffers[14] = this.pairBuf;
-      this.stages.detect = this.stage('detect', [0, 1, 2, 5, 6, 7, 11, 12, 14]);
+      this.buffers.pathPairs = this.pairBuf;
+      this.stages.detect = this.stage('detect');
     }
     if (list.length) {
       const views = PathPair.allocate(list.length);
