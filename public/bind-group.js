@@ -12,7 +12,7 @@
  *
  * @param {GPUDevice} device
  * @param {GPUPipelineBase} pipeline  made with layout: 'auto'
- * @param {object} shader  its shader's entry in BINDINGS, e.g. BINDINGS.physics
+ * @param {object} shader  its shader's entry in BINDINGS, e.g. BINDINGS['physics-2pt']
  * @param {string | string[]} entryPoints  the pipeline's: one for compute,
  *        both stages' for a render pipeline (its layout is their union)
  * @param {Record<string, GPUBuffer | GPUBindingResource>} resources  by

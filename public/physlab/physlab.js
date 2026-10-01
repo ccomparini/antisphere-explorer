@@ -178,7 +178,7 @@ async function main() {
   const { world, planetoid, mount, rocket } = buildWorld();
 
   // The simulation, centred on the rocket's pad.
-  const physicsUrl = '../gen/physics.wgsl';
+  const physicsUrl = '../gen/physics-2pt.wgsl';
   const physicsCode = await loadText(physicsUrl);
   const physicsModule = gpu.device.createShaderModule({ code: physicsCode });
   if (!(await checkShader(physicsModule, 'physics shader', physicsCode))) {

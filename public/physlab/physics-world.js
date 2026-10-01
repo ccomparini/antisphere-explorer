@@ -23,7 +23,7 @@ const unit = (v) => scale(v, 1 / Math.hypot(...v));
 export class PhysicsWorld {
   /**
    * @param {GPUDevice} device
-   * @param {GPUShaderModule} module     gen/physics.wgsl
+   * @param {GPUShaderModule} module     gen/physics-2pt.wgsl
    * @param {World} world
    * @param {object} opts
    * @param {object} opts.materials       what the geometry names (solidity)

@@ -1,4 +1,4 @@
-// GPU tests for physlab's physics (shaders/physics.wgsls). Run with:
+// GPU tests for physlab's physics (shaders/physics-2pt.wgsls). Run with:
 //   node --test public/physlab/physics.test.mjs
 //
 // Built from shaders/ in memory, so these test the sources whatever state
@@ -31,7 +31,7 @@ async function openDevice() {
   device.addEventListener('uncapturederror', (e) => gpuErrors.push(e.error.message));
   const config = JSON.parse(await readFile(new URL('shaders/build.json', repo), 'utf8'));
   const files = await buildAll(config, (p) => readFile(new URL(p, repo), 'utf8'), { warn: () => {} });
-  const code = files.find((f) => f.path.endsWith('/physics.wgsl')).content;
+  const code = files.find((f) => f.path.endsWith('/physics-2pt.wgsl')).content;
   const module = device.createShaderModule({ code });
   const info = await module.getCompilationInfo();
   const errors = info.messages.filter((m) => m.type === 'error');
@@ -75,7 +75,7 @@ async function contacts(pairs) {
   const group = bindGroup(
     device,
     pipeline,
-    BINDINGS.physics,
+    BINDINGS['physics-2pt'],
     'contactFrom', {
       nodes: storage(packed.nodes),
       regions: storage(packed.regions),

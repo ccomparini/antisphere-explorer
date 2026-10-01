@@ -1,5 +1,5 @@
 // physlab's physics, host side: what the compute passes in
-// shaders/physics.wgsls work on, and (as it grows) running them.
+// shaders/physics-2pt.wgsls work on, and (as it grows) running them.
 //
 // A solid is a compiled geometry subtree: its nodes, and its interior paths
 // - each a conjunction of regions (node, sign), from interiorPaths() in
@@ -69,7 +69,7 @@ function pipelineOf(device, module, entryPoint) {
 
 /**
  * Particles and bodies on the GPU, stepped in fixed substeps (XPBD; see
- * shaders/physics.wgsls), colliding with each other's solids and with
+ * shaders/physics-2pt.wgsls), colliding with each other's solids and with
  * static ones. Coordinates are the simulation's own: callers keep them
  * near the origin (a floating origin), shifting in and out in f64, so f32
  * keeps its resolution.
@@ -77,7 +77,7 @@ function pipelineOf(device, module, entryPoint) {
 export class PhysicsSim {
   /**
    * @param {GPUDevice} device
-   * @param {GPUShaderModule} module  gen/physics.wgsl
+   * @param {GPUShaderModule} module  gen/physics-2pt.wgsl
    * @param {object} setup
    * @param {{ pos, vel?, invMass, body }[]} setup.particles
    * @param {{ p0, p1, rest, compliance?, thrust?, solid?, a0?, a1?, radius?, friction?, turn? }[]} setup.bodies
@@ -146,9 +146,6 @@ export class PhysicsSim {
     this.readBuf = device.createBuffer({ size: this.particleBytes + turns.byteLength,
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
 
-    // Buffers by their binding number in shaders/physics.wgsls. An 'auto'
-    // layout holds only the bindings its entry point uses, so each stage
-    // names the ones it binds.
     // Collisions: where each solid is, its nodes as given and as placed
     // (statics are placed already, and pose() only rewrites bodies'), the
     // contacts found each substep with their count, and the summed
@@ -171,9 +168,9 @@ export class PhysicsSim {
     this.staticCount = statics.length;
     this.paramViews = params;
 
-    // Every buffer by its name in the shader; each stage binds the ones its
-    // entry point uses (BINDINGS.physics). The placed nodes are what contact
-    // detection reads as `nodes`.
+    // Every buffer by its name in the shader; each stage binds the ones
+    // its entry point uses (BINDINGS['physics-2pt']). The placed nodes are
+    // what contact detection reads as `nodes`.
     const buffers = {
       nodes: posedNodes,
       regions: regionBuf,
@@ -197,7 +194,7 @@ export class PhysicsSim {
         bindGroup: bindGroup(
           device,
           pipeline,
-          BINDINGS.physics,
+          BINDINGS['physics-2pt'],
           entryPoint,
           buffers,
           entryPoint
