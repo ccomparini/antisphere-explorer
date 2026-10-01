@@ -96,6 +96,19 @@ test('setPosition moves an object without replacing its position array', () => {
   assert.deepEqual(held, [4, 5, 6]);
 });
 
+test('setGeometry gives an object new geometry, and the scene follows it', () => {
+  const world = new World();
+  const ball = { sphere: { center: [0, 0, 0], radius: 1 }, material: 'm' };
+  const o = world.add(new WorldObject('o', { geometry: ball }));
+  world.sceneSpec();
+  assert.equal(world.geometryMoved(), false);
+  const holed = { intersect: [ball, { sphere: { center: [1, 0, 0], radius: 0.5 }, complement: true }] };
+  o.setGeometry(holed);
+  assert.equal(world.geometryMoved(), true, 'a change of shape alone counts');
+  assert.equal(world.sceneSpec().objects.o, holed);
+  assert.equal(world.geometryMoved(), false);
+});
+
 // -- the camera -------------------------------------------------------------------
 
 // What the renderer assumes of a basis: unit, square to each other, and

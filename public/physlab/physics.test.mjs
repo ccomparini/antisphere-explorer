@@ -444,6 +444,45 @@ gpuTest('PhysicsWorld drops world objects onto a static one and follows them bac
   physics.destroy();
 });
 
+gpuTest('PhysicsWorld.reshape: a crater carved under a ball grows in place, and the ball sinks into it', async () => {
+  const world = new World();
+  const rock = { sphere: { center: [0, 0, 0], radius: 500 }, material: 'm' };
+  const planet = world.add(new WorldObject('planet', { geometry: rock }));
+  const ball = world.add(new WorldObject('ball', {
+    position: [0, 0, 500.6], geometry: { sphere: { center: [0, 0, 0], radius: 0.5 }, material: 'm' },
+    body: { mass: 10, centre: 0, inertia: 0.1, radius: 0.5 },
+  }));
+  const physics = new PhysicsWorld(device, module, world, {
+    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+  });
+  const run = async (frames) => {
+    for (let f = 0; f < frames; f++) { physics.update(1 / 60); await physics.reading; await physics.rebuilding; }
+    physics.update(0);
+  };
+  await run(60);
+  near(ball.position[2], 500.5, 0.03, 'resting on the ground');
+
+  // The planet intersected with a complemented sphere centred on the ground
+  // under the ball: a crater.
+  const crater = (radius) => ({ intersect: [rock,
+    { sphere: { center: [0, 0, 500], radius }, complement: true, material: 'm' }] });
+  planet.setGeometry(crater(0.05));
+  physics.reshape(planet);
+  await run(2);                                    // a new tree: rebuilt once
+  const sim = physics.sim;
+  for (let r = 0.05; r < 2; r += 0.5 / 60) {       // grown at 0.5 m/s to 2 m
+    planet.setGeometry(crater(Math.min(r, 2)));
+    physics.reshape(planet);
+    await run(1);
+  }
+  assert.equal(physics.sim, sim, 'growing the crater wrote its nodes in place, never rebuilding');
+  await run(180);
+  // At the bottom: its centre r - 0.5 below the crater's.
+  near(ball.position[2], 500 - 1.5, 0.05, 'resting at the bottom of the crater');
+  await physics.reading;
+  physics.destroy();
+});
+
 gpuTest('PhysicsWorld.add fires a body in mid-run, and what was moving keeps moving', async () => {
   // A ball falling, then a capsule fired sideways 20 m above the ground.
   // Adding it rebuilds the simulation: the ball must carry on falling from

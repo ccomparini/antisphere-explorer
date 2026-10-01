@@ -13,8 +13,9 @@
 // update(); by default an object does nothing.
 //
 // When an object with geometry moves, the scene has to follow. sceneSpec()
-// remembers where everything with geometry was; geometryMoved() says
-// whether any of it has moved (or appeared) since. For now following means
+// remembers where everything with geometry was, and which geometry it had;
+// geometryMoved() says whether any of it has moved, changed shape (by
+// setGeometry) or appeared since. For now following means
 // rebuilding the scene; moving objects' nodes in place comes later (see
 // DESIGN.md, "Moving objects").
 
@@ -45,6 +46,7 @@ export class WorldObject {
     this.position = position.slice();
     this.orientation = normalize(orientation);
     this.geometry = geometry;
+    this.geometryVersion = 0;     // bumped by setGeometry, so the scene follows
     this.behaviour = update;
     this.body = body;
   }
@@ -58,6 +60,16 @@ export class WorldObject {
     this.position[0] = p[0];
     this.position[1] = p[1];
     this.position[2] = p[2];
+  }
+
+  /**
+   * Give the object new geometry (a scene subtree, in object coordinates).
+   * Pass a new object rather than editing the old one in place: the
+   * physics caches each geometry's compiled solid by identity.
+   */
+  setGeometry(geometry) {
+    this.geometry = geometry;
+    this.geometryVersion++;
   }
 
   /** The object's own x, y and z axes, as world directions. */
@@ -136,7 +148,7 @@ export class World {
     return overlaps.filter((o) => o.group === 'root').map(({ members: [i, j] }) => [placed[i], placed[j]]);
   }
 
-  /** Has anything with geometry moved, turned or appeared since the last sceneSpec()? */
+  /** Has anything with geometry moved, turned, changed shape or appeared since the last sceneSpec()? */
   geometryMoved() {
     const now = this._poses();
     if (!this._built || now.size !== this._built.size) return true;
@@ -146,6 +158,6 @@ export class World {
 
   _poses() {
     return new Map(this.objects.filter((o) => o.geometry)
-      .map((o) => [o.name, `${o.position.join()}|${o.orientation.join()}`]));
+      .map((o) => [o.name, `${o.position.join()}|${o.orientation.join()}|${o.geometryVersion}`]));
   }
 }

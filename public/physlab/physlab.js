@@ -6,6 +6,8 @@
 //   up / down arrows      what the camera looks at; its own object means
 //                         "look forward"
 //   space                 fire an octahedron the way the camera looks
+//   P (held)              disintegrate: a hole where the camera looks,
+//                         growing while P is held
 //
 // (flight-input.js has the rest of the keys.)
 //
@@ -17,7 +19,7 @@ import { World, WorldObject } from './world.js';
 import { AttachedCamera } from './camera.js';
 import { FlightControl, levelOrientation } from './flight.js';
 import { attachFlightInput } from './flight-input.js';
-import { fromBasis, fromAxisAngle, fromTo, multiply } from './quat.js';
+import { fromBasis, fromAxisAngle, fromTo, multiply, rotate } from './quat.js';
 import { PhysicsWorld } from './physics-world.js';
 import { octahedron, octahedronBody } from './shapes.js';
 import { loadText, checkShader } from '../gpu-setup.js';
@@ -27,7 +29,7 @@ import { FrameProfiler } from './profiler.js';
 const SURROUNDINGS = {
   materials: {
     // Sphere surface coordinates are longitude and latitude in radians,
-    // times scale: 50 makes squares of 0.02 rad, about 10 m here.
+    // over scale: 0.02 makes squares of 0.02 rad, about 10 m here.
     rock: { albedo: [0.46, 0.43, 0.39], albedo2: [0.31, 0.29, 0.27],
             pattern: 'checker', scale: 0.02 },
     hull: { albedo: [0.85, 0.85, 0.88] },
@@ -35,6 +37,8 @@ const SURROUNDINGS = {
     ball: { albedo: [0.20, 0.45, 0.80] },
     capsule: { albedo: [0.90, 0.70, 0.20] },
     octahedron: { albedo: [0.35, 0.75, 0.45] },
+    // The walls of what the disintegration ray leaves.
+    scorched: { albedo: [0.10, 0.08, 0.07] },
   },
   // A distant sun. Light falls off as color / (1 + d^2), so at about 7 km
   // it takes a color in the tens of millions to light the ground.
@@ -55,6 +59,11 @@ const FIRED_BODY = octahedronBody(1.5, { mass: 150 });
 // starts (beyond the reach of the body the camera rides on, if any).
 const FIRE_SPEED = 25;
 const FIRE_AHEAD = 3;
+// The disintegration ray's hole: its radius when it appears, how fast it
+// grows while P is held (m/s), and the most it grows to, in meters.
+const HOLE_START = 0.05;
+const HOLE_GROWTH = 0.5;
+const HOLE_MAX = 3;
 
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
@@ -228,10 +237,56 @@ async function main() {
     }));
     physics.add(shot, forward.map((v) => FIRE_SPEED * v));
   };
+  // P disintegrates. A ray along the camera's look finds what it hits,
+  // and that object is intersected with a complemented sphere centred
+  // there, in the object's own coordinates so it moves with it: a hole,
+  // which grows in the frame loop while P is held. An object keeps its
+  // original geometry and its holes, and is given the two together.
+  const carved = new Map();                 // object -> { base, holes: [{ center, radius }] }
+  const carve = (object) => {
+    const { base, holes } = carved.get(object);
+    object.setGeometry({
+      intersect: [
+        base,
+        ...holes.map(({ center, radius }) => ({
+          sphere: { center, radius },
+          complement: true,
+          material: 'scorched',
+        })),
+      ],
+    });
+    physics.reshape(object);
+  };
+  let beam = null;                          // { hole } while P is held
+  const beamOn = async () => {
+    const b = { hole: null };
+    beam = b;
+    const { eye, forward } = camera.basis();
+    // Past the body the camera rides on, if any, as for firing.
+    const tMin = camera.object.body ? camera.object.body.radius : 1e-3;
+    // The scene is only replaced in the frame loop, so these are the nodes
+    // the ray is about to be cast through.
+    const provenance = scene.provenance;
+    const { node, t0 } = await scene.castRays([{ origin: eye, direction: forward, tMin, tMax: 5000 }]);
+    const object = node[0] ? world.objects.find((o) => o.name === provenance[node[0]]?.owner) : null;
+    if (!object) return;                    // into the sky
+    const hit = eye.map((v, i) => v + t0[0] * forward[i]);
+    const [x, y, z, w] = object.orientation;
+    const center = rotate([-x, -y, -z, w], hit.map((v, i) => v - object.position[i]));
+    if (!carved.has(object)) carved.set(object, { base: object.geometry, holes: [] });
+    b.hole = { object, center, radius: HOLE_START };
+    carved.get(object).holes.push(b.hole);
+    carve(object);
+  };
+  const beamOff = () => { beam = null; };
+
   attachFlightInput(canvas, flight, { commands: {
-    ArrowLeft: () => flyNext(-1), ArrowRight: () => flyNext(1),
-    ArrowUp: () => lookNext(1), ArrowDown: () => lookNext(-1),
+    ArrowLeft: () => flyNext(-1),
+    ArrowRight: () => flyNext(1),
+    ArrowUp: () => lookNext(1),
+    ArrowDown: () => lookNext(-1),
     Space: fire,
+    KeyP: { press: beamOn, release: beamOff },
   } });
   showStatus();
 
@@ -266,6 +321,11 @@ async function main() {
     if (physics.simulates(flight.object)) flight.pendingYaw = 0;   // turning a body needs a torque; not yet
     else flight.update(dt);
     world.update(dt);
+    const hole = beam?.hole;
+    if (hole && hole.radius < HOLE_MAX) {
+      hole.radius = Math.min(HOLE_MAX, hole.radius + HOLE_GROWTH * dt);
+      carve(hole.object);
+    }
     const substeps = physics.update(dt, profiler.pass('physics'));
     if (substeps === 0) profiler.skipped('physics');
     if (world.geometryMoved()) {
@@ -288,5 +348,5 @@ async function main() {
   }
   requestAnimationFrame(frame);
 
-  window.physlab = { world, camera, flight, scene, view, gpu, physics, profiler };
+  window.physlab = { world, camera, flight, scene, view, gpu, physics, profiler, carved };
 }

@@ -11,6 +11,11 @@
 // Which pairs are tested for contact can come from a broad phase: give
 // each body's bounds (boundsOf()) to a group in the scene,
 // and its overlaps back to setCandidates(). Until then, every pair is.
+//
+// An object whose geometry changes (WorldObject.setGeometry) is passed to
+// reshape(). Where its tree keeps its shape - a sphere grown, say - only
+// its nodes' coefficients change, and they are written in place (DESIGN.md,
+// "Moving objects"); otherwise the simulation is rebuilt, as for add().
 
 import { compileSolid, PhysicsSim } from './physics.js';
 import { fromTo, multiply, normalize, rotate, toAxisAngle } from './quat.js';
@@ -19,6 +24,19 @@ const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const scale = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
 const unit = (v) => scale(v, 1 / Math.hypot(...v));
+
+/**
+ * Whether two compiled solids are the same tree with (maybe) different
+ * coefficients: the same nodes, children, materials and paths, so one can
+ * be written over the other in place.
+ */
+export function sameShape(a, b) {
+  if (a.nodes.length !== b.nodes.length || a.paths.length !== b.paths.length) return false;
+  const same = (x, y) => x.inside === y.inside && x.outside === y.outside &&
+                         x.material === y.material && x.env === y.env;
+  return a.nodes.every((n, i) => same(n, b.nodes[i])) &&
+         JSON.stringify(a.paths) === JSON.stringify(b.paths);
+}
 
 export class PhysicsWorld {
   /**
@@ -39,23 +57,57 @@ export class PhysicsWorld {
     this.materials = materials;
     this.origin = origin.slice();
     this.gravity = gravity;
-    this.solids = new Map();              // compiled solids, by geometry object
+    this.solids = new WeakMap();          // compiled solids, by geometry object
     this.bodies = [];
     this.lookahead = lookahead;
     this.placement = [];                  // per body: { a0, d, vel (until simulated), thrust, speed }
     for (const o of world.objects.filter((o) => o.body)) this._enlist(o, [0, 0, 0]);
-    const place = (o) => {
-      const { axis, radians } = toAxisAngle(o.orientation);
-      return { ...(radians ? { rotate: { axis, radians } } : {}), translate: sub(o.position, this.origin) };
-    };
     this.staticObjects = world.objects.filter((o) => o.geometry && !o.body);
-    this.statics = this.staticObjects.map((o) => compileSolid(o.geometry, materials, place(o)));
+    this.statics = this.staticObjects.map((o) => this._staticSolid(o));
     this.candidates = null;               // [[object, object]] from setCandidates, or every pair
     this.sim = this._simulate();
     this.reading = null;
     this.latest = null;
     this.joining = [];                    // bodies added since the simulation was built
+    this.reshaped = new Set();            // objects whose geometry changed since
     this.rebuilding = null;
+  }
+
+  // A static object's solid, placed in simulation coordinates.
+  _staticSolid(o) {
+    const { axis, radians } = toAxisAngle(o.orientation);
+    const place = { ...(radians ? { rotate: { axis, radians } } : {}), translate: sub(o.position, this.origin) };
+    return compileSolid(o.geometry, this.materials, place);
+  }
+
+  /**
+   * Take up an object's new geometry (after WorldObject.setGeometry): at
+   * the next update(), in place where the tree keeps its shape, else by a
+   * rebuild. Objects this doesn't simulate are ignored.
+   */
+  reshape(object) {
+    if (this.simulates(object) || this.staticObjects.includes(object)) this.reshaped.add(object);
+  }
+
+  // The reshaped objects' new solids, written over their old ones where
+  // they can be; true if any can't, and the simulation must be rebuilt.
+  _reshape() {
+    let rebuild = false;
+    for (const o of this.reshaped) {
+      const s = this.staticObjects.indexOf(o);
+      const solid = s >= 0 ? this._staticSolid(o) : this._solidOf(o.geometry);
+      const index = s >= 0 ? this.sim.bodyCount + s : this.bodies.indexOf(o);
+      if (s >= 0) this.statics[s] = solid;
+      if (s < 0 && index >= this.sim.bodyCount) continue;   // not simulated yet: joins with it
+      if (sameShape(this.simSolids[index], solid)) {
+        this.sim.setNodes(index, solid.nodes);
+        this.simSolids[index] = solid;
+      } else {
+        rebuild = true;
+      }
+    }
+    this.reshaped.clear();
+    return rebuild;
   }
 
   /**
@@ -106,6 +158,9 @@ export class PhysicsWorld {
         turn: carried ? from.turns[k] : o.orientation,
       });
     });
+    // What each solid in the simulation is, bodies' then statics', as
+    // _reshape() compares against.
+    this.simSolids = [...bodies.map((b) => b.solid), ...this.statics];
     return new PhysicsSim(this.device, this.module, {
       particles, bodies, statics: this.statics,
       gravityCentre: sub(this.gravity.from.position, this.origin), gm: this.gravity.gm,
@@ -118,6 +173,13 @@ export class PhysicsWorld {
     this.joining = [];
     if (this.reading) await this.reading;
     const state = await this.sim.readState();
+    // Whatever has been reshaped by now is compiled afresh just below;
+    // anything reshaped after, the next update() takes up.
+    for (const o of this.reshaped) {
+      const s = this.staticObjects.indexOf(o);
+      if (s >= 0) this.statics[s] = this._staticSolid(o);
+    }
+    this.reshaped.clear();
     const old = this.sim;
     this._apply(state);
     this.latest = null;
@@ -202,7 +264,7 @@ export class PhysicsWorld {
    */
   update(dt, timestampWrites) {
     if (this.rebuilding) return 0;
-    if (this.joining.length) {
+    if (this.joining.length || (this.reshaped.size && this._reshape())) {
       this.rebuilding = this._rebuild().finally(() => { this.rebuilding = null; });
       return 0;
     }

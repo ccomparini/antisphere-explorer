@@ -8,7 +8,7 @@
 
 import { compileScene, packNodes } from '../antisphere-scene.js';
 import { interiorPaths } from '../overlap.js';
-import { BINDINGS, Body, BodyContact, Particle, Path, PathPair, Region, SimParams, Solid, viewsOf } from '../gen/layouts.js';
+import { BINDINGS, Body, BodyContact, Node, Particle, Path, PathPair, Region, SimParams, Solid, viewsOf } from '../gen/layouts.js';
 import { bindGroup } from '../bind-group.js';
 
 /**
@@ -163,6 +163,7 @@ export class PhysicsSim {
       device.createBuffer({ size: Math.max(16, particles.length * 16), usage: GPUBufferUsage.STORAGE }),
     ];
     const [solidBuf, localNodes, posedNodes, regionBuf, pathBuf, corrections] = this.collision;
+    this.localNodes = localNodes;
     this.posedNodes = posedNodes;
     this.ranges = packed.ranges;
     this.staticCount = statics.length;
@@ -257,6 +258,26 @@ export class PhysicsSim {
     SimParams.write(this.paramViews, 0, { pair_count: list.length });
     const at = SimParams.FIELDS.pair_count.offset;
     this.device.queue.writeBuffer(this.params, at, this.paramViews.buffer, at, 4);
+  }
+
+  /**
+   * Overwrite solid `index`'s nodes (a body's index, or bodyCount + a
+   * static's) with `nodes`, a compiled solid's: the same tree with new
+   * coefficients - a sphere grown, say - so the node count, children and
+   * paths must be as they were (see sameShape() in physics-world.js). A
+   * static's nodes are placed already, so its placed copy is written too;
+   * a body's is the next pose()'s to make.
+   */
+  setNodes(index, nodes) {
+    const range = this.ranges[index];
+    if (nodes.length !== range.nodeCount) {
+      throw new Error(`setNodes: solid ${index} has ${range.nodeCount} nodes, given ${nodes.length}`);
+    }
+    if (!nodes.length) return;
+    const bytes = packNodes(nodes);
+    const at = range.firstNode * Node.STRIDE;
+    this.device.queue.writeBuffer(this.localNodes, at, bytes);
+    if (index >= this.bodyCount) this.device.queue.writeBuffer(this.posedNodes, at, bytes);
   }
 
   /** Set a body's extra acceleration (world axes of the simulation), m/s^2. */
