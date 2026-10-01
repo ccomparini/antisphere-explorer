@@ -61,9 +61,9 @@ const FIRE_SPEED = 25;
 const FIRE_AHEAD = 3;
 // The disintegration ray's hole: its radius when it appears, how fast it
 // grows while P is held (m/s), and the most it grows to, in meters.
-const HOLE_START = 0.05;
-const HOLE_GROWTH = 0.5;
-const HOLE_MAX = 3;
+const HOLE_START = 0.1;
+const HOLE_GROWTH = 0.1;
+const HOLE_MAX = 20;
 
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
