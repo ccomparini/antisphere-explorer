@@ -292,8 +292,7 @@ export class ASScene {
         nodes: this.nodeBuf,
         materials: this.matBuf,
         rayQueries: rq.rayBuf,
-        rayResults:
-        rq.resultBuf,
+        rayResults: rq.resultBuf,
       }
     );
 

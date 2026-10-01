@@ -175,15 +175,34 @@ export class PhysicsSim {
     // entry point uses (BINDINGS.physics). The placed nodes are what contact
     // detection reads as `nodes`.
     const buffers = {
-      nodes: posedNodes, regions: regionBuf, paths: pathBuf,
-      particles: this.particles, bodies: this.bodies, sim: this.params,
-      solids: solidBuf, localNodes, posedNodes, bodyContacts: this.contacts, contactCount: this.contactCount,
-      corrections, turns: this.turns,
+      nodes: posedNodes,
+      regions: regionBuf,
+      paths: pathBuf,
+      particles: this.particles,
+      bodies: this.bodies,
+      sim: this.params,
+      solids: solidBuf,
+      localNodes,
+      posedNodes,
+      bodyContacts: this.contacts,
+      contactCount: this.contactCount,
+      corrections,
+      turns: this.turns,
     };
     this.buffers = buffers;
     const stage = (entryPoint) => {
       const pipeline = pipelineOf(device, module, entryPoint);
-      return { pipeline, bindGroup: bindGroup(device, pipeline, BINDINGS.physics, entryPoint, buffers, entryPoint) };
+      return {
+        pipeline,
+        bindGroup: bindGroup(
+          device,
+          pipeline,
+          BINDINGS.physics,
+          entryPoint,
+          buffers,
+          entryPoint
+        ),
+      };
     };
     this.stages = {
       predict: stage('predict'),

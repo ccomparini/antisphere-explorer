@@ -72,10 +72,18 @@ async function contacts(pairs) {
   const bytes = pairs.length * Contact.STRIDE;
   const results = device.createBuffer({ size: bytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   const readBuf = device.createBuffer({ size: bytes, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  const group = bindGroup(device, pipeline, BINDINGS.physics, 'contactFrom', {
-    nodes: storage(packed.nodes), regions: storage(packed.regions), paths: storage(packed.paths),
-    contactQueries: storage(queries.buffer), contactResults: results,
-  });
+  const group = bindGroup(
+    device,
+    pipeline,
+    BINDINGS.physics,
+    'contactFrom', {
+      nodes: storage(packed.nodes),
+      regions: storage(packed.regions),
+      paths: storage(packed.paths),
+      contactQueries: storage(queries.buffer),
+      contactResults: results,
+    }
+  );
   const enc = device.createCommandEncoder();
   const pass = enc.beginComputePass();
   pass.setPipeline(pipeline);
