@@ -1395,6 +1395,8 @@ export function compileScene(rawSpec, options = {}) {
   // (see divide in buildGroup).
   const MAX_CHAIN = 4;
 
+  const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
   // Divider directions: planes square to the axes and the four body
   // diagonals (and spheres, see chooseDivider).
   const DIVIDER_DIRS = [[1,0,0], [0,1,0], [0,0,1], [1,1,1], [1,1,-1], [1,-1,1], [-1,1,1]]
@@ -1409,16 +1411,16 @@ export function compileScene(rawSpec, options = {}) {
   // median. Best overall is the one whose bigger side is smallest; one
   // that leaves either side with everything makes no progress, and is no
   // divider. Null if none helps.
-  function chooseDivider(list) {
+  function chooseDivider(list, presorted) {
     let best = null;
-    // A candidate: `along` measures members along it (1-Lipschitz, so a
-    // ball of radius r spans at most x - r .. x + r), and `make` is the
-    // divider at t, whose inside is where along < t.
-    const consider = (along, make, t) => {
+    // A candidate: xOf measures a member along it (1-Lipschitz, so a ball
+    // of radius r spans at most x - r .. x + r), and `make` is the divider
+    // at t, whose inside is where x < t.
+    const consider = (xOf, make, t) => {
       const inside = [], outside = [];
       for (const m of list) {
         const b = m.shape.bound;
-        const x = b ? along(b) : 0;
+        const x = b ? xOf(m) : 0;
         if (b && x + b.r <= t) inside.push(m);
         else if (b && x - b.r >= t) outside.push(m);
         else { inside.push(m); outside.push(m); }
@@ -1430,18 +1432,11 @@ export function compileScene(rawSpec, options = {}) {
         if (prim) best = { prim, inside, outside, cost };
       }
     };
-    const bounded = list.filter((m) => m.shape.bound);
-    const mid = [0, 1, 2].map((k) => bounded.reduce((sum, m) => sum + m.shape.bound.c[k], 0) / Math.max(1, bounded.length));
-    const candidates = [
-      ...DIVIDER_DIRS.map((d) => [(b) => b.c[0] * d[0] + b.c[1] * d[1] + b.c[2] * d[2], (t) => plane(d, t)]),
-      // Spheres about the members' middle, for things laid out round one.
-      [(b) => dist3(b.c, mid), (t) => (t > 1e-6 ? sphere(mid, t) : null)],
-    ];
-    for (const [along, make] of candidates) {
-      const sorted = list.filter((m) => m.shape.bound)
-        .map((m) => ({ x: along(m.shape.bound), r: m.shape.bound.r })).sort((p, q) => p.x - q.x);
+    // The cut along one candidate, from its bounded members sorted by x:
+    // in a gap if there is one (the most even), else at the median.
+    const cutAlong = (sorted, xOf, make) => {
       const n = sorted.length;
-      if (n < 2) continue;
+      if (n < 2) return;
       // pref[k]: the furthest reach of the first k + 1; suf[k]: the nearest
       // of the rest from k on. A gap before k when pref[k - 1] <= suf[k].
       const pref = [], suf = [];
@@ -1453,10 +1448,38 @@ export function compileScene(rawSpec, options = {}) {
         const off = Math.abs(k - n / 2);
         if (!gap || off < gap.off) gap = { off, t: 0.5 * (pref[k - 1] + suf[k]) };
       }
-      consider(along, make, gap ? gap.t : sorted[Math.floor(n / 2)].x);
-    }
+      consider(xOf, make, gap ? gap.t : sorted[Math.floor(n / 2)].x);
+    };
+    // Planes: each direction's order is the group's, sorted once
+    // (presorted), kept to this list's members.
+    const here = new Set(list);
+    DIVIDER_DIRS.forEach((d, i) => {
+      const xs = presorted.xs[i];
+      cutAlong(presorted.order[i].filter((e) => here.has(e.m)), (m) => xs.get(m), (t) => plane(d, t));
+    });
+    // Spheres about the members' middle, for things laid out round one.
+    const bounded = list.filter((m) => m.shape.bound);
+    const mid = [0, 1, 2].map((k) => bounded.reduce((sum, m) => sum + m.shape.bound.c[k], 0) / Math.max(1, bounded.length));
+    const xOf = (m) => dist3(m.shape.bound.c, mid);
+    cutAlong(bounded.map((m) => ({ m, x: xOf(m), r: m.shape.bound.r })).sort((p, q) => p.x - q.x),
+             xOf, (t) => (t > 1e-6 ? sphere(mid, t) : null));
     return best;
   }
+
+  // Each divider direction's order of a group's bounded members, sorted
+  // once for every chooseDivider below it: { order[i]: [{ m, x, r }],
+  // xs[i]: Map(member -> x) }.
+  function presort(members) {
+    const bounded = members.filter((m) => m.shape.bound);
+    const order = [], xs = [];
+    for (const d of DIVIDER_DIRS) {
+      const along = new Map(bounded.map((m) => [m, dot3(m.shape.bound.c, d)]));
+      xs.push(along);
+      order.push(bounded.map((m) => ({ m, x: along.get(m), r: m.shape.bound.r })).sort((p, q) => p.x - q.x));
+    }
+    return { order, xs };
+  }
+
 
   function buildGroup(def, path, where) {
     if (!Array.isArray(def.group)) {
@@ -1601,11 +1624,19 @@ export function compileScene(rawSpec, options = {}) {
     // divided (chooseDivider) and each side tried the same way. Members
     // keep their order within each side, so where they overlap the earlier
     // claim still stands.
+    //
+    // A fold of members each topped by a sphere with nothing outside it (a
+    // division sphere, a bare ball) chains them all - each one's outside is
+    // everything else - so with more than MAX_CHAIN of those it is known to
+    // chain without building it: a physlab world, a planet and 40 bodies,
+    // built and threw away a whole fold at every level, half its compile.
+    const closed = (m) => m.tree && !m.tree.outside && regionBall(m.tree.prim, true);
     const divide = (list) => {
-      const folded = fold(list);
-      if (list.length <= 1 || chainOf(folded.tree) <= MAX_CHAIN) return keep(folded);
-      const split = chooseDivider(list);
-      if (!split) return keep(folded);
+      const chains = list.filter(closed).length > MAX_CHAIN;
+      const folded = chains ? null : fold(list);
+      if (folded && (list.length <= 1 || chainOf(folded.tree) <= MAX_CHAIN)) return keep(folded);
+      const split = chooseDivider(list, sorted);
+      if (!split) return keep(folded ?? fold(list));
       const inside = divide(split.inside), outside = divide(split.outside);
       // A divider has both children, or defers on one side: never an
       // absent inside, which would claim that side, and hide whatever is
@@ -1613,6 +1644,7 @@ export function compileScene(rawSpec, options = {}) {
       if (!inside) return node(complementSurface(split.prim), outside, null);
       return node(split.prim, inside, outside);
     };
+    const sorted = presort(members);
     const acc = divide(members);
     for (const pair of found.values()) overlaps.push({ group: path, members: pair });
     return acc;
