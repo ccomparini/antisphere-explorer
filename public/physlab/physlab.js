@@ -37,8 +37,6 @@ const SURROUNDINGS = {
     ball: { albedo: [0.20, 0.45, 0.80] },
     capsule: { albedo: [0.90, 0.70, 0.20] },
     octahedron: { albedo: [0.35, 0.75, 0.45] },
-    // The walls of what the disintegration ray leaves.
-    scorched: { albedo: [0.10, 0.08, 0.07] },
   },
   // A distant sun. Light falls off as color / (1 + d^2), so at about 7 km
   // it takes a color in the tens of millions to light the ground.
@@ -241,7 +239,11 @@ async function main() {
   // and that object is intersected with a complemented sphere centred
   // there, in the object's own coordinates so it moves with it: a hole,
   // which grows in the frame loop while P is held. An object keeps its
-  // original geometry and its holes, and is given the two together.
+  // original geometry and its holes, and is given the two together. A
+  // hole names no material, so its walls show whatever it cut into
+  // (scene-format.md); `material: null` would make the whole object
+  // vacuum, since in an intersection the hole's node is what claims the
+  // rest of it.
   const carved = new Map();                 // object -> { base, holes: [{ center, radius }] }
   const carve = (object) => {
     const { base, holes } = carved.get(object);
@@ -251,7 +253,6 @@ async function main() {
         ...holes.map(({ center, radius }) => ({
           sphere: { center, radius },
           complement: true,
-          material: 'scorched',
         })),
       ],
     });
