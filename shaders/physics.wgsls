@@ -6,8 +6,8 @@
 // them from a compiled tree. Two solids touch where some path of one and
 // some path of the other share a point.
 
-#import "node.wgsls"
-#import "certificate.wgsls"
+// overlap.wgsls brings node.wgsls, and the nodes at binding 0.
+#import "overlap.wgsls"
 
 struct Region {
   node : u32,
@@ -27,7 +27,6 @@ struct Contact {
   found  : u32,       // 1 if there is a contact, and the rest means something
 };
 
-@group(0) @binding(0) var<storage, read> nodes : array<Node>;
 @group(0) @binding(1) var<storage, read> regions : array<Region>;
 @group(0) @binding(2) var<storage, read> paths : array<Path>;
 

@@ -76,10 +76,19 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
        + nd.linear;
 }
 
-// The overlap certificate for two quadric regions, shared by every shader
-// that asks whether regions meet: overlap.wgsls (batch queries) and
-// physics.wgsls (contacts). #import "certificate.wgsls" after node.wgsls.
+// Overlap on the GPU: do two regions of the scene share interior? The
+// overlap certificate for two quadric regions, and overlapFrom(), batches
+// of queries by it. Builds public/gen/overlap.wgsl.
 //
+// physics.wgsls (contacts) imports this whole file, since #import is a
+// plain include: so the bindings here are ones physics can share. nodes
+// (0) is the same buffer in both; the queries and their results take 16
+// and 17, past all of physics'.
+
+
+
+@group(0) @binding(0) var<storage, read> nodes : array<Node>;
+
 // ---------------------------------------------------------------------------
 // Do two regions share any interior? A region is a node and a sign: the
 // inside of a node (sigma = +1) or its outside (sigma = -1), so the question
@@ -277,6 +286,42 @@ fn certify(qa : mat4x4<f32>, qb : mat4x4<f32>) -> Certificate {
   return Certificate(margin, bestT / (1.0 - bestT), bestV);
 }
 
+// ---------------------------------------------------------------------------
+// Overlap queries: batches of "do these two regions share interior?", by
+// the certificate above. overlap.js is the same algorithm in
+// JS (its `decide` mode), and is the oracle this is checked against; keep
+// the two in step.
+// ---------------------------------------------------------------------------
+
+struct OverlapQuery {
+  node_a  : u32,
+  node_b  : u32,
+  sign_a  : f32,   // +1 for the node's inside, -1 for its outside
+  sign_b  : f32,
+  // Where to measure (certifyIn): a centre and a length near the smaller
+  // of the two regions. A length of 0 is no frame.
+  frame_centre : vec3<f32>,
+  frame_length : f32,
+};
+
+struct OverlapResult {
+  margin : f32,    // > 0 proved apart, ~0 touching, < 0 no certificate
+  mu     : f32,    // the multiplier that proved it
+};
+
+@group(0) @binding(16) var<storage, read> overlapQueries : array<OverlapQuery>;
+@group(0) @binding(17) var<storage, read_write> overlapResults : array<OverlapResult>;
+
+@compute @workgroup_size(64)
+fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
+  let i = gid.x;
+  if (i >= arrayLength(&overlapQueries)) { return; }
+  let q = overlapQueries[i];
+  let c = certifyIn(regionMatrix(nodes[q.node_a], q.sign_a), regionMatrix(nodes[q.node_b], q.sign_b),
+                    q.frame_centre, q.frame_length);
+  overlapResults[i] = OverlapResult(c.margin, c.mu);
+}
+
 // Physics for physlab: contacts between solids, from the overlap
 // certificate.
 //
@@ -285,7 +330,7 @@ fn certify(qa : mat4x4<f32>, qb : mat4x4<f32>) -> Certificate {
 // them from a compiled tree. Two solids touch where some path of one and
 // some path of the other share a point.
 
-
+// overlap.wgsls brings node.wgsls, and the nodes at binding 0.
 
 
 struct Region {
@@ -306,7 +351,6 @@ struct Contact {
   found  : u32,       // 1 if there is a contact, and the rest means something
 };
 
-@group(0) @binding(0) var<storage, read> nodes : array<Node>;
 @group(0) @binding(1) var<storage, read> regions : array<Region>;
 @group(0) @binding(2) var<storage, read> paths : array<Path>;
 
@@ -1283,4 +1327,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":201},{"path":"shaders/physics.wgsls","offset":279,"lines":1006}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":246},{"path":"shaders/physics.wgsls","offset":324,"lines":1005}]

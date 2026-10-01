@@ -374,8 +374,8 @@ export class ASScene {
       layout: pipelines.overlapFrom.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.nodeBuf } },
-        { binding: 1, resource: { buffer: buffers.queryBuf } },
-        { binding: 2, resource: { buffer: buffers.resultBuf } },
+        { binding: 16, resource: { buffer: buffers.queryBuf } },
+        { binding: 17, resource: { buffer: buffers.resultBuf } },
       ],
     });
 

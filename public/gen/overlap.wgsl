@@ -76,10 +76,19 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
        + nd.linear;
 }
 
-// The overlap certificate for two quadric regions, shared by every shader
-// that asks whether regions meet: overlap.wgsls (batch queries) and
-// physics.wgsls (contacts). #import "certificate.wgsls" after node.wgsls.
+// Overlap on the GPU: do two regions of the scene share interior? The
+// overlap certificate for two quadric regions, and overlapFrom(), batches
+// of queries by it. Builds public/gen/overlap.wgsl.
 //
+// physics.wgsls (contacts) imports this whole file, since #import is a
+// plain include: so the bindings here are ones physics can share. nodes
+// (0) is the same buffer in both; the queries and their results take 16
+// and 17, past all of physics'.
+
+
+
+@group(0) @binding(0) var<storage, read> nodes : array<Node>;
+
 // ---------------------------------------------------------------------------
 // Do two regions share any interior? A region is a node and a sign: the
 // inside of a node (sigma = +1) or its outside (sigma = -1), so the question
@@ -277,19 +286,9 @@ fn certify(qa : mat4x4<f32>, qb : mat4x4<f32>) -> Certificate {
   return Certificate(margin, bestT / (1.0 - bestT), bestV);
 }
 
-// Overlap queries on the GPU: do two regions of the scene share interior?
-//
-// Its own shader, since it shares nothing with rendering but the nodes.
-// Bindings: nodes, then the queries and their results.
-
-
-
-
-@group(0) @binding(0) var<storage, read> nodes : array<Node>;
-
 // ---------------------------------------------------------------------------
 // Overlap queries: batches of "do these two regions share interior?", by
-// the certificate in certificate.wgsls. overlap.js is the same algorithm in
+// the certificate above. overlap.js is the same algorithm in
 // JS (its `decide` mode), and is the oracle this is checked against; keep
 // the two in step.
 // ---------------------------------------------------------------------------
@@ -310,8 +309,8 @@ struct OverlapResult {
   mu     : f32,    // the multiplier that proved it
 };
 
-@group(0) @binding(1) var<storage, read> overlapQueries : array<OverlapQuery>;
-@group(0) @binding(2) var<storage, read_write> overlapResults : array<OverlapResult>;
+@group(0) @binding(16) var<storage, read> overlapQueries : array<OverlapQuery>;
+@group(0) @binding(17) var<storage, read_write> overlapResults : array<OverlapResult>;
 
 @compute @workgroup_size(64)
 fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
@@ -323,4 +322,4 @@ fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   overlapResults[i] = OverlapResult(c.margin, c.mu);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":201},{"path":"shaders/overlap.wgsls","offset":279,"lines":46}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":246}]
