@@ -301,6 +301,12 @@ It is said in terms of nodes alone, which only divide space. A member
 (`null` included), and defers everywhere else through its absent outsides.
 Where members overlap, the earlier one's claim stands, as in a `"union"`.
 
+- **Division spheres.** Each member with a bound is put inside a sphere of
+  its own, which only divides: the member is on its inside, and its
+  outside defers. A ray that misses the ball passes the member with one
+  test. The balls may overlap; nothing requires them apart. A member whose
+  own top node already is such a sphere is left as it is, and one with no
+  bound keeps its own surfaces as the divisions round it.
 - **Folding.** Members are folded in, in their order: each is grafted
   into the absent outsides of those before it, but only where it may be.
   So an earlier member's own surfaces divide the space for later ones: a

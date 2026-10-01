@@ -1497,7 +1497,21 @@ export function compileScene(rawSpec, options = {}) {
       folding.set(pair.join(), pair);
     };
 
-    for (const m of members) m.shape = testShapeOf(m.tree);
+    // Each member with a bound goes inside a sphere of its own: a pure
+    // division - its inside holds the member, its outside defers - so a
+    // ray that misses the ball passes the member with one test. Nothing
+    // asks these balls to stay apart: where they overlap, members are
+    // grafted inside each other's as anywhere else. (Measured: without
+    // them, rays visited 20-85% more nodes, mostly members whose own top
+    // node is unbounded, such as a house under its roof's plane.) A member
+    // whose own top node already is such a sphere, with nothing outside
+    // it, is left as it is; one with no bound (an octahedron given none)
+    // keeps its own faces as the divisions round it.
+    for (const m of members) {
+      m.shape = testShapeOf(m.tree);
+      const b = m.shape.grown;
+      if (b && !(regionBall(m.tree.prim, true) && !m.tree.outside)) m.tree = node(sphere(b.c, b.r), m.tree, null);
+    }
 
     // Fold `list` in, in order: each member grafted into the absent
     // outsides of what the ones before it made, where it may be.
