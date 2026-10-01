@@ -20,6 +20,10 @@ struct OverlapQuery {
   node_b  : u32,
   sign_a  : f32,   // +1 for the node's inside, -1 for its outside
   sign_b  : f32,
+  // Where to measure (certifyIn): a centre and a length near the smaller
+  // of the two regions. A length of 0 is no frame.
+  frame_centre : vec3<f32>,
+  frame_length : f32,
 };
 
 struct OverlapResult {
@@ -35,6 +39,7 @@ fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&overlapQueries)) { return; }
   let q = overlapQueries[i];
-  let c = certify(regionMatrix(nodes[q.node_a], q.sign_a), regionMatrix(nodes[q.node_b], q.sign_b));
+  let c = certifyIn(regionMatrix(nodes[q.node_a], q.sign_a), regionMatrix(nodes[q.node_b], q.sign_b),
+                    q.frame_centre, q.frame_length);
   overlapResults[i] = OverlapResult(c.margin, c.mu);
 }

@@ -359,14 +359,16 @@ export class Seg {
 }
 
 export class OverlapQuery {
-  static SIZE = 16;
-  static ALIGN = 4;
-  static STRIDE = 16;
+  static SIZE = 32;
+  static ALIGN = 16;
+  static STRIDE = 32;
   static FIELDS = Object.freeze({
     node_a: Object.freeze({ offset: 0, type: 'u32' }),
     node_b: Object.freeze({ offset: 4, type: 'u32' }),
     sign_a: Object.freeze({ offset: 8, type: 'f32' }),
     sign_b: Object.freeze({ offset: 12, type: 'f32' }),
+    frame_centre: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
+    frame_length: Object.freeze({ offset: 28, type: 'f32' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * OverlapQuery.STRIDE)); }
@@ -387,6 +389,14 @@ export class OverlapQuery {
     if (values.sign_b !== undefined) {
       f32[w + 3] = values.sign_b;
     }
+    if (values.frame_centre !== undefined) {
+      f32[w + 4] = values.frame_centre[0];
+      f32[w + 5] = values.frame_centre[1];
+      f32[w + 6] = values.frame_centre[2];
+    }
+    if (values.frame_length !== undefined) {
+      f32[w + 7] = values.frame_length;
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -396,6 +406,8 @@ export class OverlapQuery {
       node_b: u32[w + 1],
       sign_a: f32[w + 2],
       sign_b: f32[w + 3],
+      frame_centre: [f32[w + 4], f32[w + 5], f32[w + 6]],
+      frame_length: f32[w + 7],
     };
   }
 }

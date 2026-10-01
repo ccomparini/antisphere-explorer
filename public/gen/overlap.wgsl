@@ -224,6 +224,32 @@ struct Certificate {
   vector : vec4<f32>,
 };
 
+// A matrix re-expressed in a frame at centre c with unit length L: with
+// R = c + L R', X = T X' for T = [L I, c; 0, 1], and H is X'^T T^T Q T X'.
+// A congruence, applied to both regions alike, keeps any certificate a
+// certificate (T^T (Q_b + mu Q_a) T is PSD exactly when the pencil is).
+fn frameMatrix(c : vec3<f32>, L : f32) -> mat4x4<f32> {
+  return mat4x4<f32>(vec4<f32>(L, 0.0, 0.0, 0.0), vec4<f32>(0.0, L, 0.0, 0.0),
+                     vec4<f32>(0.0, 0.0, L, 0.0), vec4<f32>(c, 1.0));
+}
+
+// certify(), measured in the frame at centre c with unit length L, chosen
+// near the smaller of the two regions; L <= 0 is no frame. Far from the
+// origin, or at very different sizes, scaling each matrix by its largest
+// entry leaves the pencil's eigenvalues tiny: a 500 m planet's outside and
+// a 2 m ball sitting in it read a margin of -8e-11, which passed for
+// touching, and so for apart. In the smaller one's own frame the same
+// overlap reads clearly. The vector is mapped back to world coordinates.
+// (overlap.js's regionsDisjoint() and inFrame() are the same.)
+fn certifyIn(qa : mat4x4<f32>, qb : mat4x4<f32>, c : vec3<f32>, L : f32) -> Certificate {
+  if (L <= 0.0) { return certify(qa, qb); }
+  let t = frameMatrix(c, L);
+  let tt = transpose(t);
+  var r = certify(tt * qa * t, tt * qb * t);
+  r.vector = t * r.vector;
+  return r;
+}
+
 fn certify(qa : mat4x4<f32>, qb : mat4x4<f32>) -> Certificate {
   let a = qa * (1.0 / largestEntry(qa));
   let b = qb * (1.0 / largestEntry(qb));
@@ -273,6 +299,10 @@ struct OverlapQuery {
   node_b  : u32,
   sign_a  : f32,   // +1 for the node's inside, -1 for its outside
   sign_b  : f32,
+  // Where to measure (certifyIn): a centre and a length near the smaller
+  // of the two regions. A length of 0 is no frame.
+  frame_centre : vec3<f32>,
+  frame_length : f32,
 };
 
 struct OverlapResult {
@@ -288,8 +318,9 @@ fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&overlapQueries)) { return; }
   let q = overlapQueries[i];
-  let c = certify(regionMatrix(nodes[q.node_a], q.sign_a), regionMatrix(nodes[q.node_b], q.sign_b));
+  let c = certifyIn(regionMatrix(nodes[q.node_a], q.sign_a), regionMatrix(nodes[q.node_b], q.sign_b),
+                    q.frame_centre, q.frame_length);
   overlapResults[i] = OverlapResult(c.margin, c.mu);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":175},{"path":"shaders/overlap.wgsls","offset":253,"lines":41}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/certificate.wgsls","offset":78,"lines":201},{"path":"shaders/overlap.wgsls","offset":279,"lines":46}]

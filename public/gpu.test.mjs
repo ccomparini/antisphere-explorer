@@ -305,6 +305,41 @@ gpuTest('overlapFrom() calls touching touching, to f32', async () => {
   sc.destroy();
 });
 
+// overlap.test.mjs's planet and balls, on the GPU. Scaled for the planet, a
+// 2 m ball's overlap with the planet's outside reads a margin far inside
+// what counts as touching; measured in the ball's own frame it is clear.
+gpuTest('overlapFrom() in a frame near the smaller one decides a small ball beside a big one', async () => {
+  const cases = [
+    // centre, radius, apart from the planet's inside, from its outside
+    [[20, 0, 502], 2.2, true, false],     // just above the ground
+    [[0, 0, 600], 2, true, false],        // well above
+    [[0, 0, 501], 2, false, false],       // half sunk
+    [[0, 0, 502], 2, true, false],        // resting on it: touching is apart
+    [[0, 0, 30], 2, false, true],         // deep inside
+  ];
+  const sc = scene({ sphere: { center: [0, 0, 0], radius: 2000 }, material: null, inside: {
+    union: [{ sphere: { center: [0, 0, 0], radius: 500 }, material: 'clay' },
+            ...cases.map(([center, radius]) => ({ sphere: { center, radius }, material: 'clay' }))],
+  } });
+  // A sphere's node: k = 1 / 2r, and linear = -k C.
+  const sphereNode = (c, r) => sc.nodes.findIndex((nd, i) => i > 1 &&
+    Math.abs(nd.prim.k_perp * 2 * r - 1) < 1e-9 &&
+    Math.hypot(...nd.prim.linear.map((v, j) => v / nd.prim.k_perp + c[j])) < 1e-6);
+  const planet = sphereNode([0, 0, 0], 500);
+  const pairs = [], expect = [];
+  for (const [c, r, fromInside, fromOutside] of cases) {
+    const ball = sphereNode(c, r);
+    assert.ok(planet > 0 && ball > 0, 'found the nodes');
+    const frame = { c, L: r };
+    pairs.push({ a: planet, b: ball, signA: 1, signB: 1, frame },
+               { a: planet, b: ball, signA: -1, signB: 1, frame });
+    expect.push([fromInside, `${c} r ${r}: the planet's inside`], [fromOutside, `${c} r ${r}: its outside`]);
+  }
+  const margins = await sc.overlapPairs(pairs);
+  expect.forEach(([apart, what], i) => assert.equal(margins[i] > -TAU, apart, `${what}: margin ${margins[i]}`));
+  sc.destroy();
+});
+
 gpuTest('overlapFrom() batch timing (logged, not asserted)', async (t) => {
   // A crowd of shapes, deterministic, for a before/after number.
   let seed = 1;

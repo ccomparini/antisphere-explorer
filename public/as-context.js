@@ -338,7 +338,8 @@ export class ASScene {
    * Do these pairs of regions share any interior?
    *
    * Each pair is { a, b } node indices, with optional signs (+1 for a node's
-   * inside, the default, -1 for its outside). Resolves to a Float32Array of
+   * inside, the default, -1 for its outside) and an optional frame
+   * ({ c, L }: where to measure, as for overlap.js's regionsDisjoint). Resolves to a Float32Array of
    * margins, one per pair: above OVERLAP_TAU (1e-5, in the shader) means
    * proved apart, below -OVERLAP_TAU means they meet, and between is
    * touching. The shader stops as soon as it is sure, so a margin settles the
@@ -365,6 +366,7 @@ export class ASScene {
     const queries = OverlapQuery.allocate(pairs.length);
     pairs.forEach((pair, i) => OverlapQuery.write(queries, i, {
       node_a: pair.a, node_b: pair.b, sign_a: pair.signA ?? 1, sign_b: pair.signB ?? 1,
+      frame_centre: pair.frame?.c ?? [0, 0, 0], frame_length: pair.frame?.L ?? 0,
     }));
     device.queue.writeBuffer(buffers.queryBuf, 0, queries.buffer);
 
