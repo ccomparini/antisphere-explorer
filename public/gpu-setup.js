@@ -8,7 +8,7 @@
 // caller decides what to do about it. Nothing here touches renderer state.
 
 import { readSourceMap, mapLine } from './shader-map.js';
-import { Camera, OverlapQuery, OverlapResult, RayQuery, Seg } from './gen/layouts.js';
+import { Camera, RayQuery, Seg } from './gen/layouts.js';
 
 /** Fetch a file's text, bypassing the cache so hot reload sees edits. */
 export async function loadText(url) {
@@ -101,7 +101,7 @@ export async function checkShader(mod, label, code = '') {
 }
 
 /**
- * Build every pipeline from source: `sources` is { compute, blit, overlap },
+ * Build every pipeline from source: `sources` is { compute, blit },
  * each a shader's text.
  *
  * Returns `{ error }` with a message, or `{ pipelines }` with all of them.
@@ -109,7 +109,7 @@ export async function checkShader(mod, label, code = '') {
  * previous frame rendering rather than blacking the screen.
  */
 export async function buildPipelines(device, format, sources) {
-  const { compute: computeSrc, blit: blitSrc, overlap: overlapSrc } = sources;
+  const { compute: computeSrc, blit: blitSrc } = sources;
   // The storage format is a literal in the WGSL type, so the direct-to-canvas
   // variant needs its own module when the canvas is not rgba8unorm.
   const directSrc = computeSrc.replace('texture_storage_2d<rgba8unorm',
@@ -119,7 +119,6 @@ export async function buildPipelines(device, format, sources) {
   const computeMod = device.createShaderModule({ code: computeSrc });
   const directMod = sameSrc ? computeMod : device.createShaderModule({ code: directSrc });
   const blitMod = device.createShaderModule({ code: blitSrc });
-  const overlapMod = device.createShaderModule({ code: overlapSrc });
 
   // The direct variant only swaps a format name within one line, so the
   // compute shader's source map fits it too.
@@ -127,7 +126,6 @@ export async function buildPipelines(device, format, sources) {
     checkShader(computeMod, 'compute shader', computeSrc),
     sameSrc ? true : checkShader(directMod, 'compute shader (direct)', directSrc),
     checkShader(blitMod, 'blit shader', blitSrc),
-    checkShader(overlapMod, 'overlap shader', overlapSrc),
   ]);
   if (!ok.every(Boolean)) return { error: 'shader failed to compile' };
 
@@ -152,20 +150,13 @@ export async function buildPipelines(device, format, sources) {
     layout: 'auto',
     compute: { module: computeMod, entryPoint: 'traceFrom' },
   });
-  // overlapFrom() answers "do these two regions share any interior" for a
-  // batch of node pairs. It reads the same node buffer as rendering and
-  // nothing else of the scene, so it has a shader of its own (overlap.wgsls).
-  const overlapFrom = device.createComputePipeline({
-    layout: 'auto',
-    compute: { module: overlapMod, entryPoint: 'overlapFrom' },
-  });
   const err = await device.popErrorScope();
   if (err) {
     console.error(err.message);
     return { error: 'pipeline validation failed' };
   }
 
-  return { pipelines: { compute, computeDirect, blit, traceFrom, overlapFrom } };
+  return { pipelines: { compute, computeDirect, blit, traceFrom } };
 }
 
 /** A STORAGE | COPY_DST buffer holding `data`. */
@@ -220,32 +211,6 @@ export function createTraceBuffers(device, maxRays) {
     }),
     readBuf: device.createBuffer({
       size: maxRays * Seg.STRIDE,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    }),
-  };
-}
-
-/**
- * Buffers for overlapFrom(), the batch overlap test.
- *
- * A query is two node indices and two signs; a result is a margin and the
- * multiplier that earned it (OverlapQuery and OverlapResult in
- * shaders/overlap.wgsls). Sized for a good handful of pairs at a time, since
- * the point of doing this on the GPU is the batch.
- */
-export function createOverlapBuffers(device, maxPairs) {
-  return {
-    maxPairs,
-    queryBuf: device.createBuffer({
-      size: maxPairs * OverlapQuery.STRIDE,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    }),
-    resultBuf: device.createBuffer({
-      size: maxPairs * OverlapResult.STRIDE,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    }),
-    readBuf: device.createBuffer({
-      size: maxPairs * OverlapResult.STRIDE,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     }),
   };

@@ -78,10 +78,11 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 
 // Overlap on the GPU: do two regions of the scene share interior? The
 // overlap certificate for two quadric regions, and overlapFrom(), batches
-// of queries by it. Builds public/gen/overlap.wgsl.
+// of queries by it, for tests and tools.
 //
-// physics-2pt.wgsls (contacts) imports this whole file, nodes included, and
-// so gets the batch queries too, unused. (The build numbers each output's
+// A library, not a build output of its own: collision.wgsls imports this
+// whole file, nodes included, and through it every physics-*.wgsls, which
+// so get the batch queries too, unused. (The build numbers each output's
 // bindings, so they can't clash: see tools/shader-build/bindings.js.)
 
 
@@ -321,16 +322,17 @@ fn overlapFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   overlapResults[i] = OverlapResult(c.margin, c.mu);
 }
 
-// Two-particle physics, for physlab: each body is two particles joined by
-// a constraint (XPBD; see "bodies" below), so it knows its axis and
-// carries its roll. Other physics models are to sit beside this one, as
-// physics-*.wgsls. First, contacts between solids, from the overlap
-// certificate.
+// Collision: where two solids meet - a point, how deep, and which way to
+// push them apart - from the overlap certificate (overlap.wgsls). Any
+// physics model's contacts come from here; physics-*.wgsls import it.
 //
 // A solid is a list of paths, each a conjunction of regions (a node and a
 // side: sign * H < 0 inside) - interiorPaths() in public/overlap.js makes
 // them from a compiled tree. Two solids touch where some path of one and
 // some path of the other share a point.
+//
+// Unlike overlap.wgsls, which is exact and checked against overlap.js, this
+// is tuned (CONTACT_SLOP, the sweep counts) and has no CPU twin.
 
 // overlap.wgsls brings node.wgsls, and nodes.
 
@@ -715,6 +717,14 @@ fn contactFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let q = contactQueries[i];
   contactResults[i] = pathContact(paths[q.path_a], paths[q.path_b]);
 }
+
+// Two-particle physics, for physlab: each body is two particles joined by
+// a constraint (XPBD; see "bodies" below), so it knows its axis and
+// carries its roll. Other physics models are to sit beside this one, as
+// physics-*.wgsls. Contacts between solids come from collision.wgsls.
+
+// collision.wgsls brings overlap.wgsls, node.wgsls, and nodes.
+
 
 // -- bodies: points joined by constraints ------------------------------------------
 //
@@ -1329,4 +1339,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":245},{"path":"shaders/physics-2pt.wgsls","offset":323,"lines":1008}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":246},{"path":"shaders/collision.wgsls","offset":324,"lines":396},{"path":"shaders/physics-2pt.wgsls","offset":720,"lines":621}]

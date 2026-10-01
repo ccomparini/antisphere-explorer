@@ -173,7 +173,6 @@ async function main() {
   const gpu = await ASContext.create({
     computeUrl: '../gen/antisphere-raycast.wgsl',
     blitUrl:    '../gen/blit.wgsl',
-    overlapUrl: '../gen/overlap.wgsl',
   });
   const { world, planetoid, mount, rocket } = buildWorld();
 

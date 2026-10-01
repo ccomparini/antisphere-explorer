@@ -1,9 +1,10 @@
 // Overlap on the GPU: do two regions of the scene share interior? The
 // overlap certificate for two quadric regions, and overlapFrom(), batches
-// of queries by it. Builds public/gen/overlap.wgsl.
+// of queries by it, for tests and tools.
 //
-// physics-2pt.wgsls (contacts) imports this whole file, nodes included, and
-// so gets the batch queries too, unused. (The build numbers each output's
+// A library, not a build output of its own: collision.wgsls imports this
+// whole file, nodes included, and through it every physics-*.wgsls, which
+// so get the batch queries too, unused. (The build numbers each output's
 // bindings, so they can't clash: see tools/shader-build/bindings.js.)
 
 #import "node.wgsls"

@@ -3,8 +3,7 @@
 //
 // Every other test here checks a JS transcription of the shader, which can
 // agree with itself while the WGSL drifts. These go through the same path the
-// page does - ASContext.create, ASScene's packing, castRays and overlapPairs -
-// with Dawn (the `webgpu` package) standing in for the browser, and check the
+// page does - ASContext.create, ASScene's packing and castRays - with Dawn (the `webgpu` package) standing in for the browser, and check the
 // answers against things that owe nothing to the shader: closed forms for
 // single primitives, the boolean formula a CSG operator claims to implement,
 // and overlap.js for the overlap certificate.
@@ -17,9 +16,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { ASContext } from './as-context.js';
 import { matrixOf, separation } from './overlap.js';
+import { OverlapQuery, OverlapResult, viewsOf } from './gen/layouts.js';
 import { sharedStructs } from '../tools/shader-build/layout.js';
 import { emitModule } from '../tools/shader-build/emit-js.js';
 import { buildAll } from '../tools/shader-build/index.js';
+import { build } from '../tools/shader-build/preprocess.js';
+import { assignBindings } from '../tools/shader-build/bindings.js';
 import { bindGroup } from './bind-group.js';
 
 // -- a device, or a reason there isn't one ------------------------------------
@@ -236,6 +238,79 @@ const coneOf = (sc) => sc.nodes.findIndex((nd, i) => i > 0 && nd.prim.k_par < 0)
 const cpuMargin = (sc, { a, b, signA, signB }) =>
   separation(matrixOf(sc.nodes[a].prim, signA), matrixOf(sc.nodes[b].prim, signB)).margin;
 
+// overlap.wgsls is a library, not a build output, so its batch entry point
+// is built here from source: overlapFrom() alone, bound to a scene's nodes.
+let overlapShader = null;
+async function overlapShaderOf() {
+  if (!overlapShader) {
+    const read = (path) => readFile(new URL(`../${path}`, here), 'utf8');
+    const { code, slots, entries } = assignBindings((await build('shaders/overlap.wgsls', { read })).code);
+    const module = ctx.device.createShaderModule({ code });
+    const pipeline = ctx.device.createComputePipeline({
+      layout: 'auto',
+      compute: { module, entryPoint: 'overlapFrom' },
+    });
+    overlapShader = { pipeline, bindings: { slots, entries } };
+  }
+  return overlapShader;
+}
+
+/**
+ * The GPU's margin for each pair of regions: { a, b } node indices of the
+ * scene, optional signs (+1 inside, the default; -1 outside) and an
+ * optional frame ({ c, L }, as for overlap.js's regionsDisjoint).
+ */
+async function overlapPairs(sc, pairs) {
+  const { device } = ctx;
+  const { pipeline, bindings } = await overlapShaderOf();
+  const queries = OverlapQuery.allocate(pairs.length);
+  pairs.forEach((pair, i) => OverlapQuery.write(queries, i, {
+    node_a: pair.a,
+    node_b: pair.b,
+    sign_a: pair.signA ?? 1,
+    sign_b: pair.signB ?? 1,
+    frame_centre: pair.frame?.c ?? [0, 0, 0],
+    frame_length: pair.frame?.L ?? 0,
+  }));
+  const queryBuf = device.createBuffer({
+    size: queries.buffer.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(queryBuf, 0, queries.buffer);
+  const bytes = pairs.length * OverlapResult.STRIDE;
+  const resultBuf = device.createBuffer({
+    size: bytes,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+  });
+  const readBuf = device.createBuffer({
+    size: bytes,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+  });
+  const group = bindGroup(
+    device,
+    pipeline,
+    bindings,
+    'overlapFrom', {
+      nodes: sc.nodeBuf,
+      overlapQueries: queryBuf,
+      overlapResults: resultBuf,
+    }
+  );
+  const enc = device.createCommandEncoder();
+  const pass = enc.beginComputePass();
+  pass.setPipeline(pipeline);
+  pass.setBindGroup(0, group);
+  pass.dispatchWorkgroups(Math.ceil(pairs.length / 64));
+  pass.end();
+  enc.copyBufferToBuffer(resultBuf, 0, readBuf, 0, bytes);
+  device.queue.submit([enc.finish()]);
+  await readBuf.mapAsync(GPUMapMode.READ);
+  const results = viewsOf(readBuf.getMappedRange().slice(0));
+  readBuf.unmap();
+  for (const b of [queryBuf, resultBuf, readBuf]) b.destroy();
+  return Float32Array.from(pairs, (_, i) => OverlapResult.read(results, i).margin);
+}
+
 // shaders/overlap.wgsls's OVERLAP_TAU: the GPU's margin is only a verdict
 // outside this band, and inside it is touching.
 const TAU = 1e-5;
@@ -253,7 +328,7 @@ function allPairs(sc) {
 gpuTest('overlapFrom() agrees with overlap.js on every pair of nodes', async () => {
   const sc = scene(OVERLAP_SCENE);
   const pairs = allPairs(sc);
-  const margins = await sc.overlapPairs(pairs);
+  const margins = await overlapPairs(sc, pairs);
 
   // The GPU stops as soon as it is sure, so its margin is one that settles
   // the question rather than the best there is: compare verdicts, against
@@ -277,7 +352,7 @@ gpuTest('overlapFrom() agrees with overlap.js on every pair of nodes', async () 
 gpuTest('overlapFrom() does not prove outside-the-shell and outside-a-cone apart', async () => {
   const sc = scene(OVERLAP_SCENE);
   const pair = { a: 1, b: coneOf(sc), signA: -1, signB: -1 };
-  const [margin] = await sc.overlapPairs([pair]);
+  const [margin] = await overlapPairs(sc, [pair]);
   assert.ok(cpuMargin(sc, pair) < 0, 'the CPU should find no certificate');
   assert.ok(margin < -TAU, `GPU margin ${margin} should be an overlap`);
   sc.destroy();
@@ -301,7 +376,7 @@ gpuTest('overlapFrom() calls touching touching, to f32', async () => {
   const pairs = [{ a: ball(-1, 0, 0), b: ball(1, 0, 0), signA: 1, signB: 1 },
                  { a: ball(0, 5, 1), b: plane, signA: 1, signB: 1 }];
   for (const p of pairs) assert.ok(p.a > 0 && p.b > 0, 'found the nodes');
-  const margins = await sc.overlapPairs(pairs);
+  const margins = await overlapPairs(sc, pairs);
   for (const m of margins) assert.ok(Math.abs(m) <= TAU, `touching margin ${m}`);
   sc.destroy();
 });
@@ -336,7 +411,7 @@ gpuTest('overlapFrom() in a frame near the smaller one decides a small ball besi
                { a: planet, b: ball, signA: -1, signB: 1, frame });
     expect.push([fromInside, `${c} r ${r}: the planet's inside`], [fromOutside, `${c} r ${r}: its outside`]);
   }
-  const margins = await sc.overlapPairs(pairs);
+  const margins = await overlapPairs(sc, pairs);
   expect.forEach(([apart, what], i) => assert.equal(margins[i] > -TAU, apart, `${what}: margin ${margins[i]}`));
   sc.destroy();
 });
@@ -357,9 +432,9 @@ gpuTest('overlapFrom() batch timing (logged, not asserted)', async (t) => {
     union: Array.from({ length: 24 }, (_, i) => ({ ...makers[i % 5](), material: 'clay' })),
   } });
   const pairs = allPairs(sc).slice(0, 1024);
-  await sc.overlapPairs(pairs);                          // warm up
+  await overlapPairs(sc, pairs);                          // warm up
   const runs = 20, start = performance.now();
-  for (let i = 0; i < runs; i++) await sc.overlapPairs(pairs);
+  for (let i = 0; i < runs; i++) await overlapPairs(sc, pairs);
   t.diagnostic(`${pairs.length} pairs: ${((performance.now() - start) / runs).toFixed(2)} ms ` +
                'per batch, round trip included');
   sc.destroy();
@@ -545,5 +620,5 @@ gpuTest('every entry point binds exactly the resources it uses', async () => {
       checked++;
     }
   }
-  assert.ok(checked >= 16, `only ${checked} pipelines checked`);
+  assert.ok(checked >= 15, `only ${checked} pipelines checked`);
 });
