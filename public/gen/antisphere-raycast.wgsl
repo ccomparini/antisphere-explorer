@@ -76,6 +76,37 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
        + nd.linear;
 }
 
+//
+// Random number generation related functions.
+//
+
+fn wangHash(seedIn: u32) -> u32 {
+  var x = seedIn;
+  x = (x ^ 61u) ^ (x >> 16u);
+  x = x * 9u;
+  x = x ^ (x >> 4u);
+  x = x * 0x27d4eb2du;
+  x = x ^ (x >> 15u);
+  return x;
+}
+
+fn randFloat(seed: u32) -> f32 {
+  return f32(wangHash(seed)) * (1.0 / 4294967295.0);
+}
+
+// extracts the bits of the significand of an f32.  it's
+// a quick way to get deterministic u32s from f32.
+fn significand(val: f32) -> u32 {
+  // low 23 bits are fraction:
+  return bitcast<u32>(val) & 0x007FFFFFu;
+}
+
+// deterministic noise function for a 2d surface with f32 coordinates.
+fn noise2d(x: f32, y: f32) -> f32 {
+  return randFloat((significand(x) ^ significand(y)) & 0x007FFf81u);
+}
+
+
 // Antisphere ray caster.
 //
 // An antisphere is nine numbers: a unit axis of revolution, a curvature
@@ -93,6 +124,7 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // Traversal is a solid BSP walk where each node splits the ray at up to two
 // points instead of one. Bindings, in order: camera, nodes, output image,
 // lights, materials, then (traceFrom only) ray queries and ray results.
+
 
 
 
@@ -119,7 +151,9 @@ const KIND_UNLIT    : u32 = 3u;
 // level beneath it.
 const KIND_AMBIENT  : u32 = 4u;
 
-const PATTERN_CHECKER : u32 = 1u;
+const PATTERN_CHECKER          : u32 = 1u;
+const PATTERN_NOISE            : u32 = 2u;
+const PATTERN_INDUSTRIALCARPET : u32 = 3u;
 
 // Debug views. Traversal cost is counted per invocation rather than timed,
 // since timestamps can only be written at pass boundaries.
@@ -503,7 +537,7 @@ fn surfaceMaterial(hit : Hit) -> Material {
 fn ambient(env : i32, N : vec3<f32>) -> vec3<f32> {
   var base = vec3<f32>(0.13, 0.13, 0.14);
   if (env > 0) { base = materials[env].albedo; }
-  return base * (0.77 + 0.23 * max(N.z, 0.0));
+  return base; // * (0.77 + 0.23 * max(N.z, 0.0));
 }
 
 fn surfaceAmbient(hit : Hit) -> vec3<f32> {
@@ -511,11 +545,23 @@ fn surfaceAmbient(hit : Hit) -> vec3<f32> {
 }
 
 fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
-  if (m.pattern == PATTERN_CHECKER) {
-    let ck = fract((floor(hit.surfaceCoords.x) + floor(hit.surfaceCoords.y)) * 0.5);
-    return mix(m.albedo, m.albedo2, step(0.25, ck));
+  var ck = 0.0;
+  switch m.pattern {
+    case PATTERN_CHECKER: {
+      ck = fract((floor(hit.surfaceCoords.x) + floor(hit.surfaceCoords.y)) * 0.5);
+      ck = step(0.25, ck);
+    }
+    case PATTERN_NOISE: {
+      ck = noise2d(hit.surfaceCoords.x, hit.surfaceCoords.y);
+    }
+    case PATTERN_INDUSTRIALCARPET: {
+      ck = randFloat(u32(abs(hit.surfaceCoords.x)) ^ u32(abs(hit.surfaceCoords.y)));
+    }
+    default {
+      // ck = 0.0 -> use plain albedo
+    }
   }
-  return m.albedo;
+  return mix(m.albedo, m.albedo2, ck);
 }
 
 // Sums direct light over every source, with one shadow ray each. A shininess
@@ -692,4 +738,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/antisphere-raycast.wgsls","offset":78,"lines":616}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/random.wgsls","offset":78,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":109,"lines":631}]

@@ -17,6 +17,7 @@
 // lights, materials, then (traceFrom only) ray queries and ray results.
 
 #import "node.wgsls"
+#import "random.wgsls"
 
 // Ordered so the two scalars and the vec2 fill the 16 bytes ahead of the
 // first vec3, which has to start on a 16-byte boundary anyway: 48 bytes.
@@ -41,7 +42,9 @@ const KIND_UNLIT    : u32 = 3u;
 // level beneath it.
 const KIND_AMBIENT  : u32 = 4u;
 
-const PATTERN_CHECKER : u32 = 1u;
+const PATTERN_CHECKER          : u32 = 1u;
+const PATTERN_NOISE            : u32 = 2u;
+const PATTERN_INDUSTRIALCARPET : u32 = 3u;
 
 // Debug views. Traversal cost is counted per invocation rather than timed,
 // since timestamps can only be written at pass boundaries.
@@ -425,7 +428,7 @@ fn surfaceMaterial(hit : Hit) -> Material {
 fn ambient(env : i32, N : vec3<f32>) -> vec3<f32> {
   var base = vec3<f32>(0.13, 0.13, 0.14);
   if (env > 0) { base = materials[env].albedo; }
-  return base * (0.77 + 0.23 * max(N.z, 0.0));
+  return base; // * (0.77 + 0.23 * max(N.z, 0.0));
 }
 
 fn surfaceAmbient(hit : Hit) -> vec3<f32> {
@@ -433,11 +436,23 @@ fn surfaceAmbient(hit : Hit) -> vec3<f32> {
 }
 
 fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
-  if (m.pattern == PATTERN_CHECKER) {
-    let ck = fract((floor(hit.surfaceCoords.x) + floor(hit.surfaceCoords.y)) * 0.5);
-    return mix(m.albedo, m.albedo2, step(0.25, ck));
+  var ck = 0.0;
+  switch m.pattern {
+    case PATTERN_CHECKER: {
+      ck = fract((floor(hit.surfaceCoords.x) + floor(hit.surfaceCoords.y)) * 0.5);
+      ck = step(0.25, ck);
+    }
+    case PATTERN_NOISE: {
+      ck = noise2d(hit.surfaceCoords.x, hit.surfaceCoords.y);
+    }
+    case PATTERN_INDUSTRIALCARPET: {
+      ck = randFloat(u32(abs(hit.surfaceCoords.x)) ^ u32(abs(hit.surfaceCoords.y)));
+    }
+    default {
+      // ck = 0.0 -> use plain albedo
+    }
   }
-  return m.albedo;
+  return mix(m.albedo, m.albedo2, ck);
 }
 
 // Sums direct light over every source, with one shadow ray each. A shininess

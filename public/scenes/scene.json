@@ -28,8 +28,8 @@
         0.15,
         0.18
       ],
-      "pattern": "checker",
-      "scale": 1
+      "pattern": "industrialcarpet",
+      "scale": 0.05
     },
     "stone": {
       "albedo": [
@@ -42,8 +42,7 @@
         0.39,
         0.35
       ],
-      "pattern": "checker",
-      "scale": 0.3846
+      "pattern": "noise"
     },
     "core": {
       "kind": "emissive",
@@ -71,16 +70,29 @@
         0.5,
         0.39
       ],
+      "albedo2": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "pattern": "noise",
+      "scale": 0.2,
       "shininess": 160,
       "specular": 1.6
     },
     "slate": {
       "kind": "glossy",
       "albedo": [
+        0.25,
         0.28,
-        0.31,
-        0.36
+        0.33
       ],
+      "albedo2": [
+        0.31,
+        0.34,
+        0.39
+      ],
+      "pattern": "noise",
       "shininess": 24,
       "specular": 0.5
     },

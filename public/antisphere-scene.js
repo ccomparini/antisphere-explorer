@@ -364,7 +364,12 @@ const INHERIT_MATERIAL = -1;
 // entry silently shadowing what used to be special syntax.
 const LEGACY_PAINT_WORDS = ['partition', 'inherit', 'bare'];
 
-const PATTERNS = { flat: 0, checker: 1 };
+const PATTERNS = {
+  flat             : 0,
+  checker          : 1,
+  noise            : 2,
+  industrialcarpet : 3,
+};
 
 // Each kind names a shading function in the shader. Adding one means a
 // function and a switch arm there, plus an entry here and its parameters.

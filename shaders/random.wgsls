@@ -1,0 +1,30 @@
+//
+// Random number generation related functions.
+//
+
+fn wangHash(seedIn: u32) -> u32 {
+  var x = seedIn;
+  x = (x ^ 61u) ^ (x >> 16u);
+  x = x * 9u;
+  x = x ^ (x >> 4u);
+  x = x * 0x27d4eb2du;
+  x = x ^ (x >> 15u);
+  return x;
+}
+
+fn randFloat(seed: u32) -> f32 {
+  return f32(wangHash(seed)) * (1.0 / 4294967295.0);
+}
+
+// extracts the bits of the significand of an f32.  it's
+// a quick way to get deterministic u32s from f32.
+fn significand(val: f32) -> u32 {
+  // low 23 bits are fraction:
+  return bitcast<u32>(val) & 0x007FFFFFu;
+}
+
+// deterministic noise function for a 2d surface with f32 coordinates.
+fn noise2d(x: f32, y: f32) -> f32 {
+  return randFloat((significand(x) ^ significand(y)) & 0x007FFf81u);
+}
+
