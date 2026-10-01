@@ -1,0 +1,4 @@
+#!/usr/bin/bash
+
+# add build/precomilation commands here as necessary.
+npm run shaders
