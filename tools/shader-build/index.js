@@ -89,8 +89,11 @@ export async function buildAll(config, read, { warn = console.warn } = {}) {
       '// Edit the structs under shaders/ and run `npm run shaders`. See',
       '// tools/shader-build/emit-js.js for what each class offers.',
     ].join('\n');
-    files.push({ path: config.layouts,
-                 content: emitModule([...shared.values()].map((s) => s.layout), header) + emitBindings(bindings) });
+    files.push({
+      path: config.layouts,
+      content: emitModule([...shared.values()].map((s) => s.layout), header)
+             + emitBindings(bindings)
+    });
   }
   return files;
 }

@@ -284,9 +284,18 @@ export class ASScene {
     }));
     device.queue.writeBuffer(rq.rayBuf, 0, queries.buffer);
 
-    const group = bindGroup(device, pipelines.traceFrom, BINDINGS['antisphere-raycast'], 'traceFrom', {
-      nodes: this.nodeBuf, materials: this.matBuf, rayQueries: rq.rayBuf, rayResults: rq.resultBuf,
-    });
+    const group = bindGroup(
+      device,
+      pipelines.traceFrom,
+      BINDINGS['antisphere-raycast'],
+      'traceFrom', {
+        nodes: this.nodeBuf,
+        materials: this.matBuf,
+        rayQueries: rq.rayBuf,
+        rayResults:
+        rq.resultBuf,
+      }
+    );
 
     const bytes = rays.length * Seg.STRIDE;
     const enc = device.createCommandEncoder();
@@ -365,9 +374,16 @@ export class ASScene {
     }));
     device.queue.writeBuffer(buffers.queryBuf, 0, queries.buffer);
 
-    const group = bindGroup(device, pipelines.overlapFrom, BINDINGS.overlap, 'overlapFrom', {
-      nodes: this.nodeBuf, overlapQueries: buffers.queryBuf, overlapResults: buffers.resultBuf,
-    });
+    const group = bindGroup(
+      device,
+      pipelines.overlapFrom,
+      BINDINGS['overlap'],
+      'overlapFrom', {
+        nodes: this.nodeBuf,
+        overlapQueries: buffers.queryBuf,
+        overlapResults: buffers.resultBuf,
+      }
+    );
 
     const bytes = pairs.length * OverlapResult.STRIDE;
     const enc = device.createCommandEncoder();

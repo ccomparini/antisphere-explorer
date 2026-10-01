@@ -147,9 +147,16 @@ export class ASRenderer {
         this._sceneGen === this.scene.generation) return;
 
     this.computeBG = this._computeBindGroup(pipelines.compute, this.tex.createView());
-    this.blitBG = bindGroup(device, pipelines.blit, BINDINGS.blit, ['vs', 'fs'], {
-      src: this.tex.createView(), samp: this.sampler,
-    });
+    this.blitBG = bindGroup(
+      device, pipelines.blit,
+      BINDINGS.blit, [
+        'vs',
+        'fs'
+      ], {
+        src: this.tex.createView(),
+        samp: this.sampler,
+      }
+    );
     this._pipeGen = this.context.generation;
     this._sceneGen = this.scene.generation;
   }
@@ -162,10 +169,18 @@ export class ASRenderer {
 
   // main() in antisphere-raycast.wgsls, drawing into `view`.
   _computeBindGroup(pipeline, view) {
-    return bindGroup(this.context.device, pipeline, BINDINGS['antisphere-raycast'], 'main', {
-      cam: this.cam.buffer, nodes: this.scene.nodeBuf, outTex: view,
-      lights: this.scene.lightBuf, materials: this.scene.matBuf,
-    });
+    return bindGroup(
+      this.context.device,
+      pipeline,
+      BINDINGS['antisphere-raycast'],
+      'main', {
+        cam: this.cam.buffer,
+        nodes: this.scene.nodeBuf,
+        outTex: view,
+        lights: this.scene.lightBuf,
+        materials: this.scene.matBuf,
+      }
+    );
   }
 
   /**
