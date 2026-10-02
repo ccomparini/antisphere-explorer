@@ -330,8 +330,10 @@ fn contactAt(pa : Path, pb : Path, p : vec3<f32>) -> Contact {
 // along each direction K' curves in, x is linear in the step s where the
 // gradient is s out; h(x(s)) = 0 is then a quadratic in s, whose positive
 // root is the point. Returns p when there is none.
-fn supportPoint(r : Region, out : vec3<f32>, p : vec3<f32>) -> vec3<f32> {
+fn supportPoint(r : Region, out : vec3<f32>, at : vec3<f32>) -> vec3<f32> {
   let nd = nodes[r.node];
+  // Worked about the node's anchor (see Node), and returned in the world.
+  let p = at - nd.anchor;
   let a = nd.axis;
   let alongA = r.sign * (nd.curvature_perp + nd.curvature_delta);   // K' along the axis
   let across = r.sign * nd.curvature_perp;                            // and square to it
@@ -343,7 +345,7 @@ fn supportPoint(r : Region, out : vec3<f32>, p : vec3<f32>) -> vec3<f32> {
   var x0 = vec3<f32>(0.0);
   var x1 = vec3<f32>(0.0);
   if (isotropic) {
-    if (abs(across) < 1e-20) { return p; }                          // a plane: flat everywhere
+    if (abs(across) < 1e-20) { return at; }                          // a plane: flat everywhere
     x0 = -lin / (2.0 * across);
     x1 = out / (2.0 * across);
   } else {
@@ -357,18 +359,18 @@ fn supportPoint(r : Region, out : vec3<f32>, p : vec3<f32>) -> vec3<f32> {
     } else { x0 = x0 + pc; }
   }
   // h(x0 + s x1) = A s^2 + B s + C, from three samples.
-  let h0 = r.sign * fAt(nd, x0);
-  let hp = r.sign * fAt(nd, x0 + x1);
-  let hm = r.sign * fAt(nd, x0 - x1);
+  let h0 = r.sign * fAbout(nd, x0);
+  let hp = r.sign * fAbout(nd, x0 + x1);
+  let hm = r.sign * fAbout(nd, x0 - x1);
   let qa = 0.5 * (hp + hm) - h0;
   let qb = 0.5 * (hp - hm);
   let disc = qb * qb - 4.0 * qa * h0;
-  if (abs(qa) < 1e-20 || disc < 0.0) { return p; }
+  if (abs(qa) < 1e-20 || disc < 0.0) { return at; }
   let root = (-qb + sqrt(disc)) / (2.0 * qa);
   let other = (-qb - sqrt(disc)) / (2.0 * qa);
   let s = max(root, other);
-  if (s <= 0.0) { return p; }
-  return x0 + s * x1;
+  if (s <= 0.0) { return at; }
+  return nd.anchor + x0 + s * x1;
 }
 
 // Whether a region curves along direction `out`, so that its support
@@ -485,6 +487,13 @@ fn pathContact(pa : Path, pb : Path) -> Contact {
 // three of them meet at a point, so twelve is 220 points.
 const MAX_CORNER_PLANES : u32 = 12u;
 
+// A plane's constant about the world origin, its node's being about its
+// anchor (see Node): n.(x - a) + d is n.x + (d - n.a). A plane's anchor is
+// the origin, as packNodes() chooses, but this doesn't rely on it.
+fn planeConst(nd : Node) -> f32 {
+  return nd.const_term - dot(nd.linear, nd.anchor);
+}
+
 // If path pv is all planes, the deepest of its corners - points where
 // three of them meet, and in all the rest - that makes a contact between
 // pa and pb (one of which pv is); NO_CONTACT otherwise.
@@ -499,15 +508,15 @@ fn deepestCorner(pv : Path, pa : Path, pb : Path) -> Contact {
   for (var i = 0u; i < pv.count; i = i + 1u) {
     let ri = regions[pv.first + i];
     let ni = ri.sign * nodes[ri.node].linear;
-    let di = -ri.sign * nodes[ri.node].const_term;
+    let di = -ri.sign * planeConst(nodes[ri.node]);
     for (var j = i + 1u; j < pv.count; j = j + 1u) {
       let rj = regions[pv.first + j];
       let nj = rj.sign * nodes[rj.node].linear;
-      let dj = -rj.sign * nodes[rj.node].const_term;
+      let dj = -rj.sign * planeConst(nodes[rj.node]);
       for (var k = j + 1u; k < pv.count; k = k + 1u) {
         let rk = regions[pv.first + k];
         let nk = rk.sign * nodes[rk.node].linear;
-        let dk = -rk.sign * nodes[rk.node].const_term;
+        let dk = -rk.sign * planeConst(nodes[rk.node]);
         let jk = cross(nj, nk);
         let det = dot(ni, jk);
         if (abs(det) < 1e-6 * length(ni) * length(nj) * length(nk)) { continue; }   // parallel, near enough

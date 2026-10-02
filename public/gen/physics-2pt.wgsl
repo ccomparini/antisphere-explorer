@@ -30,6 +30,12 @@ struct Node {
   //   centre  = -linear / (2*curvature_perp)     (spheres; see frame())
   //   normal  = linear                           (planes)
   //
+  // where R is measured from the node's `anchor`, below - a point near its
+  // own surface - not from the world origin: H(P) is the above at
+  // R = P - anchor. Expanded about the origin, a quadric 500 m out has
+  // terms of 250000 k cancelling to the small H near its surface, and f32
+  // keeps few of the digits; about the anchor nothing cancels.
+  //
   // curvature_delta is also the test for "does this primitive have an axis
   // at all": zero means every direction is alike and `axis` is arbitrary.
   axis            : vec3<f32>,  // unit axis of revolution
@@ -52,6 +58,11 @@ struct Node {
   // implicitly 0.
   material        : i32,
 
+  // Where R is measured from (see above): the quadric's centre where it has
+  // one, else a point of its axis or middle plane near the object it is
+  // part of; the origin for a plane. packNodes() chooses it.
+  anchor          : vec3<f32>,
+
   // Precomputed index of the "ambient" material in force at this node.
   // Used for applying region scoped lighting or other effects.
   env             : i32,
@@ -61,16 +72,25 @@ struct Node {
 // along a ray it works with the A/B/C coefficients of the same polynomial
 // instead, which is cheaper. Kept because it is the definition everything
 // else is derived from, and for callers that have a point rather than a ray.
-fn fAt(nd : Node, R : vec3<f32>) -> f32 {
+fn fAt(nd : Node, P : vec3<f32>) -> f32 {
+  return fAbout(nd, P - nd.anchor);
+}
+
+// The same at R, a point already measured from the node's anchor. Split
+// along the axis and across it, k_perp |R across|^2 + k_par (a.R)^2, so a
+// cylinder never subtracts two large squares (see trace()).
+fn fAbout(nd : Node, R : vec3<f32>) -> f32 {
   let along = dot(nd.axis, R);
-  return nd.curvature_perp * dot(R, R) + nd.curvature_delta * along * along
+  let across = R - along * nd.axis;
+  return nd.curvature_perp * dot(across, across) + (nd.curvature_perp + nd.curvature_delta) * along * along
        + dot(nd.linear, R) + nd.const_term;
 }
 
 // grad H = 2KR + 2c, which is exactly the stored coefficients. Reduces to
 // 2kR + 2c for a sphere and to the plane's own normal when both curvatures
 // are zero. Callers normalize, so the factor of two is harmless.
-fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
+fn gradAt(nd : Node, P : vec3<f32>) -> vec3<f32> {
+  let R = P - nd.anchor;
   return 2.0 * nd.curvature_perp * R
        + 2.0 * nd.curvature_delta * dot(nd.axis, R) * nd.axis
        + nd.linear;
@@ -120,20 +140,27 @@ fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
 // oracle this is checked against; keep the two in step.
 // ---------------------------------------------------------------------------
 
-// The homogeneous matrix of a node's region, as four columns.
+// The homogeneous matrix of a node's region, as four columns, in world
+// coordinates. The node's coefficients are about its anchor a (see Node):
+// H = (R - a).K.(R - a) + 2c.(R - a) + d, which about the origin has
+// c - K a and d - 2c.a + a.K.a.
 fn regionMatrix(nd : Node, sign : f32) -> mat4x4<f32> {
-  let c = 0.5 * nd.linear;                    // the node stores 2c
   let n = nd.axis;
   let dk = nd.curvature_delta;
   let k = nd.curvature_perp;
   let K0 = vec3<f32>(k + dk * n.x * n.x, dk * n.x * n.y, dk * n.x * n.z);
   let K1 = vec3<f32>(dk * n.y * n.x, k + dk * n.y * n.y, dk * n.y * n.z);
   let K2 = vec3<f32>(dk * n.z * n.x, dk * n.z * n.y, k + dk * n.z * n.z);
+  let a = nd.anchor;
+  let ka = k * a + dk * dot(n, a) * n;
+  let local = 0.5 * nd.linear;                // the node stores 2c
+  let c = local - ka;
+  let d = nd.const_term - 2.0 * dot(local, a) + dot(a, ka);
   return mat4x4<f32>(
     sign * vec4<f32>(K0, c.x),
     sign * vec4<f32>(K1, c.y),
     sign * vec4<f32>(K2, c.z),
-    sign * vec4<f32>(c, nd.const_term));
+    sign * vec4<f32>(c, d));
 }
 
 fn largestEntry(m : mat4x4<f32>) -> f32 {
@@ -654,8 +681,10 @@ fn contactAt(pa : Path, pb : Path, p : vec3<f32>) -> Contact {
 // along each direction K' curves in, x is linear in the step s where the
 // gradient is s out; h(x(s)) = 0 is then a quadratic in s, whose positive
 // root is the point. Returns p when there is none.
-fn supportPoint(r : Region, out : vec3<f32>, p : vec3<f32>) -> vec3<f32> {
+fn supportPoint(r : Region, out : vec3<f32>, at : vec3<f32>) -> vec3<f32> {
   let nd = nodes[r.node];
+  // Worked about the node's anchor (see Node), and returned in the world.
+  let p = at - nd.anchor;
   let a = nd.axis;
   let alongA = r.sign * (nd.curvature_perp + nd.curvature_delta);   // K' along the axis
   let across = r.sign * nd.curvature_perp;                            // and square to it
@@ -667,7 +696,7 @@ fn supportPoint(r : Region, out : vec3<f32>, p : vec3<f32>) -> vec3<f32> {
   var x0 = vec3<f32>(0.0);
   var x1 = vec3<f32>(0.0);
   if (isotropic) {
-    if (abs(across) < 1e-20) { return p; }                          // a plane: flat everywhere
+    if (abs(across) < 1e-20) { return at; }                          // a plane: flat everywhere
     x0 = -lin / (2.0 * across);
     x1 = out / (2.0 * across);
   } else {
@@ -681,18 +710,18 @@ fn supportPoint(r : Region, out : vec3<f32>, p : vec3<f32>) -> vec3<f32> {
     } else { x0 = x0 + pc; }
   }
   // h(x0 + s x1) = A s^2 + B s + C, from three samples.
-  let h0 = r.sign * fAt(nd, x0);
-  let hp = r.sign * fAt(nd, x0 + x1);
-  let hm = r.sign * fAt(nd, x0 - x1);
+  let h0 = r.sign * fAbout(nd, x0);
+  let hp = r.sign * fAbout(nd, x0 + x1);
+  let hm = r.sign * fAbout(nd, x0 - x1);
   let qa = 0.5 * (hp + hm) - h0;
   let qb = 0.5 * (hp - hm);
   let disc = qb * qb - 4.0 * qa * h0;
-  if (abs(qa) < 1e-20 || disc < 0.0) { return p; }
+  if (abs(qa) < 1e-20 || disc < 0.0) { return at; }
   let root = (-qb + sqrt(disc)) / (2.0 * qa);
   let other = (-qb - sqrt(disc)) / (2.0 * qa);
   let s = max(root, other);
-  if (s <= 0.0) { return p; }
-  return x0 + s * x1;
+  if (s <= 0.0) { return at; }
+  return nd.anchor + x0 + s * x1;
 }
 
 // Whether a region curves along direction `out`, so that its support
@@ -809,6 +838,13 @@ fn pathContact(pa : Path, pb : Path) -> Contact {
 // three of them meet at a point, so twelve is 220 points.
 const MAX_CORNER_PLANES : u32 = 12u;
 
+// A plane's constant about the world origin, its node's being about its
+// anchor (see Node): n.(x - a) + d is n.x + (d - n.a). A plane's anchor is
+// the origin, as packNodes() chooses, but this doesn't rely on it.
+fn planeConst(nd : Node) -> f32 {
+  return nd.const_term - dot(nd.linear, nd.anchor);
+}
+
 // If path pv is all planes, the deepest of its corners - points where
 // three of them meet, and in all the rest - that makes a contact between
 // pa and pb (one of which pv is); NO_CONTACT otherwise.
@@ -823,15 +859,15 @@ fn deepestCorner(pv : Path, pa : Path, pb : Path) -> Contact {
   for (var i = 0u; i < pv.count; i = i + 1u) {
     let ri = regions[pv.first + i];
     let ni = ri.sign * nodes[ri.node].linear;
-    let di = -ri.sign * nodes[ri.node].const_term;
+    let di = -ri.sign * planeConst(nodes[ri.node]);
     for (var j = i + 1u; j < pv.count; j = j + 1u) {
       let rj = regions[pv.first + j];
       let nj = rj.sign * nodes[rj.node].linear;
-      let dj = -rj.sign * nodes[rj.node].const_term;
+      let dj = -rj.sign * planeConst(nodes[rj.node]);
       for (var k = j + 1u; k < pv.count; k = k + 1u) {
         let rk = regions[pv.first + k];
         let nk = rk.sign * nodes[rk.node].linear;
-        let dk = -rk.sign * nodes[rk.node].const_term;
+        let dk = -rk.sign * planeConst(nodes[rk.node]);
         let jk = cross(nj, nk);
         let det = dot(ni, jk);
         if (abs(det) < 1e-6 * length(ni) * length(nj) * length(nk)) { continue; }   // parallel, near enough
@@ -1104,17 +1140,14 @@ fn quatFromTo(a : vec3<f32>, b : vec3<f32>) -> vec4<f32> {
 }
 
 // A node given in the body's coordinates, placed with its local origin at
-// o and turned by q. With K = k I + dk a a^T: the axis and the linear term
-// turn, the curvatures stay, and translating by o takes linear to
-// linear - 2 K o and const to const + o.K.o - linear.o.
+// o and turned by q. Its coefficients are about its anchor (see Node), so
+// the axis, the linear term and the anchor turn, the anchor moves to o,
+// and the curvatures and the constant stay as they are.
 fn placeTurned(nd : Node, o : vec3<f32>, q : vec4<f32>) -> Node {
   var w = nd;
-  let a = quatRotate(q, nd.axis);
-  let lin = quatRotate(q, nd.linear);
-  let ko = nd.curvature_perp * o + nd.curvature_delta * dot(a, o) * a;
-  w.axis = a;
-  w.linear = lin - 2.0 * ko;
-  w.const_term = nd.const_term + dot(o, ko) - dot(lin, o);
+  w.axis = quatRotate(q, nd.axis);
+  w.linear = quatRotate(q, nd.linear);
+  w.anchor = o + quatRotate(q, nd.anchor);
   return w;
 }
 
@@ -1487,4 +1520,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":246},{"path":"shaders/collision.wgsls","offset":324,"lines":542},{"path":"shaders/physics-2pt.wgsls","offset":866,"lines":623}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/overlap.wgsls","offset":98,"lines":253},{"path":"shaders/collision.wgsls","offset":351,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":902,"lines":620}]

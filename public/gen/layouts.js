@@ -109,7 +109,8 @@ export class Node {
     inside: Object.freeze({ offset: 36, type: 'u32' }),
     outside: Object.freeze({ offset: 40, type: 'u32' }),
     material: Object.freeze({ offset: 44, type: 'i32' }),
-    env: Object.freeze({ offset: 48, type: 'i32' }),
+    anchor: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
+    env: Object.freeze({ offset: 60, type: 'i32' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Node.STRIDE)); }
@@ -146,8 +147,13 @@ export class Node {
     if (values.material !== undefined) {
       i32[w + 11] = values.material;
     }
+    if (values.anchor !== undefined) {
+      f32[w + 12] = values.anchor[0];
+      f32[w + 13] = values.anchor[1];
+      f32[w + 14] = values.anchor[2];
+    }
     if (values.env !== undefined) {
-      i32[w + 12] = values.env;
+      i32[w + 15] = values.env;
     }
   }
 
@@ -162,7 +168,8 @@ export class Node {
       inside: u32[w + 9],
       outside: u32[w + 10],
       material: i32[w + 11],
-      env: i32[w + 12],
+      anchor: [f32[w + 12], f32[w + 13], f32[w + 14]],
+      env: i32[w + 15],
     };
   }
 }

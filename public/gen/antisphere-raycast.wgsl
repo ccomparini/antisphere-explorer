@@ -30,6 +30,12 @@ struct Node {
   //   centre  = -linear / (2*curvature_perp)     (spheres; see frame())
   //   normal  = linear                           (planes)
   //
+  // where R is measured from the node's `anchor`, below - a point near its
+  // own surface - not from the world origin: H(P) is the above at
+  // R = P - anchor. Expanded about the origin, a quadric 500 m out has
+  // terms of 250000 k cancelling to the small H near its surface, and f32
+  // keeps few of the digits; about the anchor nothing cancels.
+  //
   // curvature_delta is also the test for "does this primitive have an axis
   // at all": zero means every direction is alike and `axis` is arbitrary.
   axis            : vec3<f32>,  // unit axis of revolution
@@ -52,6 +58,11 @@ struct Node {
   // implicitly 0.
   material        : i32,
 
+  // Where R is measured from (see above): the quadric's centre where it has
+  // one, else a point of its axis or middle plane near the object it is
+  // part of; the origin for a plane. packNodes() chooses it.
+  anchor          : vec3<f32>,
+
   // Precomputed index of the "ambient" material in force at this node.
   // Used for applying region scoped lighting or other effects.
   env             : i32,
@@ -61,16 +72,25 @@ struct Node {
 // along a ray it works with the A/B/C coefficients of the same polynomial
 // instead, which is cheaper. Kept because it is the definition everything
 // else is derived from, and for callers that have a point rather than a ray.
-fn fAt(nd : Node, R : vec3<f32>) -> f32 {
+fn fAt(nd : Node, P : vec3<f32>) -> f32 {
+  return fAbout(nd, P - nd.anchor);
+}
+
+// The same at R, a point already measured from the node's anchor. Split
+// along the axis and across it, k_perp |R across|^2 + k_par (a.R)^2, so a
+// cylinder never subtracts two large squares (see trace()).
+fn fAbout(nd : Node, R : vec3<f32>) -> f32 {
   let along = dot(nd.axis, R);
-  return nd.curvature_perp * dot(R, R) + nd.curvature_delta * along * along
+  let across = R - along * nd.axis;
+  return nd.curvature_perp * dot(across, across) + (nd.curvature_perp + nd.curvature_delta) * along * along
        + dot(nd.linear, R) + nd.const_term;
 }
 
 // grad H = 2KR + 2c, which is exactly the stored coefficients. Reduces to
 // 2kR + 2c for a sphere and to the plane's own normal when both curvatures
 // are zero. Callers normalize, so the factor of two is harmless.
-fn gradAt(nd : Node, R : vec3<f32>) -> vec3<f32> {
+fn gradAt(nd : Node, P : vec3<f32>) -> vec3<f32> {
+  let R = P - nd.anchor;
   return 2.0 * nd.curvature_perp * R
        + 2.0 * nd.curvature_delta * dot(nd.axis, R) * nd.axis
        + nd.linear;
@@ -281,12 +301,6 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
   // left to find.
   var found : Seg = Seg(0u, -1.0, tMax);
 
-  // Loop-invariant across every node visited: these depend on the ray, not
-  // on the node, so they are hoisted out rather than recomputed inside the
-  // B and C coefficients each time round.
-  let originDotDir = dot(O, D);
-  let originSq = dot(O, O);
-
   // The root is held in a variable rather than seeded onto the stack, which
   // is what lets a length check at the top of the loop go. The push below is
   // the only thing that ever writes the stack, and it rejects anything
@@ -331,16 +345,25 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
 
       // Substituting R = O + tD into H gives A t^2 + B t + C (|D| = 1). A
       // plane is the quadratic degenerating to linear, and so is a cylinder
-      // or a paraboloid to a ray that runs along its axis.
+      // or a paraboloid to a ray that runs along its axis. R is measured
+      // from the node's anchor (see Node), so the ray's origin is too, and
+      // split along the axis and across it: k_perp |R|^2 + k_delta (a.R)^2
+      // is k_perp |R across|^2 + k_par (a.R)^2, which for a cylinder (k_par
+      // 0) never subtracts two large squares, wherever along its axis the
+      // anchor is. A few more operations a node than with the origin's
+      // terms hoisted out of the loop, for C without cancellation 500 m out.
+      let o = O - nd.anchor;
       let axisDotDir = dot(nd.axis, D);
-      let axisDotOrigin = dot(nd.axis, O);
+      let axisDotOrigin = dot(nd.axis, o);
+      let across = o - axisDotOrigin * nd.axis;
+      let k_par = nd.curvature_perp + nd.curvature_delta;
       let A = nd.curvature_perp + nd.curvature_delta * axisDotDir * axisDotDir;
-      let B = 2.0 * (nd.curvature_perp * originDotDir
-                     + nd.curvature_delta * axisDotOrigin * axisDotDir)
+      let B = 2.0 * (nd.curvature_perp * dot(across, D)
+                     + k_par * axisDotOrigin * axisDotDir)
               + dot(nd.linear, D);
-      let C = nd.curvature_perp * originSq
-              + nd.curvature_delta * axisDotOrigin * axisDotOrigin
-              + dot(nd.linear, O) + nd.const_term;
+      let C = nd.curvature_perp * dot(across, across)
+              + k_par * axisDotOrigin * axisDotOrigin
+              + dot(nd.linear, o) + nd.const_term;
 
       // Roots start beyond any segment a ray can carry, so a miss, a ray
       // parallel to a plane, and a plane's sentinel far root are all rejected
@@ -461,6 +484,9 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
 // hyperboloid - gets the natural cylindrical pair: the angle around the axis
 // and the distance along it.
 fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
+  // The node's coefficients are about its anchor (see Node), so the point is
+  // too. (A plane's anchor is the origin.)
+  let R = P - nd.anchor;
   // A tangent basis for an axis or a normal, avoiding the degenerate cross.
   var axis = nd.axis;
   if (nd.curvature_perp == 0.0 && nd.curvature_delta == 0.0) {
@@ -473,12 +499,12 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
   let b = cross(axis, t);
 
   if (nd.curvature_perp == 0.0 && nd.curvature_delta == 0.0) {
-    return vec2<f32>(dot(P, t), dot(P, b));
+    return vec2<f32>(dot(R, t), dot(R, b));
   }
   if (nd.curvature_delta == 0.0) {
     // Isotropic: a sphere about -c/k, in longitude and latitude as before.
     let centre = nd.linear / (-2.0 * nd.curvature_perp);
-    let d = normalize(P - centre);
+    let d = normalize(R - centre);
     return vec2<f32>(atan2(d.y, d.x), asin(clamp(d.z, -1.0, 1.0)));
   }
 
@@ -494,8 +520,13 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
   if (nd.curvature_perp != 0.0) {
     anchor = anchor - (c - axial * axis) / nd.curvature_perp;
   }
-  let u = P - anchor;
-  return vec2<f32>(atan2(dot(u, b), dot(u, t)), dot(u, axis));
+  let u = R - anchor;
+  // Along an axis with no curvature (a cylinder's), the old anchor was the
+  // axis's nearest point to the world origin; measuring from there keeps a
+  // pattern where it was, whichever point of the axis the node is anchored at.
+  var v = dot(u, axis);
+  if (k_par == 0.0) { v = v + dot(nd.anchor, axis); }
+  return vec2<f32>(atan2(dot(u, b), dot(u, t)), v);
 }
 
 // ---------------------------------------------------------------------------
@@ -738,4 +769,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/random.wgsls","offset":78,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":109,"lines":631}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/random.wgsls","offset":98,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":129,"lines":642}]

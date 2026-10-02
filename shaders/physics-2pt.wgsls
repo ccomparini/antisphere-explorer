@@ -238,17 +238,14 @@ fn quatFromTo(a : vec3<f32>, b : vec3<f32>) -> vec4<f32> {
 }
 
 // A node given in the body's coordinates, placed with its local origin at
-// o and turned by q. With K = k I + dk a a^T: the axis and the linear term
-// turn, the curvatures stay, and translating by o takes linear to
-// linear - 2 K o and const to const + o.K.o - linear.o.
+// o and turned by q. Its coefficients are about its anchor (see Node), so
+// the axis, the linear term and the anchor turn, the anchor moves to o,
+// and the curvatures and the constant stay as they are.
 fn placeTurned(nd : Node, o : vec3<f32>, q : vec4<f32>) -> Node {
   var w = nd;
-  let a = quatRotate(q, nd.axis);
-  let lin = quatRotate(q, nd.linear);
-  let ko = nd.curvature_perp * o + nd.curvature_delta * dot(a, o) * a;
-  w.axis = a;
-  w.linear = lin - 2.0 * ko;
-  w.const_term = nd.const_term + dot(o, ko) - dot(lin, o);
+  w.axis = quatRotate(q, nd.axis);
+  w.linear = quatRotate(q, nd.linear);
+  w.anchor = o + quatRotate(q, nd.anchor);
   return w;
 }
 

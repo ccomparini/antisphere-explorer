@@ -1841,6 +1841,70 @@ export function packMaterials(list) {
   return views.buffer;
 }
 
+// Where each node's coefficients are measured from: its anchor, a point
+// near its own surface. Expanded about the world origin, a quadric 500 m
+// out has terms of 250000 k that cancel to the small H near its surface,
+// and in f32 that leaves few correct digits: hits wander by centimetres,
+// grazing rays flip, and physlab's rocket flickered at rest. About a point
+// near the surface nothing cancels, wherever the node is.
+//
+// A quadric's anchor is its centre where it has one - a sphere's, a
+// spheroid's or a hyperboloid's centre, a cone's apex, a paraboloid's
+// vertex. A cylinder or a slab has a centre line or plane but no point;
+// its anchor is that one's point nearest the origin, which may be far from
+// the object - but the shaders take a cylinder's H across its axis and a
+// slab's along it, so the part of the anchor in the free direction never
+// enters (see trace()). A plane's anchor is the origin, as before: its
+// terms are linear, and don't cancel.
+//
+// And a shape whose centre is within twice its size of the origin keeps
+// the origin, as before: about the origin is then as good, and better for
+// a big one whose surface passes near it - a planetoid's surface is 500 m
+// from its centre, but its points by the origin are right there.
+export function anchorOf({ axis: n, k_par, k_perp, linear: c, constant }) {
+  // A curvature negligible next to the other is none: turning a cylinder
+  // leaves its k_par at 1e-16 or so, not 0, and dividing by that put its
+  // anchor 4e15 m away.
+  const most = Math.max(Math.abs(k_par), Math.abs(k_perp));
+  if (most === 0) return [0, 0, 0];                               // a plane
+  const curvedAlong = Math.abs(k_par) > 1e-9 * most;
+  const curvedAcross = Math.abs(k_perp) > 1e-9 * most;
+  const dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const along = dot(n, c);
+  let a = [0, 0, 0];
+  if (curvedAlong) {
+    // Along the axis: where the axial part of H turns.
+    const s = -along / k_par - dot(n, a);
+    a = a.map((v, i) => v + s * n[i]);
+  }
+  if (curvedAcross) {
+    // Across it: on the axis (or, isotropic, at the centre).
+    const t = dot(n, a);
+    a = n.map((v, i) => t * v - (c[i] - along * v) / k_perp);
+  }
+  // A paraboloid's linear term along its axis is k times its focal length
+  // or so; a cylinder's is 0, give or take rounding - which is a large part
+  // of all of its linear term when its axis passes near the origin. So
+  // compare with k times a length: a metre, or how far out the axis is.
+  if (!curvedAlong && curvedAcross && Math.abs(along) > 1e-9 * most * Math.max(1, Math.hypot(...a))) {
+    // A paraboloid: along its axis to its vertex, where H = 0.
+    const s = -quadricAt({ axis: n, k_par, k_perp, linear: c, constant }, a) / (2 * along);
+    a = a.map((v, i) => v + s * n[i]);
+  }
+  // Its size: how far its surface is from the centre, as for a sphere
+  // (H = k (d^2 - r^2)) - 0 for a cone or a paraboloid, whose surface goes
+  // through it.
+  const size = Math.sqrt(Math.abs(quadricAt({ axis: n, k_par, k_perp, linear: c, constant }, a)) / most);
+  return Math.hypot(...a) <= 2 * size ? [0, 0, 0] : a;
+}
+
+// H at a point, from a prim: x.K.x + 2 c.x + d.
+function quadricAt({ axis: n, k_par, k_perp, linear: c, constant }, x) {
+  const ax = n[0] * x[0] + n[1] * x[1] + n[2] * x[2];
+  return k_perp * (x[0] * x[0] + x[1] * x[1] + x[2] * x[2]) + (k_par - k_perp) * ax * ax +
+         2 * (c[0] * x[0] + c[1] * x[1] + c[2] * x[2]) + constant;
+}
+
 // A node as the GPU stores it: shaders/node.wgsls's Node, whose layout
 // tools/build-shaders.mjs generates into the Node class, so the offsets and
 // the 64-byte stride live in one place.
@@ -1850,20 +1914,26 @@ export function packMaterials(list) {
 // the forms every runtime formula wants (see Node and trace() in the
 // shaders). Both are exactly recoverable, so nothing is lost, and the
 // isotropic case falls out as curvature_delta == 0, which is also what tells
-// the shader the axis can be ignored.
+// the shader the axis can be ignored. And linear and const are about the
+// node's anchor (anchorOf()): with R = anchor + u, H is u.K.u + 2 c'.u
+// + d' for c' = K anchor + c and d' = H(anchor), worked out here in f64.
 //
 // inside/outside are 0 or a real index (see flatten()'s doc comment for
 // what 0 means on each side).
 export function packNodes(list) {
   const views = Node.allocate(list.length);
   list.forEach((nd, j) => {
-    const { axis, k_par, k_perp, linear, constant } = nd.prim;
+    const { axis, k_par, k_perp, linear } = nd.prim;
+    const a = anchorOf(nd.prim);
+    const along = axis[0] * a[0] + axis[1] * a[1] + axis[2] * a[2];
+    const shifted = [0, 1, 2].map((i) => k_perp * a[i] + (k_par - k_perp) * along * axis[i] + linear[i]);
     Node.write(views, j, {
       axis,
       curvature_perp: k_perp,
-      linear: [2 * linear[0], 2 * linear[1], 2 * linear[2]],   // 2c
+      linear: shifted.map((v) => 2 * v),                       // 2c', about the anchor
       curvature_delta: k_par - k_perp,
-      const_term: constant,
+      const_term: quadricAt(nd.prim, a),
+      anchor: a,
       inside: nd.inside,
       outside: nd.outside,
       material: nd.material,
