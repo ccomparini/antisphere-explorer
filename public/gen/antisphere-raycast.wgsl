@@ -283,6 +283,10 @@ var<private> traceStack : array<Seg, TRACE_STACK_SIZE>;
 // surfaces in trace().
 const DEGENERATE : f32 = 1e-12;
 
+// Which nodes are the same surface: an id per node, the same for all the
+// copies and complements of one (packSurfaces() in antisphere-scene.js).
+@group(0) @binding(5) var<storage, read> surfaces : array<u32>;
+
 // The first solid thing along a ray, as a Seg: node is the node whose
 // region the ray entered (never tagged), t0 how far along the ray it
 // entered, and t1 where the segment it was found in ends. t1 is not
@@ -291,7 +295,14 @@ const DEGENERATE : f32 = 1e-12;
 // node == 0 is the one test for a miss. t0 and t1 mean nothing then: a
 // provisional hit that turned out hollow leaves its distances behind, and
 // resetting them costs time for a value no caller should read.
-fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
+//
+fn trace(
+  O : vec3<f32>,
+  D : vec3<f32>,
+  tMin : f32,
+  tMax : f32,
+  fromSurface: u32
+) -> Seg {
   // found.node == 0 means "no hit (yet)" - node 0 is reserved (see Node's
   // doc comment) so no real crossing can ever claim it. Segments pop in
   // non-decreasing t (see the loop below), so the first transition into
@@ -361,9 +372,16 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       let B = 2.0 * (nd.curvature_perp * dot(across, D)
                      + k_par * axisDotOrigin * axisDotDir)
               + dot(nd.linear, D);
-      let C = nd.curvature_perp * dot(across, across)
+      var C = nd.curvature_perp * dot(across, across)
               + k_par * axisDotOrigin * axisDotOrigin
               + dot(nd.linear, o) + nd.const_term;
+      // if we're tracing from a surface (eg for shadows or reflection), to
+      // avoid precision-related false intersections at the point from which
+      // we're tracing, we 0 the C we just calculated (TODO: maybe don't calculate
+      // it in the first place) so that we don't register "close" intersections
+      // with that surface.  Note that we want to still check the "far" intersection
+      // (since a surface can be curves such that it shadows itself).
+      if (fromSurface != 0u && surfaces[descent_node] == fromSurface) { C = 0.0; }
 
       // Roots start beyond any segment a ray can carry, so a miss, a ray
       // parallel to a plane, and a plane's sentinel far root are all rejected
@@ -465,17 +483,18 @@ struct RayQuery {
   tMin      : f32,         // distance along d at which to start
   direction : vec3<f32>,   // the direction of the ray
   tMax      : f32,         // maximum distance along d to check
+  fromNode  : u32,         // if != 0, the node we're tracing -from-
 };
 
-@group(0) @binding(5) var<storage, read> rayQueries : array<RayQuery>;
-@group(0) @binding(6) var<storage, read_write> rayResults : array<Seg>;
+@group(0) @binding(6) var<storage, read> rayQueries : array<RayQuery>;
+@group(0) @binding(7) var<storage, read_write> rayResults : array<Seg>;
 
 @compute @workgroup_size(64)
 fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax);
+  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode]);
 }
 
 // Surface parameterization from the node's own numbers. A plane gets a
@@ -614,17 +633,14 @@ fn directLighting(hit : Hit, shininess : f32) -> Direct {
     if (ndl <= 0.0) { continue; }          // back-facing, no ray needed
 
     if (cam.shadows != 0u) {
-      // Any solid between light and the surface occludes the light.
-      // The front-to-back traversal already stops at the first one.
-      // (cmc: possible optimization would be a trace-in-any-order,
-      // which would simply check if anything occluded the beam
-      // regardless of order)
-      shadowRays = shadowRays + 1u;
-      // dist + 0.1 makes us measure a bit past the surface so that
-      // we don't get roundoff effects:
-      let blocker = trace(lt.pos, -L, 0.0, dist+0.1);
-      if(blocker.node != hit.node) {
-        // the ray hit something other than our surface,
+      shadowRays = shadowRays + 1u; // (profiling; shown via ablation)
+
+      // Any solid between the surface and the light occludes the light.
+      // We trace from the point on the surface toward the light so that
+      // directional lights can work. 
+      let blocker = trace(hit.position, L, 0.0, dist, surfaces[hit.node]);
+      if (blocker.node != 0u) {
+        // the ray hit something between us and the light,
         // so we're in shadow:
         continue;
       }
@@ -725,7 +741,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // from what it computed.
   var found = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
-    found = trace(origin, dir, 1e-3, 1e4);
+    found = trace(origin, dir, 1e-3, 1e4, 0u);
   }
 
   var col = vec3<f32>(0.0);
@@ -769,4 +785,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/random.wgsls","offset":98,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":129,"lines":642}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/random.wgsls","offset":98,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":129,"lines":658}]
