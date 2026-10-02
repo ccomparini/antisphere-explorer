@@ -69,6 +69,7 @@ const norm = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
 /** Cast any number of rays, in batches the context's buffers can hold. */
 async function cast(sc, rays) {
   const out = { node: [], t0: [] };
+  // (tMin, tMax and fromNode, if a ray has them, go through as they are.)
   for (let i = 0; i < rays.length; i += 16) {
     const { node, t0 } = await sc.castRays(rays.slice(i, i + 16));
     out.node.push(...node);
@@ -248,6 +249,117 @@ for (const [label, subtree, solid] of OPERATORS) {
     sc.destroy();
   });
 }
+
+// -- rays leaving a surface: fromNode ----------------------------------------------
+//
+// A shadow ray starts exactly on the surface the camera ray hit. Computed
+// from the rounded hit point, that surface's H is a little either side of
+// zero, so the ray could hit its own surface at once; an offset to step
+// clear of it is wrong at some scale. Given the node it leaves (fromNode),
+// trace() takes that surface - and its copies - as exactly through the
+// start: no offset, no tolerance.
+
+gpuTest('a ray leaving a surface (fromNode) never hits it there, and still hits what is in the way', async () => {
+  // A sphere, and a box of slabs, each with a small ball between it and a
+  // light, so some rays from it are blocked and the rest must go clear.
+  const targets = [
+    { center: [0, 0, 0], shape: { sphere: { center: [0, 0, 0], radius: 1 } } },
+    { center: [0, 4, 0], shape: { intersect: [
+      { slab: { center: [0, 4, 0], axis: [1, 0, 0], thickness: 2 } },
+      { slab: { center: [0, 4, 0], axis: [0, 1, 0], thickness: 2 } },
+      { slab: { center: [0, 4, 0], axis: [0, 0, 1], thickness: 2 } },
+    ] } },
+  ];
+  const blockers = targets.map(({ center }) => ({ c: [-3, center[1], 0], r: 0.5 }));
+  const sc = scene({ union: [
+    ...targets.map(({ shape }) => ({ ...shape, material: 'clay' })),
+    ...blockers.map(({ c, r }) => ({ sphere: { center: c, radius: r }, material: 'clay' })),
+  ] });
+  // Does the segment from p to q pass through ball b (not merely touch it)?
+  const blocked = (p, q, { c, r }) => {
+    const d = q.map((v, i) => v - p[i]), len = Math.hypot(...d), u = d.map((v) => v / len);
+    const m = p.map((v, i) => v - c[i]);
+    const bq = m[0] * u[0] + m[1] * u[1] + m[2] * u[2], cq = m[0] ** 2 + m[1] ** 2 + m[2] ** 2 - r * r;
+    const disc = bq * bq - cq;
+    if (disc <= 1e-9) return false;
+    const t0 = -bq - Math.sqrt(disc), t1 = -bq + Math.sqrt(disc);
+    return t1 > 0 && t0 < len;
+  };
+  let selfHits = 0, checked = 0;
+  for (const [k, { center }] of targets.entries()) {
+    // Camera rays from the -x side, across the target's face.
+    const cams = [];
+    for (let y = -0.85; y <= 0.85; y += 0.05) for (let z = -0.85; z <= 0.85; z += 0.05) {
+      cams.push({ origin: [-6, center[1] + y, z], direction: [1, 0, 0] });
+    }
+    const hits = await cast(sc, cams);
+    const light = [-10, center[1] + 0.3, 0.2];
+    const leaving = [], expected = [];
+    cams.forEach(({ origin, direction }, i) => {
+      if (!hits.node[i]) return;
+      const p = origin.map((v, j) => v + hits.t0[i] * direction[j]);
+      // Only points on the target, not on its blocker.
+      if (Math.abs(p[0]) > 1.01) return;
+      const d = light.map((v, j) => v - p[j]), dist = Math.hypot(...d);
+      // And only where the light is in front of the surface, as shading
+      // asks (behind it, the ray goes into the target, and hitting it is
+      // right): the sphere's normal is radial, the box's its nearest face's.
+      const q = p.map((v, j) => v - center[j]);
+      const axis = q.map(Math.abs).indexOf(Math.max(...q.map(Math.abs)));
+      const normal = k === 0 ? q : q.map((v, j) => (j === axis ? Math.sign(v) : 0));
+      if (normal[0] * d[0] + normal[1] * d[1] + normal[2] * d[2] <= 0) return;
+      leaving.push({ origin: p, direction: d.map((v) => v / dist), tMin: 0, tMax: dist, fromNode: hits.node[i] });
+      expected.push(blocked(p, light, blockers[k]));
+    });
+    const out = await cast(sc, leaving);
+    leaving.forEach((ray, i) => {
+      checked++;
+      const hit = out.node[i] !== 0;
+      if (hit && !expected[i]) selfHits++;
+      if (!hit && expected[i]) assert.fail(`target ${k}: a ray from ${ray.origin.map((v) => v.toFixed(3))} went through its blocker`);
+    });
+  }
+  assert.ok(checked > 500, `only ${checked} rays checked`);
+  assert.equal(selfHits, 0, `${selfHits} of ${checked} rays hit the surface they left`);
+  sc.destroy();
+});
+
+gpuTest('a ray leaving a crater floor is still blocked by the same sphere\'s far wall', async () => {
+  // Starting on a surface discards only the crossing where the ray is; the
+  // same surface further on still counts. A crater: the ground less a ball
+  // of radius 3 at the origin. From its floor, toward a light low over the
+  // far rim, the ray must hit the far wall - the same sphere it left.
+  const sc = scene({ intersect: [
+    { plane: { normal: [0, 0, 1], offset: 0 }, material: 'clay' },
+    { sphere: { center: [0, 0, 0], radius: 3 }, complement: true, material: 'clay' },
+  ] });
+  const cams = [];
+  for (let x = -1; x <= 1; x += 0.25) for (let y = -1; y <= 1; y += 0.25) cams.push({ origin: [x, y, 10], direction: [0, 0, -1] });
+  const hits = await cast(sc, cams);
+  const leaving = [], low = [], high = [];
+  cams.forEach(({ origin, direction }, i) => {
+    assert.notEqual(hits.node[i], 0, 'the floor is hit');
+    const p = origin.map((v, j) => v + hits.t0[i] * direction[j]);
+    for (const [light, list] of [[[40, 0, 4], low], [[0, 0, 40], high]]) {
+      const d = light.map((v, j) => v - p[j]), dist = Math.hypot(...d);
+      list.push(leaving.length);
+      leaving.push({ origin: p, direction: d.map((v) => v / dist), tMin: 0, tMax: dist, fromNode: hits.node[i] });
+    }
+  });
+  const out = await cast(sc, leaving);
+  for (const i of low) {
+    const { origin: p, direction: d } = leaving[i];
+    const what = `from ${p.map((v) => v.toFixed(2))}`;
+    assert.notEqual(out.node[i], 0, `${what}, the far wall should block a low light`);
+    // Where: the far side of the ball, |p + t d| = 3 with t > 0 - not at
+    // the start, which a surface ignored rather than started on gives.
+    const b = p[0] * d[0] + p[1] * d[1] + p[2] * d[2], c = p[0] ** 2 + p[1] ** 2 + p[2] ** 2 - 9;
+    const wall = -b + Math.sqrt(b * b - c);
+    assert.ok(Math.abs(out.t0[i] - wall) < 1e-3, `${what}: blocked at ${out.t0[i]}, the far wall is at ${wall}`);
+  }
+  for (const i of high) assert.equal(out.node[i], 0, `from ${leaving[i].origin.map((v) => v.toFixed(2))}, nothing is above`);
+  sc.destroy();
+});
 
 // -- overlapFrom() against overlap.js ----------------------------------------------
 
@@ -578,7 +690,7 @@ gpuTest('generated layouts match Dawn for every struct the shaders share', async
   const files = await buildAll(config, (path) => readFile(new URL(`../${path}`, here), 'utf8'));
   const names = [];
   for (const f of files.filter((f) => f.path.endsWith('.wgsl'))) names.push(...await checkLayouts(f.content));
-  for (const n of ['Camera', 'Node', 'Light', 'Material', 'RayQuery', 'Seg', 'OverlapQuery', 'OverlapResult']) {
+  for (const n of ['Camera', 'Node', 'Light', 'Material', 'Ray', 'Seg', 'OverlapQuery', 'OverlapResult']) {
     assert.ok(names.includes(n), `${n} was checked`);
   }
 });

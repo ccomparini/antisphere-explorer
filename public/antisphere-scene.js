@@ -1905,6 +1905,29 @@ function quadricAt({ axis: n, k_par, k_perp, linear: c, constant }, x) {
          2 * (c[0] * x[0] + c[1] * x[1] + c[2] * x[2]) + constant;
 }
 
+// Which nodes are the same surface, as a u32 per node: the same id for
+// every copy of one - grafting and dividers copy nodes, sharing their prim -
+// and for its complement, which negates every coefficient but the axis; ids
+// from 1, and 0 for node 0. trace() uses them to recognise the surface a
+// ray starts on, every copy of it, with one integer compare (see Ray in
+// shaders/antisphere-raycast.wgsls). Keyed on the prim, its sign
+// normalised: the first of its non-zero numbers made positive.
+export function packSurfaces(list) {
+  const ids = new Map();
+  const out = new Uint32Array(Math.max(1, list.length));
+  list.forEach((nd, j) => {
+    if (j === 0 || !nd) return;
+    const { axis, k_par, k_perp, linear, constant } = nd.prim;
+    const signed = [k_perp, k_par, constant, ...linear];
+    const first = signed.find((v) => v !== 0) ?? 1;
+    const s = first < 0 ? -1 : 1;
+    const key = [...axis, ...signed.map((v) => v * s + 0)].join();     // + 0: no -0
+    if (!ids.has(key)) ids.set(key, ids.size + 1);
+    out[j] = ids.get(key);
+  });
+  return out;
+}
+
 // A node as the GPU stores it: shaders/node.wgsls's Node, whose layout
 // tools/build-shaders.mjs generates into the Node class, so the offsets and
 // the 64-byte stride live in one place.

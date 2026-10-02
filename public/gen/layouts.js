@@ -282,20 +282,21 @@ export class Material {
   }
 }
 
-export class RayQuery {
-  static SIZE = 32;
+export class Ray {
+  static SIZE = 48;
   static ALIGN = 16;
-  static STRIDE = 32;
+  static STRIDE = 48;
   static FIELDS = Object.freeze({
     o: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
     tMin: Object.freeze({ offset: 12, type: 'f32' }),
     d: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
     tMax: Object.freeze({ offset: 28, type: 'f32' }),
+    fromNode: Object.freeze({ offset: 32, type: 'u32' }),
   });
 
-  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * RayQuery.STRIDE)); }
-  static write(views, index, values) { RayQuery.writeAt(views, index * RayQuery.STRIDE, values); }
-  static read(views, index) { return RayQuery.readAt(views, index * RayQuery.STRIDE); }
+  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Ray.STRIDE)); }
+  static write(views, index, values) { Ray.writeAt(views, index * Ray.STRIDE, values); }
+  static read(views, index) { return Ray.readAt(views, index * Ray.STRIDE); }
 
   static writeAt(views, byteOffset, values) {
     const { f32, u32, i32 } = views, w = byteOffset >> 2;
@@ -315,6 +316,9 @@ export class RayQuery {
     if (values.tMax !== undefined) {
       f32[w + 7] = values.tMax;
     }
+    if (values.fromNode !== undefined) {
+      u32[w + 8] = values.fromNode;
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -324,6 +328,7 @@ export class RayQuery {
       tMin: f32[w + 3],
       d: [f32[w + 4], f32[w + 5], f32[w + 6]],
       tMax: f32[w + 7],
+      fromNode: u32[w + 8],
     };
   }
 }
@@ -964,10 +969,10 @@ export class PathPair {
 /** Each shader's resources: their bindings, and which each entry point uses. */
 export const BINDINGS = Object.freeze({
   "antisphere-raycast": Object.freeze({
-    slots: Object.freeze({"cam":0,"nodes":1,"outTex":2,"lights":3,"materials":4,"rayQueries":5,"rayResults":6}),
+    slots: Object.freeze({"cam":0,"nodes":1,"outTex":2,"lights":3,"materials":4,"surfaces":5,"rayQueries":6,"rayResults":7}),
     entries: Object.freeze({
-      "traceFrom": Object.freeze(["nodes","materials","rayQueries","rayResults"]),
-      "main": Object.freeze(["cam","nodes","outTex","lights","materials"]),
+      "traceFrom": Object.freeze(["nodes","materials","surfaces","rayQueries","rayResults"]),
+      "main": Object.freeze(["cam","nodes","outTex","lights","materials","surfaces"]),
     }),
   }),
   "physics-2pt": Object.freeze({

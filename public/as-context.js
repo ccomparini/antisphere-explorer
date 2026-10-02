@@ -15,9 +15,9 @@ import {
   createTraceBuffers,
 } from './gpu-setup.js';
 import {
-  compileScene, packNodes, packMaterials, packLights, loadImports,
+  compileScene, packNodes, packSurfaces, packMaterials, packLights, loadImports,
 } from './antisphere-scene.js';
-import { BINDINGS, RayQuery, Seg, viewsOf } from './gen/layouts.js';
+import { BINDINGS, Ray, Seg, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
 
 const MAX_TRACE_RAYS = 16;
@@ -204,7 +204,7 @@ export class ASScene {
     const built = compileScene(spec, { imports: this.imports, path: this.path });
     const { device } = this.context;
 
-    for (const b of [this.nodeBuf, this.lightBuf, this.matBuf]) if (b) b.destroy();
+    for (const b of [this.nodeBuf, this.surfaceBuf, this.lightBuf, this.matBuf]) if (b) b.destroy();
 
     this.spec = spec;
     this.nodes = built.nodes;
@@ -218,12 +218,16 @@ export class ASScene {
     this.overlaps = built.overlaps;
 
     const nodeData = packNodes(built.nodes);
+    // Which nodes are the same surface (packSurfaces), for rays that start
+    // on one.
+    this.surfaces = packSurfaces(built.nodes);
     const lightData = packLights(built.lights);
     const matData = packMaterials(built.materials);
     this.nodeBuf = uploadStorage(device, nodeData);
+    this.surfaceBuf = uploadStorage(device, this.surfaces);
     this.lightBuf = uploadStorage(device, lightData);
     this.matBuf = uploadStorage(device, matData);
-    this.bytes = nodeData.byteLength + lightData.byteLength + matData.byteLength;
+    this.bytes = nodeData.byteLength + this.surfaces.byteLength + lightData.byteLength + matData.byteLength;
     this.generation++;
   }
 
@@ -247,6 +251,13 @@ export class ASScene {
    *   t0     how far along the ray it entered
    *   t1     where the segment it was found in ends (not a thickness)
    * node == 0 is the only miss test; t0 and t1 are meaningless for a miss.
+   *
+   * A ray is { origin, direction, tMin?, tMax?, fromNode? }: tMin defaults
+   * to 1e-3 and tMax to 1000. fromNode is a node whose surface the ray
+   * starts on - a hit's node, for a ray leaving where another hit - which
+   * trace() then never takes the ray to hit at its start, though it may
+   * meet that surface again further on: give it with tMin 0, and no offset
+   * is needed.
    *
    * Uses traceFrom(), a second entry point in the raycast shader that shares
    * trace() with the renderer, so a caller costs more rays in a batch rather
@@ -274,9 +285,9 @@ export class ASScene {
       throw new Error(`castRays: ${rays.length} rays, capacity is ${rq.maxRays}`);
     }
 
-    const queries = RayQuery.allocate(rays.length);
-    rays.forEach((r, i) => RayQuery.write(queries, i, {
-      o: r.origin, tMin: r.tMin ?? 1e-3, d: r.direction, tMax: r.tMax ?? 1000,
+    const queries = Ray.allocate(rays.length);
+    rays.forEach((r, i) => Ray.write(queries, i, {
+      o: r.origin, tMin: r.tMin ?? 1e-3, d: r.direction, tMax: r.tMax ?? 1000, fromNode: r.fromNode ?? 0,
     }));
     device.queue.writeBuffer(rq.rayBuf, 0, queries.buffer);
 
@@ -286,6 +297,7 @@ export class ASScene {
       BINDINGS['antisphere-raycast'],
       'traceFrom', {
         nodes: this.nodeBuf,
+        surfaces: this.surfaceBuf,
         materials: this.matBuf,
         rayQueries: rq.rayBuf,
         rayResults: rq.resultBuf,
@@ -344,7 +356,7 @@ export class ASScene {
   }
 
   destroy() {
-    for (const b of [this.nodeBuf, this.lightBuf, this.matBuf]) if (b) b.destroy();
-    this.nodeBuf = this.lightBuf = this.matBuf = null;
+    for (const b of [this.nodeBuf, this.surfaceBuf, this.lightBuf, this.matBuf]) if (b) b.destroy();
+    this.nodeBuf = this.surfaceBuf = this.lightBuf = this.matBuf = null;
   }
 }

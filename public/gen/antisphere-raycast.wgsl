@@ -283,6 +283,22 @@ var<private> traceStack : array<Seg, TRACE_STACK_SIZE>;
 // surfaces in trace().
 const DEGENERATE : f32 = 1e-12;
 
+// A ray: from o, along d (unit), between tMin and tMax. fromNode, if not
+// 0, is a node whose surface it starts on - the node a previous ray hit: a
+// ray that continues from a hit - toward a light now; reflected, refracted
+// or through glass later - starts exactly there. See trace().
+struct Ray {
+  o        : vec3<f32>,
+  tMin     : f32,
+  d        : vec3<f32>,
+  tMax     : f32,
+  fromNode : u32,
+};
+
+// Which nodes are the same surface: an id per node, the same for all the
+// copies and complements of one (packSurfaces() in antisphere-scene.js).
+@group(0) @binding(5) var<storage, read> surfaces : array<u32>;
+
 // The first solid thing along a ray, as a Seg: node is the node whose
 // region the ray entered (never tagged), t0 how far along the ray it
 // entered, and t1 where the segment it was found in ends. t1 is not
@@ -291,7 +307,26 @@ const DEGENERATE : f32 = 1e-12;
 // node == 0 is the one test for a miss. t0 and t1 mean nothing then: a
 // provisional hit that turned out hollow leaves its distances behind, and
 // resetting them costs time for a value no caller should read.
-fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
+//
+// A ray with a fromNode starts on that node's surface - a shadow ray
+// leaving what the camera ray hit. Its start was computed, so the surface's H
+// there is a rounding error either side of zero, and the ray could hit it
+// at once; an offset to step clear is wrong at some scale. Instead every
+// node that is that surface - its own, and the copies grafting and dividers
+// make, and complements - gets C = H(O) of exactly 0. Its roots are then
+// exactly 0, where the ray is, not a crossing, and -B/A, a real one (a
+// crater's wall still shades its own floor); and which side the ray is on
+// goes by B, its direction against the gradient - so a ray turned back
+// stays on its side, and one going on through is inside. No offset and no
+// tolerance. A node is that surface if its id (`surfaces`) is the start
+// node's: one u32 compared, rather than a second node held through the
+// loop, which spilled registers and slowed every trace.
+fn trace(ray : Ray) -> Seg {
+  let O = ray.o;
+  let D = ray.d;
+  let tMin = ray.tMin;
+  let tMax = ray.tMax;
+  let fromSurface = surfaces[ray.fromNode];               // 0 for node 0
   // found.node == 0 means "no hit (yet)" - node 0 is reserved (see Node's
   // doc comment) so no real crossing can ever claim it. Segments pop in
   // non-decreasing t (see the loop below), so the first transition into
@@ -361,9 +396,10 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
       let B = 2.0 * (nd.curvature_perp * dot(across, D)
                      + k_par * axisDotOrigin * axisDotDir)
               + dot(nd.linear, D);
-      let C = nd.curvature_perp * dot(across, across)
+      var C = nd.curvature_perp * dot(across, across)
               + k_par * axisDotOrigin * axisDotOrigin
               + dot(nd.linear, o) + nd.const_term;
+      if (fromSurface != 0u && surfaces[descent_node] == fromSurface) { C = 0.0; }
 
       // Roots start beyond any segment a ray can carry, so a miss, a ray
       // parallel to a plane, and a plane's sentinel far root are all rejected
@@ -457,25 +493,18 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
 // where that segment ends, both meaningless for a miss. The host reads
 // these back via a mapAsync a frame or so after submitting, the same
 // latency shape as the profiler's timestamp queries elsewhere, through the
-// RayQuery and Seg classes generated from these declarations.
+// Ray and Seg classes generated from these declarations.
 // ---------------------------------------------------------------------------
 
-struct RayQuery {
-  o    : vec3<f32>,
-  tMin : f32,
-  d    : vec3<f32>,
-  tMax : f32,
-};
-
-@group(0) @binding(5) var<storage, read> rayQueries : array<RayQuery>;
-@group(0) @binding(6) var<storage, read_write> rayResults : array<Seg>;
+@group(0) @binding(6) var<storage, read> rayQueries : array<Ray>;
+@group(0) @binding(7) var<storage, read_write> rayResults : array<Seg>;
 
 @compute @workgroup_size(64)
 fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  rayResults[i] = trace(q.o, q.d, q.tMin, q.tMax);
+  rayResults[i] = trace(q);
 }
 
 // Surface parameterization from the node's own numbers. A plane gets a
@@ -614,19 +643,18 @@ fn directLighting(hit : Hit, shininess : f32) -> Direct {
     if (ndl <= 0.0) { continue; }          // back-facing, no ray needed
 
     if (cam.shadows != 0u) {
-      // Any solid between light and the surface occludes the light.
+      // Any solid between the surface and the light occludes the light.
       // The front-to-back traversal already stops at the first one.
       // (cmc: possible optimization would be a trace-in-any-order,
       // which would simply check if anything occluded the beam
       // regardless of order)
       shadowRays = shadowRays + 1u;
-      // dist + 0.1 makes us measure a bit past the surface so that
-      // we don't get roundoff effects:
-      let blocker = trace(lt.pos, -L, 0.0, dist+0.1);
-      if(blocker.node != hit.node) {
-        // the ray hit something other than our surface,
-        // so we're in shadow:
-        continue;
+      // From the surface, which the ray starts exactly on (fromNode, see
+      // trace()): no offset to step off it, and no question of which copy
+      // of it a ray from the light would reach first.
+      let blocker = trace(Ray(hit.position, 0.0, L, dist, hit.node));
+      if (blocker.node != 0u) {
+        continue;                               // something in the way
       }
     }
 
@@ -725,7 +753,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // from what it computed.
   var found = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
-    found = trace(origin, dir, 1e-3, 1e4);
+    found = trace(Ray(origin, 1e-3, dir, 1e4, 0u));
   }
 
   var col = vec3<f32>(0.0);
@@ -769,4 +797,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/random.wgsls","offset":98,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":129,"lines":642}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/random.wgsls","offset":98,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":129,"lines":670}]
