@@ -11,7 +11,7 @@ import { buildAll } from '../../tools/shader-build/index.js';
 import { compileSolid, packSolids, PhysicsSim } from './physics.js';
 import { PhysicsWorld } from './physics-world.js';
 import { World, WorldObject } from './world.js';
-import { fromAxisAngle, multiply, rotate } from './quat.js';
+import { fromAxisAngle, fromTo, multiply, rotate, toAxisAngle } from './quat.js';
 import { octahedron, octahedronBody } from './shapes.js';
 import { BINDINGS, Contact, ContactQuery, viewsOf } from '../gen/layouts.js';
 import { bindGroup } from '../bind-group.js';
@@ -687,10 +687,15 @@ gpuTest('an octahedron dropped on another never goes into it, and both come to r
   physics.destroy();
 });
 
-gpuTest('a rod dropped at any steep angle comes to rest lying flat, gaining no energy', async () => {
+gpuTest('a rod dropped at a steep angle lies flat, or stands if its foot holds it, gaining no energy', async () => {
   // Landing nearly on end once gained energy on every bounce - up to 23 m
   // from a 6 m drop - because depth was measured to the nearest boundary,
-  // which for a tipped end face is sideways, not down.
+  // which for a tipped end face is sideways, not down. A rod 4 m long and
+  // 0.3 m round tips over only past atan(0.3 / 2) = 8.5 degrees from
+  // upright: at 85 degrees (5 from upright) its centre of mass is over its
+  // foot, so landing on the low rim rights it and it stands. (It once
+  // pivoted on that rim the other way and fell, which this test took for
+  // right.)
   const flat = compileSolid({ plane: { normal: [0, 0, 1], offset: 0 }, material: 'm' }, MATERIALS);
   const rod = { intersect: [
     { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.3 }, material: 'm' },
@@ -710,7 +715,17 @@ gpuTest('a rod dropped at any steep angle comes to rest lying flat, gaining no e
       const q = await s.read();
       highest = Math.max(highest, (q[0].pos[2] + q[1].pos[2]) / 2);
     }
-    assert.ok(highest < 0.35, `dropped at ${deg} degrees, it rose to ${highest.toFixed(2)} m after settling`);
+    const q = await s.read();
+    const centre = (q[0].pos[2] + q[1].pos[2]) / 2;
+    if (90 - deg < Math.atan(0.3 / 2) * 180 / Math.PI) {
+      const axis = q[1].pos.map((v, i) => v - q[0].pos[i]);
+      const lean = Math.acos(Math.abs(axis[2]) / Math.hypot(...axis)) * 180 / Math.PI;
+      near(centre, 2, 0.03, `dropped at ${deg} degrees, it stands on its end`);
+      assert.ok(highest < 2.05, `dropped at ${deg} degrees, it rose to ${highest.toFixed(2)} m after settling`);
+      assert.ok(lean < 1, `standing, it leans ${lean.toFixed(1)} degrees`);
+    } else {
+      assert.ok(highest < 0.35, `dropped at ${deg} degrees, it rose to ${highest.toFixed(2)} m after settling`);
+    }
     s.destroy();
   }
 });
@@ -772,6 +787,19 @@ const resting = {
     const { particles, body } = bodyAt([0, 0, 4.01], ROCKET, { inertiaPerMass: 64 / 12 + 1 / 4, radius: 6.1 });
     return onGround(particles, [body]);
   },
+  // A box of three slabs: the ball touches the top face over the middle
+  // plane of the other two, where their gradients vanish, which once made
+  // a contact 2000 km deep.
+  'a sphere on a box made of slabs': () => {
+    const box = { intersect: [
+      { slab: { center: [0, 0, -1], axis: [1, 0, 0], thickness: 4 }, material: 'm' },
+      { slab: { center: [0, 0, -1], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
+      { slab: { center: [0, 0, -1], axis: [0, 0, 1], thickness: 2 }, material: 'm' },
+    ] };
+    const ball = sphereBody([0, 0, 0.51], 0.5, 0);
+    return new PhysicsSim(device, module, { particles: ball.particles, bodies: [ball.body],
+      statics: [compileSolid(box, MATERIALS)], gravityCentre: [0, 0, -1e6], gm: 9.81e12 });
+  },
   'a sphere on a puck on flat ground': () => {
     const d = spacing((3 + 0.25) / 12);
     const puck = {
@@ -791,4 +819,56 @@ for (const [what, make] of Object.entries(resting)) gpuTest(`${what} stays at re
   console.log(`# ${what}: fastest ${(fastest * 1000).toFixed(3)} mm/s, drift ${(drift * 1000).toFixed(3)} mm`);
   assert.ok(fastest < 1e-3, `a particle moved at ${(fastest * 1000).toFixed(2)} mm/s`);
   assert.ok(drift < 1e-3, `a particle drifted ${(drift * 1000).toFixed(2)} mm`);
+});
+
+gpuTest('a rod sunk into a crater wall is found there, at about its depth', async () => {
+  // A crater: the planetoid (top at z = 0) less a ball of radius 3. Its
+  // rock is three regions together, one of them the ball's outside, which
+  // an endless cylinder meets only at infinity: starting the search from
+  // that pair's point, most of these went unseen until a body was 0.7 m
+  // in and thrown out at 100 m/s.
+  const R = 3;
+  const planet = { sphere: { center: [0, 0, -500], radius: 500 }, material: 'm' };
+  const crater = solid({ intersect: [planet, { sphere: { center: [0, 0, 0], radius: R }, complement: true }] });
+  const rod = { intersect: [
+    { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.25 }, material: 'm' },
+    { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
+  ] };
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  // How far the rod (along u, centred at c) is in the rock, sampled: the
+  // most any of its points is past both the crater wall and the ground.
+  const truth = (c, u) => {
+    const a = unit(cross(u, Math.abs(u[0]) > 0.9 ? [0, 1, 0] : [1, 0, 0])), b = cross(u, a);
+    let most = 0;
+    for (let t = -2; t <= 2; t += 0.02) for (let k = 0; k < 64; k++) for (const r of [0.25, 0.125, 0]) {
+      const th = (2 * Math.PI * k) / 64;
+      const p = c.map((v, i) => v + t * u[i] + r * (Math.cos(th) * a[i] + Math.sin(th) * b[i]));
+      const below = 500 - Math.hypot(p[0], p[1], p[2] + 500);
+      if (below > 0) most = Math.max(most, Math.min(Math.hypot(...p) - R, below));
+    }
+    return most;
+  };
+  const poses = [
+    [[0, 0, -2.0], [1, 0, 0]],            // lying across the floor, its ends in the walls
+    [[0, 0, -2.6], [1, 0, 0]],
+    [[0, 0, -1.2], [0, 0, 1]],            // standing in the floor
+    [[0.5, 0, -1.2], [0, 0, 1]],
+    [[1.2, 0, -1.5], unit([1, 0, -1])],   // leaning into the wall
+    [[1.4, 0, -1.4], unit([1, 0, -1])],
+    [[0.8, 0.8, -1.6], unit([1, 1, -1])],
+    [[0, 1.6, -1.2], unit([0, 1, -0.6])],
+    [[1.8, 0, -1], unit([0, 0.2, 1])],    // upright against the wall
+    [[2.0, 0, -1], unit([0, 0.2, 1])],
+  ];
+  const rods = poses.map(([c, u]) => {
+    const { axis, radians } = toAxisAngle(fromTo([0, 1, 0], u));
+    return compileSolid(rod, MATERIALS, { ...(radians ? { rotate: { axis, radians } } : {}), translate: c });
+  });
+  const found = await contacts(rods.map((r) => [r, crater]));
+  poses.forEach(([c, u], i) => {
+    const want = truth(c, u);
+    assert.equal(found[i].found, 1, `the rod at ${c} is ${want.toFixed(3)} m in, and unseen`);
+    assert.ok(Math.abs(found[i].depth - want) <= 0.2 * want + 0.02,
+              `the rod at ${c}: ${found[i].depth.toFixed(3)} m deep, sampled ${want.toFixed(3)}`);
+  });
 });

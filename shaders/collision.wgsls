@@ -45,9 +45,10 @@ fn regionDistance(r : Region, p : vec3<f32>) -> f32 {
   let nd = nodes[r.node];
   let g = r.sign * gradAt(nd, p);
   let slope = length(g);
-  if (slope < 1e-20) { return 0.0; }
-  let n = g / slope;
   let h = r.sign * fAt(nd, p);
+  let crit = atCritical(r, h, slope);
+  if (crit.found) { return crit.distance; }
+  let n = g / slope;
   let along = dot(nd.axis, n);
   let curve = r.sign * (nd.curvature_perp + nd.curvature_delta * along * along);
   let disc = slope * slope - 4.0 * curve * h;
@@ -59,8 +60,61 @@ fn regionDistance(r : Region, p : vec3<f32>) -> f32 {
 
 // The way out of a region at p: its outward unit normal.
 fn regionOutward(r : Region, p : vec3<f32>) -> vec3<f32> {
-  return r.sign * normalize(gradAt(nodes[r.node], p));
+  let nd = nodes[r.node];
+  let g = r.sign * gradAt(nd, p);
+  let crit = atCritical(r, r.sign * fAt(nd, p), length(g));
+  if (crit.found) { return crit.dir; }
+  return normalize(g);
 }
+
+// How far a region's boundary is where its gradient vanishes - a sphere's
+// centre, a cylinder's axis, a slab's middle plane - or is too small next
+// to its curvature to give a direction; not found where the gradient will
+// do. There H along any unit
+// direction n is h + s^2 n.K.n, so the nearest boundary lies along whichever
+// direction K curves the most towards it: from inside (h < 0) the most
+// positive curvature, at sqrt(-h / q); from outside the most negative.
+// Where nothing curves that way the boundary is never reached. (Taking
+// such a point as on the boundary, as the gradient's length alone did, put
+// a slab's middle nearer than the face a ball rested on: a NaN normal, a
+// contact 2000 km deep, and the ball gone.) The signed K's curvatures are
+// k_perp, square to the axis, and k_perp + k_delta, along it; the direction
+// either way along it is as good, since H is even about p. On the boundary
+// itself (a cone's apex) the distance is 0.
+struct Critical {
+  found    : bool,
+  dir      : vec3<f32>,
+  distance : f32,
+};
+
+fn atCritical(r : Region, h : f32, slope : f32) -> Critical {
+  let nd = nodes[r.node];
+  let across = r.sign * nd.curvature_perp;
+  let along = r.sign * (nd.curvature_perp + nd.curvature_delta);
+  let most = max(abs(across), abs(along));
+  if (slope * slope > 1e-8 * abs(h) * most + 1e-30) { return Critical(false, vec3<f32>(0.0), 0.0); }
+  var helper = vec3<f32>(1.0, 0.0, 0.0);
+  if (abs(nd.axis.x) > 0.9) { helper = vec3<f32>(0.0, 1.0, 0.0); }
+  let square = normalize(cross(nd.axis, helper));
+  if (h < 0.0) {
+    let q = max(across, along);
+    var dir = square;
+    if (along >= across) { dir = nd.axis; }
+    if (q <= 0.0) { return Critical(true, dir, -NEVER); }
+    return Critical(true, dir, -sqrt(-h / q));
+  }
+  if (h > 0.0) {
+    let q = min(across, along);
+    var dir = square;
+    if (along <= across) { dir = nd.axis; }
+    if (q >= 0.0) { return Critical(true, dir, NEVER); }
+    return Critical(true, dir, sqrt(h / -q));
+  }
+  return Critical(true, square, 0.0);
+}
+
+// Further than anything here: the distance to a boundary never reached.
+const NEVER : f32 = 1e6;
 
 // A point this far outside a region still counts as on it (meters).
 const CONTACT_SLOP : f32 = 1e-3;
@@ -77,24 +131,105 @@ fn pathDistance(pa : Path, p : vec3<f32>) -> f32 {
   return d;
 }
 
-// The certificate's point for where path A meets path B, as a homogeneous
-// (x, w); w = 0 when there is none (some region pair is proved apart, or
-// the point is at infinity). It comes from the region pair closest to
-// separating: the witness there, or where that pair touches.
-fn meetingPoint(pa : Path, pb : Path) -> vec4<f32> {
+// Where to look for path A meeting path B, from the certificates of their
+// region pairs: none, if some pair is proved apart (found false); else
+// `start`, the finite point of the pair closest to separating that has one
+// - the witness there, or where that pair touches - and `away`, the
+// direction of the pair closest to separating whose point is at infinity
+// (zero if none). Pairs with unbounded regions can meet only at infinity -
+// a rod's endless cylinder and the outside of a crater's ball - and are
+// often the closest to separating; taken as the start, every rod in a
+// crater wall went unseen, until one was found 0.7 m in and thrown out at
+// 100 m/s. A point at infinity is still a direction, though: the way along
+// which the two go on overlapping, out to where the rest of each path
+// ends. In f32 such a point comes back merely far, so anything further
+// than FAR counts as at infinity.
+const FAR : f32 = 1e4;
+
+struct Meeting {
+  found : bool,
+  start : vec3<f32>,
+  away  : vec3<f32>,
+};
+
+fn meetingPoint(pa : Path, pb : Path) -> Meeting {
   var best = -1e30;
   var start = vec4<f32>(0.0);
+  var bestAway = -1e30;
+  var away = vec3<f32>(0.0);
   for (var i = 0u; i < pa.count; i = i + 1u) {
     let ra = regions[pa.first + i];
     for (var j = 0u; j < pb.count; j = j + 1u) {
       let rb = regions[pb.first + j];
       let c = certify(regionMatrix(nodes[ra.node], ra.sign), regionMatrix(nodes[rb.node], rb.sign));
-      if (c.margin > OVERLAP_TAU) { return vec4<f32>(0.0); }    // proved apart
-      if (c.margin > best) { best = c.margin; start = c.vector; }
+      if (c.margin > OVERLAP_TAU) { return Meeting(false, vec3<f32>(0.0), vec3<f32>(0.0)); }
+      let size = length(c.vector.xyz);
+      if (abs(c.vector.w) * FAR > size) {
+        if (c.margin > best) { best = c.margin; start = c.vector; }
+      } else if (size > 0.0 && c.margin > bestAway) {
+        bestAway = c.margin;
+        away = c.vector.xyz / size;
+      }
     }
   }
-  if (abs(start.w) < 1e-6 * length(start.xyz)) { return vec4<f32>(0.0); }
-  return vec4<f32>(start.xyz / start.w, 1.0);
+  if (best == -1e30) { return Meeting(false, vec3<f32>(0.0), vec3<f32>(0.0)); }
+  return Meeting(true, start.xyz / start.w, away);
+}
+
+// The directions to search along from the start, as many as MAX_WAYS: the
+// meeting's way to infinity, then the axes of whichever regions of either
+// path have one of their own (a cylinder's, a slab's, a cone's - the long
+// way of a rod, a capsule or a rocket, at whose ends it meets what it
+// lies in), each once.
+const MAX_WAYS : u32 = 3u;
+
+struct Ways {
+  count : u32,
+  dirs  : array<vec3<f32>, 3>,
+};
+
+fn addWay(w : ptr<function, Ways>, d : vec3<f32>) {
+  if ((*w).count >= MAX_WAYS || dot(d, d) == 0.0) { return; }
+  for (var i = 0u; i < (*w).count; i = i + 1u) {
+    if (abs(dot((*w).dirs[i], d)) > 0.99) { return; }
+  }
+  (*w).dirs[(*w).count] = d;
+  (*w).count = (*w).count + 1u;
+}
+
+fn axesOf(w : ptr<function, Ways>, pv : Path) {
+  for (var i = 0u; i < pv.count; i = i + 1u) {
+    let nd = nodes[regions[pv.first + i].node];
+    if (nd.curvature_delta != 0.0) { addWay(w, nd.axis); }
+  }
+}
+
+fn waysOf(m : Meeting, pa : Path, pb : Path) -> Ways {
+  var w : Ways;
+  w.count = 0u;
+  addWay(&w, m.away);
+  axesOf(&w, pa);
+  axesOf(&w, pb);
+  return w;
+}
+
+// Seed k of the search: 0 is the meeting's start; the rest walk along one
+// of the ways, either way, to where path A ends or path B does, less a
+// hair so as to be still inside - from the start settled into that path
+// alone, since the start can be outside it (a slab's witness above the
+// rod it bounds). w = 0 for none.
+fn seedPoint(m : Meeting, ways : Ways, pa : Path, pb : Path, k : u32) -> vec4<f32> {
+  if (k == 0u) { return vec4<f32>(m.start, 1.0); }
+  let way = (k - 1u) / 4u;
+  if (way >= ways.count) { return vec4<f32>(0.0); }
+  var dir = ways.dirs[way];
+  if (((k - 1u) & 1u) == 1u) { dir = -dir; }
+  var path = pa;
+  if (((k - 1u) & 2u) == 2u) { path = pb; }
+  let inside = settleFor(path, Path(0u, 0u), m.start, PROJECTION_SWEEPS);
+  let t = pathExit(path, inside, dir);
+  if (t <= 0.0 || t >= NEVER) { return vec4<f32>(0.0); }
+  return vec4<f32>(inside + (t - 0.5 * CONTACT_SLOP) * dir, 1.0);
 }
 
 // Nudge p onto every region of both paths it is outside of, along each
@@ -133,17 +268,16 @@ fn exitAlong(r : Region, p : vec3<f32>, dir : vec3<f32>) -> f32 {
   let b = r.sign * dot(gradAt(nd, p), dir);
   let along = dot(nd.axis, dir);
   let a = r.sign * (nd.curvature_perp * dot(dir, dir) + nd.curvature_delta * along * along);
-  let never = 1e6;
   if (abs(a) < 1e-20) {
     if (b > 0.0) { return -c / b; }
-    return never;
+    return NEVER;
   }
   let disc = b * b - 4.0 * a * c;
-  if (disc < 0.0) { return never; }
+  if (disc < 0.0) { return NEVER; }
   let q = -0.5 * (b + select(-1.0, 1.0, b >= 0.0) * sqrt(disc));
   let t1 = q / a;
   let t2 = c / q;
-  var t = never;
+  var t = NEVER;
   if (t1 >= 0.0) { t = min(t, t1); }
   if (t2 >= 0.0) { t = min(t, t2); }
   return t;
@@ -278,10 +412,16 @@ fn tightest(pa : Path, p : vec3<f32>) -> Region {
  * 1. Every region of A against every region of B: if any pair is proved
  *    apart, so are the paths.
  * 2. Otherwise start from the certificate's point for the pair closest to
- *    separating (meetingPoint).
- * 3. It may lie outside some other region: the witness of an endless
+ *    separating that has a finite one (meetingPoint) - and also from
+ *    where each path ends along a few directions, either way (waysOf,
+ *    seedPoint): the way the pair closest to separating at infinity goes
+ *    there, and the axes of regions with one. A rod lying in a crater
+ *    meets its walls at its ends, which no finite witness is near, and
+ *    settling from the middle of the rod finds nothing.
+ * 3. Each may lie outside some other region: the witness of an endless
  *    cylinder meeting a planet can be past the end its slab cuts off. So
- *    settle it into all of them (settleInto).
+ *    settle it into all of them (settleInto), keeping the deepest contact
+ *    of all the starts.
  * 4. Only a point inside every region of both paths makes a contact, so
  *    the certificate being conservative never makes one up (contactAt).
  * 5. That point can be anywhere in the overlap - often at its edge, where
@@ -304,9 +444,15 @@ fn tightest(pa : Path, p : vec3<f32>) -> Region {
  */
 fn pathContact(pa : Path, pb : Path) -> Contact {
   let m = meetingPoint(pa, pb);
-  if (m.w == 0.0) { return NO_CONTACT; }
-  let p = settleInto(pa, pb, m.xyz);
-  var c = contactAt(pa, pb, p);
+  if (!m.found) { return NO_CONTACT; }
+  let ways = waysOf(m, pa, pb);
+  var c = NO_CONTACT;
+  for (var k = 0u; k < 1u + 4u * ways.count; k = k + 1u) {
+    let seed = seedPoint(m, ways, pa, pb, k);
+    if (seed.w == 0.0) { continue; }
+    let found = contactAt(pa, pb, settleInto(pa, pb, seed.xyz));
+    if (found.found != 0u && (c.found == 0u || found.depth > c.depth)) { c = found; }
+  }
   if (c.found != 0u) {
     // Each side's support point faces the other's surface: its outward
     // normal there is the reverse of the other side's. (Its own normal at
