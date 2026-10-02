@@ -3,7 +3,8 @@
 //
 // Every other test here checks a JS transcription of the shader, which can
 // agree with itself while the WGSL drifts. These go through the same path the
-// page does - ASContext.create, ASScene's packing and castRays - with Dawn (the `webgpu` package) standing in for the browser, and check the
+// page does - ASContext.create, ASScene's packing and castRays - with Dawn
+// (the `webgpu` package) standing in for the browser, and check the
 // answers against things that owe nothing to the shader: closed forms for
 // single primitives, the boolean formula a CSG operator claims to implement,
 // and overlap.js for the overlap certificate.
@@ -137,6 +138,35 @@ for (const [label, shape, cases] of PRIMITIVES) {
                   `${what}: t0 ${t0[i]}, expected ${expected}`);
       }
     });
+    sc.destroy();
+  });
+}
+
+// The same shapes and rays, 1300 m from the origin. Expanded about the
+// origin, a quadric's constant term there is k |p|^2 ~ 1e6 k, and H near
+// the surface the small difference of such terms: f32 kept few of its
+// digits, so hits wandered by centimetres and grazing rays flipped (the
+// rocket's edges flickering in physlab, 500 m out). Each node is anchored
+// near itself now (see Node), so it is as exact here as at the origin.
+const FAR = [1000, -700, 400];
+
+for (const [label, shape, cases] of PRIMITIVES) {
+  gpuTest(`trace() hits a ${label} 1300 m out as it does at the origin`, async () => {
+    const sc = scene({ ...shape, material: 'clay', translate: FAR });
+    const rays = cases.map(([origin, direction]) => ({ origin: origin.map((v, i) => v + FAR[i]), direction }));
+    const { node, t0 } = await cast(sc, rays);
+    let worst = 0;
+    cases.forEach(([origin, direction, expected], i) => {
+      const what = `${label}, far: ray from (${origin}) along (${direction.map((v) => +v.toFixed(3))})`;
+      if (expected === null) {
+        assert.equal(node[i], 0, `${what} should miss, hit at ${t0[i]}`);
+      } else {
+        assert.notEqual(node[i], 0, `${what} should hit at ${expected}, missed`);
+        worst = Math.max(worst, Math.abs(t0[i] - expected));
+        assert.ok(Math.abs(t0[i] - expected) < 1e-4, `${what}: t0 ${t0[i]}, expected ${expected}`);
+      }
+    });
+    console.log(`# ${label}, 1300 m out: worst hit error ${(worst * 1000).toFixed(3)} mm`);
     sc.destroy();
   });
 }

@@ -5,8 +5,9 @@
 // generated Node class, so what the GPU is sent is under test alongside the
 // maths: H and the ray polynomial below are transcriptions of
 // antisphere-raycast.wgsls's fAt() and trace(), and if packNodes' rearranged
-// forms (curvature_delta, the doubled linear term) drift from what those
-// expect, they stop agreeing with the closed forms they are checked against.
+// forms (curvature_delta, the doubled linear term, the coefficients about
+// each node's anchor) drift from what those expect, they stop agreeing with
+// the closed forms they are checked against.
 // Node's byte layout itself is checked against Dawn in gpu.test.mjs.
 
 import { test } from 'node:test';
@@ -23,23 +24,30 @@ function packed(shape, extra = {}) {
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
-// fAt(), transcribed.
-function H(nd, R) {
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+
+// fAt() and fAbout(), transcribed: measured from the node's anchor, split
+// across the axis and along it.
+function H(nd, P) {
+  const R = sub(P, nd.anchor);
   const along = dot(nd.axis, R);
-  return nd.curvature_perp * dot(R, R) + nd.curvature_delta * along * along
+  const across = sub(R, nd.axis.map((v) => v * along));
+  return nd.curvature_perp * dot(across, across) + (nd.curvature_perp + nd.curvature_delta) * along * along
        + dot(nd.linear, R) + nd.const_term;
 }
 
 // The A, B, C of trace(), transcribed. |D| is assumed 1, as there.
 function abc(nd, O, D) {
+  const o = sub(O, nd.anchor);
   const axisDotDir = dot(nd.axis, D);
-  const axisDotOrigin = dot(nd.axis, O);
+  const axisDotOrigin = dot(nd.axis, o);
+  const across = sub(o, nd.axis.map((v) => v * axisDotOrigin));
+  const kPar = nd.curvature_perp + nd.curvature_delta;
   return {
     A: nd.curvature_perp + nd.curvature_delta * axisDotDir * axisDotDir,
-    B: 2 * (nd.curvature_perp * dot(O, D) + nd.curvature_delta * axisDotOrigin * axisDotDir)
-       + dot(nd.linear, D),
-    C: nd.curvature_perp * dot(O, O) + nd.curvature_delta * axisDotOrigin * axisDotOrigin
-       + dot(nd.linear, O) + nd.const_term,
+    B: 2 * (nd.curvature_perp * dot(across, D) + kPar * axisDotOrigin * axisDotDir) + dot(nd.linear, D),
+    C: nd.curvature_perp * dot(across, across) + kPar * axisDotOrigin * axisDotOrigin
+       + dot(nd.linear, o) + nd.const_term,
   };
 }
 
@@ -461,4 +469,67 @@ test('a rotated group still checks its members and bounds them', () => {
   });
   compileScene(scene(0));
   compileScene(scene(37));                          // the group is built, then turned
+});
+
+// -- anchors ------------------------------------------------------------------------
+//
+// Each node's coefficients are about its anchor (see Node), so that a shape
+// far from the origin keeps its digits in f32.
+
+const anchorOfShape = (shape) => packed(shape).anchor;
+
+test('a small shape far out is anchored at its centre, apex or vertex', () => {
+  near(Math.hypot(...anchorOfShape({ sphere: { center: [900, -400, 300], radius: 1 } }).map((v, i) => v - [900, -400, 300][i])), 0, 1e-3);
+  const apex = anchorOfShape({ cone: { apex: [700, 0, 500], axis: [0, 0, 1], slope: 0.5 } });
+  near(Math.hypot(...apex.map((v, i) => v - [700, 0, 500][i])), 0, 1e-3);
+  const vertex = anchorOfShape({ paraboloid: { vertex: [0, 800, -200], axis: [0, 1, 0], focal: 1 } });
+  near(Math.hypot(...vertex.map((v, i) => v - [0, 800, -200][i])), 0, 1e-3);
+});
+
+test('a cylinder far out is anchored on its axis, wherever along it', () => {
+  const nd = packed({ cylinder: { center: [1000, -700, 0], axis: [0, 0, 1], radius: 2 } });
+  near(nd.anchor[0], 1000, 1e-3);
+  near(nd.anchor[1], -700, 1e-3);
+});
+
+test('a shape near the origin for its size keeps the origin, as before', () => {
+  // A planetoid whose surface passes through the origin: its points there
+  // are best measured from there, not from its centre 500 m away.
+  assert.deepEqual(anchorOfShape({ sphere: { center: [0, 0, -500], radius: 500 } }), [0, 0, 0]);
+  assert.deepEqual(anchorOfShape({ sphere: { center: [1, 1, 0], radius: 1 } }), [0, 0, 0]);
+  assert.deepEqual(anchorOfShape({ plane: { normal: [0, 0, 1], offset: 300 } }), [0, 0, 0]);
+});
+
+test('rounding is not curvature: a turned cylinder through the origin is anchored at it', () => {
+  // Turned, a cylinder's k_par and its linear term come out as 1e-16 or so
+  // rather than 0. Taken for curvature along the axis, or for a paraboloid's
+  // pull along it, they put the anchor 1e13 m or more away.
+  const axis = [Math.SQRT1_2, 0, -Math.SQRT1_2];
+  for (const [shape, extra] of [
+    [{ cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.25 } }, { rotate: { axis: [0, 0, 1], radians: 1.0 } }],
+    [{ cylinder: { center: [0, 0, 0], axis, radius: 0.5 } }, { translate: [1.4, 0, -1.4] }],
+    [{ cylinder: { center: [0, 0, 1], axis: [0.98, 0, -0.196], radius: 0.5 } }, {}],
+  ]) {
+    const a = packed(shape, extra).anchor;
+    assert.ok(Math.hypot(...a) < 10, `anchored at ${a}`);
+  }
+});
+
+test('far out, the packed coefficients are the same quadric, about the anchor', () => {
+  for (const shape of [
+    { sphere: { center: [900, -400, 300], radius: 1 } },
+    { cylinder: { center: [1000, -700, 0], axis: [0.6, 0, 0.8], radius: 2 } },
+    { cone: { apex: [700, 0, 500], axis: [0, 0, 1], slope: 0.5 } },
+    { hyperboloid: { center: [-600, 600, 0], axis: [0, 1, 0], radius: 1, semiAxial: 1, sheets: 2 } },
+  ]) {
+    const built = compileScene({ materials: {}, lights: [], root: { ...shape } });
+    const nd = Node.read(viewsOf(packNodes(built.nodes)), 1);
+    const p = built.nodes[1].prim;
+    for (const off of [[0.3, -0.2, 0.1], [2, 1, -1], [-1.5, 0.4, 2.2]]) {
+      const P = nd.anchor.map((v, i) => v + off[i]);
+      const ax = dot(p.axis, P);
+      const world = p.k_perp * dot(P, P) + (p.k_par - p.k_perp) * ax * ax + 2 * dot(p.linear, P) + p.constant;
+      near(H(nd, P), world, 1e-3 * Math.max(1, Math.abs(world)));
+    }
+  }
 });
