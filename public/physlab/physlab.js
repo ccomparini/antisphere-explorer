@@ -11,11 +11,18 @@
 //
 // (flight-input.js has the rest of the keys.)
 //
+// The scenery comes from a scene file, ?scene=<file> in public/scenes/
+// (physlab-flat.json by default): its root is the ground, its materials
+// and lights light it, its gravity (scene-format.md) pulls, and its spawn
+// point is where the camera, the rocket and the rest are put.
+//
 // Distances are in meters.
 
 import { ASContext } from '../as-context.js';
 import '../as-renderer.js';           // registers the renderer ASContext.createRenderer makes
 import { World, WorldObject } from './world.js';
+import { gravityOf } from './gravity.js';
+import { loadImports, parseGravity, parseSpawn, resolveImports } from '../antisphere-scene.js';
 import { AttachedCamera } from './camera.js';
 import { FlightControl, levelOrientation } from './flight.js';
 import { attachFlightInput } from './flight-input.js';
@@ -25,24 +32,18 @@ import { octahedron, octahedronBody } from './shapes.js';
 import { loadText, checkShader } from '../gpu-setup.js';
 import { FrameProfiler } from './profiler.js';
 
-// Not objects (yet): what the objects are made of, and what lights them.
-const SURROUNDINGS = {
-  materials: {
-    rock: { albedo: [0.46, 0.43, 0.39], albedo2: [0.31, 0.29, 0.27], pattern: 'noise' },
-    hull: { albedo: [0.85, 0.85, 0.88] },
-    nose: { albedo: [0.80, 0.15, 0.10] },
-    ball: { albedo: [0.20, 0.45, 0.80] },
-    capsule: { albedo: [0.90, 0.70, 0.20] },
-    octahedron: { albedo: [0.35, 0.75, 0.45] },
-  },
-  // A distant sun. Light falls off as color / (1 + d^2), so at about 7 km
-  // it takes a color in the tens of millions to light the ground.
-  lights: [{ pos: [3000, -4000, 5000], color: [3.6e7, 3.3e7, 2.9e7] }],
+// What physlab's own things are made of, where the scene doesn't say.
+const BODY_MATERIALS = {
+  hull: { albedo: [0.85, 0.85, 0.88] },
+  nose: { albedo: [0.80, 0.15, 0.10] },
+  ball: { albedo: [0.20, 0.45, 0.80] },
+  capsule: { albedo: [0.90, 0.70, 0.20] },
+  octahedron: { albedo: [0.35, 0.75, 0.45] },
 };
 
-const RADIUS = 500;
-// Gravity towards the planetoid's centre: 9.81 m/s^2 at its surface.
-const GM = 9.81 * RADIUS * RADIUS;
+const DEFAULT_SCENE = 'physlab-flat.json';
+const SCENES = ['physlab-flat.json', 'physlab-planetoid.json'];
+
 // Thrust while flying a simulated body, m/s^2: more than gravity, so a
 // rocket pointed up climbs.
 const THRUST = 15;
@@ -60,6 +61,7 @@ const HOLE_START = 0.1;
 const HOLE_GROWTH = 1.0;
 const HOLE_MAX = 20;
 
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
 
@@ -95,34 +97,56 @@ const ROCKET = {
   ],
 };
 
-function buildWorld() {
+// Where things go near the spawn point: on the ground `ahead` metres along
+// its facing and `right` metres to its right, and `height` metres above a
+// point. On a planet (central gravity) the ground curves, so a point is
+// carried round the sphere through the spawn point; elsewhere it is flat.
+function placer(gravity, spawn) {
+  const g0 = spawn.at;
+  const up0 = gravity.up(g0);
+  const level = (v, up) => unit(v.map((x, i) => x - dot(v, up) * up[i]));
+  const forward = level(spawn.facing, up0);
+  const right = cross(forward, up0);
+  const ground = (ahead, side) => {
+    const p = g0.map((v, i) => v + ahead * forward[i] + side * right[i]);
+    if (gravity.kind !== 'central') return p;
+    const c = gravity.center, r = Math.hypot(...g0.map((v, i) => v - c[i]));
+    const d = unit(p.map((v, i) => v - c[i]));
+    return c.map((v, i) => v + r * d[i]);
+  };
+  const above = (p, height) => {
+    const up = gravity.up(p);
+    return p.map((v, i) => v + height * up[i]);
+  };
+  // Standing at p: +Y straight up, +Z the facing, carried level there.
+  const standing = (p) => {
+    const y = gravity.up(p), z = level(forward, y);
+    return fromBasis(cross(y, z), y, z);
+  };
+  return { up0, forward, ground, above, standing };
+}
+
+function buildWorld(ground, gravity, spawn) {
   const world = new World();
+  const at = placer(gravity, spawn);
 
-  // A small, very dense planetoid, 1 km across, at the origin.
-  const planetoid = world.add(new WorldObject('planetoid', {
-    geometry: { sphere: { center: [0, 0, 0], radius: RADIUS }, material: 'rock' },
-  }));
+  // The scene's own geometry: the ground, and whatever else it has.
+  world.add(new WorldObject('scenery', { geometry: ground }));
 
-  // Something to carry the camera, with no geometry of its own: 20 m up,
-  // 10 degrees off the north pole, upright - its +Z straight away from the
-  // planet - and facing east.
-  const lat = (80 * Math.PI) / 180;
-  const up = [0, -Math.cos(lat), Math.sin(lat)];
-  const position = up.map((v) => v * (RADIUS + 20));
+  // Something to carry the camera, with no geometry of its own: 20 m above
+  // the spawn point, upright and facing as it says.
+  const position = at.above(spawn.at, 20);
   const mount = world.add(new WorldObject('mount', {
     position,
-    orientation: levelOrientation(position, [1, 0, 0]),
+    orientation: levelOrientation(gravity.up(position), at.forward),
   }));
 
-  // The rocket stands on its tail on the ground, about 40 m east of the
-  // point below the mount: its +Y straight up, its +Z east.
-  const east = [1, 0, 0];
-  const standAt = unit(up.map((v, i) => v + (40 / RADIUS) * east[i]));
-  const rz = unit(east.map((v, i) => v - east.reduce((s, e, j) => s + e * standAt[j], 0) * standAt[i]));
-  const standing = fromBasis(cross(standAt, rz), standAt, rz);
+  // The rocket stands on its tail on the ground 40 m ahead: its +Y
+  // straight up, its +Z the facing.
+  const pad = at.ground(40, 0);
   const rocket = world.add(new WorldObject('rocket', {
-    position: standAt.map((v) => v * (RADIUS + 4)),        // its base, y = -4, on the ground
-    orientation: standing,
+    position: at.above(pad, 4),                         // its base, y = -4, on the ground
+    orientation: at.standing(pad),
     geometry: ROCKET,
     // Mostly a cylinder 8 m long and 1 m round, with a little cone on top:
     // centre of mass a little above the middle, inertia across it about
@@ -131,24 +155,21 @@ function buildWorld() {
   }));
 
   // Things to drop near it, from 30 m and 25 m up.
-  const near = (along, across, height) => {
-    const dir = unit(standAt.map((v, i) => v + (along / RADIUS) * east[i] + (across / RADIUS) * rz[i]));
-    return dir.map((v) => v * (RADIUS + height));
-  };
+  const near = (ahead, side, height) => at.above(at.ground(40 + ahead, side), height);
   world.add(new WorldObject('ball', {
     position: near(6, 4, 30),
-    orientation: standing,
+    orientation: at.standing(pad),
     geometry: { sphere: { center: [0, 0, 0], radius: 1.5 }, material: 'ball' },
     body: { mass: 300, centre: 0, inertia: 0.4 * 1.5 * 1.5, radius: 1.5, friction: 0.5 },
   }));
   world.add(new WorldObject('capsule', {
     position: near(-5, -3, 25),
-    orientation: multiply(standing, fromAxisAngle([0, 0, 1], 1.0)),      // tipped over
+    orientation: multiply(at.standing(pad), fromAxisAngle([0, 0, 1], 1.0)),      // tipped over
     geometry: CAPSULE,
     body: CAPSULE_BODY,
   }));
 
-  return { world, planetoid, mount, rocket };
+  return { world, mount, rocket };
 }
 
 // The held keys as an acceleration along the flown object's own axes:
@@ -178,7 +199,22 @@ async function main() {
     computeUrl: '../gen/antisphere-raycast.wgsl',
     blitUrl:    '../gen/blit.wgsl',
   });
-  const { world, planetoid, mount, rocket } = buildWorld();
+  // The scene file, its imports folded in.
+  const sceneName = new URLSearchParams(location.search).get('scene') ?? DEFAULT_SCENE;
+  const scenePath = `../scenes/${sceneName}`;
+  const readJson = async (path) => JSON.parse(await loadText(path));
+  const raw = await readJson(scenePath);
+  const file = resolveImports(raw, await loadImports(raw, readJson, { from: scenePath }), { from: scenePath });
+  const gravity = gravityOf(parseGravity(file.gravity));
+  const spawn = parseSpawn(file.spawn) ?? { at: [0, 0, 0], facing: [1, 0, 0] };
+  // Not world objects: what things are made of, what lights them, and the
+  // scene's named subtrees, which its ground may use.
+  const surroundings = {
+    materials: { ...BODY_MATERIALS, ...file.materials },
+    lights: file.lights ?? [],
+    objects: file.objects ?? {},
+  };
+  const { world, mount, rocket } = buildWorld(file.root, gravity, spawn);
 
   // The simulation, centred on the rocket's pad.
   const physicsUrl = '../gen/physics-2pt.wgsl';
@@ -188,18 +224,31 @@ async function main() {
     throw new Error('physics shader failed to compile. See the console for details.');
   }
   const physics = new PhysicsWorld(gpu.device, physicsModule, world, {
-    materials: SURROUNDINGS.materials, origin: rocket.position, gravity: { from: planetoid, gm: GM },
+    materials: surroundings.materials,
+    objects: surroundings.objects,
+    origin: rocket.position,
+    gravity,
   });
   // The scene is a group of the world's objects, each body's
   // bounds padded by how far it may move before the next compile. Its
   // overlaps are the broad phase: the only pairs physics tests for contact.
-  const sceneSpec = () => world.sceneSpec(SURROUNDINGS, { bounds: (o) => physics.boundsOf(o) });
+  const sceneSpec = () => world.sceneSpec(surroundings, { bounds: (o) => physics.boundsOf(o) });
   const scene = gpu.createScene(sceneSpec());
   physics.setCandidates(world.overlappingPairs(scene.overlaps));
   // Looking forward from the mount to start, pitched down a little so the
   // ground is in view.
   const camera = new AttachedCamera(mount, { pitch: -0.2 });
-  const flight = new FlightControl(camera);
+  const flight = new FlightControl(camera, { up: (p) => gravity.up(p) });
+
+  // Which scene, and the others to switch to.
+  const scenes = document.getElementById('scenes');
+  scenes.textContent = `scene: ${sceneName}`;
+  for (const other of SCENES.filter((n) => n !== sceneName)) {
+    const link = document.createElement('a');
+    link.href = `?scene=${encodeURIComponent(other)}`;
+    link.textContent = other;
+    scenes.append(' · ', link);
+  }
 
   // The arrows step through the world's objects: left/right for what the
   // controls fly, up/down for what the camera looks at.

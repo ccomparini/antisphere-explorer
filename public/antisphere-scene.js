@@ -988,6 +988,46 @@ export function resolveImports(spec, imports = {}, { from = '', trail = [] } = {
   return merged;
 }
 
+// -- gravity and spawn ---------------------------------------------------------------
+//
+// Not geometry, so the renderer and editor ignore them; whatever simulates
+// the scene (physlab) reads them from compileScene()'s result.
+
+const isVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x));
+const isPositive = (x) => typeof x === 'number' && Number.isFinite(x) && x > 0;
+
+/**
+ * A scene's gravity (scene-format.md), checked and normalized:
+ *   { kind: 'uniform', down: unit [x, y, z], strength }  - the same everywhere
+ *   { kind: 'central', center, strength, radius, gm }     - towards center,
+ *     strength at radius, falling off as 1 / r^2 (gm = strength radius^2)
+ * Absent, it is uniform, 9.81 down -Z. `at(path, message)` reports a problem.
+ */
+export function parseGravity(def, at = (path, msg) => { throw new Error(`${path}: ${msg}`); }) {
+  if (def === undefined) return { kind: 'uniform', down: [0, 0, -1], strength: 9.81 };
+  if (def === null || typeof def !== 'object' || Array.isArray(def)) at('gravity', 'must be an object');
+  if (!isPositive(def.strength)) at('gravity.strength', `must be a positive number, got ${JSON.stringify(def.strength)}`);
+  if ('down' in def === 'center' in def) at('gravity', 'needs one of "down" (uniform) or "center" (central)');
+  if ('down' in def) {
+    const len = isVec3(def.down) ? Math.hypot(...def.down) : 0;
+    if (!(len > 0)) at('gravity.down', `must be a direction [x, y, z], got ${JSON.stringify(def.down)}`);
+    return { kind: 'uniform', down: def.down.map((v) => v / len), strength: def.strength };
+  }
+  if (!isVec3(def.center)) at('gravity.center', `must be a point [x, y, z], got ${JSON.stringify(def.center)}`);
+  if (!isPositive(def.radius)) at('gravity.radius', `must be a positive number, got ${JSON.stringify(def.radius)}`);
+  return { kind: 'central', center: def.center.slice(), strength: def.strength, radius: def.radius,
+           gm: def.strength * def.radius * def.radius };
+}
+
+/** A scene's spawn point (scene-format.md): { at, facing }, or null if it names none. */
+export function parseSpawn(def, at = (path, msg) => { throw new Error(`${path}: ${msg}`); }) {
+  if (def === undefined) return null;
+  if (def === null || typeof def !== 'object' || !isVec3(def.at)) at('spawn.at', 'must be a point [x, y, z]');
+  const facing = def.facing ?? [1, 0, 0];
+  if (!isVec3(facing) || !(Math.hypot(...facing) > 0)) at('spawn.facing', `must be a direction [x, y, z], got ${JSON.stringify(def.facing)}`);
+  return { at: def.at.slice(), facing: facing.slice() };
+}
+
 export function compileScene(rawSpec, options = {}) {
   const at = (path, msg) => { throw new Error(`scene compilation: ${path}: ${msg}`); };
 
@@ -1773,6 +1813,8 @@ export function compileScene(rawSpec, options = {}) {
     materials: table,
     lights: lightList,
     camera: spec.camera || null,
+    gravity: parseGravity(spec.gravity, (path, msg) => at(path, msg)),
+    spawn: parseSpawn(spec.spawn, (path, msg) => at(path, msg)),
     // For each group, the members that may overlap - whose overlap its
     // pruning couldn't rule out (buildGroup): { group: its path, members:
     // [i, j] }, indices into its array, i < j.

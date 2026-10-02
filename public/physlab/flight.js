@@ -1,9 +1,10 @@
 // Free flight for an object. attach() picks which; it starts as the
 // camera's own.
 //
-// The camera's object is kept upright with respect to the planet: its +Z
-// points straight away from the origin, so the horizon stays level wherever
-// it flies, and it turns only about that vertical. Looking up and down is
+// The camera's object is kept upright: its +Z points up - against gravity,
+// as the scene's gravity says (gravity.js), away from the origin unless told
+// otherwise - so the horizon stays level wherever it flies, and it turns
+// only about that vertical. Looking up and down is
 // the camera's pitch, a head tilting on a level body, and forward is where
 // the camera looks, pitch and all.
 //
@@ -24,12 +25,13 @@ const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
 const PITCH_LIMIT = 1.45;
 
 /**
- * The upright orientation at `position` facing as near `heading` as the
- * level plane there allows: +Z straight away from the origin, +Y the
- * heading carried onto the level plane, +X = +Y cross +Z.
+ * The upright orientation facing as near `heading` as the level plane
+ * allows: +Z along `up`, +Y the heading carried onto the level plane, +X =
+ * +Y cross +Z. (On a planet centred at the origin, a point's position is
+ * its up.)
  */
-export function levelOrientation(position, heading) {
-  const z = unit(position);
+export function levelOrientation(up, heading) {
+  const z = unit(up);
   let y = heading.map((v, i) => v - dot(heading, z) * z[i]);
   if (Math.hypot(...y) < 1e-9) {
     // Heading straight up or down: any level direction will do.
@@ -47,12 +49,16 @@ export class FlightControl {
    * @param {object} [opts]
    * @param {number} [opts.speed]  meters per second
    * @param {number} [opts.boost]  speed multiplier while 'fast' is held
+   * @param {(p: number[]) => number[] | null} [opts.up]  which way is up at p
+   *   (a scene's gravity.up); by default away from the origin, and nothing
+   *   at the origin itself
    */
-  constructor(camera, { speed = 20, boost = 5 } = {}) {
+  constructor(camera, { speed = 20, boost = 5, up = (p) => (Math.hypot(...p) < 1e-9 ? null : p) } = {}) {
     this.camera = camera;
     this.object = camera.object;  // what the controls move; see attach()
     this.speed = speed;
     this.boost = boost;
+    this.up = up;
     this.held = new Set();
     this.pendingYaw = 0;          // radians to turn right, gathered until the next update
   }
@@ -82,9 +88,9 @@ export class FlightControl {
     const body = this.object;
     const carriesCamera = body === this.camera.object;
     if (!this.pendingYaw && !this.held.size) return;          // no input: leave it be
-    // Kept upright means "up" from the origin, which at the origin itself
-    // means nothing; leave it there.
-    if (carriesCamera && Math.hypot(...body.position) < 1e-9) { this.pendingYaw = 0; return; }
+    // Kept upright, where up means something; where it doesn't (the
+    // centre of a planet), leave it there.
+    if (carriesCamera && !this.up(body.position)) { this.pendingYaw = 0; return; }
     let { x, y, z } = body.axes();
 
     // Turning is about the object's +Z (the vertical, for the camera's
@@ -111,7 +117,7 @@ export class FlightControl {
       body.setPosition(body.position.map((v, i) => v + move[i]));
     }
     body.orientation = carriesCamera
-      ? levelOrientation(body.position, y)       // upright where it now is
+      ? levelOrientation(this.up(body.position), y)   // upright where it now is
       : fromBasis(cross(y, z), y, z);            // turned about its own +Z
   }
 }

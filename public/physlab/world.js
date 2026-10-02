@@ -106,7 +106,9 @@ export class World {
    * (scene-format.md applies rotate before translate, which is what
    * placing it wants).
    *
-   * @param {object} [surroundings]  { materials, lights }, which aren't objects (yet)
+   * @param {object} [surroundings]  { materials, lights, objects }, which aren't
+   *   world objects: what the scene file brings, objects being its named
+   *   subtrees, which world objects' geometry may use
    * @param {object} [opts]
    * @param {(o: WorldObject) => ({ center, radius }|null)} [opts.bounds]
    *   Makes the root a group (scene-format.md) instead of a
@@ -114,14 +116,15 @@ export class World {
    *   compiled scene's overlaps then say which objects may touch; their
    *   members index placed(), the objects in the scene at this call.
    */
-  sceneSpec({ materials = {}, lights = [] } = {}, { bounds = null } = {}) {
+  sceneSpec({ materials = {}, lights = [], objects: named = {} } = {}, { bounds = null } = {}) {
     const placed = this.objects.filter((o) => o.geometry);
     if (!placed.length) throw new Error('no object in the world has any geometry to draw');
     this._built = this._poses();
     this._placed = placed;
 
-    const objects = {};
+    const objects = { ...named };
     const uses = placed.map((o) => {
+      if (o.name in named) throw new Error(`world object "${o.name}" has the name of one of the scene's objects`);
       objects[o.name] = o.geometry;
       const use = { use: o.name };
       const { axis, radians } = toAxisAngle(o.orientation);

@@ -923,6 +923,7 @@ struct SimParams {
   first_static   : u32,        // solids from here on collide but never move
   static_count   : u32,
   pair_count     : u32,        // path pairs for detect() to try (see pathPairs)
+  gravity_uniform : vec3<f32>, // gravity the same everywhere, where gm is 0
 };
 
 @group(0) @binding(7) var<storage, read_write> particles : array<Particle>;
@@ -930,6 +931,7 @@ struct SimParams {
 @group(0) @binding(9) var<uniform> sim : SimParams;
 
 fn gravityAt(p : vec3<f32>) -> vec3<f32> {
+  if (sim.gm == 0.0) { return sim.gravity_uniform; }
   let r = sim.gravity_centre - p;
   let d2 = max(dot(r, r), 1e-6);
   return sim.gm * r / (d2 * sqrt(d2));
@@ -1485,4 +1487,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":246},{"path":"shaders/collision.wgsls","offset":324,"lines":542},{"path":"shaders/physics-2pt.wgsls","offset":866,"lines":621}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":76},{"path":"shaders/overlap.wgsls","offset":78,"lines":246},{"path":"shaders/collision.wgsls","offset":324,"lines":542},{"path":"shaders/physics-2pt.wgsls","offset":866,"lines":623}]

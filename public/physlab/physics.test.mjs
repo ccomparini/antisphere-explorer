@@ -13,6 +13,7 @@ import { PhysicsWorld } from './physics-world.js';
 import { World, WorldObject } from './world.js';
 import { fromAxisAngle, fromTo, multiply, rotate, toAxisAngle } from './quat.js';
 import { octahedron, octahedronBody } from './shapes.js';
+import { gravityOf } from './gravity.js';
 import { BINDINGS, Contact, ContactQuery, viewsOf } from '../gen/layouts.js';
 import { bindGroup } from '../bind-group.js';
 import { compileScene } from '../antisphere-scene.js';
@@ -174,6 +175,8 @@ gpuTest('a tilted rod whose lower end dips into the ground has its contact at th
 
 const GM = 9.81 * 500 * 500;               // 9.81 m/s^2 at 500 m
 const gAt = (r) => GM / (r * r);
+// The same, for PhysicsWorld: towards a planet of radius 500 at the origin.
+const towardsPlanet = gravityOf({ kind: 'central', center: [0, 0, 0], gm: GM });
 const sim = (particles, bodies, extra = {}) =>
   new PhysicsSim(device, module, { particles, bodies, gravityCentre: [0, 0, 0], gm: GM, ...extra });
 const alone = (pos, vel, body = 0) => ({ pos, vel, invMass: 1, body });
@@ -187,6 +190,20 @@ gpuTest('a dropped particle falls as 1/2 g t^2', async () => {
   near(q.pos[2], 600 - 0.5 * g, 0.03, 'height after 1 s');
   near(q.vel[2], -g, 0.05, 'speed after 1 s');
   near([q.pos[0], q.pos[1]], [0, 0], 1e-6, 'straight down');
+  s.destroy();
+});
+
+gpuTest('uniform gravity: a dropped particle falls 1/2 g t^2 along it, wherever it is', async () => {
+  const g = [0.3, -9.0, 1.2];
+  const s = new PhysicsSim(device, module, {
+    particles: [alone([0, 0, 0]), alone([5000, 0, 0], [0, 0, 0], 1)], bodies: [point, { p0: 1, p1: 1, rest: 0 }],
+    gravityUniform: g,
+  });
+  s.step(1.0);
+  const [a, b] = await s.read();
+  near(a.pos, g.map((v) => 0.5 * v), 0.02, 'fallen from the origin');
+  near(b.pos.map((v, i) => v - [5000, 0, 0][i]), g.map((v) => 0.5 * v), 0.05, 'the same 5 km away');
+  near(a.vel, g, 0.02, 'speed after 1 s');
   s.destroy();
 });
 
@@ -424,7 +441,7 @@ gpuTest('PhysicsWorld drops world objects onto a static one and follows them bac
     body: { mass: 10, centre: 0, inertia: 16 / 12, radius: 2.1 },
   }));
   const physics = new PhysicsWorld(device, module, world, {
-    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+    materials: MATERIALS, origin: [0, 0, 500], gravity: towardsPlanet,
   });
   assert.equal(physics.simulates(ball), true);
   assert.equal(physics.simulates(planet), false);
@@ -453,7 +470,7 @@ gpuTest('PhysicsWorld.reshape: a crater carved under a ball grows in place, and 
     body: { mass: 10, centre: 0, inertia: 0.1, radius: 0.5 },
   }));
   const physics = new PhysicsWorld(device, module, world, {
-    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+    materials: MATERIALS, origin: [0, 0, 500], gravity: towardsPlanet,
   });
   const run = async (frames) => {
     for (let f = 0; f < frames; f++) { physics.update(1 / 60); await physics.reading; await physics.rebuilding; }
@@ -495,7 +512,7 @@ gpuTest('PhysicsWorld.add fires a body in mid-run, and what was moving keeps mov
     body: { mass: 10, centre: 0, inertia: 0.4, radius: 1 },
   }));
   const physics = new PhysicsWorld(device, module, world, {
-    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+    materials: MATERIALS, origin: [0, 0, 500], gravity: towardsPlanet,
   });
   const run = async (frames) => {
     for (let f = 0; f < frames; f++) {
@@ -578,7 +595,7 @@ gpuTest('a group of the world is the broad phase: far pairs untested, and everyt
   const high = ball('high', [8, 0, 560]);
   const rods = [rod('rod1', [20, 0, 502]), rod('rod2', [-20, 0, 502])];
   const physics = new PhysicsWorld(device, module, world, {
-    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+    materials: MATERIALS, origin: [0, 0, 500], gravity: towardsPlanet,
   });
   const all = physics.pairCount;
   const broadPhase = () => {
@@ -627,7 +644,7 @@ gpuTest('an octahedron, turned and rolled, lands on the ground as it is drawn', 
     }));
   }
   const physics = new PhysicsWorld(device, module, world, {
-    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+    materials: MATERIALS, origin: [0, 0, 500], gravity: towardsPlanet,
   });
   for (let f = 0; f < 6 * 60; f++) { physics.update(1 / 60); await physics.reading; }
   physics.update(0);
@@ -662,7 +679,7 @@ gpuTest('an octahedron dropped on another never goes into it, and both come to r
   const lower = octa('lower', [0, 0, 501.5], fromAxisAngle([0.3, 1, 0.1], 0.9));
   const upper = octa('upper', [0.1, 0.1, 505], multiply(fromAxisAngle([1, 0, 0.4], 0.8), fromAxisAngle([0, 1, 0], 0.3)));
   const physics = new PhysicsWorld(device, module, world, {
-    materials: MATERIALS, origin: [0, 0, 500], gravity: { from: planet, gm: GM },
+    materials: MATERIALS, origin: [0, 0, 500], gravity: towardsPlanet,
   });
   const corners = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
   const cornersOf = (o) => corners.map((c) => rotate(o.orientation, c.map((v) => a * v)).map((v, i) => v + o.position[i]));

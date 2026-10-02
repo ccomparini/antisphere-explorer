@@ -721,9 +721,9 @@ export class Body {
 }
 
 export class SimParams {
-  static SIZE = 48;
+  static SIZE = 64;
   static ALIGN = 16;
-  static STRIDE = 48;
+  static STRIDE = 64;
   static FIELDS = Object.freeze({
     gravity_centre: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
     gm: Object.freeze({ offset: 12, type: 'f32' }),
@@ -733,6 +733,7 @@ export class SimParams {
     first_static: Object.freeze({ offset: 28, type: 'u32' }),
     static_count: Object.freeze({ offset: 32, type: 'u32' }),
     pair_count: Object.freeze({ offset: 36, type: 'u32' }),
+    gravity_uniform: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * SimParams.STRIDE)); }
@@ -767,6 +768,11 @@ export class SimParams {
     if (values.pair_count !== undefined) {
       u32[w + 9] = values.pair_count;
     }
+    if (values.gravity_uniform !== undefined) {
+      f32[w + 12] = values.gravity_uniform[0];
+      f32[w + 13] = values.gravity_uniform[1];
+      f32[w + 14] = values.gravity_uniform[2];
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -780,6 +786,7 @@ export class SimParams {
       first_static: u32[w + 7],
       static_count: u32[w + 8],
       pair_count: u32[w + 9],
+      gravity_uniform: [f32[w + 12], f32[w + 13], f32[w + 14]],
     };
   }
 }

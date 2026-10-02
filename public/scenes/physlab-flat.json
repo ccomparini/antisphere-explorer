@@ -1,0 +1,17 @@
+{
+  "materials": {
+    "rock": { "albedo": [0.46, 0.43, 0.39], "albedo2": [0.31, 0.29, 0.27], "pattern": "noise" }
+  },
+  "lights": [
+    { "pos": [3000, -4000, 5000], "color": [3.6e7, 3.3e7, 2.9e7] }
+  ],
+  "gravity": { "down": [0, 0, -1], "strength": 9.81 },
+  "spawn": { "at": [0, 0, 0], "facing": [1, 0, 0] },
+  "root": {
+    "intersect": [
+      { "slab": { "center": [0, 0, -10], "axis": [1, 0, 0], "thickness": 400 }, "material": "rock" },
+      { "slab": { "center": [0, 0, -10], "axis": [0, 1, 0], "thickness": 400 }, "material": "rock" },
+      { "slab": { "center": [0, 0, -10], "axis": [0, 0, 1], "thickness": 20 }, "material": "rock" }
+    ]
+  }
+}

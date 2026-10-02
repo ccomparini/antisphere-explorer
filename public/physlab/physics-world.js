@@ -45,16 +45,18 @@ export class PhysicsWorld {
    * @param {World} world
    * @param {object} opts
    * @param {object} opts.materials       what the geometry names (solidity)
+   * @param {object} [opts.objects]       named subtrees the geometry may use
    * @param {number[]} opts.origin        world point the simulation is centred on
-   * @param {{ from: WorldObject, gm: number }} opts.gravity  gm / r^2 towards `from`
+   * @param {object} opts.gravity       the scene's (gravity.js's gravityOf())
    * @param {number} [opts.lookahead]     seconds a body's bounds must cover its
    *   motion for (boundsOf): from the positions they're made from, a frame or
    *   two old, until the pairs they give are next replaced
    */
-  constructor(device, module, world, { materials, origin, gravity, lookahead = 0.3 }) {
+  constructor(device, module, world, { materials, objects = {}, origin, gravity, lookahead = 0.3 }) {
     this.device = device;
     this.module = module;
     this.materials = materials;
+    this.objects = objects;
     this.origin = origin.slice();
     this.gravity = gravity;
     this.solids = new WeakMap();          // compiled solids, by geometry object
@@ -77,7 +79,7 @@ export class PhysicsWorld {
   _staticSolid(o) {
     const { axis, radians } = toAxisAngle(o.orientation);
     const place = { ...(radians ? { rotate: { axis, radians } } : {}), translate: sub(o.position, this.origin) };
-    return compileSolid(o.geometry, this.materials, place);
+    return compileSolid(o.geometry, this.materials, place, this.objects);
   }
 
   /**
@@ -129,7 +131,7 @@ export class PhysicsWorld {
   }
 
   _solidOf(geometry) {
-    if (!this.solids.has(geometry)) this.solids.set(geometry, compileSolid(geometry, this.materials));
+    if (!this.solids.has(geometry)) this.solids.set(geometry, compileSolid(geometry, this.materials, null, this.objects));
     return this.solids.get(geometry);
   }
 
@@ -163,7 +165,7 @@ export class PhysicsWorld {
     this.simSolids = [...bodies.map((b) => b.solid), ...this.statics];
     return new PhysicsSim(this.device, this.module, {
       particles, bodies, statics: this.statics,
-      gravityCentre: sub(this.gravity.from.position, this.origin), gm: this.gravity.gm,
+      ...this.gravity.simParams(this.origin),
     });
   }
 
@@ -199,8 +201,7 @@ export class PhysicsWorld {
     const k = this.bodies.indexOf(object);
     if (k < 0) return null;
     const { speed, thrust } = this.placement[k];
-    const r = Math.hypot(...sub(object.position, this.gravity.from.position));
-    const accel = this.gravity.gm / Math.max(r * r, 1e-9) + Math.hypot(...thrust);
+    const accel = Math.hypot(...this.gravity.at(object.position)) + Math.hypot(...thrust);
     const t = this.lookahead;
     return { center: object.position.slice(), radius: object.body.radius + speed * t + 0.5 * accel * t * t + 0.05 };
   }

@@ -24,6 +24,8 @@ Top level:
   "materials": { ... },       // optional, name -> material def
   "lights":    [ ... ],       // optional, but at least one is required at render time
   "objects":   { ... },       // optional, name -> reusable subtree template
+  "gravity":   { ... },       // optional, for whatever simulates the scene
+  "spawn":     { ... },       // optional, likewise
   "root":      { ... }        // required, the scene's top-level subtree
 }
 ```
@@ -36,6 +38,37 @@ Top level:
 | `yaw`      | number (radians)  | horizontal orbit angle                |
 | `pitch`    | number (radians)  | vertical orbit angle                  |
 | `distance` | number            | distance from `target` to the camera  |
+
+## `gravity`
+
+Which way things fall, for whatever simulates the scene (physlab); the
+renderer and editor ignore it. Either the same everywhere:
+
+```
+"gravity": { "down": [0, 0, -1], "strength": 9.81 }
+```
+
+or towards a point, as on a planet, falling off with the square of the
+distance:
+
+```
+"gravity": { "center": [0, 0, 0], "strength": 9.81, "radius": 500 }
+```
+
+where `strength` is the acceleration at `radius` from `center` (so
+`strength * radius^2` is G times the mass). `down` needn't be unit length.
+Absent, gravity is uniform, 9.81 down -Z. "Up" for a simulation's camera is
+the opposite of gravity: against `down`, or away from `center`.
+
+## `spawn`
+
+```
+"spawn": { "at": [x, y, z], "facing": [x, y, z] }
+```
+
+Where on the ground a simulation puts its things, and which way they face
+(level, as near `facing` as up allows; default `[1, 0, 0]`). physlab stands
+its camera 20 units above `at` and the rest of its world around it.
 
 ## `materials`
 

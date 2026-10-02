@@ -15,12 +15,12 @@ import { bindGroup } from '../bind-group.js';
  * A geometry subtree (scene-format.md) as a solid: { nodes, paths }. With
  * `place` ({ rotate, translate }, as scene-format.md spells them), the
  * geometry is turned and moved first - how a static object's solid gets
- * into simulation coordinates.
+ * into simulation coordinates. `objects` are the named subtrees it may use.
  */
-export function compileSolid(geometry, materials, place = null) {
+export function compileSolid(geometry, materials, place = null, objects = {}) {
   const spec = place
-    ? { materials, lights: [], objects: { solid: geometry }, root: { use: 'solid', ...place } }
-    : { materials, lights: [], root: geometry };
+    ? { materials, lights: [], objects: { ...objects, '@solid': geometry }, root: { use: '@solid', ...place } }
+    : { materials, lights: [], objects, root: geometry };
   const built = compileScene(spec);
   const solid = (i) => !!built.materials[built.nodes[i].material].solid;
   return { nodes: built.nodes, paths: interiorPaths(built.nodes, 1, solid) };
@@ -90,12 +90,16 @@ export class PhysicsSim {
    *   pose()); a solid of revolution about +Y doesn't show it, anything
    *   else does.
    * @param {object[]} [setup.statics]      compileSolid()s that collide but never move
-   * @param {number[]} setup.gravityCentre  in simulation coordinates
-   * @param {number} setup.gm               gravity is gm / r^2
+   * @param {number[]} [setup.gravityCentre]  in simulation coordinates
+   * @param {number} [setup.gm]              gravity is gm / r^2 towards the centre;
+   *                                         0 (the default) for uniform gravity
+   * @param {number[]} [setup.gravityUniform] the acceleration everywhere, m/s^2,
+   *                                         where gm is 0
    * @param {number} [setup.h]              substep, seconds
    * @param {number} [setup.iterations]     constraint rounds per substep
    */
-  constructor(device, module, { particles, bodies, statics = [], gravityCentre, gm,
+  constructor(device, module, { particles, bodies, statics = [], gravityCentre = [0, 0, 0], gm = 0,
+                                gravityUniform = [0, 0, 0],
                                 h = 1 / 240, iterations = 4 }) {
     this.device = device;
     this.h = h;
@@ -133,7 +137,7 @@ export class PhysicsSim {
     this.bodies = storage(this.bodyViews.buffer);
     const params = SimParams.allocate(1);
     SimParams.write(params, 0, {
-      gravity_centre: gravityCentre, gm, h, particle_count: particles.length, body_count: bodies.length,
+      gravity_centre: gravityCentre, gm, gravity_uniform: gravityUniform, h, particle_count: particles.length, body_count: bodies.length,
       first_static: bodies.length, static_count: statics.length,
     });
     this.params = device.createBuffer({ size: SimParams.SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });

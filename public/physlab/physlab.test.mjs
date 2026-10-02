@@ -9,6 +9,9 @@ import { AttachedCamera } from './camera.js';
 import { FlightControl, levelOrientation } from './flight.js';
 import { compileScene } from '../antisphere-scene.js';
 import { octahedron } from './shapes.js';
+import { gravityOf } from './gravity.js';
+import { parseGravity, parseSpawn } from '../antisphere-scene.js';
+import { readFileSync } from 'node:fs';
 
 const near = (a, b, eps = 1e-9) => {
   if (Array.isArray(a)) a.forEach((v, i) => near(v, b[i], eps));
@@ -293,6 +296,43 @@ test('without input nothing moves or turns', () => {
     flight.update(1);
     assert.deepEqual([o.position, o.orientation], [p, q]);
   }
+});
+
+test('flying level under uniform gravity keeps +Z up, far from the origin too', () => {
+  // With up taken as away from the origin, as on a planet, flying 500 m
+  // sideways would tip the horizon by 45 degrees.
+  const gravity = gravityOf({ kind: 'uniform', down: [0, 0, -1], strength: 9.81 });
+  const position = [0, 0, 20];
+  const mount = new WorldObject('mount', { position, orientation: levelOrientation(gravity.up(position), [1, 0, 0]) });
+  const flight = new FlightControl(new AttachedCamera(mount), { speed: 100, up: (p) => gravity.up(p) });
+  flight.press('right');
+  flight.update(5);
+  near(mount.position, [0, -500, 20], 1e-9);
+  near(axes(mount.orientation).z, [0, 0, 1], 1e-12);
+  near(axes(mount.orientation).y, [1, 0, 0], 1e-12);
+});
+
+test('gravity: uniform the same everywhere; central towards its centre as 1 / r^2, up away from it', () => {
+  const flat = gravityOf({ kind: 'uniform', down: [0, 0, -1], strength: 9.81 });
+  near(flat.at([1e4, 5, -3]), [0, 0, -9.81], 1e-12);
+  near(flat.up([7, 7, 7]), [0, 0, 1], 1e-12);
+  const planet = gravityOf(parseGravity({ center: [0, 0, 0], strength: 9.81, radius: 500 }));
+  near(planet.at([0, 500, 0]), [0, -9.81, 0], 1e-9);
+  near(planet.at([1000, 0, 0]), [-9.81 / 4, 0, 0], 1e-9);
+  near(planet.up([0, 0, 600]), [0, 0, 1], 1e-12);
+});
+
+test('physlab\'s scenes parse, each spawn on its ground', () => {
+  const read = (name) => JSON.parse(readFileSync(new URL(`../scenes/${name}`, import.meta.url), 'utf8'));
+  const planetoid = read('physlab-planetoid.json');
+  const spawn = parseSpawn(planetoid.spawn);
+  assert.equal(parseGravity(planetoid.gravity).kind, 'central');
+  near(Math.hypot(...spawn.at), planetoid.root.sphere.radius, 1e-3);
+  const flat = read('physlab-flat.json');
+  assert.equal(parseGravity(flat.gravity).kind, 'uniform');
+  assert.deepEqual(parseSpawn(flat.spawn).at, [0, 0, 0]);
+  const compiled = compileScene(flat);
+  assert.ok(compiled.nodes.length > 1, 'the flat ground compiles');
 });
 
 test('geometryMoved says when the scene must be rebuilt', () => {
