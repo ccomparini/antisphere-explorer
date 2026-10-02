@@ -176,6 +176,7 @@ export class ASRenderer {
       'main', {
         cam: this.cam.buffer,
         nodes: this.scene.nodeBuf,
+        surfaces: this.scene.surfaceBuf,
         outTex: view,
         lights: this.scene.lightBuf,
         materials: this.scene.matBuf,

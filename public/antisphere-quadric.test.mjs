@@ -12,7 +12,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene, packNodes } from './antisphere-scene.js';
+import { compileScene, packNodes, packSurfaces } from './antisphere-scene.js';
 import { Node, viewsOf } from './gen/layouts.js';
 
 // Every node of a one-primitive scene, as the GPU would see it.
@@ -532,4 +532,38 @@ test('far out, the packed coefficients are the same quadric, about the anchor', 
       near(H(nd, P), world, 1e-3 * Math.max(1, Math.abs(world)));
     }
   }
+});
+
+// -- surface ids --------------------------------------------------------------------
+
+test('packSurfaces: copies and complements of a surface share an id, other surfaces don\'t', () => {
+  // A union of a ball and a box: the box's faces are grafted into the
+  // ball's outside, so the tree copies nodes; and a hole cut from the box
+  // with the ball's own sphere, complemented.
+  const ball = { sphere: { center: [0, 0, 0], radius: 1 } };
+  const box = { intersect: [
+    { slab: { center: [3, 0, 0], axis: [1, 0, 0], thickness: 2 } },
+    { slab: { center: [3, 0, 0], axis: [0, 1, 0], thickness: 2 } },
+    { slab: { center: [3, 0, 0], axis: [0, 0, 1], thickness: 2 } },
+  ] };
+  const built = compileScene({ materials: {}, lights: [], root: { union: [
+    ball, { intersect: [box, { ...ball, complement: true }] },
+  ] } });
+  const ids = packSurfaces(built.nodes);
+  assert.equal(ids[0], 0, 'node 0 has none');
+  // Group the nodes by what they are; each group one id, every group its own.
+  const byShape = new Map();
+  built.nodes.forEach((nd, i) => {
+    if (!i) return;
+    const p = nd.prim;
+    const s = [p.k_perp, p.k_par, p.constant, ...p.linear].find((v) => v !== 0) < 0 ? -1 : 1;
+    const key = [...p.axis, p.k_perp * s, p.k_par * s, p.constant * s, ...p.linear.map((v) => v * s)].map((v) => v.toFixed(9)).join();
+    if (!byShape.has(key)) byShape.set(key, new Set());
+    byShape.get(key).add(ids[i]);
+  });
+  for (const [key, set] of byShape) assert.equal(set.size, 1, `one surface, ids ${[...set]}: ${key}`);
+  const all = [...byShape.values()].map((set) => [...set][0]);
+  assert.equal(new Set(all).size, all.length, 'different surfaces, different ids');
+  assert.equal(byShape.size, 4, 'the sphere and the three slabs');
+  assert.ok(built.nodes.length - 1 > byShape.size, 'and some of them copied');
 });

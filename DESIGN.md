@@ -85,13 +85,13 @@ coefficients in place, with no recompile.
   given a mask of which bits stop the ray. A camera ray and a physics query
   can then treat glass differently, for example.
 - **Rays that continue from a hit.** A shadow ray already starts exactly on
-  the surface the camera ray hit (`Ray.fromNode` in
+  the surface the camera ray hit (`trace()`'s `fromSurface` in
   `shaders/antisphere-raycast.wgsls`): every node that is that surface -
   its copies and complements, one id in `surfaces` - takes H = 0 at the
   start, so the crossing where the ray is never counts, the next one does
   (a crater's wall still shades its floor), and which side the ray is on
   goes by its direction: no offset, no tolerance. Reflection, refraction
-  and transparency are the same thing, a new Ray from the hit, turned back
+  and transparency are the same thing, a new ray from the hit, turned back
   (staying on its side) or going on through (inside); straight-through
   transparency can instead resume the same trace past the hit, from the
   segments on its stack. Several continuations from one hit are a bounded
