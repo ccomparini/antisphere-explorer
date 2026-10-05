@@ -204,7 +204,7 @@ export class ASScene {
     const built = compileScene(spec, { imports: this.imports, path: this.path });
     const { device } = this.context;
 
-    for (const b of [this.nodeBuf, this.lightBuf, this.matBuf]) if (b) b.destroy();
+    this.destroyBuffers();
 
     this.spec = spec;
     this.nodes = built.nodes;
