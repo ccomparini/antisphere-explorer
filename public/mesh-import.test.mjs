@@ -333,7 +333,8 @@ test('whole triangles overfill a torus, which is why cutting is the default', ()
   // always extra material, bulging outside the surface.
   const mesh = torusMesh(1, 0.35, 12, 8);
   const whole = meshToTree(mesh, { material: 'clay', split: false, maxDepth: 300 });
-  const loose = agreesWithMesh(mesh, whole, { samples: 800 });
+  // Rare now - ~0.2% of points - so enough samples to be sure of meeting it.
+  const loose = agreesWithMesh(mesh, whole, { samples: 8000 });
   const cut = agreesWithMesh(mesh, meshToTree(mesh, { material: 'clay' }), { samples: 800 });
   assert.equal(cut.wrong, 0, 'cutting is exact');
   assert.ok(loose.wrong > 0,
