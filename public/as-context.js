@@ -276,7 +276,10 @@ export class ASScene {
 
     const queries = RayQuery.allocate(rays.length);
     rays.forEach((r, i) => RayQuery.write(queries, i, {
-      o: r.origin, tMin: r.tMin ?? 1e-3, d: r.direction, tMax: r.tMax ?? 1000,
+      o: r.origin,
+      tMin: r.tMin ?? 1e-3,
+      d: r.direction,
+      tMax: r.tMax ?? 1000,
     }));
     device.queue.writeBuffer(rq.rayBuf, 0, queries.buffer);
 
@@ -344,7 +347,17 @@ export class ASScene {
   }
 
   destroy() {
-    for (const b of [this.nodeBuf, this.lightBuf, this.matBuf]) if (b) b.destroy();
-    this.nodeBuf = this.lightBuf = this.matBuf = null;
+    const buffers = [
+      'nodeBuf',
+      'lightBuf',
+      'matBuf'
+    ]
+    for (const bname of buffers) {
+      const b = this[bname];
+      if (b) {
+        b.destroy();
+        this[bname] = null;
+      }
+    }
   }
 }
