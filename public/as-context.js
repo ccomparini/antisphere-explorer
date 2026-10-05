@@ -276,9 +276,9 @@ export class ASScene {
 
     const queries = RayQuery.allocate(rays.length);
     rays.forEach((r, i) => RayQuery.write(queries, i, {
-      o: r.origin,
+      origin: r.origin,
       tMin: r.tMin ?? 1e-3,
-      d: r.direction,
+      direction: r.direction,
       tMax: r.tMax ?? 1000,
     }));
     device.queue.writeBuffer(rq.rayBuf, 0, queries.buffer);

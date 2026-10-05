@@ -461,10 +461,10 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
 // ---------------------------------------------------------------------------
 
 struct RayQuery {
-  o    : vec3<f32>,
-  tMin : f32,
-  d    : vec3<f32>,
-  tMax : f32,
+  origin    : vec3<f32>,   // origin of the ray we're testing
+  tMin      : f32,         // distance along d at which to start
+  direction : vec3<f32>,   // the direction of the ray
+  tMax      : f32,         // maximum distance along d to check
 };
 
 @group(0) @binding(5) var<storage, read> rayQueries : array<RayQuery>;
@@ -475,7 +475,7 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  rayResults[i] = trace(q.o, q.d, q.tMin, q.tMax);
+  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax);
 }
 
 // Surface parameterization from the node's own numbers. A plane gets a

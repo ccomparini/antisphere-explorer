@@ -287,9 +287,9 @@ export class RayQuery {
   static ALIGN = 16;
   static STRIDE = 32;
   static FIELDS = Object.freeze({
-    o: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
+    origin: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
     tMin: Object.freeze({ offset: 12, type: 'f32' }),
-    d: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
+    direction: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
     tMax: Object.freeze({ offset: 28, type: 'f32' }),
   });
 
@@ -299,18 +299,18 @@ export class RayQuery {
 
   static writeAt(views, byteOffset, values) {
     const { f32, u32, i32 } = views, w = byteOffset >> 2;
-    if (values.o !== undefined) {
-      f32[w] = values.o[0];
-      f32[w + 1] = values.o[1];
-      f32[w + 2] = values.o[2];
+    if (values.origin !== undefined) {
+      f32[w] = values.origin[0];
+      f32[w + 1] = values.origin[1];
+      f32[w + 2] = values.origin[2];
     }
     if (values.tMin !== undefined) {
       f32[w + 3] = values.tMin;
     }
-    if (values.d !== undefined) {
-      f32[w + 4] = values.d[0];
-      f32[w + 5] = values.d[1];
-      f32[w + 6] = values.d[2];
+    if (values.direction !== undefined) {
+      f32[w + 4] = values.direction[0];
+      f32[w + 5] = values.direction[1];
+      f32[w + 6] = values.direction[2];
     }
     if (values.tMax !== undefined) {
       f32[w + 7] = values.tMax;
@@ -320,9 +320,9 @@ export class RayQuery {
   static readAt(views, byteOffset) {
     const { f32, u32, i32 } = views, w = byteOffset >> 2;
     return {
-      o: [f32[w], f32[w + 1], f32[w + 2]],
+      origin: [f32[w], f32[w + 1], f32[w + 2]],
       tMin: f32[w + 3],
-      d: [f32[w + 4], f32[w + 5], f32[w + 6]],
+      direction: [f32[w + 4], f32[w + 5], f32[w + 6]],
       tMax: f32[w + 7],
     };
   }
