@@ -63,6 +63,98 @@ export function boundsOf(triangles) {
   return { lo, hi };
 }
 
+/** Eigenvectors of a symmetric 3x3 matrix, by Jacobi rotations. */
+function eigenvectors(m) {
+  const a = m.map((row) => row.slice());
+  const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 50; sweep++) {
+    let off = 0;
+    for (let p = 0; p < 3; p++) for (let q = p + 1; q < 3; q++) off += a[p][q] ** 2;
+    if (off < 1e-30) break;
+    for (let p = 0; p < 3; p++) {
+      for (let q = p + 1; q < 3; q++) {
+        if (Math.abs(a[p][q]) < 1e-300) continue;
+        const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+        const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const c = 1 / Math.sqrt(t * t + 1), sn = t * c;
+        for (let k = 0; k < 3; k++) {
+          const akp = a[k][p], akq = a[k][q];
+          a[k][p] = c * akp - sn * akq;
+          a[k][q] = sn * akp + c * akq;
+        }
+        for (let k = 0; k < 3; k++) {
+          const apk = a[p][k], aqk = a[q][k];
+          a[p][k] = c * apk - sn * aqk;
+          a[q][k] = sn * apk + c * aqk;
+        }
+        for (let k = 0; k < 3; k++) {
+          const vkp = v[k][p], vkq = v[k][q];
+          v[k][p] = c * vkp - sn * vkq;
+          v[k][q] = sn * vkp + c * vkq;
+        }
+      }
+    }
+  }
+  return [0, 1, 2].map((j) => [v[0][j], v[1][j], v[2][j]]);
+}
+
+/**
+ * A spheroid round a mesh's vertices, as a "spheroid" shape: { center,
+ * axis, height, radius }. Tried about each principal axis of the vertices,
+ * and as a sphere, and the least volume kept. About an axis, the centre is
+ * the middle of the vertices' extent along it and across it, the shape is
+ * that extent's, and it is grown until every vertex is inside.
+ */
+export function boundingSpheroid(triangles) {
+  const points = triangles.flat();
+  const n = points.length;
+  const mean = [0, 1, 2].map((i) => points.reduce((sum, p) => sum + p[i], 0) / n);
+  const cov = [0, 1, 2].map((i) => [0, 1, 2].map((j) =>
+    points.reduce((sum, p) => sum + (p[i] - mean[i]) * (p[j] - mean[j]), 0) / n));
+  const axes = eigenvectors(cov);
+
+  let best = null;
+  const keep = (center, axis, height, radius) => {
+    const volume = height * radius * radius;
+    if (!best || volume < best.volume) best = { volume, center, axis, height, radius };
+  };
+  for (let k = 0; k < 3; k++) {
+    const frame = [axes[k], axes[(k + 1) % 3], axes[(k + 2) % 3]];
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const p of points) {
+      for (let i = 0; i < 3; i++) {
+        const x = dot(frame[i], p);
+        if (x < lo[i]) lo[i] = x;
+        if (x > hi[i]) hi[i] = x;
+      }
+    }
+    const mid = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2);
+    const center = [0, 1, 2].map((j) => frame[0][j] * mid[0] + frame[1][j] * mid[1] + frame[2][j] * mid[2]);
+    const half = Math.max((hi[0] - lo[0]) / 2, 1e-12);
+    let across = 1e-12;
+    for (const p of points) {
+      const q = sub(p, center), x = dot(frame[0], q);
+      across = Math.max(across, Math.hypot(q[0] - x * frame[0][0], q[1] - x * frame[0][1], q[2] - x * frame[0][2]));
+    }
+    // Grown to take in every vertex, then by a hair, so that none sits on
+    // the surface: a surface is no one's inside.
+    let grow = 0;
+    for (const p of points) {
+      const q = sub(p, center), x = dot(frame[0], q);
+      const r = Math.hypot(q[0] - x * frame[0][0], q[1] - x * frame[0][1], q[2] - x * frame[0][2]);
+      grow = Math.max(grow, Math.hypot(x / half, r / across));
+    }
+    grow *= 1 + 1e-4;
+    keep(center, frame[0], 2 * half * grow, across * grow);
+  }
+  const { lo, hi } = boundsOf(triangles);
+  const center = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2);
+  const r = points.reduce((most, p) => Math.max(most, length(sub(p, center))), 0) * (1 + 1e-4);
+  keep(center, [0, 0, 1], 2 * r, r);
+  const { center: c, axis, height, radius } = best;
+  return { center: c, axis, height, radius };
+}
+
 /**
  * Cut a polygon with a plane, keeping one side. Returns null when what is
  * left is smaller than `tiny`, since a sliver is not worth the nodes it
@@ -207,6 +299,7 @@ export function meshToTree(triangles, options = {}) {
     sampleSize = 12,            // how many candidate planes to weigh
     maxDepth = 5000,
     split = true,               // cut straddling triangles, or pass them whole
+    bound = true,               // wrap the tree in a bounding spheroid
   } = options;
 
   const usable = triangles.filter((tri) => planeOfTriangle(tri));
@@ -246,7 +339,14 @@ export function meshToTree(triangles, options = {}) {
     return node;
   };
 
-  return build(usable, 0);
+  const tree = build(usable, 0);
+  if (!tree || !bound) return tree;
+  // A pure division round the whole mesh: its inside holds the tree, its
+  // absent outside is empty. A ray that misses it passes the model in one
+  // test, and whatever is grafted onto the model's absent outsides - the
+  // next operand of a union, say - is tested against it from inside, rather
+  // than walked through.
+  return { spheroid: boundingSpheroid(usable), inside: tree };
 }
 
 /** Nodes, depth and leaves, for judging what an import cost. */

@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene } from './antisphere-scene.js';
-import { meshToTree, treeStats, planeOfTriangle, boundsOf } from './mesh-import.js';
+import { meshToTree, treeStats, planeOfTriangle, boundsOf, boundingSpheroid } from './mesh-import.js';
 
 const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
 const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
@@ -163,7 +163,7 @@ function torusMesh(major = 1, minor = 0.35, nu = 24, nv = 12) {
 test('a tetrahedron is four planes and one solid region', () => {
   const tet = [[[0,0,0],[0,1,0],[1,0,0]], [[0,0,0],[0,0,1],[0,1,0]],
                [[0,0,0],[1,0,0],[0,0,1]], [[1,0,0],[0,1,0],[0,0,1]]];
-  const tree = meshToTree(tet, { material: 'clay' });
+  const tree = meshToTree(tet, { material: 'clay', bound: false });
   const stats = treeStats(tree);
   assert.equal(stats.nodes, 4, JSON.stringify(stats));
   assert.equal(stats.solidLeaves, 1, 'a convex solid has one inside');
@@ -174,7 +174,7 @@ test('a tetrahedron is four planes and one solid region', () => {
 
 test('a box, which nesting alone could also have managed', () => {
   const mesh = boxMesh([-1,-1,-1], [1,1,1]);
-  const tree = meshToTree(mesh, { material: 'clay' });
+  const tree = meshToTree(mesh, { material: 'clay', bound: false });
   assert.equal(treeStats(tree).nodes, 6, 'one node per face, not one per triangle');
   assert.equal(treeStats(tree).solidLeaves, 1);
   const { wrong, inside } = agreesWithMesh(mesh, tree);
@@ -235,7 +235,7 @@ function planesRepeated(tree) {
 test('a float32 torus: no plane twice, and right up to its surface', () => {
   const major = 1, minor = 0.35;
   const mesh = asFloat32(torusMesh(major, minor));
-  const tree = meshToTree(mesh, { material: 'clay' });
+  const tree = meshToTree(mesh, { material: 'clay', bound: false });
   // A repeated plane bounds a sliver between itself and its twin, reaching
   // right across the model: rays see it as specks in the air.
   assert.equal(planesRepeated(tree), 0, 'planes repeated');
@@ -257,17 +257,40 @@ test('a float32 torus: no plane twice, and right up to its surface', () => {
   assert.equal(wrong, 0, `${wrong} of ${tested} points near the surface disagree`);
 });
 
+test('by default the tree is wrapped in a spheroid round every vertex, its outside empty', () => {
+  for (const mesh of [torusMesh(), icosphereMesh(2), boxMesh([2, 3, 4], [3, 3.6, 6])]) {
+    const tree = meshToTree(mesh, { material: 'clay' });
+    assert.ok(tree.spheroid && tree.inside && !('outside' in tree), Object.keys(tree).join());
+    assert.equal(tree.material, undefined, 'a pure division, with nothing of its own');
+    // Every vertex strictly inside it.
+    const { center, axis, height, radius } = tree.spheroid;
+    const worst = Math.max(...mesh.flat().map((p) => {
+      const q = sub(p, center), x = dot(axis, q);
+      const across = Math.hypot(q[0] - x * axis[0], q[1] - x * axis[1], q[2] - x * axis[2]);
+      return Math.hypot(x / (height / 2), across / radius);
+    }));
+    assert.ok(worst < 1, `a vertex at ${worst} of the way out`);
+    const { wrong, inside } = agreesWithMesh(mesh, tree);
+    assert.ok(inside > 100);
+    assert.equal(wrong, 0);
+  }
+  // A torus is flat, so its spheroid is too: about its axis, wider than tall.
+  const { axis, height, radius } = boundingSpheroid(torusMesh());
+  assert.ok(Math.abs(Math.abs(axis[2]) - 1) < 1e-9, `axis ${axis}`);
+  assert.ok(height < radius, `height ${height}, radius ${radius}`);
+});
+
 test('where nothing divides, the outermost faces come first', () => {
   // A convex model has no dividing plane, so every node is a supporting one
   // and its outside is void: each turns away every ray passing wide of it.
   for (const mesh of [boxMesh([-1,-1,-1], [1,1,1]), icosphereMesh(1)]) {
-    const tree = meshToTree(mesh, { material: 'clay' });
+    const tree = meshToTree(mesh, { material: 'clay', bound: false });
     assert.ok(!('outside' in tree), 'the root turns away everything past it');
     assert.ok(!('outside' in tree.inside), 'and so does the next');
   }
   // And they are taken outermost first, so the cheapest question is asked
   // soonest: the first plane sheds more of the model's box than the tenth.
-  const tree = meshToTree(icosphereMesh(2), { material: 'clay' });
+  const tree = meshToTree(icosphereMesh(2), { material: 'clay', bound: false });
   const shed = (node) => node.plane.offset;          // unit sphere: offset is the reach
   let first = tree, tenth = tree;
   for (let i = 0; i < 10 && tenth.inside; i++) tenth = tenth.inside;
@@ -277,7 +300,7 @@ test('where nothing divides, the outermost faces come first', () => {
 
 test('a box is its own bounding box', () => {
   const mesh = boxMesh([-1,-1,-1], [1,1,1]);
-  const tree = meshToTree(mesh, { material: 'clay' });
+  const tree = meshToTree(mesh, { material: 'clay', bound: false });
   assert.equal(treeStats(tree).nodes, 6, 'six faces, and no separate bound');
   const { wrong, inside } = agreesWithMesh(mesh, tree);
   assert.ok(inside > 100);

@@ -158,6 +158,12 @@ own coordinates and units; place it where it is used, with `"translate"`,
 placement of something else (see `"use"`). To re-skin every placement at
 once, define `"torus:torus"` in your own `materials`, as for any import.
 
+The converted planes are wrapped in a bounding spheroid round the mesh's
+vertices, a pure division whose outside is empty. A ray that misses it
+passes the mesh in one test, `group` can tell where the mesh is (a tree of
+planes alone bounds nothing), and what a `union` grafts onto the mesh's
+outsides is turned away by its own spheroid rather than walked through.
+
 The mesh should be closed: the conversion treats behind every face as
 inside, which means something only if the surface separates an inside from
 an outside. One that isn't still loads, with a warning on the console. See

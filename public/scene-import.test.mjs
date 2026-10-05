@@ -199,11 +199,11 @@ test('an STL imports as one object and one material, named for the file', async 
   const flat = resolveImports(spec, loaded, { from: 'scenes/a.json' });
   assert.deepEqual(Object.keys(flat.objects).sort(), ['piece', 'tet:tet']);
   assert.ok('tet:tet' in flat.materials);
-  assert.equal(flat.objects['tet:tet'].material, 'tet:tet', 'its faces wear its material');
+  assert.equal(flat.objects['tet:tet'].inside.material, 'tet:tet', 'its faces wear its material');
   const built = compileScene(spec, { imports: loaded, path: 'scenes/a.json' });
   // Four faces, and a tetrahedron is convex, so a chain of four planes,
-  // inside the scene's sphere.
-  assert.equal(built.nodes.length - 1, 5);
+  // in its bounding spheroid, inside the scene's sphere.
+  assert.equal(built.nodes.length - 1, 6);
 });
 
 test('an STL import can be renamed, re-skinned, and imported by an imported file', async () => {
