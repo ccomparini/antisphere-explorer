@@ -204,7 +204,7 @@ export class ASScene {
     const built = compileScene(spec, { imports: this.imports, path: this.path });
     const { device } = this.context;
 
-    for (const b of [this.nodeBuf, this.lightBuf, this.matBuf]) if (b) b.destroy();
+    this.destroyBuffers();
 
     this.spec = spec;
     this.nodes = built.nodes;
@@ -346,7 +346,7 @@ export class ASScene {
     return node[0] ? { node: node[0], t0: t0[0], t1: t1[0] } : null;
   }
 
-  destroy() {
+  destroyBuffers() {
     const buffers = [
       'nodeBuf',
       'lightBuf',
@@ -359,5 +359,9 @@ export class ASScene {
         this[bname] = null;
       }
     }
+  }
+
+  destroy() {
+    this.destroyBuffers();
   }
 }
