@@ -74,14 +74,14 @@ test('a model is converted from its archive into a parts file that compiles', ()
   const part = JSON.parse(readFileSync(out, 'utf8'));
   assert.match(part._comment, /Stanford 3D Scanning Repository/);
   assert.deepEqual(Object.keys(part.objects), ['bunny']);
-  assert.ok('bunny' in part.materials);
+  assert.equal(part.materials, undefined, 'a scan has no materials');
 
   // As a scene would have it: imported, and used.
   const built = compileScene({
     import: ['parts/bunny.json'],
-    materials: {},
+    materials: { clay: {} },
     lights: [],
-    root: { sphere: { center: [0, 0, 0], radius: 50 }, inside: { use: 'bunny:bunny' } },
+    root: { sphere: { center: [0, 0, 0], radius: 50 }, inside: { use: 'bunny:bunny', material: 'clay' } },
   }, { imports: { 'parts/bunny.json': part } });
   // The scene's sphere, the tetrahedron's spheroid, and its four faces.
   assert.equal(built.nodes.length - 1, 6);

@@ -21,7 +21,7 @@ stl-to-scene - convert an STL into an antisphere scene
 
   -o, --out <file>     write here instead of stdout
       --fit <size>     scale the model so its longest side is this
-      --material <m>   which material to give it (default "clay")
+      --material <m>   what the scene makes it of (default "clay")
       --name <n>       the object's name in the scene (default "model")
       --no-centre      leave the model where the file put it
       --no-floor       just the model, no floor, sky or camera
@@ -75,7 +75,7 @@ function sceneAround(model, { name, material, floor, size }) {
   };
   if (!floor) {
     scene.lights = [{ pos: [size * 2, -size * 2, size * 3], color: [size * size * 40, size * size * 38, size * size * 34] }];
-    scene.root = { sphere: { center: [0, 0, 0], radius: size * 100 }, inside: { use: name } };
+    scene.root = { sphere: { center: [0, 0, 0], radius: size * 100 }, inside: { use: name, material } };
     return scene;
   }
 
@@ -101,7 +101,7 @@ function sceneAround(model, { name, material, floor, size }) {
       material: 'floor',
       outside: {
         union: [
-          { use: name },
+          { use: name, material },
           { sphere: { center: [0, 0, 0], radius: size * 199 }, complement: true, material: 'sky' },
         ],
       },
@@ -136,7 +136,7 @@ function main(argv) {
   const size = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
 
   const started = Date.now();
-  const model = meshToTree(placed, { material: options.material, split: options.split });
+  const model = meshToTree(placed, { split: options.split });
   if (!model) {
     say('  the mesh produced no geometry');
     process.exit(1);

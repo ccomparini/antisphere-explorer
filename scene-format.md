@@ -150,16 +150,17 @@ still being a library.
 
 A file ending in `.stl` (binary or ASCII) is a triangle mesh rather than a
 scene, and is converted to plane nodes as it loads (`meshToTree()` in
-`mesh-import.js`, as `tools/stl-to-scene.mjs` does). It offers one object
-and one material, both named for the file: `{ "use": "torus:torus" }`, and
-the material `"torus:torus"`, a default gold clay. The mesh keeps the file's
-own coordinates and units; place it where it is used, with `"translate"`,
-`"rotate"` and `"scale"`, and give it a `"material"` there to make that
-placement of something else (see `"use"`). To re-skin every placement at
-once, define `"torus:torus"` in your own `materials`, as for any import.
+`mesh-import.js`, as `tools/stl-to-scene.mjs` does). It offers one object,
+named for the file: `{ "use": "torus:torus" }`. It is spatial division only:
+an STL has no materials, so none of its nodes names one, and where it is
+used says what it is made of - `{ "use": "torus:torus", "material": "gold" }`
+(see `"use"`), or a material in scope around it. Without either it inherits
+whatever is around it, which is often vacuum. The mesh keeps the file's own
+coordinates and units; place it where it is used, with `"translate"`,
+`"rotate"` and `"scale"`.
 
 The converted planes are wrapped in a bounding spheroid round the mesh's
-vertices, a pure division whose outside is empty. A ray that misses it
+vertices, whose outside is empty. A ray that misses it
 passes the mesh in one test, `group` can tell where the mesh is (a tree of
 planes alone bounds nothing), and what a `union` grafts onto the mesh's
 outsides is turned away by its own spheroid rather than walked through.

@@ -291,11 +291,13 @@ function choosePlane(triangles, eps, sampleSize, box) {
  *
  * `triangles` are [[x,y,z], [x,y,z], [x,y,z]] with outward normals by the
  * right-hand rule, describing a closed surface. Returns a subtree ready to
- * drop into a scene, or null for an empty mesh.
+ * drop into a scene, or null for an empty mesh. It names no material: a
+ * mesh says nothing about what fills it, so it is spatial division only,
+ * and whatever uses it says what it is made of (a "material" on the use,
+ * or one in scope around it).
  */
 export function meshToTree(triangles, options = {}) {
   const {
-    material,
     sampleSize = 12,            // how many candidate planes to weigh
     maxDepth = 5000,
     split = true,               // cut straddling triangles, or pass them whole
@@ -328,7 +330,7 @@ export function meshToTree(triangles, options = {}) {
     const front = [], back = [];
     for (const tri of tris) sortTriangle(tri, plane, eps, tiny, front, back, split);
 
-    const node = { plane: { normal: plane.normal, offset: plane.offset }, material };
+    const node = { plane: { normal: plane.normal, offset: plane.offset } };
     // Whole triangles can leave a child with everything its parent had,
     // apart from the one consumed as coplanar. That still ends, since one
     // goes each time, but it can get deep, so the depth cap matters here.

@@ -13,9 +13,9 @@
 // that wants it imports "parts/stanford/dragon.json" and uses
 // "dragon:dragon" (see scenes/dragon.json).
 //
-// The file written is what an STL import gives (meshAsScene()): one object
-// and one material, both named for the model, in the model's own
-// coordinates - the scans are y up and in metres.
+// The file written is what an STL import gives (meshAsScene()): one object,
+// named for the model, in the model's own coordinates - the scans are y up
+// and in metres - and no material, so the scene says what it is made of.
 
 import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';

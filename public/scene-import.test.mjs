@@ -193,32 +193,36 @@ const meshHost = (imported, use, extra = {}) => ({
   ...extra,
 });
 
-test('an STL imports as one object and one material, named for the file', async () => {
+test('an STL imports as one object, named for the file, and no material', async () => {
   const spec = meshHost(['parts/tet.stl'], 'tet:tet');
   const loaded = await loadFrom({ 'scenes/parts/tet.stl': writeSTL(tetrahedron) })(spec, 'scenes/a.json');
+  assert.deepEqual(loaded['scenes/parts/tet.stl'].materials, undefined, 'a mesh has none');
   const flat = resolveImports(spec, loaded, { from: 'scenes/a.json' });
   assert.deepEqual(Object.keys(flat.objects).sort(), ['piece', 'tet:tet']);
-  assert.ok('tet:tet' in flat.materials);
-  assert.equal(flat.objects['tet:tet'].inside.material, 'tet:tet', 'its faces wear its material');
+  assert.deepEqual(Object.keys(flat.materials), [], 'nor does importing one add any');
   const built = compileScene(spec, { imports: loaded, path: 'scenes/a.json' });
   // Four faces, and a tetrahedron is convex, so a chain of four planes,
   // in its bounding spheroid, inside the scene's sphere.
   assert.equal(built.nodes.length - 1, 6);
 });
 
-test('an STL import can be renamed, re-skinned, and imported by an imported file', async () => {
+test('an STL import can be renamed, and imported by an imported file that makes it of something', async () => {
   const files = {
-    'scenes/parts/kit.json': { import: { spike: 'mesh/tet.stl' }, objects: { spike: { use: 'spike:tet' } } },
+    'scenes/parts/kit.json': {
+      import: { spike: 'mesh/tet.stl' },
+      materials: { iron: { albedo: [0.4, 0.4, 0.45] } },
+      objects: { spike: { use: 'spike:tet', material: 'iron' } },
+    },
     'scenes/parts/mesh/tet.stl': writeSTL(tetrahedron),
   };
-  const spec = meshHost(['parts/kit.json'], 'kit:spike', {
-    materials: { 'kit:spike:tet': { albedo: [0.9, 0.1, 0.1] } },
-  });
+  const spec = meshHost(['parts/kit.json'], 'kit:spike');
   const loaded = await loadFrom(files)(spec, 'scenes/a.json');
   const flat = resolveImports(spec, loaded, { from: 'scenes/a.json' });
   assert.ok('kit:spike:tet' in flat.objects, Object.keys(flat.objects).join(','));
-  assert.deepEqual(flat.materials['kit:spike:tet'].albedo, [0.9, 0.1, 0.1], 'the scene\'s own wins');
-  assert.ok(compileScene(spec, { imports: loaded, path: 'scenes/a.json' }).nodes.length > 1);
+  assert.equal(flat.objects['kit:spike'].material, 'kit:iron');
+  const built = compileScene(spec, { imports: loaded, path: 'scenes/a.json' });
+  const iron = built.materials.findIndex((m) => m.albedo?.[2] === 0.45);
+  assert.ok(built.nodes.slice(2).every((nd) => nd.material === iron), 'every node of it iron');
 });
 
 test('an STL import needs readBytes, and says so', async () => {

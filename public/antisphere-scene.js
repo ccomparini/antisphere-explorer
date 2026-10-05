@@ -851,11 +851,11 @@ function boundOf(t, declared, memo, table) {
 // and camera are how *it* is looked at, not part of what it offers.
 //
 // A file ending in .stl is a mesh rather than a scene. It is converted on
-// loading (stlAsScene()) into a scene offering one object and one material,
-// both named for the file: "import": ["parts/teapot.stl"] gives
-// { "use": "teapot:teapot" }. A "material" on the use paints that placement
-// (repaintTree()); "teapot:teapot" among the scene's own materials re-skins
-// every one.
+// loading (stlAsScene()) into a scene offering one object, named for the
+// file: "import": ["parts/teapot.stl"] gives { "use": "teapot:teapot" }.
+// It is spatial division only, naming no material, so where it is used
+// says what it is made of: { "use": "teapot:teapot", "material": "brass" },
+// or a material in scope around it.
 //
 // Loading is the caller's business, not the compiler's: compileScene() is
 // synchronous and reads no files, so the parsed files are handed to it in
@@ -890,9 +890,9 @@ export function importsOf(spec) {
 const isSTL = (path) => /\.stl$/i.test(path);
 
 /**
- * An STL as a scene that offers it: one object and one material, both
- * named `name`, in the file's own coordinates (place it with "translate",
- * "rotate" and "scale" where it is used). A mesh that isn't closed still
+ * An STL as a scene that offers it: one object named `name`, in the file's
+ * own coordinates (place it with "translate", "rotate" and "scale" where it
+ * is used, and give it a "material" there). A mesh that isn't closed still
  * converts, but what counts as inside is then a guess, so `warn` says so.
  */
 export function stlAsScene(source, name, { warn = console.warn } = {}) {
@@ -904,19 +904,15 @@ export function stlAsScene(source, name, { warn = console.warn } = {}) {
 }
 
 /**
- * Triangles as a scene that offers them: one object and one material, both
- * named `name` (see stlAsScene()). Also what tools/stanford-model.mjs
- * writes, converted once, so that loading it skips the conversion.
+ * Triangles as a scene that offers them: one object named `name`, and no
+ * materials, since a mesh has none (see stlAsScene()). Also what
+ * tools/stanford-model.mjs writes, converted once, so that loading it skips
+ * the conversion.
  */
 export function meshAsScene(triangles, name) {
-  const model = meshToTree(triangles, { material: name });
+  const model = meshToTree(triangles);
   if (!model) throw new Error('the mesh has no triangles with any area');
-  return {
-    materials: {
-      [name]: { albedo: [0.72, 0.58, 0.32], kind: 'glossy', shininess: 40, specular: 0.4 },
-    },
-    objects: { [name]: model },
-  };
+  return { objects: { [name]: model } };
 }
 
 /**
