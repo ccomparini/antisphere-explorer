@@ -40,9 +40,14 @@ const gpu = await ASContext.create({ load });
 // As ASContext.loadScene does it, imports and all, but from disk.
 const scenePath = `scenes/${sceneFile}`;
 const readJson = async (path) => JSON.parse(await load(path));
+const readBytes = (path) => readFile(new URL(path, PUBLIC));
 const spec = await readJson(scenePath);
 const scene = gpu.createScene(spec, {
-  imports: await loadImports(spec, readJson, { from: scenePath }), path: scenePath,
+  imports: await loadImports(spec, readJson, {
+    from: scenePath,
+    readBytes,
+  }),
+  path: scenePath,
 });
 const { device } = gpu;
 

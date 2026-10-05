@@ -36,6 +36,8 @@
 
 import { Light, Material, Node } from './gen/layouts.js';
 import { regionsDisjoint } from './overlap.js';
+import { readSTL } from './stl.js';
+import { meshToTree } from './mesh-import.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -831,6 +833,12 @@ function boundOf(t, declared, memo, table) {
 // Only objects and materials cross over. An imported file's root, lights
 // and camera are how *it* is looked at, not part of what it offers.
 //
+// A file ending in .stl is a mesh rather than a scene. It is converted on
+// loading (stlAsScene()) into a scene offering one object and one material,
+// both named for the file: "import": ["parts/teapot.stl"] gives
+// { "use": "teapot:teapot" }, and "teapot:teapot" among the scene's own
+// materials re-skins it.
+//
 // Loading is the caller's business, not the compiler's: compileScene() is
 // synchronous and reads no files, so the parsed files are handed to it in
 // `options.imports`. importsOf() says what a spec needs and loadImports()
@@ -861,19 +869,68 @@ export function importsOf(spec) {
   throw new Error('scene.json import: needs a list of files, or a map of name to file');
 }
 
+const isSTL = (path) => /\.stl$/i.test(path);
+
+/**
+ * An STL as a scene that offers it: one object and one material, both
+ * named `name`, in the file's own coordinates (place it with "translate",
+ * "rotate" and "scale" where it is used). A mesh that isn't closed still
+ * converts, but what counts as inside is then a guess, so `warn` says so.
+ */
+export function stlAsScene(source, name, { warn = console.warn } = {}) {
+  const read = readSTL(source);
+  const model = meshToTree(read.triangles, { material: name });
+  if (!model) throw new Error('the mesh has no triangles with any area');
+  if (read.openEdges) {
+    warn(`${read.openEdges} open edges: the surface does not close, so what is inside it is a guess`);
+  }
+  return {
+    materials: {
+      [name]: { albedo: [0.72, 0.58, 0.32], kind: 'glossy', shininess: 40, specular: 0.4 },
+    },
+    objects: { [name]: model },
+  };
+}
+
 /**
  * Fetch every file a spec imports, and every file those import, as a map
  * from path to parsed spec - the shape compileScene() wants.
  *
  * `read` takes a path and returns the parsed JSON, however the caller
  * likes: fetch in a browser, readFile in node. Paths are resolved relative
- * to the file that named them, which `read` sees as given.
+ * to the file that named them, which `read` sees as given. An .stl import
+ * is read with `readBytes` instead, which returns its bytes (an ArrayBuffer
+ * or Uint8Array), and converted by stlAsScene().
  */
-export async function loadImports(spec, read, { from = '', seen = new Map() } = {}) {
+export async function loadImports(spec, read, {
+  from = '',
+  seen = new Map(),
+  readBytes,
+  warn = console.warn,
+} = {}) {
   for (const { path } of importsOf(spec)) {
     const resolved = resolvePath(from, path);
     if (seen.has(resolved)) continue;
     seen.set(resolved, null);                      // claim it before recursing
+    if (isSTL(resolved)) {
+      if (!readBytes) {
+        throw new Error(`cannot import "${resolved}": an STL needs loadImports() given readBytes`);
+      }
+      let bytes;
+      try {
+        bytes = await readBytes(resolved);
+      } catch (cause) {
+        throw new Error(`cannot read imported mesh "${resolved}": ${cause.message}`);
+      }
+      try {
+        seen.set(resolved, stlAsScene(bytes, aliasFor(resolved), {
+          warn: (msg) => warn(`${resolved}: ${msg}`),
+        }));
+      } catch (cause) {
+        throw new Error(`cannot import mesh "${resolved}": ${cause.message}`);
+      }
+      continue;
+    }
     let imported;
     try {
       imported = await read(resolved);
@@ -881,7 +938,7 @@ export async function loadImports(spec, read, { from = '', seen = new Map() } = 
       throw new Error(`cannot read imported scene "${resolved}": ${cause.message}`);
     }
     seen.set(resolved, imported);
-    await loadImports(imported, read, { from: resolved, seen });
+    await loadImports(imported, read, { from: resolved, seen, readBytes, warn });
   }
   const loaded = {};
   for (const [path, value] of seen) if (value) loaded[path] = value;

@@ -142,6 +142,29 @@ Only `objects` and `materials` cross over. An imported file's `root`,
 it offers — so a parts file can be opened and admired in the editor while
 still being a library.
 
+### Meshes: `.stl`
+
+```
+"import": ["parts/torus.stl"]
+```
+
+A file ending in `.stl` (binary or ASCII) is a triangle mesh rather than a
+scene, and is converted to plane nodes as it loads (`meshToTree()` in
+`mesh-import.js`, as `tools/stl-to-scene.mjs` does). It offers one object
+and one material, both named for the file: `{ "use": "torus:torus" }`, and
+the material `"torus:torus"`, a default gold clay. The mesh keeps the file's
+own coordinates and units; place it where it is used, with `"translate"`,
+`"rotate"` and `"scale"`.
+
+Every face of the converted mesh names that material, so a `"material"`
+given where it is used changes nothing. To re-skin it, define
+`"torus:torus"` in your own `materials`, as for any import.
+
+The mesh should be closed: the conversion treats behind every face as
+inside, which means something only if the surface separates an inside from
+an outside. One that isn't still loads, with a warning on the console. See
+`scenes/imported-stl.json`.
+
 Names inside an imported file keep meaning what they meant there: if its
 `bolt` is a union of its `head` and `shaft`, then importing it gives you
 `bolt:bolt` made of `bolt:head` and `bolt:shaft`, and its materials arrive
@@ -162,7 +185,8 @@ silently disappear into the other. Name one of them with the object form.
 Loading happens before compiling, since the compiler reads no files itself.
 `loadScene()` does it for you; if you drive the compiler directly, `loadImports()`
 fetches everything a spec needs and `compileScene(spec, { imports })` takes the
-result.
+result. `loadImports()` reads `.stl` files with the `readBytes` it is given,
+since they are not JSON.
 
 ## `objects`
 

@@ -11,7 +11,7 @@
 // buffer per frame.
 
 import {
-  loadText, requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage,
+  loadText, loadBytes, requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage,
   createTraceBuffers,
 } from './gpu-setup.js';
 import {
@@ -118,12 +118,15 @@ export class ASContext {
    *
    * Imported files are fetched relative to the file that names them, so a
    * scene in scenes/ can say "import": ["parts/bolt.json"] and mean
-   * scenes/parts/bolt.json.
+   * scenes/parts/bolt.json. An imported .stl is fetched as bytes and
+   * converted (see loadImports()).
    */
   async loadScene(url) {
     const spec = JSON.parse(await loadText(url));
-    const imports = await loadImports(spec, async (path) => JSON.parse(await loadText(path)),
-                                      { from: url });
+    const imports = await loadImports(spec, async (path) => JSON.parse(await loadText(path)), {
+      from: url,
+      readBytes: loadBytes,
+    });
     return this.createScene(spec, { imports, path: url });
   }
 

@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene, importsOf, resolveImports, loadImports } from './antisphere-scene.js';
+import { writeSTL } from './stl.js';
 
 /** A file offering two parts and a thing made of them. */
 const boltFile = () => ({
@@ -160,4 +161,82 @@ test('the same file imported twice under one name is not a clash', () => {
                                       inside: { use: 'bolt:bolt' } } };
   const flat = resolveImports(twice, imports());
   assert.ok('bolt:bolt' in flat.objects);
+});
+
+// -- STL imports --------------------------------------------------------------------
+
+// A closed tetrahedron, outward by the right-hand rule, and an open one.
+const tetrahedron = [
+  [[0,0,0],[0,1,0],[1,0,0]], [[0,0,0],[0,0,1],[0,1,0]],
+  [[0,0,0],[1,0,0],[0,0,1]], [[1,0,0],[0,1,0],[0,0,1]],
+];
+
+/** loadImports() over a fake disk: JSON files by path, and STL bytes. */
+const loadFrom = (files, options = {}) => (spec, from) => loadImports(spec, async (path) => {
+  if (!(path in files)) throw new Error('no such file');
+  return files[path];
+}, {
+  from,
+  readBytes: async (path) => {
+    if (!(path in files)) throw new Error('no such file');
+    return files[path];
+  },
+  ...options,
+});
+
+const meshHost = (imported, use, extra = {}) => ({
+  import: imported,
+  materials: {},
+  lights: [],
+  objects: { piece: { use, translate: [3, 0, 0] } },
+  root: { sphere: { center: [0,0,0], radius: 40 }, inside: { union: ['piece'] } },
+  ...extra,
+});
+
+test('an STL imports as one object and one material, named for the file', async () => {
+  const spec = meshHost(['parts/tet.stl'], 'tet:tet');
+  const loaded = await loadFrom({ 'scenes/parts/tet.stl': writeSTL(tetrahedron) })(spec, 'scenes/a.json');
+  const flat = resolveImports(spec, loaded, { from: 'scenes/a.json' });
+  assert.deepEqual(Object.keys(flat.objects).sort(), ['piece', 'tet:tet']);
+  assert.ok('tet:tet' in flat.materials);
+  assert.equal(flat.objects['tet:tet'].material, 'tet:tet', 'its faces wear its material');
+  const built = compileScene(spec, { imports: loaded, path: 'scenes/a.json' });
+  // Four faces, and a tetrahedron is convex, so a chain of four planes,
+  // inside the scene's sphere.
+  assert.equal(built.nodes.length - 1, 5);
+});
+
+test('an STL import can be renamed, re-skinned, and imported by an imported file', async () => {
+  const files = {
+    'scenes/parts/kit.json': { import: { spike: 'mesh/tet.stl' }, objects: { spike: { use: 'spike:tet' } } },
+    'scenes/parts/mesh/tet.stl': writeSTL(tetrahedron),
+  };
+  const spec = meshHost(['parts/kit.json'], 'kit:spike', {
+    materials: { 'kit:spike:tet': { albedo: [0.9, 0.1, 0.1] } },
+  });
+  const loaded = await loadFrom(files)(spec, 'scenes/a.json');
+  const flat = resolveImports(spec, loaded, { from: 'scenes/a.json' });
+  assert.ok('kit:spike:tet' in flat.objects, Object.keys(flat.objects).join(','));
+  assert.deepEqual(flat.materials['kit:spike:tet'].albedo, [0.9, 0.1, 0.1], 'the scene\'s own wins');
+  assert.ok(compileScene(spec, { imports: loaded, path: 'scenes/a.json' }).nodes.length > 1);
+});
+
+test('an STL import needs readBytes, and says so', async () => {
+  await assert.rejects(
+    loadImports(meshHost(['tet.stl'], 'tet:tet'), async () => ({})),
+    /cannot import "tet.stl": an STL needs loadImports\(\) given readBytes/);
+});
+
+test('an STL that does not close imports with a warning; one with no area does not import', async () => {
+  const warnings = [];
+  const open = tetrahedron.slice(0, 3);
+  await loadFrom({ 'open.stl': writeSTL(open) }, { warn: (msg) => warnings.push(msg) })(
+    meshHost(['open.stl'], 'open:open'), '');
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /^open\.stl: 3 open edges/);
+
+  const flat = [[[0,0,0],[1,0,0],[2,0,0]]];
+  await assert.rejects(
+    loadFrom({ 'flat.stl': writeSTL(flat) })(meshHost(['flat.stl'], 'flat:flat'), ''),
+    /cannot import mesh "flat.stl": the mesh has no triangles with any area/);
 });
