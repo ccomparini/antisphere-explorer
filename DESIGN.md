@@ -84,6 +84,30 @@ coefficients in place, with no recompile.
 - **Material properties as bitfields** (solid, opaque, ...), with `trace()`
   given a mask of which bits stop the ray. A camera ray and a physics query
   can then treat glass differently, for example.
+- **Rays that continue from a hit.** A shadow ray already starts exactly on
+  the surface the camera ray hit (`Ray.fromNode` in
+  `shaders/antisphere-raycast.wgsls`): every node that is that surface -
+  its copies and complements, one id in `surfaces` - takes H = 0 at the
+  start, so the crossing where the ray is never counts, the next one does
+  (a crater's wall still shades its floor), and which side the ray is on
+  goes by its direction: no offset, no tolerance. Reflection, refraction
+  and transparency are the same thing, a new Ray from the hit, turned back
+  (staying on its side) or going on through (inside); straight-through
+  transparency can instead resume the same trace past the hit, from the
+  segments on its stack. Several continuations from one hit are a bounded
+  per-pixel queue of weighted rays, run in a loop as trace()'s own stack
+  is. The stop mask above says which materials end each.
+- **Lights scoped by env.** An env node is a scope, and its lights belong
+  to it: a hit is lit only by the lights of its env and those enclosing it,
+  each shadow ray traced from that env node rather than the root (a node's
+  inside subtree is all of its inside region, so this is exact for a ray
+  that stays inside). A shadow ray that leaves its scope is blocked - that
+  is the scoping: torches light their own room. A maze with many torches
+  then tests each hit against its room's few. Today's ambient-only env is
+  the placeholder for this.
+- **Portals.** A "material" on a surface - a doorway's cut - that passes rays
+  into another region, not necessarily connected: light through a doorway,
+  or a magic portal. A continued ray again, into the other region's subtree.
 - **Provenance for compiler-invented nodes.** Today they have none, which
   was enough for picking, since a hit never lands on one. A bounding
   wrapper needs to record the member it bounds, so it moves with that
