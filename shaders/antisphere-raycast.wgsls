@@ -332,10 +332,10 @@ fn trace(O : vec3<f32>, D : vec3<f32>, tMin : f32, tMax : f32) -> Seg {
 // ---------------------------------------------------------------------------
 
 struct RayQuery {
-  o    : vec3<f32>,
-  tMin : f32,
-  d    : vec3<f32>,
-  tMax : f32,
+  o    : vec3<f32>,   // origin of the ray we're testing
+  tMin : f32,         // distance along d at which to start
+  d    : vec3<f32>,   // the direction of the ray
+  tMax : f32,         // maximum distance along d to check
 };
 
 var<storage, read> rayQueries : array<RayQuery>;
