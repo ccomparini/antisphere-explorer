@@ -78,7 +78,12 @@ function clipPolygon(poly, plane, keepFront, eps) {
     const bIn = keepFront ? db >= -eps : db <= eps;
     if (aIn) out.push(a);
     if (aIn !== bIn && da !== db) {
-      const t = da / (da - db);
+      // A vertex within eps of the plane counts as on either side, so an
+      // edge can cross from "in" to "out" with both ends on the same side.
+      // Unclamped, t then lands beyond the edge, the polygon folds over,
+      // and a fragment fanned from it faces backwards - a face pointing
+      // into the model, which turns a whole cell of the tree inside out.
+      const t = Math.min(1, Math.max(0, da / (da - db)));
       out.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2])]);
     }
   }
@@ -208,10 +213,17 @@ export function meshToTree(triangles, options = {}) {
   if (!usable.length) return null;
 
   // Tolerances scaled to the model: an absolute epsilon is meaningless when
-  // the same mesh may arrive in millimetres or in kilometres.
+  // the same mesh may arrive in millimetres or in kilometres. And to how
+  // precisely its vertices are known: usually as float32 (STL's), rounded
+  // to about 2^-24 of their size, so the two halves of a flat quad can be
+  // that far out of each other's plane. A tolerance tighter than that
+  // keeps them apart: the second becomes a plane of its own, a hair off
+  // the first, and the two bound a sliver reaching right across the model,
+  // which rays hit as specks in the air.
   const { lo, hi } = boundsOf(usable);
   const extent = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], 1e-12);
-  const eps = extent * 1e-9;
+  const reach = Math.max(...lo.map(Math.abs), ...hi.map(Math.abs));
+  const eps = Math.max(extent * 1e-9, reach * 2 ** -20);
   const tiny = extent * extent * 1e-12;          // twice the area of a sliver
 
   const build = (tris, depth) => {

@@ -211,6 +211,52 @@ test('a torus: curved, hollow in the middle, and split to pieces', () => {
   assert.ok(stats.solidLeaves >= 2, 'a torus is not convex');
 });
 
+// Vertices as an STL stores them: float32. The two halves of each of a
+// torus's flat quads then disagree about their plane by ~1e-7, far more
+// than a tolerance scaled to float64 allows for.
+const asFloat32 = (mesh) => mesh.map((tri) => tri.map((v) => v.map(Math.fround)));
+
+/** Planes in the tree that are, to within a hair, one above them again. */
+function planesRepeated(tree) {
+  let repeated = 0;
+  const walk = (t, above) => {
+    if (!t) return;
+    const { normal: n, offset } = t.plane;
+    if (above.some((a) => dot(a.normal, n) > 1 - 1e-9 && Math.abs(a.offset - offset) < 1e-5)) repeated++;
+    above.push(t.plane);
+    walk(t.inside, above);
+    walk(t.outside, above);
+    above.pop();
+  };
+  walk(tree, []);
+  return repeated;
+}
+
+test('a float32 torus: no plane twice, and right up to its surface', () => {
+  const major = 1, minor = 0.35;
+  const mesh = asFloat32(torusMesh(major, minor));
+  const tree = meshToTree(mesh, { material: 'clay' });
+  // A repeated plane bounds a sliver between itself and its twin, reaching
+  // right across the model: rays see it as specks in the air.
+  assert.equal(planesRepeated(tree), 0, 'planes repeated');
+
+  // Near the surface, where slivers and lost faces show: within 0.03 of the
+  // tube, either side.
+  const built = compile(tree);
+  let tested = 0, wrong = 0, seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let k = 0; k < 3000; k++) {
+    const u = rnd() * 2 * Math.PI, v = rnd() * 2 * Math.PI, w = minor + (rnd() - 0.5) * 0.06;
+    const p = [(major + w * Math.cos(v)) * Math.cos(u), (major + w * Math.cos(v)) * Math.sin(u), w * Math.sin(v)];
+    const verdict = insideMesh(mesh, p);
+    if (!verdict.sure) continue;
+    tested++;
+    if (verdict.inside !== solidAt(built, p)) wrong++;
+  }
+  assert.ok(tested > 2500, `only ${tested} points judged`);
+  assert.equal(wrong, 0, `${wrong} of ${tested} points near the surface disagree`);
+});
+
 test('where nothing divides, the outermost faces come first', () => {
   // A convex model has no dividing plane, so every node is a supporting one
   // and its outside is void: each turns away every ray passing wide of it.
