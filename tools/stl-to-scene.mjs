@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { readSTL } from '../public/stl.js';
 import { meshToTree, treeStats, boundsOf } from '../public/mesh-import.js';
-import { compileScene } from '../public/antisphere-scene.js';
+import { compileScene, sceneAroundMesh } from '../public/antisphere-scene.js';
 
 const USAGE = `
 stl-to-scene - convert an STL into an antisphere scene
@@ -64,52 +64,6 @@ function place(triangles, { centre, fit }) {
     tri.map((v) => [0, 1, 2].map((i) => (v[i] + shift[i]) * scale)));
 }
 
-function sceneAround(model, { name, material, floor, size }) {
-  const scene = {
-    materials: {
-      [material]: { albedo: [0.72, 0.58, 0.32], kind: 'glossy', shininess: 40, specular: 0.4 },
-    },
-    lights: [],
-    objects: { [name]: model },
-    root: null,
-  };
-  if (!floor) {
-    scene.lights = [{ pos: [size * 2, -size * 2, size * 3], color: [size * size * 40, size * size * 38, size * size * 34] }];
-    scene.root = { sphere: { center: [0, 0, 0], radius: size * 100 }, inside: { use: name, material } };
-    return scene;
-  }
-
-  const lamp = size * size * 40;
-  Object.assign(scene.materials, {
-    floor: { albedo: [0.32, 0.33, 0.35], albedo2: [0.19, 0.20, 0.22],
-             pattern: 'checker', scale: size / 4 },
-    sky: { kind: 'unlit', albedo: [0.07, 0.09, 0.14] },
-  });
-  scene.lights = [
-    { pos: [size * 1.5, -size * 2, size * 2.5], color: [lamp, lamp * 0.96, lamp * 0.88] },
-    { pos: [-size * 2, -size, size * 1.5], color: [lamp * 0.35, lamp * 0.38, lamp * 0.46] },
-    { pos: [0, size * 2.5, size], color: [lamp * 0.3, lamp * 0.28, lamp * 0.26] },
-  ];
-  scene.camera = {
-    target: [0, 0, size * 0.4],
-    yaw: 0.9, pitch: 0.35, distance: size * 3,
-  };
-  scene.root = {
-    sphere: { center: [0, 0, 0], radius: size * 200 },
-    inside: {
-      plane: { normal: [0, 0, 1], offset: 0 },
-      material: 'floor',
-      outside: {
-        union: [
-          { use: name, material },
-          { sphere: { center: [0, 0, 0], radius: size * 199 }, complement: true, material: 'sky' },
-        ],
-      },
-    },
-  };
-  return scene;
-}
-
 function main(argv) {
   const options = parseArguments(argv);
   if (options.help || !options.file) {
@@ -145,7 +99,7 @@ function main(argv) {
   say(`  ${stats.nodes} nodes, depth ${stats.depth}, ${stats.solidLeaves} solid regions`
       + ` (${((Date.now() - started) / 1000).toFixed(1)}s)`);
 
-  const scene = sceneAround(model, { ...options, size });
+  const scene = sceneAroundMesh(model, { ...options, size });
 
   // Compile before writing: a scene that will not load is worse than an
   // error here, because the error there will be about a file nobody wrote

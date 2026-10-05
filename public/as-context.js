@@ -16,6 +16,7 @@ import {
 } from './gpu-setup.js';
 import {
   compileScene, packNodes, packSurfaces, packMaterials, packLights, loadImports,
+  isSTL, sceneForMesh,
 } from './antisphere-scene.js';
 import { BINDINGS, RayQuery, Seg, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
@@ -119,9 +120,17 @@ export class ASContext {
    * Imported files are fetched relative to the file that names them, so a
    * scene in scenes/ can say "import": ["parts/bolt.json"] and mean
    * scenes/parts/bolt.json. An imported .stl is fetched as bytes and
-   * converted (see loadImports()).
+   * converted (see loadImports()). `url` may be a full URL, on another
+   * server, and what it imports is then fetched from beside it there.
+   *
+   * An STL on its own is shown in a scene made round it: a floor, a sky,
+   * lights and a camera (sceneForMesh()).
    */
   async loadScene(url) {
+    if (isSTL(url)) {
+      const { spec, imports } = sceneForMesh(url, await loadBytes(url));
+      return this.createScene(spec, { imports, path: url });
+    }
     const spec = JSON.parse(await loadText(url));
     const imports = await loadImports(spec, async (path) => JSON.parse(await loadText(path)), {
       from: url,

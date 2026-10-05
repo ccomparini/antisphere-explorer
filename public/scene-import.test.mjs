@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene, importsOf, resolveImports, loadImports } from './antisphere-scene.js';
+import { compileScene, importsOf, resolveImports, loadImports, sceneForMesh, isSTL } from './antisphere-scene.js';
 import { writeSTL } from './stl.js';
 
 /** A file offering two parts and a thing made of them. */
@@ -317,4 +317,48 @@ test('an import\'s name alone defers to the scene\'s own object, and needs one t
                              b: { sphere: { center: [2, 0, 0], radius: 1 } } } };
   const many = meshHost(['parts.json'], 'parts');
   assert.throws(() => compileScene(many, { imports: { 'parts.json': parts } }), /unknown object "parts"/);
+});
+
+// -- by URL -------------------------------------------------------------------------
+
+test('imports by URL: kept as they are, and paths in a file from a URL resolved against it', async () => {
+  const asked = [];
+  const files = {
+    'https://host.example/scenes/parts/kit.json': { import: ['../common/metal.json'], objects: { pin: { use: 'metal' } } },
+    'https://host.example/scenes/common/metal.json': { objects: { metal: { sphere: { center: [0, 0, 0], radius: 1 } } } },
+    'https://cdn.example/models/torus.stl?raw=true': writeSTL(tetrahedron),
+  };
+  const read = async (path) => { asked.push(path); if (!(path in files)) throw new Error('404'); return files[path]; };
+  const spec = {
+    import: ['parts/kit.json', 'https://cdn.example/models/torus.stl?raw=true'],
+    materials: { clay: {} },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 40 }, inside: { union: [
+      { use: 'kit:pin' },
+      { use: 'torus', material: 'clay', translate: [3, 0, 0] },
+    ] } },
+  };
+  const from = 'https://host.example/scenes/scene.json';
+  const loaded = await loadImports(spec, read, { from, readBytes: read });
+  assert.deepEqual(asked.sort(), Object.keys(files).sort());
+  // The query is no part of its name, or of whether it is an STL.
+  assert.ok(isSTL('https://cdn.example/models/torus.stl?raw=true'));
+  const flat = resolveImports(spec, loaded, { from });
+  assert.ok('torus:torus' in flat.objects && 'kit:metal:metal' in flat.objects, Object.keys(flat.objects).join());
+  assert.ok(compileScene(spec, { imports: loaded, path: from }).nodes.length > 1);
+});
+
+test('an STL on its own makes a scene round it, the mesh 2 across and standing on the floor', () => {
+  // A tetrahedron 10 across, well away from the origin.
+  const far = tetrahedron.map((tri) => tri.map((v) => v.map((x, i) => x * 10 + [100, -50, 7][i])));
+  const { spec, imports } = sceneForMesh('https://host.example/m/spike.stl', writeSTL(far));
+  assert.deepEqual(spec.import, ['https://host.example/m/spike.stl']);
+  const placed = spec.objects.model;
+  assert.equal(placed.use, 'spike');
+  assert.ok(Math.abs(placed.scale * 10 - 2) < 1e-6, `scale ${placed.scale}`);
+  // Lowest point at z = 7, so lifted by -7 (scaled); centred in x and y.
+  assert.ok(Math.abs(placed.translate[2] + 7 * placed.scale) < 1e-6, `translate ${placed.translate}`);
+  assert.ok(Math.abs(placed.translate[0] + 105 * placed.scale) < 1e-6);
+  const built = compileScene(spec, { imports, path: 'https://host.example/m/spike.stl' });
+  assert.ok(built.nodes.length > 6 && built.lights.length === 3 && built.camera);
 });

@@ -37,7 +37,7 @@
 import { Light, Material, Node } from './gen/layouts.js';
 import { regionsDisjoint } from './overlap.js';
 import { readSTL } from './stl.js';
-import { meshToTree } from './mesh-import.js';
+import { meshToTree, boundsOf } from './mesh-import.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -865,10 +865,15 @@ function boundOf(t, declared, memo, table) {
 
 const IMPORT_SEPARATOR = ':';
 
+/** Whether a path is a URL of its own (https:, file:, ...), not relative. */
+const isURL = (path) => /^[a-z][a-z0-9+.-]*:/i.test(path);
+
+/** The file a path or URL names, without directories, query or fragment. */
+const fileOf = (path) => String(path).split(/[?#]/)[0].split(/[\\/]/).pop();
+
 /** The name an imported file goes by, when the scene doesn't say. */
 function aliasFor(path) {
-  const file = String(path).split(/[\\/]/).pop();
-  return file.replace(/\.[^.]*$/, '');
+  return fileOf(path).replace(/\.[^.]*$/, '');
 }
 
 /**
@@ -887,7 +892,8 @@ export function importsOf(spec) {
   throw new Error('scene.json import: needs a list of files, or a map of name to file');
 }
 
-const isSTL = (path) => /\.stl$/i.test(path);
+/** Whether a path or URL names an STL file, which is read as a mesh. */
+export const isSTL = (path) => /\.stl$/i.test(fileOf(path));
 
 /**
  * An STL as a scene that offers it: one object named `name`, in the file's
@@ -913,6 +919,84 @@ export function meshAsScene(triangles, name) {
   const model = meshToTree(triangles);
   if (!model) throw new Error('the mesh has no triangles with any area');
   return { objects: { [name]: model } };
+}
+
+/**
+ * A complete scene to look at a mesh in: `model` (a subtree, or a use of
+ * one) as the object `name`, made of `material`, standing on z = 0 and
+ * about `size` across - a checked floor, a sky, three lights and a camera
+ * framing it. With floor false, just the model in a ball of vacuum, lit.
+ * What tools/stl-to-scene.mjs writes, and what the page shows for an STL
+ * on its own (sceneForMesh()).
+ */
+export function sceneAroundMesh(model, { name = 'model', material = 'clay', floor = true, size }) {
+  const scene = {
+    materials: {
+      [material]: { albedo: [0.72, 0.58, 0.32], kind: 'glossy', shininess: 40, specular: 0.4 },
+    },
+    lights: [],
+    objects: { [name]: model },
+    root: null,
+  };
+  if (!floor) {
+    scene.lights = [{ pos: [size * 2, -size * 2, size * 3], color: [size * size * 40, size * size * 38, size * size * 34] }];
+    scene.root = { sphere: { center: [0, 0, 0], radius: size * 100 }, inside: { use: name, material } };
+    return scene;
+  }
+
+  const lamp = size * size * 20;
+  Object.assign(scene.materials, {
+    floor: { albedo: [0.32, 0.33, 0.35], albedo2: [0.19, 0.20, 0.22],
+             pattern: 'checker', scale: size / 4 },
+    sky: { kind: 'unlit', albedo: [0.07, 0.09, 0.14] },
+  });
+  scene.lights = [
+    { pos: [size * 1.5, -size * 2, size * 2.5], color: [lamp, lamp * 0.96, lamp * 0.88] },
+    { pos: [-size * 2, -size, size * 1.5], color: [lamp * 0.35, lamp * 0.38, lamp * 0.46] },
+    { pos: [0, size * 2.5, size], color: [lamp * 0.3, lamp * 0.28, lamp * 0.26] },
+  ];
+  scene.camera = {
+    target: [0, 0, size * 0.4],
+    yaw: 0.9, pitch: 0.35, distance: size * 3,
+  };
+  scene.root = {
+    sphere: { center: [0, 0, 0], radius: size * 200 },
+    inside: {
+      plane: { normal: [0, 0, 1], offset: 0 },
+      material: 'floor',
+      outside: {
+        union: [
+          { use: name, material },
+          { sphere: { center: [0, 0, 0], radius: size * 199 }, complement: true, material: 'sky' },
+        ],
+      },
+    },
+  };
+  return scene;
+}
+
+/**
+ * A scene showing the STL at `path` on its own, from its bytes: as
+ * sceneAroundMesh() makes, importing the STL from `path` and standing it,
+ * centred, on the floor, scaled to 2 across - STL has no units, and a
+ * model in millimetres would otherwise put the sky past where rays look.
+ * Returns { spec, imports } for compileScene().
+ */
+export function sceneForMesh(path, bytes, { warn = console.warn } = {}) {
+  const read = readSTL(bytes);
+  if (read.openEdges) {
+    warn(`${path}: ${read.openEdges} open edges: the surface does not close, so what is inside it is a guess`);
+  }
+  const name = aliasFor(path);
+  const part = meshAsScene(read.triangles, name);
+  const { lo, hi } = boundsOf(read.triangles);
+  const size = 2;
+  const scale = size / Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  // Centred in x and y, standing on z = 0: where the floor expects it.
+  const translate = [-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]].map((v) => v * scale);
+  const spec = sceneAroundMesh({ use: name, scale, translate }, { size });
+  spec.import = [path];
+  return { spec, imports: { [path]: part } };
 }
 
 /**
@@ -968,8 +1052,14 @@ export async function loadImports(spec, read, {
   return loaded;
 }
 
-/** Where a path named inside `from` actually points. */
+/**
+ * Where a path named inside `from` actually points. A URL is where it says;
+ * a path inside a file that came from a URL is resolved against that URL,
+ * so a scene on another server can import what sits beside it there.
+ */
 function resolvePath(from, path) {
+  if (isURL(path)) return path;
+  if (isURL(from)) return new URL(path, from).href;
   if (!from || path.startsWith('/')) return path;
   const directory = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : '';
   if (!directory) return path;

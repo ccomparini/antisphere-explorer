@@ -189,7 +189,10 @@ Names inside an imported file keep meaning what they meant there: if its
 `bolt:bolt` made of `bolt:head` and `bolt:shaft`, and its materials arrive
 prefixed too. Imported files may import in turn, and paths are relative to
 the file that names them — `parts/bolt.json` asking for `../common/metal.json`
-means `common/metal.json`. A file that imports itself, directly or in a
+means `common/metal.json`. An import may also be a full URL,
+`"https://example.com/models/teapot.stl"`, and a scene loaded from a URL has
+its relative paths resolved against it, so what it imports comes from
+beside it there. Its name is the file's, without any query: `teapot`. A file that imports itself, directly or in a
 circle, is an error rather than a hang.
 
 Anything this scene defines under an imported name wins: writing
