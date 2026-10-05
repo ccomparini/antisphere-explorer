@@ -169,6 +169,13 @@ inside, which means something only if the surface separates an inside from
 an outside. One that isn't still loads, with a warning on the console. See
 `scenes/imported-stl.json`.
 
+A big mesh takes a while to convert - the Stanford Dragon, 871,414
+triangles, about a minute - so it can be converted once instead:
+`tools/stanford-model.mjs` fetches a model from the Stanford 3D Scanning
+Repository and writes what an STL import would give as an ordinary parts
+file, `public/scenes/parts/stanford/<model>.json`, which is generated and
+not in git. `scenes/dragon.json` imports one.
+
 Names inside an imported file keep meaning what they meant there: if its
 `bolt` is a union of its `head` and `shaft`, then importing it gives you
 `bolt:bolt` made of `bolt:head` and `bolt:shaft`, and its materials arrive

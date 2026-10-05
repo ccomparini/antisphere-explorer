@@ -897,11 +897,20 @@ const isSTL = (path) => /\.stl$/i.test(path);
  */
 export function stlAsScene(source, name, { warn = console.warn } = {}) {
   const read = readSTL(source);
-  const model = meshToTree(read.triangles, { material: name });
-  if (!model) throw new Error('the mesh has no triangles with any area');
   if (read.openEdges) {
     warn(`${read.openEdges} open edges: the surface does not close, so what is inside it is a guess`);
   }
+  return meshAsScene(read.triangles, name);
+}
+
+/**
+ * Triangles as a scene that offers them: one object and one material, both
+ * named `name` (see stlAsScene()). Also what tools/stanford-model.mjs
+ * writes, converted once, so that loading it skips the conversion.
+ */
+export function meshAsScene(triangles, name) {
+  const model = meshToTree(triangles, { material: name });
+  if (!model) throw new Error('the mesh has no triangles with any area');
   return {
     materials: {
       [name]: { albedo: [0.72, 0.58, 0.32], kind: 'glossy', shininess: 40, specular: 0.4 },

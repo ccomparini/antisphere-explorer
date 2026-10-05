@@ -1,0 +1,40 @@
+{
+  "_comment": "The Stanford Dragon at full resolution (871,414 triangles), a stress test. Its parts file is generated, not in git: run node tools/stanford-model.mjs dragon first (a minute or so).",
+
+  "import": ["parts/stanford/dragon.json"],
+
+  "materials": {
+    "floor": { "albedo": [0.30, 0.31, 0.34], "albedo2": [0.18, 0.19, 0.21],
+               "pattern": "checker", "scale": 2 },
+    "sky": { "kind": "unlit", "albedo": [0.07, 0.09, 0.14] }
+  },
+
+  "lights": [
+    { "pos": [4, -6, 7], "color": [260, 250, 235] },
+    { "pos": [-5, -2, 3], "color": [70, 76, 92] }
+  ],
+
+  "camera": { "target": [0, 0, 0.7], "yaw": 0.5, "pitch": 0.2, "distance": 3.2 },
+
+  "objects": {
+    "dragon": { "use": "dragon:dragon",
+                "rotate": { "axis": [1, 0, 0], "degrees": 90 },
+                "scale": 10,
+                "translate": [0, 0, -0.527] }
+  },
+
+  "root": {
+    "sphere": { "center": [0, 0, 0], "radius": 400 },
+    "inside": {
+      "plane": { "normal": [0, 0, 1], "offset": 0 },
+      "material": "floor",
+      "outside": {
+        "union": [
+          "dragon",
+          { "sphere": { "center": [0, 0, 0], "radius": 399 },
+            "complement": true, "material": "sky" }
+        ]
+      }
+    }
+  }
+}
