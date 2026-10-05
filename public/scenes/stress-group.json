@@ -1,0 +1,1452 @@
+{
+  "camera": {
+    "target": [0, 0, 0.3],
+    "yaw": 0.6,
+    "pitch": 0.55,
+    "distance": 11
+  },
+  "materials": {
+    "a": {
+      "albedo": [0.7, 0.6, 0.5]
+    },
+    "b": {
+      "albedo": [0.5, 0.6, 0.7]
+    },
+    "c": {
+      "albedo": [0.6, 0.7, 0.5]
+    },
+    "floor": {
+      "albedo": [0.5, 0.5, 0.5]
+    }
+  },
+  "lights": [
+    {
+      "pos": [-6, 5, 7],
+      "color": [60, 55, 50]
+    },
+    {
+      "pos": [5, -4, 3],
+      "color": [20, 25, 35]
+    }
+  ],
+  "root": {
+    "plane": {
+      "normal": [0, 0, 1],
+      "offset": 0
+    },
+    "material": "floor",
+    "outside": {
+      "group": [
+        {
+          "sphere": {
+            "center": [-2.925, 2.779, 0.517],
+            "radius": 0.517
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": -1.624
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": 2.294
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": 0.298
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 0.372
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.67
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [1.213, 2.31, 0.328],
+            "radius": 0.328
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [1.41, 2.31, 0.525],
+              "radius": 0.197,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [-3.773, 2.686, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [-3.773, 2.686, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.237
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [2.098, -3.983, 0.406],
+            "radius": 0.406
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": 2.256
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": -1.288
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -1.686
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 2.654
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.968
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [3.211, -3.755, 0.308],
+            "radius": 0.308
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [3.396, -3.755, 0.493],
+              "radius": 0.185,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [0.331, 3.513, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [0.331, 3.513, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.226
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [-2.267, -0.623, 0.26],
+            "radius": 0.26
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": -1.877
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": 2.575
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -0.148
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 0.846
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.698
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [-2.135, -2.153, 0.366],
+            "radius": 0.366
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [-1.915, -2.153, 0.586],
+              "radius": 0.22,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [-0.323, -1.682, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [-0.323, -1.682, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.154
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [2.701, 0.452, 0.475],
+            "radius": 0.475
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": -2.055
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": 2.971
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": 4.398
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": -3.482
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.916
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [-3.033, -1.338, 0.516],
+            "radius": 0.516
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [-2.723, -1.338, 0.826],
+              "radius": 0.31,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [1.69, 3.492, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [1.69, 3.492, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.234
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [2.64, 1.362, 0.356],
+            "radius": 0.356
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": 1.155
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": -0.247
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": 3.514
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": -2.606
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.908
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [0.042, 0.712, 0.31],
+            "radius": 0.31
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [0.228, 0.712, 0.496],
+              "radius": 0.186,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [-2.058, 2.379, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [-2.058, 2.379, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.233
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [-2.616, 0.39, 0.496],
+            "radius": 0.496
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": 1.728
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": -1.064
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -0.67
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 1.334
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.664
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [0.067, 2.228, 0.456],
+            "radius": 0.456
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [0.341, 2.228, 0.73],
+              "radius": 0.274,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [-0.854, -0.082, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [-0.854, -0.082, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.156
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [-3.652, 1.627, 0.594],
+            "radius": 0.594
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": 0.996
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": -0.494
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -0.6
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 1.102
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.502
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [0.018, 3.857, 0.531],
+            "radius": 0.531
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [0.337, 3.857, 0.85],
+              "radius": 0.319,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [0.317, 2.882, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [0.317, 2.882, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.196
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [0.11, 3.62, 0.452],
+            "radius": 0.452
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": 0.037
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": 0.691
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -1.482
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 2.21
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.728
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [3.657, -3.954, 0.535],
+            "radius": 0.535
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [3.978, -3.954, 0.856],
+              "radius": 0.321,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [2.564, 3.089, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [2.564, 3.089, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.298
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [2.473, 0.149, 0.446],
+            "radius": 0.446
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": -0.13
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": 1.052
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -3.09
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 4.012
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.922
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [0.56, -2.401, 0.451],
+            "radius": 0.451
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [0.831, -2.401, 0.722],
+              "radius": 0.271,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [-0.121, -1.146, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [-0.121, -1.146, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.219
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [0.308, 0.988, 0.464],
+            "radius": 0.464
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": -0.066
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": 0.604
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -3.507
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 4.045
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.538
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [-2.582, 0.676, 0.558],
+            "radius": 0.558
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [-2.247, 0.676, 0.893],
+              "radius": 0.335,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [2.388, 2.377, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [2.388, 2.377, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.313
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [-1.958, 2.734, 0.486],
+            "radius": 0.486
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": -3.13
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": 3.538
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -3.662
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 4.07
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.408
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [2.045, -2.004, 0.333],
+            "radius": 0.333
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [2.245, -2.004, 0.533],
+              "radius": 0.2,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [0.998, -1.245, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [0.998, -1.245, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.164
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [-2.723, 0.219, 0.309],
+            "radius": 0.309
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": -1.481
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": 2.153
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": 2.029
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": -1.357
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.672
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [-1.424, -0.21, 0.307],
+            "radius": 0.307
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [-1.24, -0.21, 0.491],
+              "radius": 0.184,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [-0.908, -0.633, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [-0.908, -0.633, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.188
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [-3.13, 3.199, 0.429],
+            "radius": 0.429
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": -1.882
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": 2.772
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": 1.29
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": -0.4
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.89
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [-3.833, -3.857, 0.344],
+            "radius": 0.344
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [-3.627, -3.857, 0.55],
+              "radius": 0.206,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [1.751, -2.718, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [1.751, -2.718, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.291
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [1.425, 0.358, 0.327],
+            "radius": 0.327
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": 4.16
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": -3.45
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": 2.737
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": -2.027
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.71
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [-2.214, 1.188, 0.418],
+            "radius": 0.418
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [-1.963, 1.188, 0.669],
+              "radius": 0.251,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [0.607, -1.43, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [0.607, -1.43, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.276
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [-3.53, -1.611, 0.589],
+            "radius": 0.589
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": 3.462
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": -2.546
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -1.091
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 2.007
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.916
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [-1.517, 3.514, 0.523],
+            "radius": 0.523
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [-1.203, 3.514, 0.837],
+              "radius": 0.314,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [-0.671, -1.981, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [-0.671, -1.981, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.152
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [3.03, -3.697, 0.537],
+            "radius": 0.537
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": 3.949
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": -3.447
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": 0.813
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": -0.311
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.502
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [2.942, 3.79, 0.511],
+            "radius": 0.511
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [3.249, 3.79, 0.818],
+              "radius": 0.307,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [0.071, -0.976, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [0.071, -0.976, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.219
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [-2.354, 1.393, 0.402],
+            "radius": 0.402
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": -2.047
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": 2.847
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -2.765
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 3.565
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.8
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "sphere": {
+            "center": [-1.631, -0.002, 0.398],
+            "radius": 0.398
+          },
+          "material": "c",
+          "inside": {
+            "sphere": {
+              "center": [-1.392, -0.002, 0.637],
+              "radius": 0.239,
+              "complement": true
+            },
+            "material": "c"
+          }
+        },
+        {
+          "slab": {
+            "center": [2.973, 3.197, 0.6],
+            "axis": [0, 0, 1],
+            "thickness": 1.2
+          },
+          "material": "b",
+          "inside": {
+            "cylinder": {
+              "center": [2.973, 3.197, 0],
+              "axis": [0, 0, 1],
+              "radius": 0.154
+            },
+            "material": "b"
+          }
+        },
+        {
+          "sphere": {
+            "center": [-2.393, -1.378, 0.595],
+            "radius": 0.595
+          },
+          "material": "a"
+        },
+        {
+          "plane": {
+            "normal": [1, 0, 0],
+            "offset": 2.526
+          },
+          "material": "b",
+          "inside": {
+            "plane": {
+              "normal": [-1, 0, 0],
+              "offset": -1.998
+            },
+            "material": "b",
+            "inside": {
+              "plane": {
+                "normal": [0, 1, 0],
+                "offset": -1.023
+              },
+              "material": "b",
+              "inside": {
+                "plane": {
+                  "normal": [0, -1, 0],
+                  "offset": 1.551
+                },
+                "material": "b",
+                "inside": {
+                  "plane": {
+                    "normal": [0, 0, 1],
+                    "offset": 0.528
+                  },
+                  "material": "b",
+                  "inside": {
+                    "plane": {
+                      "normal": [0, 0, -1],
+                      "offset": 0
+                    },
+                    "material": "b"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
