@@ -23,6 +23,8 @@ A name is a file in `public/scenes/`; a full URL loads from anywhere that
 allows it (the server must permit cross-origin requests), along with what
 that scene imports, from beside it there. An `.stl`, here or there, is
 shown on its own, scaled to 2 across on a floor with a sky and lights.
+Anything ending in `.gz` (`scene.json.gz`, `model.stl.gz`) is unzipped as it
+loads.
 `tools/bench-render.mjs` takes the same.
 
 ## Shaders

@@ -868,8 +868,21 @@ const IMPORT_SEPARATOR = ':';
 /** Whether a path is a URL of its own (https:, file:, ...), not relative. */
 const isURL = (path) => /^[a-z][a-z0-9+.-]*:/i.test(path);
 
-/** The file a path or URL names, without directories, query or fragment. */
-const fileOf = (path) => String(path).split(/[?#]/)[0].split(/[\\/]/).pop();
+/**
+ * The file a path or URL names, without directories, query or fragment -
+ * or a .gz, which only says how it is stored: "dragon.json.gz" is
+ * "dragon.json".
+ */
+const fileOf = (path) => String(path).split(/[?#]/)[0].split(/[\\/]/).pop().replace(/\.gz$/i, '');
+
+/** Whether a path or URL names a gzipped file, unzipped as it loads. */
+export const isGzip = (path) => /\.gz$/i.test(String(path).split(/[?#]/)[0]);
+
+/** Gzipped bytes, unzipped (DecompressionStream: browsers, and Node 18+). */
+export async function gunzip(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
 
 /** The name an imported file goes by, when the scene doesn't say. */
 function aliasFor(path) {
@@ -1007,7 +1020,8 @@ export function sceneForMesh(path, bytes, { warn = console.warn } = {}) {
  * likes: fetch in a browser, readFile in node. Paths are resolved relative
  * to the file that named them, which `read` sees as given. An .stl import
  * is read with `readBytes` instead, which returns its bytes (an ArrayBuffer
- * or Uint8Array), and converted by stlAsScene().
+ * or Uint8Array), and converted by stlAsScene(); so is anything ending in
+ * .gz, unzipped first (a .json.gz, an .stl.gz).
  */
 export async function loadImports(spec, read, {
   from = '',
@@ -1026,6 +1040,7 @@ export async function loadImports(spec, read, {
       let bytes;
       try {
         bytes = await readBytes(resolved);
+        if (isGzip(resolved)) bytes = await gunzip(bytes);
       } catch (cause) {
         throw new Error(`cannot read imported mesh "${resolved}": ${cause.message}`);
       }
@@ -1040,7 +1055,12 @@ export async function loadImports(spec, read, {
     }
     let imported;
     try {
-      imported = await read(resolved);
+      if (isGzip(resolved)) {
+        if (!readBytes) throw new Error('a .gz needs loadImports() given readBytes');
+        imported = JSON.parse(new TextDecoder().decode(await gunzip(await readBytes(resolved))));
+      } else {
+        imported = await read(resolved);
+      }
     } catch (cause) {
       throw new Error(`cannot read imported scene "${resolved}": ${cause.message}`);
     }

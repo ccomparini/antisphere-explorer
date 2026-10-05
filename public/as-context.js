@@ -16,7 +16,7 @@ import {
 } from './gpu-setup.js';
 import {
   compileScene, packNodes, packSurfaces, packMaterials, packLights, loadImports,
-  isSTL, sceneForMesh,
+  isSTL, isGzip, gunzip, sceneForMesh,
 } from './antisphere-scene.js';
 import { BINDINGS, RayQuery, Seg, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
@@ -124,14 +124,16 @@ export class ASContext {
    * server, and what it imports is then fetched from beside it there.
    *
    * An STL on its own is shown in a scene made round it: a floor, a sky,
-   * lights and a camera (sceneForMesh()).
+   * lights and a camera (sceneForMesh()). A .gz is unzipped as it loads:
+   * scene.json.gz, model.stl.gz.
    */
   async loadScene(url) {
+    const bytes = async () => (isGzip(url) ? gunzip(await loadBytes(url)) : loadBytes(url));
     if (isSTL(url)) {
-      const { spec, imports } = sceneForMesh(url, await loadBytes(url));
+      const { spec, imports } = sceneForMesh(url, await bytes());
       return this.createScene(spec, { imports, path: url });
     }
-    const spec = JSON.parse(await loadText(url));
+    const spec = JSON.parse(isGzip(url) ? new TextDecoder().decode(await bytes()) : await loadText(url));
     const imports = await loadImports(spec, async (path) => JSON.parse(await loadText(path)), {
       from: url,
       readBytes: loadBytes,

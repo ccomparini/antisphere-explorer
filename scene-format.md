@@ -192,7 +192,9 @@ the file that names them — `parts/bolt.json` asking for `../common/metal.json`
 means `common/metal.json`. An import may also be a full URL,
 `"https://example.com/models/teapot.stl"`, and a scene loaded from a URL has
 its relative paths resolved against it, so what it imports comes from
-beside it there. Its name is the file's, without any query: `teapot`. A file that imports itself, directly or in a
+beside it there. Its name is the file's, without any query: `teapot`.
+A file ending in `.gz` is unzipped as it loads - `parts/dragon.json.gz`,
+`parts/teapot.stl.gz` - and named without it: `dragon`, `teapot`. A file that imports itself, directly or in a
 circle, is an error rather than a hang.
 
 Anything this scene defines under an imported name wins: writing

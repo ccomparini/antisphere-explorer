@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { writeSTL } from './stl.js';
+import { gzipSync } from 'node:zlib';
 import { ASContext } from './as-context.js';
 import { matrixOf, separation } from './overlap.js';
 import { OverlapQuery, OverlapResult, viewsOf } from './gen/layouts.js';
@@ -886,6 +887,14 @@ gpuTest('loadScene by URL: a scene importing an STL beside it, and an STL on its
     const down = await cast(alone, [{ origin: [-0.6, -0.6, 5], direction: [0, 0, -1] }]);
     assert.ok(Math.abs(down.t0[0] - (5 - 1.2)) < 1e-4, `hit at ${down.t0[0]}: the mesh's top`);
     alone.destroy();
+
+    // Gzipped, the scene and what it imports both.
+    files['/scenes/s.json.gz'] = gzipSync(files['/scenes/s.json'].replace('parts/tet.stl', 'parts/tet.stl.gz'));
+    files['/scenes/parts/tet.stl.gz'] = gzipSync(files['/scenes/parts/tet.stl']);
+    const zipped = await ctx.loadScene(`${base}/scenes/s.json.gz`);
+    const again = await cast(zipped, [{ origin: [0.2, 0.2, 5], direction: [0, 0, -1] }]);
+    assert.ok(Math.abs(again.t0[0] - (5 - 0.6)) < 1e-4, `gzipped: hit at ${again.t0[0]}`);
+    zipped.destroy();
 
     await assert.rejects(ctx.loadScene(`${base}/scenes/missing.json`), /404/);
   } finally {

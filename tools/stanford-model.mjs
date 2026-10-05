@@ -13,6 +13,10 @@
 // that wants it imports "parts/stanford/dragon.json" and uses
 // "dragon" (in full "dragon:dragon"; see scenes/dragon.json).
 //
+// Numbers are written as float32 (--precision double for all of them), and
+// an output name ending .gz is gzipped, which the loaders unzip: the
+// dragon is 24.8 MB that way, against 217 MB of full-precision JSON.
+//
 // The file written is what an STL import gives (meshAsScene()): one object,
 // named for the model, in the model's own coordinates - the scans are y up
 // and in metres - and no material, so the scene says what it is made of.
@@ -20,7 +24,7 @@
 import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { meshAsScene } from '../public/antisphere-scene.js';
 import { countOpenEdges } from '../public/stl.js';
 import { treeStats } from '../public/mesh-import.js';
@@ -50,8 +54,11 @@ stanford-model - fetch a Stanford scan and convert it into a parts file
 
   models: ${Object.keys(MODELS).join(', ')}
 
-  -o, --out <file>       write here (default public/scenes/parts/stanford/<model>.json)
+  -o, --out <file>       write here (default public/scenes/parts/stanford/<model>.json);
+                         a name ending .gz is gzipped
       --archive <file>   use this .tar.gz instead of downloading it
+      --precision <p>    float (default): numbers as float32, in as few digits
+                         as give the same float32 back; double: as computed
 `.trim();
 
 function parseArguments(argv) {
@@ -62,12 +69,28 @@ function parseArguments(argv) {
     const next = () => argv[++i];
     if (arg === '-o' || arg === '--out') options.out = next();
     else if (arg === '--archive') options.archive = next();
+    else if (arg === '--precision') options.precision = next();
     else if (arg === '-h' || arg === '--help') options.help = true;
     else if (arg.startsWith('-')) throw new Error(`unknown option ${arg}`);
     else rest.push(arg);
   }
   options.model = rest[0];
   return options;
+}
+
+/**
+ * A number as float32, written as briefly as gives that float32 back: the
+ * scans' vertices are float32 to begin with, and so is everything the GPU
+ * does with them, while a double's seventeen digits were half the file.
+ */
+function asFloat(x) {
+  if (!Number.isFinite(x) || Number.isInteger(x)) return x;
+  const f = Math.fround(x);
+  for (let digits = 6; digits < 9; digits++) {
+    const short = Number(f.toPrecision(digits));
+    if (Math.fround(short) === f) return short;
+  }
+  return Number(f.toPrecision(9));
 }
 
 /** The files in a tar archive, as a Map of name to bytes. */
@@ -158,8 +181,11 @@ async function main(argv) {
               `Generated, and not in git; run that again to remake it.`,
     ...scene,
   };
+  const precision = options.precision ?? 'float';
+  if (precision !== 'float' && precision !== 'double') throw new Error(`--precision ${precision}: float or double`);
+  const json = JSON.stringify(file, precision === 'float' ? (key, v) => (typeof v === 'number' ? asFloat(v) : v) : undefined) + '\n';
   mkdirSync(dirname(out), { recursive: true });
-  writeFileSync(out, JSON.stringify(file) + '\n');
+  writeFileSync(out, /\.gz$/i.test(out) ? gzipSync(json, { level: 9 }) : json);
   say(`  written to ${out}`);
 }
 

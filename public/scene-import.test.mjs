@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene, importsOf, resolveImports, loadImports, sceneForMesh, isSTL } from './antisphere-scene.js';
 import { writeSTL } from './stl.js';
+import { gzipSync } from 'node:zlib';
 
 /** A file offering two parts and a thing made of them. */
 const boltFile = () => ({
@@ -361,4 +362,28 @@ test('an STL on its own makes a scene round it, the mesh 2 across and standing o
   assert.ok(Math.abs(placed.translate[0] + 105 * placed.scale) < 1e-6);
   const built = compileScene(spec, { imports, path: 'https://host.example/m/spike.stl' });
   assert.ok(built.nodes.length > 6 && built.lights.length === 3 && built.camera);
+});
+
+// -- gzipped ------------------------------------------------------------------------
+
+test('a .gz import is unzipped as it loads, a scene or an STL, and named without it', async () => {
+  const files = {
+    'parts/bolt.json.gz': gzipSync(JSON.stringify(boltFile())),
+    'parts/tet.stl.gz': gzipSync(Buffer.from(writeSTL(tetrahedron))),
+  };
+  const spec = {
+    import: ['parts/bolt.json.gz', 'parts/tet.stl.gz'],
+    materials: { clay: {} },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 40 }, inside: { union: [
+      { use: 'bolt' },
+      { use: 'tet', material: 'clay', translate: [3, 0, 0] },
+    ] } },
+  };
+  const loaded = await loadFrom(files)(spec, '');
+  const flat = resolveImports(spec, loaded);
+  assert.ok('bolt:head' in flat.objects && 'tet:tet' in flat.objects, Object.keys(flat.objects).join());
+  assert.ok(compileScene(spec, { imports: loaded }).nodes.length > 6);
+
+  await assert.rejects(loadImports({ import: ['x.json.gz'] }, async () => ({})), /needs loadImports\(\) given readBytes/);
 });

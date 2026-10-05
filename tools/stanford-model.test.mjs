@@ -9,7 +9,7 @@ import { writeFileSync, readFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { compileScene } from '../public/antisphere-scene.js';
 
 const script = fileURLToPath(new URL('./stanford-model.mjs', import.meta.url));
@@ -85,6 +85,25 @@ test('a model is converted from its archive into a parts file that compiles', ()
   }, { imports: { 'parts/bunny.json': part } });
   // The scene's sphere, the tetrahedron's spheroid, and its four faces.
   assert.equal(built.nodes.length - 1, 6);
+});
+
+test('numbers are float32, in as few digits as give it back; .gz output is gzipped', () => {
+  const archive = join(scratch, 'bunny2.tar.gz');
+  writeFileSync(archive, gzipSync(tar({ 'bunny/reconstruction/bun_zipper.ply': tetrahedronPLY })));
+  const runTo = (out, ...more) => execFileSync('node', [script, 'bunny', '--archive', archive, '-o', out, ...more],
+                                               { stdio: ['ignore', 'pipe', 'pipe'] });
+  const floatOut = join(scratch, 'f.json.gz'), doubleOut = join(scratch, 'd.json');
+  runTo(floatOut);
+  runTo(doubleOut, '--precision', 'double');
+  const numbers = (text) => text.match(/-?\d+\.\d+(e-?\d+)?/g).map(Number);
+  const asFloat = numbers(gunzipSync(readFileSync(floatOut)).toString());
+  const asDouble = numbers(readFileSync(doubleOut, 'utf8'));
+  assert.equal(asFloat.length, asDouble.length);
+  asFloat.forEach((x, i) => {
+    assert.equal(Math.fround(x), Math.fround(asDouble[i]), `${x} is ${asDouble[i]} as float32`);
+    assert.ok(String(x).replace(/^-?0?\.?|e.*$/g, '').replace('.', '').length <= 9, `${x}: at most 9 digits`);
+  });
+  assert.ok(asDouble.some((x) => String(x).length > 12), 'the doubles were longer');
 });
 
 test('an unknown model says which there are', () => {
