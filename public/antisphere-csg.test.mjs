@@ -646,3 +646,91 @@ test('a subtree used in two envs is baked once for each', () => {
   const [first] = envChain(built, at(built, [0, 0, 0]).node);
   assert.deepEqual(built.materials[built.nodes[first].material].albedo, [0.2, 0.2, 0.3]);
 });
+
+// -- { "use", "material" }: a placement made of one material ------------------------
+
+/** What fills point R, by its material's albedo; null where nothing does. */
+const albedoAt = (built, R) => {
+  const { solid, material } = at(built, R);
+  return solid ? built.materials[material].albedo : null;
+};
+
+const CLAY = [0.7, 0.5, 0.4], SKY = [0.1, 0.1, 0.2], RED = [0.9, 0.1, 0.1];
+
+function buildPainted(subtree, objects) {
+  return compileScene({
+    materials: {
+      clay: { albedo: CLAY },
+      sky: { albedo: SKY },
+      red: { albedo: RED },
+      haze: { kind: 'ambient', albedo: [0.2, 0.2, 0.2] },
+    },
+    lights: [{ pos: [0, 0, 5], color: [1, 1, 1] }],
+    objects,
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: subtree },
+  });
+}
+
+// Two materials, a hollow - a shell, beyond a complemented sphere, whose
+// absent-outside side is the hollow - and in the hollow a vacuum node with
+// a node inside it that inherits that; and a ball that names no material,
+// so it is whatever its scope is.
+const kitObjects = {
+  kit: { union: [
+    { sphere: { center: [-1.5, 0, 0], radius: 0.8 }, material: 'clay' },
+    { sphere: { center: [1.5, 0, 0], radius: 0.8 }, material: 'sky',
+      inside: { sphere: { center: [1.5, 0, 0], radius: 0.4, complement: true },
+                outside: { sphere: { center: [1.5, 0, 0], radius: 0.4 }, material: null,
+                           inside: { sphere: { center: [1.5, 0, 0], radius: 0.2 } } } } },
+  ] },
+  plain: { sphere: { center: [0, 2, 0], radius: 0.5 } },
+};
+const HEAD = [-1.5, 0, 0], SHELL = [2.1, 0, 0], HOLLOW = [1.5, 0.3, 0], CORE = [1.5, 0, 0];
+
+const SHAPE_KEYS = { sphere: 1, plane: 1, slab: 1, cylinder: 1 };
+/** A subtree with every node's "material" set to m, as written by hand. */
+const everyNode = (def, m) => {
+  if (Array.isArray(def)) return def.map((d) => everyNode(d, m));
+  if (!def || typeof def !== 'object') return def;
+  const out = { ...def };
+  if (Object.keys(def).some((k) => k in SHAPE_KEYS)) out.material = m;
+  for (const k of ['inside', 'outside', 'union']) if (k in def) out[k] = everyNode(def[k], m);
+  return out;
+};
+const fills = (built) => built.nodes.map((nd) => [nd.material, nd.env]);
+
+test('a use with a material: every node as if written with it', () => {
+  const own = buildPainted({ use: 'kit' }, kitObjects);
+  assert.deepEqual(albedoAt(own, HEAD), CLAY);
+  assert.deepEqual(albedoAt(own, SHELL), SKY);
+  assert.equal(albedoAt(own, HOLLOW), null);
+  assert.equal(albedoAt(own, CORE), null, 'inherits the vacuum node');
+
+  const red = buildPainted({ use: 'kit', material: 'red' }, kitObjects);
+  assert.deepEqual(albedoAt(red, HEAD), RED);
+  assert.deepEqual(albedoAt(red, SHELL), RED);
+  assert.deepEqual(albedoAt(red, CORE), RED, 'the vacuum node is red now, like every other');
+  assert.equal(albedoAt(red, HOLLOW), null, 'an absent outside is still empty');
+  assert.equal(red.nodes.length, own.nodes.length, 'the same divisions');
+
+  // Any material at all, the same way: vacuum, an ambient, a plain one.
+  for (const m of [null, 'haze', 'red']) {
+    assert.deepEqual(fills(buildPainted({ use: 'kit', material: m }, kitObjects)),
+                     fills(buildPainted(everyNode(kitObjects.kit, m))),
+                     `material ${m}`);
+  }
+});
+
+test('a use with a material fills what would have inherited from around it', () => {
+  assert.equal(albedoAt(buildPainted({ use: 'plain' }, kitObjects), [0, 2, 0]), null);
+  assert.deepEqual(albedoAt(buildPainted({ use: 'plain', material: 'red' }, kitObjects), [0, 2, 0]), RED);
+});
+
+test('a painted use leaves the object, and its other uses, as they were', () => {
+  const objects = { ...kitObjects, redKit: { use: 'kit', material: 'red', translate: [0, 0, 3] } };
+  const built = buildPainted({ union: ['kit', 'redKit'] }, objects);
+  assert.deepEqual(albedoAt(built, HEAD), CLAY);
+  assert.equal(albedoAt(built, CORE), null);
+  assert.deepEqual(albedoAt(built, [-1.5, 0, 3]), RED);
+  assert.deepEqual(albedoAt(built, [1.5, 0, 3]), RED);
+});

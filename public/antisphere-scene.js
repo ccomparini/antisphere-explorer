@@ -563,6 +563,23 @@ function translateTree(t, offset, memo = new Map()) {
   return out;
 }
 
+// A subtree made of one material: what { "use", "material" } places (see
+// tree()). Every node takes `material`, as if each had been written with
+// the use's "material", whatever it said before - including nothing, which
+// would have inherited. (Envs follow, when bakeScopes() places them.)
+// Which nodes there are, and how they divide space, is unchanged.
+// Memoized, so shared structure stays shared.
+function repaintTree(t, material, memo = new Map()) {
+  if (!t) return t;
+  if (memo.has(t)) return memo.get(t);
+  const out = node(t.prim,
+                   repaintTree(t.inside, material, memo),
+                   repaintTree(t.outside, material, memo),
+                   material, t.env, t.prov);
+  memo.set(t, out);
+  return out;
+}
+
 // Re-attribute to `to` every node that `from` owns, copying them - and any
 // node above them, so it can point at the copies - while leaving untouched
 // subtrees shared. Used to give an instance nodes of its own (see the
@@ -836,8 +853,9 @@ function boundOf(t, declared, memo, table) {
 // A file ending in .stl is a mesh rather than a scene. It is converted on
 // loading (stlAsScene()) into a scene offering one object and one material,
 // both named for the file: "import": ["parts/teapot.stl"] gives
-// { "use": "teapot:teapot" }, and "teapot:teapot" among the scene's own
-// materials re-skins it.
+// { "use": "teapot:teapot" }. A "material" on the use paints that placement
+// (repaintTree()); "teapot:teapot" among the scene's own materials re-skins
+// every one.
 //
 // Loading is the caller's business, not the compiler's: compileScene() is
 // synchronous and reads no files, so the parsed files are handed to it in
@@ -1802,6 +1820,11 @@ export function compileScene(rawSpec, options = {}) {
     if (def.use !== undefined) {
       out = named(def.use, path);
       if (out === BUILDING) at(path, `object "${def.use}" refers to itself`);
+      // { "use", "material" }: this placement made of one material,
+      // whatever the object's own (see repaintTree()).
+      if (def.material !== undefined) {
+        out = repaintTree(out, materialOf(def, path));
+      }
     } else if (def.group !== undefined) {
       out = buildGroup(def, path, where);
     } else if (Object.keys(COMBINERS).some((op) => def[op] !== undefined)) {

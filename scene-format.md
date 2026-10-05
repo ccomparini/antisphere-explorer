@@ -154,11 +154,9 @@ scene, and is converted to plane nodes as it loads (`meshToTree()` in
 and one material, both named for the file: `{ "use": "torus:torus" }`, and
 the material `"torus:torus"`, a default gold clay. The mesh keeps the file's
 own coordinates and units; place it where it is used, with `"translate"`,
-`"rotate"` and `"scale"`.
-
-Every face of the converted mesh names that material, so a `"material"`
-given where it is used changes nothing. To re-skin it, define
-`"torus:torus"` in your own `materials`, as for any import.
+`"rotate"` and `"scale"`, and give it a `"material"` there to make that
+placement of something else (see `"use"`). To re-skin every placement at
+once, define `"torus:torus"` in your own `materials`, as for any import.
 
 The mesh should be closed: the conversion treats behind every face as
 inside, which means something only if the surface separates an inside from
@@ -357,6 +355,17 @@ Places a previously-defined `objects` entry inline. Commonly combined with a
 transform to drop copies of the same object in different places, at
 different sizes and pointing different ways, without duplicating its
 definition.
+
+```
+{ "use": "bolt:bolt", "material": "brass" }
+```
+
+With a `"material"`, this placement is made of that material, whatever the
+object's own: every node in it is as if it had been written with that
+`"material"`, including nodes that named none and would have inherited. The
+object's divisions are unchanged, so what is empty because of an absent
+`"outside"` stays empty. Any material works, `null` and ambient ones
+included. Other uses of the object are not affected.
 
 ### `"group"`
 

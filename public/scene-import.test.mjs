@@ -240,3 +240,26 @@ test('an STL that does not close imports with a warning; one with no area does n
     loadFrom({ 'flat.stl': writeSTL(flat) })(meshHost(['flat.stl'], 'flat:flat'), ''),
     /cannot import mesh "flat.stl": the mesh has no triangles with any area/);
 });
+
+test('a use paints an imported object, from a scene file or an STL alike', async () => {
+  const red = { albedo: [0.9, 0.1, 0.1] };
+  const spec = {
+    import: ['parts/bolt.json', 'parts/tet.stl'],
+    materials: { red },
+    lights: [],
+    objects: {},
+    root: { sphere: { center: [0,0,0], radius: 40 }, material: null, inside: { union: [
+      { use: 'bolt:bolt', material: 'red' },
+      { use: 'tet:tet', material: 'red', translate: [3, 0, 0] },
+    ] } },
+  };
+  const loaded = await loadFrom({
+    'parts/bolt.json': boltFile(),
+    'parts/tet.stl': writeSTL(tetrahedron),
+  })(spec, '');
+  const built = compileScene(spec, { imports: loaded });
+  // Every node below the root's sphere: all the bolt's and the mesh's,
+  // which named steel and tet:tet, now red.
+  const named = new Set(built.nodes.slice(2).map((nd) => built.materials[nd.material].albedo));
+  assert.deepEqual([...named], [red.albedo]);
+});
