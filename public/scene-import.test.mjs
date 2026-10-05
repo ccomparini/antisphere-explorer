@@ -267,3 +267,54 @@ test('a use paints an imported object, from a scene file or an STL alike', async
   const named = new Set(built.nodes.slice(2).map((nd) => built.materials[nd.material].albedo));
   assert.deepEqual([...named], [red.albedo]);
 });
+
+// -- an import's name alone ---------------------------------------------------------
+
+test('an import\'s name alone is its object of that name, or its only object', async () => {
+  const tet = writeSTL(tetrahedron);
+  const host = (imported, use, extra) => ({ ...meshHost(imported, use, extra), materials: { clay: {} } });
+  const compiled = async (spec, files) => {
+    const loaded = await loadFrom(files)(spec, '');
+    return { flat: resolveImports(spec, loaded), built: compileScene(spec, { imports: loaded }) };
+  };
+
+  // An STL's one object; and a renamed one, whose object keeps the file's name.
+  let { flat } = await compiled(host(['tet.stl'], 'tet'), { 'tet.stl': tet });
+  assert.equal(flat.objects.piece.use, 'tet:tet');
+  ({ flat } = await compiled(host({ pot: 'tet.stl' }, 'pot'), { 'tet.stl': tet }));
+  assert.equal(flat.objects.piece.use, 'pot:tet');
+
+  // A scene file's object named for it, among others.
+  ({ flat } = await compiled(host(['parts/bolt.json'], 'bolt'), { 'parts/bolt.json': boltFile() }));
+  assert.equal(flat.objects.piece.use, 'bolt:bolt');
+
+  // In an imported file, for what it imports - and in the root and arrays.
+  const files = {
+    'kit.json': { import: ['spike.stl'], objects: { pin: { union: ['spike'] } } },
+    'spike.stl': tet,
+  };
+  const nested = { ...host(['kit.json'], 'kit:pin'), root: { sphere: { center: [0, 0, 0], radius: 40 },
+                   inside: { union: ['piece', { use: 'kit:pin', translate: [0, 5, 0] }] } } };
+  let built;
+  ({ flat, built } = await compiled(nested, files));
+  assert.deepEqual(flat.objects['kit:pin'].union, ['kit:spike:spike']);
+  assert.ok(built.nodes.length > 1);
+});
+
+test('an import\'s name alone defers to the scene\'s own object, and needs one to mean', async () => {
+  const tet = writeSTL(tetrahedron);
+  // The scene's own "tet" wins; the import is still there by its full name.
+  const own = meshHost(['tet.stl'], 'tet:tet', {
+    objects: { tet: { sphere: { center: [0, 0, 0], radius: 1 } }, piece: { use: 'tet' } },
+  });
+  const loaded = await loadFrom({ 'tet.stl': tet })(own, '');
+  const flat = resolveImports(own, loaded);
+  assert.equal(flat.objects.piece.use, 'tet');
+  assert.ok('tet:tet' in flat.objects);
+
+  // A file with several objects, none named for it, offers no short name.
+  const parts = { objects: { a: { sphere: { center: [0, 0, 0], radius: 1 } },
+                             b: { sphere: { center: [2, 0, 0], radius: 1 } } } };
+  const many = meshHost(['parts.json'], 'parts');
+  assert.throws(() => compileScene(many, { imports: { 'parts.json': parts } }), /unknown object "parts"/);
+});

@@ -1043,6 +1043,7 @@ export function resolveImports(spec, imports = {}, { from = '', trail = [] } = {
   // the file it came from.
   const ownObjects = new Set(Object.keys(spec.objects || {}));
   const ownMaterials = new Set(Object.keys(spec.materials || {}));
+  const shortFor = new Map();            // an import's name -> its main object, prefixed
 
   for (const { alias, path } of wanted) {
     const resolved = resolvePath(from, path);
@@ -1061,6 +1062,9 @@ export function resolveImports(spec, imports = {}, { from = '', trail = [] } = {
     const flat = resolveImports(imported, imports,
                                 { from: resolved, trail: [...trail, resolved] });
     const prefixed = (name) => `${alias}${IMPORT_SEPARATOR}${name}`;
+    const offered = Object.keys(flat.objects || {});
+    const main = offered.includes(alias) ? alias : offered.length === 1 ? offered[0] : null;
+    if (main && !ownObjects.has(alias)) shortFor.set(alias, prefixed(main));
     const renameObject = (name) => (flat.objects && name in flat.objects ? prefixed(name) : name);
     const renameMaterial = (name) =>
       (flat.materials && name in flat.materials ? prefixed(name) : name);
@@ -1075,6 +1079,17 @@ export function resolveImports(spec, imports = {}, { from = '', trail = [] } = {
       if (ownMaterials.has(key)) continue;                // likewise
       merged.materials[key] = material;
     }
+  }
+
+  // An import's name alone is its object of that name, or its only object:
+  // "torus" for an STL import's one object, "torus:torus" (or "pot" for
+  // "pot:x", imported as { "pot": "x.stl" }), and "bolt" for parts/bolt.json's
+  // "bolt". Only where this scene has no "torus" of its own, which wins as
+  // it does over any imported name.
+  if (shortFor.size) {
+    const lengthen = (name) => shortFor.get(name) ?? name;
+    for (const name of ownObjects) merged.objects[name] = renameWithin(merged.objects[name], lengthen, (m) => m);
+    if (merged.root) merged.root = renameWithin(merged.root, lengthen, (m) => m);
   }
   return merged;
 }

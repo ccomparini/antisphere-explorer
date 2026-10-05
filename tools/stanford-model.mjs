@@ -11,7 +11,7 @@
 // to convert. That is why the result is not in git: by default it goes to
 // public/scenes/parts/stanford/, which .gitignore leaves out, and a scene
 // that wants it imports "parts/stanford/dragon.json" and uses
-// "dragon:dragon" (see scenes/dragon.json).
+// "dragon" (in full "dragon:dragon"; see scenes/dragon.json).
 //
 // The file written is what an STL import gives (meshAsScene()): one object,
 // named for the model, in the model's own coordinates - the scans are y up

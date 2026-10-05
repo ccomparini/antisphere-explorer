@@ -137,6 +137,12 @@ you use here is never shadowed by one you imported. With the list form the
 prefix is the file's own name, without directory or extension; with the
 object form you choose it.
 
+The prefix alone names the file's main object: its object of that name, or
+its only object if it has just one. So `{ "use": "bolt" }` is `bolt:bolt`,
+and an STL's mesh (below) is just `{ "use": "torus" }`. An object of this
+scene's own by that name wins, and the import is still there by its full
+name.
+
 Only `objects` and `materials` cross over. An imported file's `root`,
 `lights` and `camera` are how *it* is looked at on its own, not part of what
 it offers — so a parts file can be opened and admired in the editor while
@@ -151,9 +157,10 @@ still being a library.
 A file ending in `.stl` (binary or ASCII) is a triangle mesh rather than a
 scene, and is converted to plane nodes as it loads (`meshToTree()` in
 `mesh-import.js`, as `tools/stl-to-scene.mjs` does). It offers one object,
-named for the file: `{ "use": "torus:torus" }`. It is spatial division only:
+named for the file: `{ "use": "torus" }`, in full `torus:torus`. It is
+spatial division only:
 an STL has no materials, so none of its nodes names one, and where it is
-used says what it is made of - `{ "use": "torus:torus", "material": "gold" }`
+used says what it is made of - `{ "use": "torus", "material": "gold" }`
 (see `"use"`), or a material in scope around it. Without either it inherits
 whatever is around it, which is often vacuum. The mesh keeps the file's own
 coordinates and units; place it where it is used, with `"translate"`,
@@ -371,7 +378,7 @@ different sizes and pointing different ways, without duplicating its
 definition.
 
 ```
-{ "use": "bolt:bolt", "material": "brass" }
+{ "use": "bolt", "material": "brass" }
 ```
 
 With a `"material"`, this placement is made of that material, whatever the

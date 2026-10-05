@@ -18,7 +18,7 @@
   "camera": { "target": [0, 0, 0.7], "yaw": 0.5, "pitch": 0.2, "distance": 3.2 },
 
   "objects": {
-    "dragon": { "use": "dragon:dragon",
+    "figure": { "use": "dragon",
                 "material": "jade",
                 "rotate": { "axis": [1, 0, 0], "degrees": 90 },
                 "scale": 10,
@@ -32,7 +32,7 @@
       "material": "floor",
       "outside": {
         "union": [
-          "dragon",
+          "figure",
           { "sphere": { "center": [0, 0, 0], "radius": 399 },
             "complement": true, "material": "sky" }
         ]
