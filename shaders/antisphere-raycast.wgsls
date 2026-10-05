@@ -252,7 +252,7 @@ fn trace(
       // it in the first place) so that we don't register "close" intersections
       // with that surface.  Note that we want to still check the "far" intersection
       // (since a surface can be curves such that it shadows itself).
-      if (fromSurface != 0u && surfaces[descent_node] == fromSurface) { C = 0.0; }
+      if (surfaces[descent_node] == fromSurface) { C = 0.0; }
 
       // Roots start beyond any segment a ray can carry, so a miss, a ray
       // parallel to a plane, and a plane's sentinel far root are all rejected

@@ -381,7 +381,7 @@ fn trace(
       // it in the first place) so that we don't register "close" intersections
       // with that surface.  Note that we want to still check the "far" intersection
       // (since a surface can be curves such that it shadows itself).
-      if (fromSurface != 0u && surfaces[descent_node] == fromSurface) { C = 0.0; }
+      if (surfaces[descent_node] == fromSurface) { C = 0.0; }
 
       // Roots start beyond any segment a ray can carry, so a miss, a ray
       // parallel to a plane, and a plane's sentinel far root are all rejected
@@ -785,4 +785,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/random.wgsls","offset":98,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":129,"lines":658}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/random.wgsls","offset":98,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":129,"lines":659}]
