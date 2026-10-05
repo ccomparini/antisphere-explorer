@@ -221,10 +221,14 @@ const PROJECTION_ORTHOGRAPHIC : u32 = 1u;
 
 // Rungs of the ablation ladder. Each level adds one stage back, and the
 // differences between consecutive pass times give the stage costs. Shadow
-// rays are the level above this, driven by Camera.shadows.
+// rays are the level above this, driven by Camera.shadows. Built only
+// with ABLATE defined; without it, Camera.ablate is ignored and every
+// pass renders in full.
+
 const ABLATE_NONE  : u32 = 0u;   // dispatch and ray setup only
 const ABLATE_TRACE : u32 = 1u;   // add traversal, no shading
 const ABLATE_SHADE : u32 = 2u;   // add shading
+
 
 struct Light {
   pos   : vec3<f32>,
@@ -739,18 +743,25 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // Each stage's output has to stay live or the compiler will delete
   // the work being measured, so every level writes something derived
   // from what it computed.
+
   var found = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
     found = trace(origin, dir, 1e-3, 1e4, 0u);
   }
 
+
+
+
   var col = vec3<f32>(0.0);
   var N = vec3<f32>(0.0);
+
   if (cam.ablate < ABLATE_TRACE) {
     col = abs(dir) * 0.25;
   } else if (cam.ablate < ABLATE_SHADE) {
     col = select(vec3<f32>(0.0), vec3<f32>(fract(found.t0 * 0.05)), found.node != 0u);
-  } else if (found.node != 0) {
+  } else
+
+  if (found.node != 0) {
     // the ray entered found.node - render according to the node's material
     // (see shade())
     let nd = nodes[found.node];
@@ -785,4 +796,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/random.wgsls","offset":98,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":129,"lines":659}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/random.wgsls","offset":98,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":129,"lines":669}]

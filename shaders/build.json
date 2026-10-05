@@ -1,6 +1,10 @@
 {
   "outputs": [
-    { "entry": "shaders/antisphere-raycast.wgsls", "out": "public/gen/antisphere-raycast.wgsl" },
+    {
+      "entry": "shaders/antisphere-raycast.wgsls",
+      "out": "public/gen/antisphere-raycast.wgsl",
+      "defines": { "ABLATE": true }
+    },
     { "entry": "shaders/physics-2pt.wgsls", "out": "public/gen/physics-2pt.wgsl" },
     { "entry": "shaders/blit.wgsls", "out": "public/gen/blit.wgsl" }
   ],
