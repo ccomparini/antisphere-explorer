@@ -164,7 +164,7 @@ export function createCommands({ doc, getActive, note, ask = globalThis.prompt, 
   }
 
   // New objects land where the focused camera is looking.
-  const placement = () => getActive?.()?.camera?.target?.slice() ?? [0, 0, 0.5];
+  const placement = () => getActive?.()?.camera?.focus() ?? [0, 0, 0.5];
 
   function ensureMaterial() {
     const existing = pickMaterial(doc.spec);

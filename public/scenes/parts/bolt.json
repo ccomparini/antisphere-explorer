@@ -24,7 +24,7 @@
   },
 
   "lights": [{ "pos": [3, -4, 5], "color": [120, 118, 112] }],
-  "camera": { "target": [0, 0, -0.2], "yaw": 0.8, "pitch": 0.3, "distance": 4 },
+  "camera": { "position": [2.7412658, 2.66235737, 0.982080827], "direction": [-0.685316449, -0.665589342, -0.295520207], "distance": 4 },
   "root": {
     "sphere": { "center": [0, 0, 0], "radius": 40 },
     "inside": { "use": "bolt" }

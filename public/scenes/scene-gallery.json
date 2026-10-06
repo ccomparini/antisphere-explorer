@@ -12,7 +12,7 @@
     "member's own root primitive, which here is usually an unbounded one."
   ],
 
-  "camera": { "target": [0, 0, 1.4], "yaw": 1.05, "pitch": 0.32, "distance": 26 },
+  "camera": { "position": [21.4081101, 12.2801136, 9.57873058], "direction": [-0.823388848, -0.472312062, -0.314566561], "distance": 26 },
 
   "materials": {
     "sky":     { "kind": "unlit", "albedo": [0.07, 0.09, 0.14] },

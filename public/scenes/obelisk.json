@@ -1,5 +1,5 @@
 {
-  "camera": { "target": [0, 0, 0.45], "yaw": 0.62, "pitch": 0.30, "distance": 2.8 },
+  "camera": { "position": [1.55423545, 2.1770778, 1.27745658], "direction": [-0.55508409, -0.777527787, -0.295520207], "distance": 2.8 },
 
   "materials": {
     "sky":     { "kind": "unlit", "albedo": [0.43, 0.66, 0.98] },

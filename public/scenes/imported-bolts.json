@@ -14,7 +14,7 @@
     { "pos": [-5, -2, 3], "color": [70, 76, 92] }
   ],
 
-  "camera": { "target": [0, 0, 0.3], "yaw": 0.9, "pitch": 0.3, "distance": 7 },
+  "camera": { "position": [5.23838546, 4.15692679, 2.36864145], "direction": [-0.74834078, -0.593846685, -0.295520207], "distance": 7 },
 
   "objects": {
     "upright": { "use": "bolt:bolt", "translate": [-1.4, 0, 0.6] },

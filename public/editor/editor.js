@@ -21,7 +21,7 @@ const SCENE_DIR = '../scenes/';
 
 // A starting point for New: shell, floor, one object, one light.
 const NEW_SCENE = {
-  camera: { target: [0, 0, 0.5], yaw: 0.6, pitch: 0.35, distance: 6 },
+  camera: { position: [3.182, 4.652, 2.557], direction: [-0.53, -0.775, -0.343], distance: 6 },
   materials: {
     sky:   { kind: 'unlit', albedo: [0.09, 0.11, 0.15] },
     floor: { albedo: [0.33, 0.35, 0.38], albedo2: [0.15, 0.16, 0.19],
@@ -113,25 +113,22 @@ async function main() {
 
   // Four viewpoints onto the same geometry. The first follows whatever the
   // scene file declares; the rest are fixed axis views framed on the scene
-  // camera's target, so they all look at the same thing.
+  // camera's focus, so they all look at the same thing.
   function frameViews() {
-    const centre = scene.camera?.target ?? [0, 0, 0];
-    const far = (scene.camera?.distance ?? 8) * 1.2;
+    const declared = new ASCamera();
+    declared.setFromSpec(scene.camera);
+    const focus = declared.focus();
+    const far = declared.distance * 1.2;
     // The axis views are orthographic: parallel rays are what make a
     // drawing you can measure against, and what stops near geometry from
-    // hiding what is behind it.
-    const layouts = [
-      null,
-      { yaw: 0,           pitch: 0,       distance: far, projection: 'orthographic' },
-      { yaw: Math.PI / 2, pitch: 0,       distance: far, projection: 'orthographic' },
-      { yaw: 0,           pitch: Math.PI / 2 - 1e-3, distance: far, projection: 'orthographic' },
-    ];
+    // hiding what is behind it. Front, side, and straight down.
+    const axes = [null, [0, -1, 0], [-1, 0, 0], [0, 0, -1]];
     views.forEach((v, i) => {
       v.controls.setMode('orbit');
-      if (i === 0) { v.camera.setFromSpec(scene.camera ?? { target: centre }); return; }
-      v.camera.target = centre.slice();
-      v.camera.orthoHeight = null;          // framed from the orbit distance
-      Object.assign(v.camera, layouts[i]);
+      if (i === 0) { v.camera.setFromSpec(scene.camera ?? declared.toSpec()); return; }
+      v.camera.projection = 'orthographic';
+      v.camera.orthoHeight = null;          // framed from the focus distance
+      v.camera.aim({ focus, direction: axes[i], distance: far });
     });
   }
   frameViews();

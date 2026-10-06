@@ -1,14 +1,5 @@
 {
-  "camera": {
-    "target": [
-      0,
-      -2.6,
-      0.2
-    ],
-    "yaw": 0.4,
-    "pitch": 0.38,
-    "distance": 17.0
-  },
+  "camera": { "position": [6.14786373, 11.9410651, 6.50564798], "direction": [-0.361639043, -0.855356772, -0.370920469], "distance": 17 },
   "materials": {
     "shell": {
       "albedo": [

@@ -32,12 +32,20 @@ Top level:
 
 ## `camera`
 
-| field      | type              | meaning                              |
-|------------|-------------------|---------------------------------------|
-| `target`   | `[x, y, z]`       | point the camera orbits/looks at      |
-| `yaw`      | number (radians)  | horizontal orbit angle                |
-| `pitch`    | number (radians)  | vertical orbit angle                  |
-| `distance` | number            | distance from `target` to the camera  |
+```
+"camera": { "position": [6, 12, 6.5], "direction": [-0.36, -0.86, -0.37], "distance": 17 }
+```
+
+| field       | type        | meaning                                               |
+|-------------|-------------|-------------------------------------------------------|
+| `position`  | `[x, y, z]` | where the camera is                                   |
+| `direction` | `[x, y, z]` | which way it looks; needn't be unit length            |
+| `distance`  | number      | how far along `direction` the point it orbits is      |
+
+The view's right is kept level (square to +Z), so the horizon stays level.
+Older files gave `target`, `yaw`, `pitch` and `distance` - the point looked
+at, and from where round it: yaw turning about +Z from looking along -Y,
+pitch tilting down. Those are still read.
 
 ## `gravity`
 
