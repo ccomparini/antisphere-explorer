@@ -53,20 +53,27 @@ const at = (r, a, z) => [r * Math.cos(a), r * Math.sin(a), z];
  *   exit      { angle }: where the way out is cut through the outer wall
  *   radius    the outer wall's outside
  *
- * `material` is named on every wall (default "wall", which the scene must
- * define): the dividers between them name none of their own (null), so a
- * material around the maze would not reach in.
+ * `innerRadius` is the hub's, 1.25 hall widths by default. A doorway must
+ * fit inside its cell where it goes through a wall, or this throws.
+ *
+ * `material` is the walls' faces (default "wall", which the scene must
+ * define); `doorMaterial` the insides of the doorways, their jambs, and
+ * `topMaterial` the tops, both `material` unless given. Each face is a node
+ * of its own, so it shows its own. The dividers between them name none
+ * (null), so a material around the maze would not reach in.
  */
 export function circularMaze({
   seed = 1,
   rings = 5,
-  hallWidth = 1.2,
+  hallWidth = 2.25,
   hallHeight = 2.5,
   wallThickness = 0.2,
-  innerRadius = 1.5,
+  innerRadius = hallWidth * 1.25,
   baseCells = 6,
   doorWidth = hallWidth * 0.8,
   material,
+  doorMaterial,
+  topMaterial,
 } = {}) {
   const random = seeded(seed);
   const t = wallThickness, h = hallHeight;
@@ -112,6 +119,22 @@ export function circularMaze({
     }
   });
 
+  // Every doorway has to fit inside its cell where it goes through the
+  // wall - the cells beyond wall j are ring j's (ring 0's for wall 0, the
+  // outermost ring's for the exit) - its narrowest chord there, less half
+  // a wall's thickness either side, where the radial walls at the cell's
+  // ends reach in. A wider one would cut beyond its cell, and its slab
+  // span more than the wedges can separate.
+  for (let j = 0; j <= rings; j++) {
+    const ring = Math.min(j, rings - 1);
+    const chord = 2 * rho(j) * Math.sin(Math.PI / counts[ring]);
+    if (doorWidth + t >= chord) {
+      throw new Error(`a doorway ${doorWidth} wide does not fit in wall ${j}: its cells are ` +
+                      `${chord.toFixed(3)} across there; make innerRadius larger (it is ${innerRadius}) ` +
+                      'or the doorways narrower');
+    }
+  }
+
   // A spanning tree, grown depth first from the hub in a random order.
   const visited = new Set([-1]);
   const passages = [], open = [];
@@ -146,9 +169,12 @@ export function circularMaze({
   //     radial wall or doorway. In a wedge that narrow a slab along the line
   //     from the middle meets it only once, so the slab alone is the wall
   //     or the doorway.
+  //   - Then the walls in a wedge, face by face (see layer()).
   // Dividers name no material - `material: null`, pure divisions - so an
   // absent inside among them is empty; walls name `material`.
   const wall = material ?? 'wall';
+  const jamb = doorMaterial ?? wall;
+  const cap = topMaterial ?? wall;
   const cylinder = (radius) => ({ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius } });
   // Along the line from the middle out at angle a, centred on the middle:
   // every slab at one angle is the same planes to the last bit.
@@ -164,8 +190,11 @@ export function circularMaze({
     const a0 = into(x.angle - x.half);
     return a0 < hi || into(x.angle + x.half) < a0;      // starts inside, or wraps into it
   };
+  // Items at one angle - a radial wall either side of a ring wall, where
+  // two corridors have as many cells - share a wedge: no cut parts them.
+  const angles = (items) => new Set(items.map((x) => x.angle.toFixed(9))).size;
   const angular = (items, lo, hi, leaf, depth = 0) => {
-    if (!items.length || (items.length <= 1 && hi - lo <= Math.PI / 2 + 1e-9) || depth > 24) return leaf(items);
+    if (!items.length || (angles(items) <= 1 && hi - lo <= Math.PI / 2 + 1e-9) || depth > 12) return leaf(items);
     const b = (lo + hi) / 2;
     return {
       ...halfTurn(b), material: null,
@@ -176,45 +205,71 @@ export function circularMaze({
   const slabsAt = (angles, radius, width) =>
     angles.map((angle) => ({ angle, half: Math.asin(Math.min(1, width / 2 / radius)) + 1e-6 }));
 
-  // A ring wall's layer: wall, but for its doorways. A doorway's slab
-  // claims its inside empty; past every doorway in the wedge, the wall's
-  // outside cylinder claims the rest (it holds the whole layer).
-  const ringLayer = (i) => {
-    const solid = { ...cylinder(rho(i) + t), material: wall };
-    const doors = open.filter((w) => w.ring === i).map((w) => w.angle);
-    return angular(slabsAt(doors, rho(i), doorWidth), 0, TAU, (items) =>
-      items.reduceRight((rest, x) => ({ ...across(x.angle, doorWidth), material: null, outside: rest }), solid));
-  };
-  // A corridor's layer: empty, but for its radial walls, each a slab
-  // claiming its inside as wall.
+  // Every face of a wall is the surface of a node carrying the wall's
+  // material, entered on its inside, with the empty space in front of it an
+  // outside of the wall's own nodes - so trace() reports the face a ray
+  // actually struck, at that face's own root. The dividers (material null,
+  // pure divisions) therefore stand in empty space, never on a face: the
+  // cylinders between layers run along the middle of the corridors, the
+  // slab of the halls reaches half a hall above the tops, the root half a
+  // hall beyond the outer wall. A divider on a face would hand the region
+  // beyond it a t0 its own nodes did not make.
+  const margin = hallWidth / 2;
+  const top = { plane: { normal: [0, 0, 1], offset: h } };     // inside: below the tops
+  const nest = (nodes) => nodes.reduceRight((rest, n) => (rest ? { ...n, inside: rest } : n), null);
+  const solidSlab = (a, thickness, complement = false, named = wall) =>
+    ({ slab: { ...across(a, thickness).slab, ...(complement ? { complement: true } : {}) }, material: named });
+  // A row of radial walls under the tops - its own copy of them, as it
+  // hangs from a ring wall's outside, which clears what was found above -
+  // each a slab whose inside is the wall; past one, the next, and past the
+  // last, nothing.
+  const row = (angles) => angles.length ? {
+    ...top, material: cap,
+    inside: angles.reduceRight((rest, a) => ({ ...solidSlab(a, t), ...(rest ? { outside: rest } : {}) }), null),
+  } : null;
+
+  // Layer j: ring wall j with the half corridor either side of it, from the
+  // middle of corridor j - 1 (or the middle of everything) to the middle of
+  // corridor j (or past the outer wall). In a wedge: the tops; ring wall j's
+  // outside face, beyond which the outer half corridor's radial walls
+  // stand; its inside face, within which the inner half corridor's do (or
+  // the hub is); and its doorways, slabs complemented, so the wall is their
+  // inside and the opening their outside, the jambs taking the wall's
+  // material. Radial walls reach across two layers, half in each.
   const openRadial = new Set(open.filter((w) => w.radial !== undefined).map((w) => `${w.radial}:${w.angle}`));
-  const corridorLayer = (i) => {
-    if (counts[i] < 2) return null;
-    const kept = cells.filter((c) => c.ring === i && !openRadial.has(`${i}:${c.angle1}`)).map((c) => c.angle1);
-    return angular(slabsAt(kept, rho(i) + t, t), 0, TAU, (items) =>
-      items.reduceRight((rest, x) => ({ ...across(x.angle, t), material: wall, outside: rest }), null));
+  const radialWalls = (i) => (i < 0 || i >= rings || counts[i] < 2) ? [] :
+    cells.filter((c) => c.ring === i && !openRadial.has(`${i}:${c.angle1}`)).map((c) => c.angle1);
+  const mid = (i) => (rho(i) + t + rho(i + 1)) / 2;            // middle of corridor i
+  const layer = (j) => {
+    // Each slab's angular width where it is: a doorway in the ring wall, a
+    // radial wall from the near end of its half corridor out.
+    const items = [
+      ...slabsAt(open.filter((w) => w.ring === j).map((w) => w.angle), rho(j), doorWidth).map((x) => ({ ...x, kind: 'door' })),
+      ...(j > 0 ? slabsAt(radialWalls(j - 1), mid(j - 1), t) : []).map((x) => ({ ...x, kind: 'in' })),
+      ...slabsAt(radialWalls(j), rho(j) + t, t).map((x) => ({ ...x, kind: 'out' })),
+    ];
+    return angular(items, 0, TAU, (here) => {
+      const of = (kind) => here.filter((x) => x.kind === kind).map((x) => x.angle);
+      const inner = { cylinder: { ...cylinder(rho(j)).cylinder, complement: true }, material: wall,
+                      ...(row(of('in')) ? { outside: row(of('in')) } : {}) };
+      const doors = of('door').map((a) => solidSlab(a, doorWidth, true, jamb));
+      const outer = { ...cylinder(rho(j) + t), material: wall, inside: nest([inner, ...doors]),
+                      ...(row(of('out')) ? { outside: row(of('out')) } : {}) };
+      return { ...top, material: cap, inside: outer };
+    });
   };
 
-  // The layers outward, and the cylinder between each and the next.
-  const layers = [() => null], between = [];
-  for (let i = 0; i <= rings; i++) {
-    between.push(rho(i));
-    layers.push(() => ringLayer(i));
-    if (i < rings) {
-      between.push(rho(i) + t);
-      layers.push(() => corridorLayer(i));
-    }
-  }
   const radial = (a, b) => {
-    if (a === b) return layers[a]();
+    if (a === b) return layer(a);
     const m = Math.ceil((a + b) / 2);           // layers a..m-1 inside, m..b outside
-    return { ...cylinder(between[m - 1]), material: null, inside: radial(a, m - 1), outside: radial(m, b) };
+    return { ...cylinder(mid(m - 1)), material: null, inside: radial(a, m - 1), outside: radial(m, b) };
   };
+  const tall = h + margin;
   const tree = {
-    ...cylinder(rho(rings) + t), material: null,
+    ...cylinder(rho(rings) + t + margin), material: null,
     inside: {
-      slab: { center: [0, 0, h / 2], axis: [0, 0, 1], thickness: h }, material: null,
-      inside: radial(0, layers.length - 1),
+      slab: { center: [0, 0, tall / 2], axis: [0, 0, 1], thickness: tall }, material: null,
+      inside: radial(0, rings),
     },
   };
 

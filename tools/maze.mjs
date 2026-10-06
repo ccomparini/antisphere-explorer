@@ -3,6 +3,7 @@
 //
 //   node tools/maze.mjs > maze.json
 //   node tools/maze.mjs --seed 7 --rings 8 --hall-height 3 -o public/scenes/maze.json
+//   node tools/maze.mjs --hall-width 4 --inner-radius 8 -o big.json
 //
 // The scene is complete - a floor, a sky, a light and a camera looking down
 // over the maze - so it opens in the page or the editor as it is. Reports
@@ -20,15 +21,28 @@ maze - write a scene with a circular maze in it
   -o, --out <file>          write here instead of stdout
       --seed <n>            which maze (default 1)
       --rings <n>           corridors round the hub (default 5)
-      --hall-width <w>      corridor width (default 1.2)
+      --hall-width <w>      corridor width (default 2.25)
       --hall-height <h>     wall height (default 2.5)
       --wall-thickness <t>  (default 0.2)
-      --material <m>        what the walls are (default "stone")
+      --inner-radius <r>    the open middle's (default 1.25 hall widths)
+      --material <m>        the walls' faces (default "stone")
+      --door-material <m>   the insides of the doorways (default: the walls')
+      --top-material <m>    the tops of the walls (default: the walls')
+      --floor-material <m>  the floor (default "floor", a checker)
+  A material named here and not otherwise known is given a colour for its
+  part: stone for walls, wood for doors, pale for tops, a checker for the
+  floor.
 `.trim();
+
+const NAMES = {
+  '--material': 'material', '--door-material': 'doorMaterial',
+  '--top-material': 'topMaterial', '--floor-material': 'floorMaterial',
+};
 
 const NUMBERS = {
   '--seed': 'seed', '--rings': 'rings', '--hall-width': 'hallWidth',
   '--hall-height': 'hallHeight', '--wall-thickness': 'wallThickness',
+  '--inner-radius': 'innerRadius',
 };
 
 function parseArguments(argv) {
@@ -37,7 +51,7 @@ function parseArguments(argv) {
     const arg = argv[i];
     const next = () => argv[++i];
     if (arg === '-o' || arg === '--out') options.out = next();
-    else if (arg === '--material') options.material = next();
+    else if (NAMES[arg]) options[NAMES[arg]] = next();
     else if (NUMBERS[arg]) {
       const value = Number(next());
       if (!Number.isFinite(value)) throw new Error(`${arg} needs a number`);
@@ -49,9 +63,28 @@ function parseArguments(argv) {
 }
 
 /** The scene round a maze: floor, sky, a light and a camera, sized to it. */
+// What a material named for each part looks like, if nothing else says.
+const LOOKS = {
+  wall: { albedo: [0.62, 0.58, 0.52] },
+  door: { albedo: [0.42, 0.30, 0.20] },
+  top: { albedo: [0.80, 0.78, 0.74] },
+  floor: { albedo: [0.30, 0.31, 0.34], albedo2: [0.18, 0.19, 0.21], pattern: 'checker', scale: 1 },
+};
+
 export function mazeScene(options = {}) {
-  const { material = 'stone' } = options;
-  const maze = circularMaze({ ...options, material });
+  const {
+    material = 'stone',
+    doorMaterial = material,
+    topMaterial = material,
+    floorMaterial = 'floor',
+  } = options;
+  const maze = circularMaze({ ...options, material, doorMaterial, topMaterial });
+  // One definition a name: the walls' first, if parts share one.
+  const materials = {};
+  for (const [name, part] of [[material, 'wall'], [doorMaterial, 'door'], [topMaterial, 'top'], [floorMaterial, 'floor']]) {
+    materials[name] ??= LOOKS[part];
+  }
+  materials.sky ??= { kind: 'unlit', albedo: [0.07, 0.09, 0.14] };
   const R = maze.radius;
   const sun = [R * 0.8, -R * 1.1, R * 2.5];
   const eye = [0, -R * 1.5, R * 1.5];
@@ -60,11 +93,7 @@ export function mazeScene(options = {}) {
     maze,
     scene: {
       _comment: `A circular maze, seed ${options.seed ?? 1}: written by tools/maze.mjs (public/maze.js).`,
-      materials: {
-        [material]: { albedo: [0.62, 0.58, 0.52] },
-        floor: { albedo: [0.30, 0.31, 0.34], albedo2: [0.18, 0.19, 0.21], pattern: 'checker', scale: 1 },
-        sky: { kind: 'unlit', albedo: [0.07, 0.09, 0.14] },
-      },
+      materials,
       // Bright enough at the maze to read as daylight, inverse square.
       lights: [{ pos: sun, color: [1, 0.96, 0.9].map((c) => +(c * 2.5 * (1 + sun.reduce((s, v) => s + v * v, 0))).toFixed(1)) }],
       camera: { position: eye, direction: eye.map((v) => -v / distance), distance },
@@ -73,7 +102,7 @@ export function mazeScene(options = {}) {
         sphere: { center: [0, 0, 0], radius: R * 40 },
         inside: {
           plane: { normal: [0, 0, 1], offset: 0 },
-          material: 'floor',
+          material: floorMaterial,
           outside: {
             union: [
               { use: 'maze' },

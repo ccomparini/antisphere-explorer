@@ -45,6 +45,30 @@ A solid still includes its surface in the usual solid-modelling sense
 seen and touched, but it has no volume, so it never decides an overlap.
 Anything that classifies a point must use the same strict test.
 
+### Spelling a solid's faces
+
+The nodes are an alphabet: what matters is that the scenes wanted can be
+spelled, not that every combination of nodes means something. One rule of
+spelling, so that `trace()` reports the face a ray actually struck:
+
+- **Every face of a solid is the surface of a node carrying the solid's
+  material, entered on its inside.** A ray crossing that surface starts the
+  hit at that node, at its own root.
+- **The empty space in front of each face is an outside (or a non-solid
+  inside) of the solid's own nodes.** Entering it clears anything found too
+  early higher up, so the hit restarts at the face. A pure division
+  (`material: null`) therefore stands in empty space, never on a face:
+  crossing it hands the region beyond a starting point its own nodes did not
+  make, and the hit is reported against whichever solid node comes first
+  below - the right distance, the wrong surface (normal, shadow start,
+  physlab's beam).
+
+So a hole in a solid is a node complemented, carrying the solid's material
+(its inside the solid, its outside the hole); a top is a node of its own;
+and a bounding volume or a partition stands clear of what it holds, as the
+spheroid round an imported mesh does. `public/maze.js` spells its walls this
+way. A ray that starts inside a solid crosses no face, and names none.
+
 ## Why quadrics: bounding volume hierarchies without a separate structure
 
 This is the core motivation. Every division is a quadric, so a bounding

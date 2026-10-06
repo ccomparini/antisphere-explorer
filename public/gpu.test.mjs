@@ -764,3 +764,85 @@ gpuTest('every entry point binds exactly the resources it uses', async () => {
   }
   assert.ok(checked >= 15, `only ${checked} pipelines checked`);
 });
+
+// -- a maze reports the face struck ------------------------------------------------------
+
+gpuTest('trace() reports the face a ray struck in a maze: every hit\'s node passes through it', async () => {
+  // Spelled as public/maze.js spells it - every wall face the surface of a
+  // node carrying the wall's material, entered on its inside, dividers off
+  // the faces - trace()'s own node is the face struck, as castRays (and so
+  // physlab's beam) sees it, not some node claiming the region below.
+  const { circularMaze } = await import('./maze.js');
+  const maze = circularMaze({ seed: 5, rings: 4, material: 'stone' });
+  const sc = ctx.createScene({
+    materials: { stone: { albedo: [0.6, 0.6, 0.6] } },
+    lights: [{ pos: [0, 0, 20], color: [1, 1, 1] }],
+    objects: { maze: maze.tree },
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { use: 'maze' } },
+  });
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const H = (p, R) => { const al = dot(p.axis, R); return p.k_perp * dot(R, R) + (p.k_par - p.k_perp) * al * al + 2 * dot(p.linear, R) + p.constant; };
+  const grad = (p, R) => { const al = dot(p.axis, R); return R.map((v, i) => 2 * (p.k_perp * v + (p.k_par - p.k_perp) * al * p.axis[i] + p.linear[i])); };
+  // Rays from all round and above, at points in the maze: tops, faces,
+  // jambs and radial walls all get struck.
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rays = [];
+  for (let k = 0; k < 400; k++) {
+    const a = rnd() * 2 * Math.PI, r = rnd() * maze.radius, z = rnd() * 2.5;
+    const target = [r * Math.cos(a), r * Math.sin(a), z];
+    const from = [target[0] + (rnd() - 0.5) * 20, target[1] + (rnd() - 0.5) * 20, z + rnd() * 10];
+    const d = target.map((v, i) => v - from[i]), L = Math.hypot(...d);
+    rays.push({ origin: from, direction: d.map((v) => v / L), tMin: 0, tMax: 100 });
+  }
+  const hits = await cast(sc, rays);
+  let struck = 0;
+  rays.forEach((ray, i) => {
+    // A ray that starts inside a wall crosses no face into it: nothing to
+    // name (its origin was picked at random, and some land in walls).
+    if (!hits.node[i] || hits.t0[i] < 1e-6) return;
+    struck++;
+    const p = ray.origin.map((v, j) => v + hits.t0[i] * ray.direction[j]);
+    const prim = sc.nodes[hits.node[i]].prim;
+    const off = Math.abs(H(prim, p)) / Math.hypot(...grad(prim, p));
+    assert.ok(off < 1e-3, `ray ${i}: node ${hits.node[i]} is ${off} from the hit at ${p.map((v) => v.toFixed(3))}`);
+  });
+  assert.ok(struck > 150, `only ${struck} rays struck the maze`);
+  sc.destroy();
+});
+
+gpuTest('a maze shows each face its own material: tops, doorways and walls', async () => {
+  const { circularMaze } = await import('./maze.js');
+  const maze = circularMaze({ seed: 6, rings: 4, material: 'stone', doorMaterial: 'oak', topMaterial: 'slate' });
+  const sc = ctx.createScene({
+    materials: { stone: {}, oak: {}, slate: {} },
+    lights: [{ pos: [0, 0, 20], color: [1, 1, 1] }],
+    objects: { maze: maze.tree },
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { use: 'maze' } },
+  });
+  const index = { stone: 1, oak: 2, slate: 3 };
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rays = [];
+  for (let k = 0; k < 300; k++) {
+    const a = rnd() * 2 * Math.PI, r = rnd() * maze.radius, z = rnd() * 2.5;
+    const target = [r * Math.cos(a), r * Math.sin(a), z];
+    const from = [target[0] + (rnd() - 0.5) * 20, target[1] + (rnd() - 0.5) * 20, z + 3 + rnd() * 10];
+    const d = target.map((v, i) => v - from[i]), L = Math.hypot(...d);
+    rays.push({ origin: from, direction: d.map((v) => v / L), tMin: 0, tMax: 100 });
+  }
+  const hits = await cast(sc, rays);
+  const parts = { stone: 0, oak: 0, slate: 0 };
+  rays.forEach((ray, i) => {
+    if (!hits.node[i] || hits.t0[i] < 1e-6) return;
+    const p = ray.origin.map((v, j) => v + hits.t0[i] * ray.direction[j]);
+    const nd = sc.nodes[hits.node[i]];
+    // A hit at the walls' height is on a top, and shows the tops'; below
+    // it, a wall's face or a doorway's jamb, never the tops'.
+    if (Math.abs(p[2] - 2.5) < 1e-4) assert.equal(nd.material, index.slate, `ray ${i}: a top, at z ${p[2]}`);
+    else assert.notEqual(nd.material, index.slate, `ray ${i}: below the tops, at z ${p[2]}`);
+    parts[Object.keys(index).find((k) => index[k] === nd.material)]++;
+  });
+  assert.ok(parts.stone > 20 && parts.oak > 0 && parts.slate > 20, JSON.stringify(parts));
+  sc.destroy();
+});

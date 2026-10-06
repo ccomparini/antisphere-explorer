@@ -312,6 +312,13 @@ true` it is the same shape turned inside out.
   than picking up the surrounding scope — distinct from simply omitting
   the field, which inherits. A node with nothing named anywhere above it
   resolves to vacuum, which is how a pure spatial partition is written.
+
+  A solid's faces should be the surfaces of nodes carrying its material,
+  with the empty space in front of each an `"outside"`; a pure partition
+  (`null`) should stand clear of them, not on a face - otherwise a ray
+  striking that face is reported against a different node (see DESIGN.md,
+  "Spelling a solid's faces"). A hole is a shape complemented, carrying the
+  solid's material.
 - `"paint"`: deprecated alias for `"material"`; using it prints a console
   warning. Its old value `"inherit"` now just means the same as omitting a
   material, which already inherits by default.
@@ -544,10 +551,13 @@ through `"inside"`.
 
 Some scenes are easier generated than written. `public/maze.js`'s
 `circularMaze({ seed, rings, hallWidth, hallHeight, wallThickness, ... })`
-builds a circular maze as a subtree - concentric ring walls (a cylinder less
-a smaller one) with doorways cut through them by subtracting slabs, and
-short radial walls across the corridors, placed by a spanning tree grown
-from a seed - along with its cells and passages, for placing things in it.
+builds a circular maze as a subtree - concentric ring walls with doorways
+through them and short radial walls across the corridors, placed by a
+spanning tree grown from a seed - along with its cells and passages, for
+placing things in it. The tree is a partition made of the maze's own
+surfaces: pure divisions between the rings and by angle, standing in the
+corridors, and each wall spelled face by face, its doorways slabs
+complemented.
 `tools/maze.mjs` writes a complete scene round one (floor, sky, light,
 camera); `scenes/maze.json` is seed 1.
 
