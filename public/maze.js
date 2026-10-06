@@ -66,7 +66,7 @@ export function circularMaze({
   seed = 1,
   rings = 5,
   hallWidth = 2.25,
-  hallHeight = 2.5,
+  wallHeight = 2.5,
   wallThickness = 0.2,
   innerRadius = hallWidth * 1.25,
   baseCells = 6,
@@ -76,7 +76,7 @@ export function circularMaze({
   topMaterial,
 } = {}) {
   const random = seeded(seed);
-  const t = wallThickness, h = hallHeight;
+  const t = wallThickness, h = wallHeight;
   // Ring wall i: from rho(i) out to rho(i) + t. Corridor i between walls
   // i and i + 1.
   const rho = (i) => innerRadius + i * (hallWidth + t);
@@ -278,6 +278,7 @@ export function circularMaze({
     cells,
     passages,
     openings: open,
+    height: tall,
     hub: { center: [0, 0, h / 2], radius: rho(0) },
     exit: { angle: exitAngle },
     radius: rho(rings) + t,

@@ -2,7 +2,7 @@
 // Write a scene with a circular maze in it (public/maze.js).
 //
 //   node tools/maze.mjs > maze.json
-//   node tools/maze.mjs --seed 7 --rings 8 --hall-height 3 -o public/scenes/maze.json
+//   node tools/maze.mjs --seed 7 --rings 8 --wall-height 3 -o public/scenes/maze.json
 //   node tools/maze.mjs --hall-width 4 --inner-radius 8 -o big.json
 //
 // The scene is complete - a floor, a sky, a light and a camera looking down
@@ -22,7 +22,7 @@ maze - write a scene with a circular maze in it
       --seed <n>            which maze (default 1)
       --rings <n>           corridors round the hub (default 5)
       --hall-width <w>      corridor width (default 2.25)
-      --hall-height <h>     wall height (default 2.5)
+      --wall-height <h>     wall height (default 2.5)
       --wall-thickness <t>  (default 0.2)
       --inner-radius <r>    the open middle's (default 1.25 hall widths)
       --material <m>        the walls' faces (default "stone")
@@ -41,7 +41,7 @@ const NAMES = {
 
 const NUMBERS = {
   '--seed': 'seed', '--rings': 'rings', '--hall-width': 'hallWidth',
-  '--hall-height': 'hallHeight', '--wall-thickness': 'wallThickness',
+  '--wall-height': 'wallHeight', '--wall-thickness': 'wallThickness',
   '--inner-radius': 'innerRadius',
 };
 
