@@ -116,7 +116,11 @@ An array of:
 ```
 
 `color`'s magnitude is radiant power, not a 0–1 color — falloff is inverse
-square, so values commonly run well above 1. At least one light is required.
+square, so values commonly run well above 1.
+
+These are the scene's own lights, and light everything. A node may carry
+lights too (see `"lights"` under Subtrees): those light only its own region.
+A scene needs at least one light, here or on a node.
 
 ## `import`
 
@@ -322,6 +326,24 @@ true` it is the same shape turned inside out.
 - `"paint"`: deprecated alias for `"material"`; using it prints a console
   warning. Its old value `"inherit"` now just means the same as omitting a
   material, which already inherits by default.
+
+### `"lights"`
+
+```
+{ "sphere": { "center": [0, 0, 2], "radius": 3 },
+  "lights": [{ "pos": [0, 0, 4], "color": [40, 36, 30] }] }
+```
+
+A node with a shape of its own may carry lights, as the scene does (see
+`lights`). They light only its region - everything in its `"inside"`
+subtree - and regions within it: a room's lamp lights the room, not the
+hall it opens off, while the hall's lights, and the scene's, light into the
+room. Lights make the node an ambient region (see "Ambient regions"), so
+its `"material"` is an ambient one, for the region's ambient level, or none,
+to keep the level around it; anything else is an error. A light should be
+inside its own region; one that isn't is warned about. Lights move with
+the node - placed with `"translate"`, `"rotate"` and `"scale"`, or brought
+in from another file with an object.
 
 ### `"use"`
 
@@ -553,6 +575,10 @@ Every node records the region it is in as the index of the node that starts
 it (`env`), and that node records the region enclosing it, so a region is
 known by its geometry rather than by its material: two regions using the
 same ambient material are still two regions.
+
+A node carrying `"lights"` starts a region too, with or without an ambient
+material, and its lights are the region's own: a surface is lit by the
+lights of its region and of every region enclosing it, out to the scene's.
 
 ## Generated scenes: circular mazes
 

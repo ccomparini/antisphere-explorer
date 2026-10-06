@@ -213,6 +213,7 @@ export class ASScene {
     this.provenance = built.provenance;
     this.materials = built.materials;
     this.lights = built.lights;
+    this.topLights = built.topLights;   // the first this many are the scene's own (env 0)
     this.camera = built.camera ?? null;
     // Members of groups that may overlap (compileScene).
     this.overlaps = built.overlaps;
@@ -232,15 +233,18 @@ export class ASScene {
   }
 
   /**
-   * Replace the lights without recompiling anything.
+   * Replace the scene's own lights - its top-level "lights", env 0's -
+   * without recompiling anything, keeping those its nodes carry. Give as
+   * many as it had; a different number needs a recompile.
    *
    * The light buffer is allocated at capacity and the live count travels in
    * the camera uniform, so this is a buffer write rather than a reallocation,
    * and no bind group is invalidated. Cheap enough to do per frame.
    */
   setLights(lights) {
-    this.lights = lights;
-    this.context.device.queue.writeBuffer(this.lightBuf, 0, packLights(lights));
+    this.lights = [...lights.map((lt) => ({ ...lt, env: 0 })), ...this.lights.slice(this.topLights)];
+    this.topLights = lights.length;
+    this.context.device.queue.writeBuffer(this.lightBuf, 0, packLights(this.lights));
   }
 
   /**

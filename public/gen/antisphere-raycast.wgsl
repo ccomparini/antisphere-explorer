@@ -230,7 +230,7 @@ const ABLATE_SHADE : u32 = 2u;   // add shading
 
 struct Light {
   pos   : vec3<f32>,
-  pad0  : f32,
+  env   : u32,         // the env it lights (see inScope()): 0 is everywhere
   color : vec3<f32>,   // magnitude is radiant power, so values may exceed 1
   pad1  : f32,
 };
@@ -616,16 +616,33 @@ fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
   return mix(m.albedo, m.albedo2, ck);
 }
 
-// Sums direct light over every source, with one shadow ray each. A shininess
-// of zero skips the specular term entirely.
+// Whether a light of env `lightEnv` reaches a hit in env `env`: if the
+// hit's env is that one, or within it - following env from node to node
+// walks outward, to 0, whose lights reach everything. So a room's torch
+// lights the room and not the hall it opens off, and the hall's lamps
+// light into the room.
+fn inScope(lightEnv : u32, env : u32) -> bool {
+  if (lightEnv == 0u) { return true; }
+  var e = env;
+  loop {
+    if (e == lightEnv) { return true; }
+    if (e == 0u) { return false; }
+    e = nodes[e].env;
+  }
+}
+
+// Sums direct light over every source in scope (inScope()), with one
+// shadow ray each. A shininess of zero skips the specular term entirely.
 fn directLighting(hit : Hit, shininess : f32) -> Direct {
   var out : Direct;
   out.diffuse = vec3<f32>(0.0);
   out.specular = vec3<f32>(0.0);
 
   let n = arrayLength(&lights);
+  let env = nodes[hit.node].env;
   for (var i : u32 = 0u; i < n; i = i + 1u) {
     let lt = lights[i];
+    if (!inScope(lt.env, env)) { continue; }
     let d = lt.pos - hit.position;
     let d2 = dot(d, d);
     let dist = sqrt(max(d2, 1e-8));
@@ -787,4 +804,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":657}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":674}]

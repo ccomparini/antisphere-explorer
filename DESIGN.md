@@ -127,12 +127,15 @@ coefficients in place, with no recompile.
   inside subtree is all of its inside region, so this is exact for a ray
   that stays inside). A shadow ray that leaves its scope is blocked - that
   is the scoping: torches light their own room. A maze with many torches
-  then tests each hit against its room's few. A node's `env` is already the
-  index of the node starting its env (an ambient material's region), and
-  an env node's own `env` the one enclosing it: the scope's geometry, and
-  the chain outward that a hit's lights would be matched against. An outer
-  env's light - the sky's sun - can then reach into a room through a
-  window, as a torch inside cannot reach out.
+  then tests each hit against its room's few. Built so far: a node's `env`
+  is the index of the node starting its env (an ambient material's region,
+  or a node carrying `"lights"`), an env node's own `env` the one enclosing
+  it, and every light belongs to an env - a node's to its own, the scene's
+  to env 0 - so a hit is lit only by the lights on its chain outward. An
+  outer env's light - the sky's sun - reaches into a room through a
+  window, as a torch inside cannot reach out. Still to come: shadow rays
+  traced from the env node, so leaving the scope blocks; and finding a
+  hit's lights without testing every light in the scene.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.

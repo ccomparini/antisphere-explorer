@@ -846,3 +846,90 @@ gpuTest('a maze shows each face its own material: tops, doorways and walls', asy
   assert.ok(parts.stone > 20 && parts.oak > 0 && parts.slate > 20, JSON.stringify(parts));
   sc.destroy();
 });
+
+// -- lights scoped by env, as rendered --------------------------------------------------
+
+/** Render `spec` from `camera` onto a W x H stand-in canvas; the pixels, RGBA. */
+async function renderPixels(spec, camera, W = 160, H = 80) {
+  await import('./as-renderer.js');                  // registers ASRenderer
+  const sc = ctx.createScene(spec);
+  let config, tex;
+  const surface = {
+    configure(c) { config = c; }, unconfigure() {},
+    getCurrentTexture() {
+      tex ??= ctx.device.createTexture({ size: [W, H], format: config.format,
+                                         usage: config.usage | GPUTextureUsage.COPY_SRC });
+      return tex;
+    },
+  };
+  globalThis.window ??= { devicePixelRatio: 1 };
+  const view = ctx.createRenderer({ clientWidth: W, clientHeight: H, width: W, height: H,
+                                    getContext: () => surface }, { scene: sc, camera });
+  // Rows of a texture copy are padded to 256 bytes.
+  const stride = Math.ceil((W * 4) / 256) * 256;
+  const buf = ctx.device.createBuffer({ size: stride * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  const enc = ctx.device.createCommandEncoder();
+  view.encode(enc);
+  enc.copyTextureToBuffer({ texture: tex }, { buffer: buf, bytesPerRow: stride }, [W, H]);
+  ctx.device.queue.submit([enc.finish()]);
+  await buf.mapAsync(GPUMapMode.READ);
+  const raw = new Uint8Array(buf.getMappedRange().slice(0));
+  const bgra = config.format.startsWith('bgra');
+  view.destroy(); sc.destroy(); tex.destroy(); buf.destroy();
+  const at = (col, row) => {
+    const i = row * stride + col * 4;
+    return bgra ? [raw[i + 2], raw[i + 1], raw[i]] : [raw[i], raw[i + 1], raw[i + 2]];
+  };
+  return { at, W, H };
+}
+
+gpuTest('a region\'s lights light it, and the scene\'s everything; not each other\'s region', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  const red = { pos: [-1.5, 0, 0], color: [60, 0, 0] };
+  const blue = { pos: [1.5, 0, 0], color: [0, 0, 60] };
+  const green = { pos: [0, -10, 0], color: [0, 90, 0] };
+  // Two regions side by side, nothing solid between them, a white ball in
+  // each. Scoped, the red light is region A's and the blue region B's;
+  // unscoped, the same three lights are all the scene's.
+  const room = (x, lights) => ({
+    sphere: { center: [x, 0, 0], radius: 2.9 }, ...(lights ? { lights } : {}),
+    inside: { sphere: { center: [x, 0, 0], radius: 0.5 }, material: 'white' },
+  });
+  const spec = (scoped) => ({
+    materials: { white: { albedo: [0.8, 0.8, 0.8] } },
+    lights: scoped ? [green] : [green, red, blue],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { group: [
+      room(-3, scoped ? [red] : null), room(3, scoped ? [blue] : null),
+    ] } },
+  });
+  // Looking along +Y, orthographic, 8 either side: column = (x / 8 + 1) / 2 * 160.
+  const camera = () => {
+    const c = new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  const scoped = await renderPixels(spec(true), camera());
+  const open = await renderPixels(spec(false), camera());
+  const col = (x) => Math.round((x / 8 + 1) / 2 * 160);
+  // Ball B's side toward A, and ball A's side toward B.
+  const bSide = [scoped.at(col(2.6), 40), open.at(col(2.6), 40)];
+  const aSide = [scoped.at(col(-2.6), 40), open.at(col(-2.6), 40)];
+  const say = `B side ${bSide.join(' / ')}, A side ${aSide.join(' / ')} (scoped / open)`;
+  assert.ok(bSide[1][0] - bSide[0][0] > 40, `A's red no longer reaches B: ${say}`);
+  assert.ok(aSide[1][2] - aSide[0][2] > 40, `B's blue no longer reaches A: ${say}`);
+  assert.ok(Math.abs(bSide[0][2] - bSide[1][2]) <= 2 && Math.abs(aSide[0][0] - aSide[1][0]) <= 2,
+            `each still lit by its own: ${say}`);
+  assert.ok(Math.abs(bSide[0][1] - bSide[1][1]) <= 2 && bSide[0][1] > 60, `and the scene's green everywhere: ${say}`);
+});
+
+gpuTest('setLights replaces the scene\'s own lights and keeps those its nodes carry', async () => {
+  const sc = ctx.createScene({
+    materials: MATERIALS,
+    lights: [{ pos: [0, 0, 50], color: [1, 1, 1] }],
+    root: { sphere: { center: [0, 0, 0], radius: 10 }, lights: [{ pos: [0, 0, 1], color: [5, 5, 5] }] },
+  });
+  assert.equal(sc.topLights, 1);
+  sc.setLights([{ pos: [1, 2, 3], color: [2, 2, 2] }]);
+  assert.deepEqual(sc.lights.map((lt) => [lt.pos, lt.env]), [[[1, 2, 3], 0], [[0, 0, 1], 1]]);
+  sc.destroy();
+});

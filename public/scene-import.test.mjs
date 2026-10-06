@@ -161,3 +161,18 @@ test('the same file imported twice under one name is not a clash', () => {
   const flat = resolveImports(twice, imports());
   assert.ok('bolt:bolt' in flat.objects);
 });
+
+test('an imported object\'s lights come with it, moved where it is placed', () => {
+  const lampFile = {
+    materials: { glass: { albedo: [0.9, 0.9, 1] } },
+    objects: { lamp: { sphere: { center: [0, 0, 0], radius: 1 },
+                       lights: [{ pos: [0, 0, 0.5], color: [20, 18, 15] }],
+                       inside: { sphere: { center: [0, 0, 0], radius: 0.2 }, material: 'glass' } } },
+  };
+  const spec = { import: ['parts/lamp.json'], materials: {}, lights: [],
+                 root: { sphere: { center: [0, 0, 0], radius: 40 }, inside: { use: 'lamp:lamp', translate: [3, 0, 0] } } };
+  const built = compileScene(spec, { imports: { 'parts/lamp.json': lampFile } });
+  assert.equal(built.topLights, 0);
+  assert.deepEqual(built.lights.map((lt) => lt.pos), [[3, 0, 0.5]]);
+  assert.ok(built.lights[0].env > 0, 'in the lamp\'s own env');
+});

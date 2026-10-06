@@ -646,3 +646,83 @@ test('a subtree used in two envs is baked once for each', () => {
   const [first] = envChain(built, at(built, [0, 0, 0]).node);
   assert.deepEqual(built.materials[built.nodes[first].material].albedo, [0.2, 0.2, 0.3]);
 });
+
+// -- lights belong to envs ----------------------------------------------------------
+
+const lamp = (pos, color = [9, 9, 9]) => ({ pos, color });
+
+test('a node\'s lights belong to its env, the scene\'s to env 0, and come first', () => {
+  const built = compileScene({
+    materials: { clay: {}, air: { kind: 'ambient', albedo: [0.2, 0.2, 0.3] } },
+    lights: [lamp([0, 0, 50])],
+    // A group, which grafts each member only where it may reach: a union
+    // would graft each room into the other's absent outsides too, a copy
+    // (and its lights) in a region no ray reaches.
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { group: [
+      ball(-10, 4, { material: 'air', lights: [lamp([-10, 0, 2]), lamp([-9, 0, 2])],
+                     inside: ball(-10, 1, { material: 'clay' }) }),
+      ball(10, 4, { lights: [lamp([10, 0, 2])], inside: ball(10, 1, { material: 'clay' }) }),
+    ] } },
+  });
+  assert.equal(built.topLights, 1);
+  assert.deepEqual(built.lights.map((lt) => lt.env)[0], 0);
+  const left = envChain(built, at(built, [-10, 0, 0]).node)[0];
+  const right = envChain(built, at(built, [10, 0, 0]).node)[0];
+  assert.deepEqual(built.lights.slice(1).map((lt) => lt.env).sort(), [left, left, right].sort());
+  assert.deepEqual(built.lights.find((lt) => lt.env === right).pos, [10, 0, 2]);
+});
+
+test('lights alone make a region, at the ambient level around it', () => {
+  const built = buildEnvs({ union: [
+    // Outermost: the default level, as before it was lit.
+    ball(-10, 4, { lights: [lamp([-10, 0, 2])], inside: ball(-10, 1, { material: 'clay' }) }),
+    // Inside an air region: air's level.
+    ball(10, 6, { material: 'air', inside:
+      ball(10, 4, { lights: [lamp([10, 0, 2])], inside: ball(10, 1, { material: 'clay' }) }) }),
+  ] });
+  const level = (x) => {
+    const env = envChain(built, at(built, [x, 0, 0]).node)[0];
+    const m = built.materials[built.nodes[env].material];
+    assert.equal(m.solid, false);
+    return m.albedo;
+  };
+  assert.deepEqual(level(-10), [0.13, 0.13, 0.14]);
+  assert.deepEqual(level(10), [0.2, 0.2, 0.3]);
+  assert.equal(at(built, [-10, 2.5, 0]).solid, false, 'the lit region is no substance');
+});
+
+test('lights go with a region, not a substance, and on a node with a shape', () => {
+  assert.throws(() => buildEnvs(ball(0, 4, { material: 'clay', lights: [lamp([0, 0, 1])] })),
+                /a node with lights is a region/);
+  assert.throws(() => buildEnvs({ use: 'r', lights: [lamp([0, 0, 1])] }, { r: ball(0, 4) }),
+                /lights go on a node with a shape/);
+  assert.throws(() => buildEnvs(ball(0, 4, { lights: [{ pos: [0, 0, 1] }] })), /needs pos and color/);
+});
+
+test('lights move with their node: translate, rotate and scale', () => {
+  const room = ball(0, 4, { material: 'air', lights: [lamp([1, 0, 0])], inside: ball(0, 1, { material: 'clay' }) });
+  const built = buildEnvs({ group: [
+    { use: 'room', translate: [20, 0, 0] },
+    { use: 'room', rotate: { axis: [0, 0, 1], degrees: 90 }, translate: [0, 20, 0] },
+    { use: 'room', scale: 2, translate: [-20, 0, 0] },
+  ] }, { room });
+  const positions = built.lights.slice(built.topLights).map((lt) => lt.pos.map((v) => +v.toFixed(9)));
+  assert.deepEqual(positions.map(String).sort(), ['-18,0,0', '0,21,0', '21,0,0'].sort());
+});
+
+test('a lit region baked twice has its lights twice, one per copy\'s env', () => {
+  const built = buildEnvs({ union: [
+    ball(-2, 5, { material: 'air', inside: { use: 'lamp' } }),
+    ball(2, 5, { material: 'warm', inside: { use: 'lamp' } }),
+  ] }, { lamp: ball(0, 1, { lights: [lamp([0, 0, 0.5])] }) });
+  const own = built.lights.slice(built.topLights);
+  assert.ok(own.length >= 2, `${own.length} lights`);
+  assert.equal(new Set(own.map((lt) => lt.env)).size, own.length, 'each copy its own env');
+});
+
+test('a light outside its own region warns', (t) => {
+  const warned = [];
+  t.mock.method(console, 'warn', (msg) => warned.push(msg));
+  buildEnvs(ball(0, 4, { lights: [lamp([0, 0, 1]), lamp([0, 0, 9])] }));
+  assert.equal(warned.filter((w) => /outside its own region/.test(w)).length, 1, warned.join('\n'));
+});

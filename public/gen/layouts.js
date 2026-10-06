@@ -180,7 +180,7 @@ export class Light {
   static STRIDE = 32;
   static FIELDS = Object.freeze({
     pos: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
-    pad0: Object.freeze({ offset: 12, type: 'f32' }),
+    env: Object.freeze({ offset: 12, type: 'u32' }),
     color: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
     pad1: Object.freeze({ offset: 28, type: 'f32' }),
   });
@@ -196,8 +196,8 @@ export class Light {
       f32[w + 1] = values.pos[1];
       f32[w + 2] = values.pos[2];
     }
-    if (values.pad0 !== undefined) {
-      f32[w + 3] = values.pad0;
+    if (values.env !== undefined) {
+      u32[w + 3] = values.env;
     }
     if (values.color !== undefined) {
       f32[w + 4] = values.color[0];
@@ -213,7 +213,7 @@ export class Light {
     const { f32, u32, i32 } = views, w = byteOffset >> 2;
     return {
       pos: [f32[w], f32[w + 1], f32[w + 2]],
-      pad0: f32[w + 3],
+      env: u32[w + 3],
       color: [f32[w + 4], f32[w + 5], f32[w + 6]],
       pad1: f32[w + 7],
     };
