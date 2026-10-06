@@ -98,10 +98,10 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 - `"glossy"`: `shininess` (default `32`), `specular` (default `0.6`)
 - `"emissive"`: `emission` (default `1`)
 - `"lambert"`, `"unlit"`: no extra fields
-- `"ambient"`: no extra fields. An ambient material never shades a surface —
-  naming one as a node's `material` instead moves that node's `albedo` into
-  the ambient light level for everything in its `inside` subtree (see
-  "Ambient regions" below), and the node itself keeps no material of its own.
+- `"ambient"`: no extra fields. An ambient material never shades a surface,
+  and is not solid unless `solid` says so. A node naming one starts an
+  ambient region: its `albedo` is the ambient light level for everything in
+  the node's `inside` subtree (see "Ambient regions" below).
 
 Material `0` (vacuum/no material) is implicit and reserved; you never author
 it directly, but it is what a node resolves to when no material is named
@@ -539,13 +539,20 @@ transforms have been applied.
 
 ## Ambient regions
 
-A node whose `"material"` names an `"ambient"`-kind material becomes a pure
-spatial split rather than a visible substance: it gets no material of its
-own, and its would-be albedo instead sets the ambient light level for
-everything in its `"inside"` subtree. `"outside"` always keeps whatever
-ambient level was already in effect above it, never adopts the node's own —
-so ambient regions can be nested the same way solids can, by descending
-through `"inside"`.
+A node whose `"material"` names an `"ambient"`-kind material starts an
+ambient region (an *env*): not a visible substance - an ambient material
+never shades and isn't solid - but a region whose ambient light level, for
+everything in the node's `"inside"` subtree, is that material's albedo.
+`"outside"` always keeps whatever region was already in effect above it,
+never adopts the node's own — so ambient regions can be nested the same way
+solids can, by descending through `"inside"`. Only a node that names the
+material itself starts one; nodes inside that inherit it are divisions
+within the region.
+
+Every node records the region it is in as the index of the node that starts
+it (`env`), and that node records the region enclosing it, so a region is
+known by its geometry rather than by its material: two regions using the
+same ambient material are still two regions.
 
 ## Generated scenes: circular mazes
 

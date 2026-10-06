@@ -63,9 +63,12 @@ struct Node {
   // part of; the origin for a plane. packNodes() chooses it.
   anchor          : vec3<f32>,
 
-  // Precomputed index of the "ambient" material in force at this node.
-  // Used for applying region scoped lighting or other effects.
-  env             : i32,
+  // The env this node is in: the index of the node that starts it, one
+  // naming an ambient material - its inside subtree is the env's region,
+  // and its material the ambient level there - or 0 for none. An env
+  // node's own env is the one enclosing it, so following env from node to
+  // node walks outward to 0. Precomputed (bakeScopes()).
+  env             : u32,
 };
 
 // The implicit function at an arbitrary point. trace() no longer calls this:
@@ -164,11 +167,10 @@ const KIND_LAMBERT  : u32 = 0u;
 const KIND_GLOSSY   : u32 = 1u;
 const KIND_EMISSIVE : u32 = 2u;
 const KIND_UNLIT    : u32 = 3u;
-// An ambient container never shades. The compiler moves it into a node's
-// env field (and bakes that value onto every node beneath it - see
-// bakeEnv() in antisphere-scene.js) and leaves its material as vacuum
-// (0), so the node is a pure spatial division that sets the ambient
-// level beneath it.
+// An ambient material never shades, and is not solid. A node naming one
+// starts an env: every node beneath it has it as its env (see Node.env and
+// bakeScopes() in antisphere-scene.js), and its albedo is the ambient
+// level there.
 const KIND_AMBIENT  : u32 = 4u;
 
 const PATTERN_CHECKER          : u32 = 1u;
@@ -582,11 +584,11 @@ fn surfaceMaterial(hit : Hit) -> Material {
   return materials[nodes[hit.node].material];
 }
 
-// Ambient is whatever environment the node carries, shaped by a crude
-// hemisphere term. Environment 0 is the default.
-fn ambient(env : i32, N : vec3<f32>) -> vec3<f32> {
+// Ambient is the level of the env the node is in - its env node's
+// material - shaped by a crude hemisphere term. Env 0 is the default.
+fn ambient(env : u32, N : vec3<f32>) -> vec3<f32> {
   var base = vec3<f32>(0.13, 0.13, 0.14);
-  if (env > 0) { base = materials[env].albedo; }
+  if (env > 0u) { base = materials[nodes[env].material].albedo; }
   return base; // * (0.77 + 0.23 * max(N.z, 0.0));
 }
 
@@ -785,4 +787,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":96},{"path":"shaders/random.wgsls","offset":98,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":129,"lines":659}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":657}]

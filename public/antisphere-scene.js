@@ -341,7 +341,7 @@ function complementSurface(prim) {
 // tangent basis for planes, a center for spheres.
 //
 // "paint" is a deprecated alias for "material", still accepted by
-// materialAndEnvOf() for scenes not yet migrated; its old special value
+// materialOf() for scenes not yet migrated; its old special value
 // "inherit" now just means the same as omitting a material, and
 // "partition"/"bare" still mean vacuum.
 // ---------------------------------------------------------------------------
@@ -359,7 +359,7 @@ const NO_MATERIAL = 0;
 const INHERIT_MATERIAL = -1;
 
 // Recognized only via the deprecated "paint" field (see
-// materialAndEnvOf()), for scenes not yet migrated to naming a material
+// materialOf()), for scenes not yet migrated to naming a material
 // directly. Reserved as material names even so, to avoid a materials.foo
 // entry silently shadowing what used to be special syntax.
 const LEGACY_PAINT_WORDS = ['partition', 'inherit', 'bare'];
@@ -378,9 +378,9 @@ const KINDS = {
   glossy:   { id: 1, params: (d) => [d.shininess ?? 32, d.specular ?? 0.6] },
   emissive: { id: 2, params: (d) => [d.emission ?? 1, 0] },
   unlit:    { id: 3, params: () => [0, 0] },
-  // An ambient container never shades. Naming one as a node's material
-  // moves it into env instead, leaving that node a pure spatial split
-  // whose albedo becomes the ambient level for everything inside it.
+  // An ambient material never shades, and is not solid by default. A node
+  // that names one starts an env (bakeScopes()): its albedo is the ambient
+  // level for everything inside it.
   ambient:  { id: 4, params: () => [0, 0] },
 };
 const KIND_AMBIENT = 4;
@@ -617,45 +617,53 @@ function mapTree(t, f) {
   return walk(t);
 }
 
-// Resolves material and ambient-env inheritance once, here, instead of
-// once per ray in antisphere-raycast.wgsls's trace(). Both follow the same
-// rule: descending into a node's *inside* adopts its own value as the
-// scope for everything below it, unless that value means "inherit"
-// (INHERIT_MATERIAL for material, 0 for env), in which case the incoming
-// scope keeps threading through unchanged; *outside* always keeps the
-// incoming scope, never the current node's own value. Baking both onto
-// every node is what lets a hit's material and ambient level each be read
-// directly off nodes[entry] (main() does exactly that) with no runtime
-// threading left at all.
+// Resolves material inheritance and env scopes once, here, instead of once
+// per ray in antisphere-raycast.wgsls's trace(), so a hit's material and
+// env are each read directly off nodes[entry] (main() does exactly that).
+//
+// Material: descending into a node's *inside* adopts its own material as
+// the scope for everything below it, unless it inherits (INHERIT_MATERIAL),
+// in which case the incoming scope keeps threading through; *outside*
+// always keeps the incoming scope, never the current node's own.
+//
+// Env: the same threading, of a node rather than a material. A node that
+// itself names an ambient material starts an env: everything in its inside
+// gets it as `env` - the node, so the env's geometry is its inside subtree
+// and its ambient level its material - while the node's own `env` is the
+// env enclosing it, so following env from node to node walks outward.
+// Outside keeps the incoming env. Which nodes start one is a question about
+// materials, asked here because this is where materials are resolved; the
+// tree's divisions are untouched. `table` is the compiled materials list.
 //
 // Correct as long as the tree is static: nothing here moves a node between
-// material/ambient regions after this bakes it in, so if scenes ever need
+// material or env regions after this bakes it in, so if scenes ever need
 // runtime-mutable regions, this bake would need to move to (or be redone
 // for) whatever does that mutating.
 //
-// Memoized by (subtree, materialScope, envScope): a subtree shared under
-// one pair of scopes (by "use", "group", or "union") still collapses to
-// one baked copy; only reuse under a genuinely different pair forces a
+// Memoized by (subtree, material scope, env): a subtree shared under one
+// pair of scopes (by "use", "group", or "union") still collapses to one
+// baked copy; only reuse under a genuinely different pair forces a
 // separate one, which is required for correctness - the same subtree can
-// resolve to different materials or ambient levels in different contexts.
-function bakeScopes(tree) {
-  const memo = new Map();   // "matScope:envScope" -> (subtree -> baked)
-  const resolve = (t, matScope, envScope) => {
+// resolve to different materials or envs in different contexts.
+function bakeScopes(tree, table) {
+  const memo = new Map();       // "material:env id" -> (subtree -> baked)
+  const envIds = new Map();     // env node -> a number for the memo key
+  const resolve = (t, matScope, envNode) => {
     if (!t) return t;
-    const key = `${matScope}:${envScope}`;
+    const key = `${matScope}:${envNode ? envIds.get(envNode) : 0}`;
     let byScope = memo.get(key);
     if (!byScope) { byScope = new Map(); memo.set(key, byScope); }
     if (byScope.has(t)) return byScope.get(t);
     const hereMat = t.material === INHERIT_MATERIAL ? matScope : t.material;
-    const hereEnv = t.env !== 0 ? t.env : envScope;
-    const out = node(t.prim,
-                      resolve(t.inside, hereMat, hereEnv),
-                      resolve(t.outside, matScope, envScope),
-                      hereMat, hereEnv, t.prov);
+    const out = node(t.prim, null, null, hereMat, envNode, t.prov);
     byScope.set(t, out);
+    const startsEnv = t.material !== INHERIT_MATERIAL && table[t.material].kind === KIND_AMBIENT;
+    if (startsEnv) envIds.set(out, envIds.size + 1);
+    out.inside = resolve(t.inside, hereMat, startsEnv ? out : envNode);
+    out.outside = resolve(t.outside, matScope, envNode);
     return out;
   };
-  return resolve(tree, NO_MATERIAL, 0);
+  return resolve(tree, NO_MATERIAL, null);
 }
 
 // Node 0 is reserved: "no child at all" - antisphere-raycast.wgsls's
@@ -678,7 +686,10 @@ function flatten(tree) {
     const idx = out.length;
     out.push(null);
     memo.set(t, idx);
-    out[idx] = { prim: t.prim, material: t.material, env: t.env ?? 0,
+    // An env is an ancestor (bakeScopes()), so it already has its index.
+    const env = t.env ? memo.get(t.env) : 0;
+    if (env === undefined) throw new Error('flatten: a node\'s env was not above it');
+    out[idx] = { prim: t.prim, material: t.material, env,
                  inside: walk(t.inside), outside: walk(t.outside), prov: t.prov };
     return idx;
   };
@@ -1066,7 +1077,9 @@ export function compileScene(rawSpec, options = {}) {
       kind:    kind.id,
       params:  kind.params(def),
       pattern,
-      solid:   def.solid ?? true,   // e.g. water, glass, or a spatial-subdivision-only material
+      // e.g. water, glass, or a spatial-subdivision-only material; an
+      // ambient is a region's surroundings, not a substance
+      solid:   def.solid ?? kind !== KINDS.ambient,
     });
     matIndex.set(name, table.length - 1);
   }
@@ -1082,14 +1095,6 @@ export function compileScene(rawSpec, options = {}) {
     return m;
   }
 
-  // Returns { material, env }. An ambient-kind material moves into env
-  // and leaves the node with no material of its own (NO_MATERIAL): an
-  // ambient container is a pure spatial split, not a substance.
-  function resolveMaterialName(name, path) {
-    const m = substrate(name, path);
-    if (table[m].kind === KIND_AMBIENT) return { material: NO_MATERIAL, env: m };
-    return { material: m, env: 0 };
-  }
 
   // "material": null explicitly names vacuum/NO_MATERIAL, opting out of
   // inheriting an ancestor's material - unlike simply omitting "material",
@@ -1106,16 +1111,14 @@ export function compileScene(rawSpec, options = {}) {
   // to reveal, so a node that relied on it to show through scope will
   // instead show whatever NO_MATERIAL resolves to - name the desired
   // material directly on that node to fix it.
-  function materialAndEnvOf(def, path) {
-    if (def.material === null) return { material: NO_MATERIAL, env: 0 };
-    if (def.material !== undefined) return resolveMaterialName(def.material, `${path}.material`);
-    if (def.paint === undefined) return { material: INHERIT_MATERIAL, env: 0 };
+  function materialOf(def, path) {
+    if (def.material === null) return NO_MATERIAL;
+    if (def.material !== undefined) return substrate(def.material, `${path}.material`);
+    if (def.paint === undefined) return INHERIT_MATERIAL;
     console.warn(`scene.json ${path}.paint: "paint" is deprecated - use "material" instead.`);
-    if (def.paint === 'inherit') return { material: INHERIT_MATERIAL, env: 0 };
-    if (def.paint === 'partition' || def.paint === 'bare') {
-      return { material: NO_MATERIAL, env: 0 };
-    }
-    return resolveMaterialName(def.paint, `${path}.paint`);
+    if (def.paint === 'inherit') return INHERIT_MATERIAL;
+    if (def.paint === 'partition' || def.paint === 'bare') return NO_MATERIAL;
+    return substrate(def.paint, `${path}.paint`);
   }
 
   function pivotOf(def, path) {
@@ -1752,8 +1755,7 @@ export function compileScene(rawSpec, options = {}) {
       // flatten()'s doc comment.
       const insideTree = tree(def.inside, `${path}.inside`, below(where, 'inside'));
       const outsideTree = tree(def.outside, `${path}.outside`, below(where, 'outside'));
-      const { material, env } = materialAndEnvOf(def, path);
-      out = node(primOf(def, path), insideTree, outsideTree, material, env, provOf(where));
+      out = node(primOf(def, path), insideTree, outsideTree, materialOf(def, path), 0, provOf(where));
     }
 
     // "complement" turns the whole subtree inside out: what was interior
@@ -1804,7 +1806,7 @@ export function compileScene(rawSpec, options = {}) {
 
   if (!spec.root) at('root', 'missing');
   const overlaps = [];
-  const nodes = flatten(bakeScopes(tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] })));
+  const nodes = flatten(bakeScopes(tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] }), table));
   return {
     nodes,
     // provenance[i] is { owner, path } for authored node i, or null for

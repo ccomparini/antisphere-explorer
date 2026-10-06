@@ -565,3 +565,84 @@ test('complementing twice gets back to where it started', () => {
   const once = { union: [A, B], complement: true };
   agrees(build({ union: [once], complement: true }), (R) => inA(R) || inB(R), 'there and back');
 });
+
+// -- envs: the node an ambient region starts at -------------------------------------
+
+function buildEnvs(subtree, objects = {}) {
+  return compileScene({
+    materials: {
+      clay: { albedo: [0.7, 0.5, 0.4] },
+      air: { kind: 'ambient', albedo: [0.2, 0.2, 0.3] },
+      warm: { kind: 'ambient', albedo: [0.4, 0.3, 0.2] },
+    },
+    lights: [{ pos: [0, 0, 50], color: [1, 1, 1] }],
+    objects,
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: subtree },
+  });
+}
+
+/** The envs a node is in, innermost first, ending at 0. */
+const envChain = (built, index) => {
+  const chain = [];
+  for (let e = built.nodes[index].env; ; e = built.nodes[e].env) {
+    chain.push(e);
+    if (e === 0) return chain;
+    assert.ok(chain.length < 50, 'an env chain that does not end');
+  }
+};
+const ball = (x, r, extra = {}) => ({ sphere: { center: [x, 0, 0], radius: r }, ...extra });
+
+test('a node\'s env is the node its ambient region starts at, and envs chain outward', () => {
+  const built = buildEnvs(ball(0, 20, { material: 'air', inside: { union: [
+    ball(-5, 1, { material: 'clay' }),
+    ball(5, 3, { material: 'warm', inside: ball(5, 1, { material: 'clay' }) }),
+  ] } }));
+  const outerBall = at(built, [-5, 0, 0]).node, innerBall = at(built, [5, 0, 0]).node;
+  assert.ok(outerBall && innerBall, 'both balls are there');
+  const [outer] = envChain(built, outerBall), [inner] = envChain(built, innerBall);
+  assert.deepEqual(envChain(built, outerBall), [outer, 0]);
+  assert.deepEqual(envChain(built, innerBall), [inner, outer, 0]);
+
+  // An env node carries its ambient as its material - the level - which
+  // does not stop rays: the air between is empty.
+  const kindOf = (e) => built.materials[built.nodes[e].material];
+  assert.deepEqual(kindOf(outer).albedo, [0.2, 0.2, 0.3]);
+  assert.deepEqual(kindOf(inner).albedo, [0.4, 0.3, 0.2]);
+  assert.equal(kindOf(outer).solid, false);
+  assert.equal(at(built, [0, 10, 0]).solid, false, 'air is no substance');
+  assert.equal(at(built, [5, 2, 0]).solid, false);
+});
+
+test('regions with the same ambient are different envs; a node inheriting it starts none', () => {
+  const built = buildEnvs({ union: [
+    ball(-10, 4, { material: 'air', inside: ball(-10, 1, { material: 'clay' }) }),
+    // The middle sphere names nothing, so inherits air: a division in the
+    // env, not an env of its own.
+    ball(10, 4, { material: 'air', inside: ball(10, 3, { inside: ball(10, 1, { material: 'clay' }) }) }),
+  ] });
+  const [left] = envChain(built, at(built, [-10, 0, 0]).node);
+  const right = envChain(built, at(built, [10, 0, 0]).node);
+  assert.notEqual(left, right[0], 'two rooms, one ambient: two envs');
+  assert.equal(right.length, 2, `inheriting air started an env: ${right}`);
+});
+
+test('a subtree used in two envs is baked once for each', () => {
+  // Two overlapping regions, both holding the same pebble: one shared
+  // subtree, in two envs, so two baked copies - one in each.
+  const built = buildEnvs({ union: [
+    ball(-2, 5, { material: 'air', inside: { use: 'pebble' } }),
+    ball(2, 5, { material: 'warm', inside: { use: 'pebble' } }),
+  ] }, { pebble: ball(0, 1, { material: 'clay' }) });
+  // The pebble: a unit sphere at the origin, (|R|^2 - 1) / 2.
+  const pebbles = built.nodes.filter((nd) => Math.abs(nd.prim.k_perp - 0.5) < 1e-9 &&
+    Math.abs(nd.prim.constant + 0.5) < 1e-9 && nd.prim.linear.every((c) => Math.abs(c) < 1e-9));
+  // (Three, in fact: the union also grafts the warm region into air's
+  // absent outsides, where it is warm-within-air, an env of its own.)
+  assert.ok(pebbles.length >= 2, `${pebbles.length} pebbles`);
+  assert.equal(new Set(pebbles.map((nd) => nd.env)).size, pebbles.length, 'each in its own env');
+  const levels = new Set(pebbles.map((nd) => String(built.materials[built.nodes[nd.env].material].albedo)));
+  assert.deepEqual([...levels].sort(), ['0.2,0.2,0.3', '0.4,0.3,0.2']);
+  // A ray reaching it comes through air first: the union keeps the first.
+  const [first] = envChain(built, at(built, [0, 0, 0]).node);
+  assert.deepEqual(built.materials[built.nodes[first].material].albedo, [0.2, 0.2, 0.3]);
+});

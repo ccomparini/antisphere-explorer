@@ -61,9 +61,12 @@ struct Node {
   // part of; the origin for a plane. packNodes() chooses it.
   anchor          : vec3<f32>,
 
-  // Precomputed index of the "ambient" material in force at this node.
-  // Used for applying region scoped lighting or other effects.
-  env             : i32,
+  // The env this node is in: the index of the node that starts it, one
+  // naming an ambient material - its inside subtree is the env's region,
+  // and its material the ambient level there - or 0 for none. An env
+  // node's own env is the one enclosing it, so following env from node to
+  // node walks outward to 0. Precomputed (bakeScopes()).
+  env             : u32,
 };
 
 // The implicit function at an arbitrary point. trace() no longer calls this:

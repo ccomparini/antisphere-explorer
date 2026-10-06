@@ -127,8 +127,12 @@ coefficients in place, with no recompile.
   inside subtree is all of its inside region, so this is exact for a ray
   that stays inside). A shadow ray that leaves its scope is blocked - that
   is the scoping: torches light their own room. A maze with many torches
-  then tests each hit against its room's few. Today's ambient-only env is
-  the placeholder for this.
+  then tests each hit against its room's few. A node's `env` is already the
+  index of the node starting its env (an ambient material's region), and
+  an env node's own `env` the one enclosing it: the scope's geometry, and
+  the chain outward that a hit's lights would be matched against. An outer
+  env's light - the sky's sun - can then reach into a room through a
+  window, as a torch inside cannot reach out.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.
