@@ -501,6 +501,12 @@
         "radius": 4.2
       },
       "paint": "air_warm",
+      "lights": [
+        {
+          "pos": [ -4.2, 2.6, 4.0 ],
+          "color": [ 18, 12, 6 ]
+        }
+      ],
       "inside": {
         "use": "world"
       },
@@ -514,6 +520,12 @@
           "radius": 3.6
         },
         "paint": "air_cool",
+        "lights": [
+          {
+            "pos": [ 3.4, 2.6, 3.2 ],
+            "color": [ 6, 10, 20 ]
+          }
+        ],
         "inside": {
           "use": "world"
         },
@@ -527,6 +539,12 @@
             "radius": 5.2
           },
           "paint": "air_smoke",
+          "lights": [
+            {
+              "pos": [ 0.0, -6.0, 3.0 ],
+              "color": [ 12, 12, 13 ]
+            }
+          ],
           "inside": {
             "use": "world"
           },
@@ -540,6 +558,12 @@
               "radius": 3.4
             },
             "paint": "air_green",
+            "lights": [
+              {
+                "pos": [ -3.0, -9.0, 2.4 ],
+                "color": [ 5, 16, 7 ]
+              }
+            ],
             "inside": {
               "use": "world"
             },
@@ -553,6 +577,12 @@
                 "radius": 3.0
               },
               "paint": "air_dim",
+              "lights": [
+                {
+                  "pos": [ 4.0, -9.5, 2.2 ],
+                  "color": [ 6, 6, 6.4 ]
+                }
+              ],
               "inside": {
                 "use": "world"
               },
