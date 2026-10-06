@@ -114,6 +114,16 @@ export class ASCamera {
     else this.direction = direction;
   }
 
+  /**
+   * Slide sideways, in world units: `dright` along the view's right,
+   * `dup` along its up - in the plane square to the direction, which is
+   * unchanged. The focus moves with it.
+   */
+  panBy(dright, dup) {
+    const { right, up } = this.basis();
+    for (let i = 0; i < 3; i++) this.position[i] += right[i] * dright + up[i] * dup;
+  }
+
   /** Orbit only: multiply the distance to the focus, which stays put. */
   dolly(factor) {
     this.aim({ distance: clamp(this.distance * factor, this.minDistance, this.maxDistance) });
@@ -251,7 +261,15 @@ export function attachCameraControls(canvas, camera, opts = {}) {
   listen(canvas, 'pointercancel', () => { dragging = false; });
   listen(canvas, 'pointermove', (e) => {
     if (!dragging || !enabled() || camera.mode !== 'orbit') return;
-    camera.rotateBy((e.clientX - lastX) * 0.006, (e.clientY - lastY) * 0.005);
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    if (camera.projection === 'orthographic') {
+      // A drawing is moved, not turned: the camera slides square to its
+      // view, so what was under the pointer stays under it.
+      const perPixel = (2 * camera.halfHeight()) / (canvas.clientHeight || 1);
+      camera.panBy(-dx * perPixel, dy * perPixel);
+    } else {
+      camera.rotateBy(dx * 0.006, dy * 0.005);
+    }
     lastX = e.clientX; lastY = e.clientY;
   });
   listen(canvas, 'wheel', (e) => {

@@ -97,3 +97,14 @@ test('a scene file\'s camera block round-trips, and an old one is read', () => {
   const cp = Math.cos(0.3);
   close(old.direction, [-cp * Math.sin(0.9), -cp * Math.cos(0.9), -Math.sin(0.3)], 'direction', 1e-12);
 });
+
+test('panning slides square to the view: direction kept, focus carried along', () => {
+  const camera = new ASCamera({ position: [0, 0, 5], direction: [0, 0, -1], projection: 'orthographic' });
+  const { right, up } = camera.basis();
+  const focus = camera.focus();
+  camera.panBy(2, -1);
+  close(camera.position, [2 * right[0] - up[0], 2 * right[1] - up[1], 5], 'position');
+  close(camera.direction, [0, 0, -1], 'direction');
+  close(camera.focus(), focus.map((f, i) => f + camera.position[i] - [0, 0, 5][i]), 'focus moved with it');
+  assert.equal(camera.distance, 6.4, 'distance, and so the orthographic framing, unchanged');
+});
