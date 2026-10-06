@@ -1,0 +1,1995 @@
+{
+  "_comment": "A circular maze, seed 1: written by tools/maze.mjs (public/maze.js).",
+  "materials": {
+    "stone": {
+      "albedo": [
+        0.62,
+        0.58,
+        0.52
+      ]
+    },
+    "floor": {
+      "albedo": [
+        0.3,
+        0.31,
+        0.34
+      ],
+      "albedo2": [
+        0.18,
+        0.19,
+        0.21
+      ],
+      "pattern": "checker",
+      "scale": 1
+    },
+    "sky": {
+      "kind": "unlit",
+      "albedo": [
+        0.07,
+        0.09,
+        0.14
+      ]
+    }
+  },
+  "lights": [
+    {
+      "pos": [
+        6.96,
+        -9.57,
+        21.75
+      ],
+      "color": [
+        1535.2,
+        1473.8,
+        1381.7
+      ]
+    }
+  ],
+  "camera": {
+    "position": [
+      0,
+      -13.049999999999999,
+      13.049999999999999
+    ],
+    "direction": [
+      0,
+      0.7071067811865475,
+      -0.7071067811865475
+    ],
+    "distance": 18.45548698896889
+  },
+  "objects": {
+    "maze": {
+      "cylinder": {
+        "center": [
+          0,
+          0,
+          0
+        ],
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "radius": 8.7
+      },
+      "material": null,
+      "inside": {
+        "slab": {
+          "center": [
+            0,
+            0,
+            1.25
+          ],
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "thickness": 2.5
+        },
+        "material": null,
+        "inside": {
+          "cylinder": {
+            "center": [
+              0,
+              0,
+              0
+            ],
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "radius": 4.5
+          },
+          "material": null,
+          "inside": {
+            "cylinder": {
+              "center": [
+                0,
+                0,
+                0
+              ],
+              "axis": [
+                0,
+                0,
+                1
+              ],
+              "radius": 2.9
+            },
+            "material": null,
+            "inside": {
+              "cylinder": {
+                "center": [
+                  0,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 1.5
+              },
+              "material": null,
+              "inside": null,
+              "outside": {
+                "cylinder": {
+                  "center": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "axis": [
+                    0,
+                    0,
+                    1
+                  ],
+                  "radius": 1.7
+                },
+                "material": null,
+                "inside": {
+                  "plane": {
+                    "normal": [
+                      -1.2246467991473532e-16,
+                      -1,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "cylinder": {
+                      "center": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "axis": [
+                        0,
+                        0,
+                        1
+                      ],
+                      "radius": 1.7
+                    },
+                    "material": "stone"
+                  },
+                  "outside": {
+                    "plane": {
+                      "normal": [
+                        1,
+                        -1.8369701987210297e-16,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0.4999999999999997,
+                          -0.8660254037844388,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 1.7
+                        },
+                        "material": "stone"
+                      }
+                    },
+                    "outside": {
+                      "cylinder": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0,
+                          0,
+                          1
+                        ],
+                        "radius": 1.7
+                      },
+                      "material": "stone"
+                    }
+                  }
+                },
+                "outside": {
+                  "plane": {
+                    "normal": [
+                      -1.2246467991473532e-16,
+                      -1,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        -1,
+                        6.123233995736766e-17,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": null,
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.8660254037844387,
+                          -0.4999999999999998,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    }
+                  },
+                  "outside": {
+                    "plane": {
+                      "normal": [
+                        1,
+                        -1.8369701987210297e-16,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0.8660254037844385,
+                          -0.5000000000000004,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    },
+                    "outside": null
+                  }
+                }
+              }
+            },
+            "outside": {
+              "cylinder": {
+                "center": [
+                  0,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 3.1
+              },
+              "material": null,
+              "inside": {
+                "plane": {
+                  "normal": [
+                    -1.2246467991473532e-16,
+                    -1,
+                    0
+                  ],
+                  "offset": 0
+                },
+                "material": null,
+                "inside": {
+                  "plane": {
+                    "normal": [
+                      -1,
+                      6.123233995736766e-17,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "slab": {
+                      "center": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "axis": [
+                        -1,
+                        6.123233995736766e-17,
+                        0
+                      ],
+                      "thickness": 0.96
+                    },
+                    "material": null,
+                    "outside": {
+                      "cylinder": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0,
+                          0,
+                          1
+                        ],
+                        "radius": 3.1
+                      },
+                      "material": "stone"
+                    }
+                  },
+                  "outside": {
+                    "plane": {
+                      "normal": [
+                        -0.7071067811865476,
+                        -0.7071067811865475,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -1,
+                          6.123233995736766e-17,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 3.1
+                        },
+                        "material": "stone"
+                      }
+                    },
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.5000000000000003,
+                          -0.8660254037844385,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 3.1
+                        },
+                        "material": "stone"
+                      }
+                    }
+                  }
+                },
+                "outside": {
+                  "plane": {
+                    "normal": [
+                      1,
+                      -1.8369701987210297e-16,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "slab": {
+                      "center": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "axis": [
+                        1,
+                        -1.8369701987210297e-16,
+                        0
+                      ],
+                      "thickness": 0.96
+                    },
+                    "material": null,
+                    "outside": {
+                      "cylinder": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0,
+                          0,
+                          1
+                        ],
+                        "radius": 3.1
+                      },
+                      "material": "stone"
+                    }
+                  },
+                  "outside": {
+                    "slab": {
+                      "center": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "axis": [
+                        1,
+                        -1.8369701987210297e-16,
+                        0
+                      ],
+                      "thickness": 0.96
+                    },
+                    "material": null,
+                    "outside": {
+                      "cylinder": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0,
+                          0,
+                          1
+                        ],
+                        "radius": 3.1
+                      },
+                      "material": "stone"
+                    }
+                  }
+                }
+              },
+              "outside": {
+                "cylinder": {
+                  "center": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "axis": [
+                    0,
+                    0,
+                    1
+                  ],
+                  "radius": 4.3
+                },
+                "material": null,
+                "inside": {
+                  "plane": {
+                    "normal": [
+                      -1.2246467991473532e-16,
+                      -1,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        -1,
+                        6.123233995736766e-17,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          2.4492935982947064e-16,
+                          1,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    },
+                    "outside": {
+                      "plane": {
+                        "normal": [
+                          -0.7071067811865476,
+                          -0.7071067811865475,
+                          0
+                        ],
+                        "offset": 0
+                      },
+                      "material": null,
+                      "inside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            -0.8660254037844387,
+                            -0.4999999999999998,
+                            0
+                          ],
+                          "thickness": 0.2
+                        },
+                        "material": "stone",
+                        "outside": null
+                      },
+                      "outside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            -1.2246467991473532e-16,
+                            -1,
+                            0
+                          ],
+                          "thickness": 0.2
+                        },
+                        "material": "stone",
+                        "outside": null
+                      }
+                    }
+                  },
+                  "outside": {
+                    "plane": {
+                      "normal": [
+                        1,
+                        -1.8369701987210297e-16,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -1.2246467991473532e-16,
+                          -1,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    },
+                    "outside": {
+                      "plane": {
+                        "normal": [
+                          0.7071067811865477,
+                          0.7071067811865474,
+                          0
+                        ],
+                        "offset": 0
+                      },
+                      "material": null,
+                      "inside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0.8660254037844386,
+                            0.5000000000000001,
+                            0
+                          ],
+                          "thickness": 0.2
+                        },
+                        "material": "stone",
+                        "outside": null
+                      },
+                      "outside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            2.4492935982947064e-16,
+                            1,
+                            0
+                          ],
+                          "thickness": 0.2
+                        },
+                        "material": "stone",
+                        "outside": null
+                      }
+                    }
+                  }
+                },
+                "outside": {
+                  "plane": {
+                    "normal": [
+                      -1.2246467991473532e-16,
+                      -1,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        -1,
+                        6.123233995736766e-17,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.49999999999999994,
+                          0.8660254037844387,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 4.5
+                        },
+                        "material": "stone"
+                      }
+                    },
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.5000000000000003,
+                          -0.8660254037844385,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 4.5
+                        },
+                        "material": "stone"
+                      }
+                    }
+                  },
+                  "outside": {
+                    "plane": {
+                      "normal": [
+                        1,
+                        -1.8369701987210297e-16,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0.4999999999999997,
+                          -0.8660254037844388,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 4.5
+                        },
+                        "material": "stone"
+                      }
+                    },
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0.49999999999999967,
+                          0.8660254037844388,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 4.5
+                        },
+                        "material": "stone"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "outside": {
+            "cylinder": {
+              "center": [
+                0,
+                0,
+                0
+              ],
+              "axis": [
+                0,
+                0,
+                1
+              ],
+              "radius": 7.1
+            },
+            "material": null,
+            "inside": {
+              "cylinder": {
+                "center": [
+                  0,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 5.699999999999999
+              },
+              "material": null,
+              "inside": {
+                "plane": {
+                  "normal": [
+                    -1.2246467991473532e-16,
+                    -1,
+                    0
+                  ],
+                  "offset": 0
+                },
+                "material": null,
+                "inside": {
+                  "plane": {
+                    "normal": [
+                      -1,
+                      6.123233995736766e-17,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "slab": {
+                      "center": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "axis": [
+                        2.4492935982947064e-16,
+                        1,
+                        0
+                      ],
+                      "thickness": 0.2
+                    },
+                    "material": "stone",
+                    "outside": null
+                  },
+                  "outside": {
+                    "plane": {
+                      "normal": [
+                        -0.7071067811865476,
+                        -0.7071067811865475,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.8660254037844387,
+                          -0.4999999999999998,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    },
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -1.2246467991473532e-16,
+                          -1,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    }
+                  }
+                },
+                "outside": {
+                  "plane": {
+                    "normal": [
+                      1,
+                      -1.8369701987210297e-16,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        0.7071067811865475,
+                        -0.7071067811865477,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -1.2246467991473532e-16,
+                          -1,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    },
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0.8660254037844385,
+                          -0.5000000000000004,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    }
+                  },
+                  "outside": {
+                    "slab": {
+                      "center": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "axis": [
+                        2.4492935982947064e-16,
+                        1,
+                        0
+                      ],
+                      "thickness": 0.2
+                    },
+                    "material": "stone",
+                    "outside": null
+                  }
+                }
+              },
+              "outside": {
+                "cylinder": {
+                  "center": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "axis": [
+                    0,
+                    0,
+                    1
+                  ],
+                  "radius": 5.8999999999999995
+                },
+                "material": null,
+                "inside": {
+                  "plane": {
+                    "normal": [
+                      -1.2246467991473532e-16,
+                      -1,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        -1,
+                        6.123233995736766e-17,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.9659258262890682,
+                          0.25881904510252096,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 5.8999999999999995
+                        },
+                        "material": "stone"
+                      }
+                    },
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.2588190451025206,
+                          -0.9659258262890683,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 5.8999999999999995
+                        },
+                        "material": "stone"
+                      }
+                    }
+                  },
+                  "outside": {
+                    "plane": {
+                      "normal": [
+                        1,
+                        -1.8369701987210297e-16,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0.25881904510252035,
+                          -0.9659258262890684,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 5.8999999999999995
+                        },
+                        "material": "stone"
+                      }
+                    },
+                    "outside": {
+                      "plane": {
+                        "normal": [
+                          0.7071067811865477,
+                          0.7071067811865474,
+                          0
+                        ],
+                        "offset": 0
+                      },
+                      "material": null,
+                      "inside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0.9659258262890684,
+                            0.2588190451025203,
+                            0
+                          ],
+                          "thickness": 0.96
+                        },
+                        "material": null,
+                        "outside": {
+                          "cylinder": {
+                            "center": [
+                              0,
+                              0,
+                              0
+                            ],
+                            "axis": [
+                              0,
+                              0,
+                              1
+                            ],
+                            "radius": 5.8999999999999995
+                          },
+                          "material": "stone"
+                        }
+                      },
+                      "outside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0.2588190451025207,
+                            0.9659258262890683,
+                            0
+                          ],
+                          "thickness": 0.96
+                        },
+                        "material": null,
+                        "outside": {
+                          "cylinder": {
+                            "center": [
+                              0,
+                              0,
+                              0
+                            ],
+                            "axis": [
+                              0,
+                              0,
+                              1
+                            ],
+                            "radius": 5.8999999999999995
+                          },
+                          "material": "stone"
+                        }
+                      }
+                    }
+                  }
+                },
+                "outside": {
+                  "plane": {
+                    "normal": [
+                      -1.2246467991473532e-16,
+                      -1,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        -1,
+                        6.123233995736766e-17,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.8660254037844386,
+                          0.5000000000000001,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    },
+                    "outside": {
+                      "plane": {
+                        "normal": [
+                          -0.7071067811865476,
+                          -0.7071067811865475,
+                          0
+                        ],
+                        "offset": 0
+                      },
+                      "material": null,
+                      "inside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            -0.8660254037844387,
+                            -0.4999999999999998,
+                            0
+                          ],
+                          "thickness": 0.2
+                        },
+                        "material": "stone",
+                        "outside": null
+                      },
+                      "outside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            -1.2246467991473532e-16,
+                            -1,
+                            0
+                          ],
+                          "thickness": 0.2
+                        },
+                        "material": "stone",
+                        "outside": null
+                      }
+                    }
+                  },
+                  "outside": {
+                    "plane": {
+                      "normal": [
+                        1,
+                        -1.8369701987210297e-16,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "plane": {
+                        "normal": [
+                          0.7071067811865475,
+                          -0.7071067811865477,
+                          0
+                        ],
+                        "offset": 0
+                      },
+                      "material": null,
+                      "inside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            -1.2246467991473532e-16,
+                            -1,
+                            0
+                          ],
+                          "thickness": 0.2
+                        },
+                        "material": "stone",
+                        "outside": null
+                      },
+                      "outside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0.8660254037844385,
+                            -0.5000000000000004,
+                            0
+                          ],
+                          "thickness": 0.2
+                        },
+                        "material": "stone",
+                        "outside": null
+                      }
+                    },
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0.8660254037844386,
+                          0.5000000000000001,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    }
+                  }
+                }
+              }
+            },
+            "outside": {
+              "cylinder": {
+                "center": [
+                  0,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 7.3
+              },
+              "material": null,
+              "inside": {
+                "plane": {
+                  "normal": [
+                    -1.2246467991473532e-16,
+                    -1,
+                    0
+                  ],
+                  "offset": 0
+                },
+                "material": null,
+                "inside": {
+                  "plane": {
+                    "normal": [
+                      -1,
+                      6.123233995736766e-17,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "cylinder": {
+                      "center": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "axis": [
+                        0,
+                        0,
+                        1
+                      ],
+                      "radius": 7.3
+                    },
+                    "material": "stone"
+                  },
+                  "outside": {
+                    "plane": {
+                      "normal": [
+                        -0.7071067811865476,
+                        -0.7071067811865475,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "plane": {
+                        "normal": [
+                          -0.9238795325112867,
+                          -0.3826834323650897,
+                          0
+                        ],
+                        "offset": 0
+                      },
+                      "material": null,
+                      "inside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            -0.9659258262890683,
+                            -0.25881904510252063,
+                            0
+                          ],
+                          "thickness": 0.96
+                        },
+                        "material": null,
+                        "outside": {
+                          "cylinder": {
+                            "center": [
+                              0,
+                              0,
+                              0
+                            ],
+                            "axis": [
+                              0,
+                              0,
+                              1
+                            ],
+                            "radius": 7.3
+                          },
+                          "material": "stone"
+                        }
+                      },
+                      "outside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            -0.7071067811865476,
+                            -0.7071067811865475,
+                            0
+                          ],
+                          "thickness": 0.96
+                        },
+                        "material": null,
+                        "outside": {
+                          "cylinder": {
+                            "center": [
+                              0,
+                              0,
+                              0
+                            ],
+                            "axis": [
+                              0,
+                              0,
+                              1
+                            ],
+                            "radius": 7.3
+                          },
+                          "material": "stone"
+                        }
+                      }
+                    },
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.7071067811865476,
+                          -0.7071067811865475,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 7.3
+                        },
+                        "material": "stone"
+                      }
+                    }
+                  }
+                },
+                "outside": {
+                  "plane": {
+                    "normal": [
+                      1,
+                      -1.8369701987210297e-16,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        0.7071067811865475,
+                        -0.7071067811865477,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0.7071067811865475,
+                          -0.7071067811865477,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 7.3
+                        },
+                        "material": "stone"
+                      }
+                    },
+                    "outside": {
+                      "plane": {
+                        "normal": [
+                          0.9238795325112865,
+                          -0.38268343236509034,
+                          0
+                        ],
+                        "offset": 0
+                      },
+                      "material": null,
+                      "inside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0.7071067811865475,
+                            -0.7071067811865477,
+                            0
+                          ],
+                          "thickness": 0.96
+                        },
+                        "material": null,
+                        "outside": {
+                          "cylinder": {
+                            "center": [
+                              0,
+                              0,
+                              0
+                            ],
+                            "axis": [
+                              0,
+                              0,
+                              1
+                            ],
+                            "radius": 7.3
+                          },
+                          "material": "stone"
+                        }
+                      },
+                      "outside": {
+                        "slab": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0.9659258262890683,
+                            -0.25881904510252063,
+                            0
+                          ],
+                          "thickness": 0.96
+                        },
+                        "material": null,
+                        "outside": {
+                          "cylinder": {
+                            "center": [
+                              0,
+                              0,
+                              0
+                            ],
+                            "axis": [
+                              0,
+                              0,
+                              1
+                            ],
+                            "radius": 7.3
+                          },
+                          "material": "stone"
+                        }
+                      }
+                    }
+                  },
+                  "outside": {
+                    "slab": {
+                      "center": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "axis": [
+                        0.7071067811865477,
+                        0.7071067811865474,
+                        0
+                      ],
+                      "thickness": 0.96
+                    },
+                    "material": null,
+                    "outside": {
+                      "cylinder": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0,
+                          0,
+                          1
+                        ],
+                        "radius": 7.3
+                      },
+                      "material": "stone"
+                    }
+                  }
+                }
+              },
+              "outside": {
+                "cylinder": {
+                  "center": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "axis": [
+                    0,
+                    0,
+                    1
+                  ],
+                  "radius": 8.5
+                },
+                "material": null,
+                "inside": {
+                  "plane": {
+                    "normal": [
+                      -1.2246467991473532e-16,
+                      -1,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        -1,
+                        6.123233995736766e-17,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": null,
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.8660254037844387,
+                          -0.4999999999999998,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    }
+                  },
+                  "outside": {
+                    "plane": {
+                      "normal": [
+                        1,
+                        -1.8369701987210297e-16,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0.8660254037844385,
+                          -0.5000000000000004,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    },
+                    "outside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0.8660254037844386,
+                          0.5000000000000001,
+                          0
+                        ],
+                        "thickness": 0.2
+                      },
+                      "material": "stone",
+                      "outside": null
+                    }
+                  }
+                },
+                "outside": {
+                  "plane": {
+                    "normal": [
+                      -1.2246467991473532e-16,
+                      -1,
+                      0
+                    ],
+                    "offset": 0
+                  },
+                  "material": null,
+                  "inside": {
+                    "plane": {
+                      "normal": [
+                        -1,
+                        6.123233995736766e-17,
+                        0
+                      ],
+                      "offset": 0
+                    },
+                    "material": null,
+                    "inside": {
+                      "slab": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          -0.7071067811865475,
+                          0.7071067811865476,
+                          0
+                        ],
+                        "thickness": 0.96
+                      },
+                      "material": null,
+                      "outside": {
+                        "cylinder": {
+                          "center": [
+                            0,
+                            0,
+                            0
+                          ],
+                          "axis": [
+                            0,
+                            0,
+                            1
+                          ],
+                          "radius": 8.7
+                        },
+                        "material": "stone"
+                      }
+                    },
+                    "outside": {
+                      "cylinder": {
+                        "center": [
+                          0,
+                          0,
+                          0
+                        ],
+                        "axis": [
+                          0,
+                          0,
+                          1
+                        ],
+                        "radius": 8.7
+                      },
+                      "material": "stone"
+                    }
+                  },
+                  "outside": {
+                    "cylinder": {
+                      "center": [
+                        0,
+                        0,
+                        0
+                      ],
+                      "axis": [
+                        0,
+                        0,
+                        1
+                      ],
+                      "radius": 8.7
+                    },
+                    "material": "stone"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "root": {
+    "sphere": {
+      "center": [
+        0,
+        0,
+        0
+      ],
+      "radius": 348
+    },
+    "inside": {
+      "plane": {
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "offset": 0
+      },
+      "material": "floor",
+      "outside": {
+        "union": [
+          {
+            "use": "maze"
+          },
+          {
+            "sphere": {
+              "center": [
+                0,
+                0,
+                0
+              ],
+              "radius": 339.29999999999995
+            },
+            "complement": true,
+            "material": "sky"
+          }
+        ]
+      }
+    }
+  }
+}

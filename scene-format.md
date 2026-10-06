@@ -540,6 +540,17 @@ ambient level was already in effect above it, never adopts the node's own —
 so ambient regions can be nested the same way solids can, by descending
 through `"inside"`.
 
+## Generated scenes: circular mazes
+
+Some scenes are easier generated than written. `public/maze.js`'s
+`circularMaze({ seed, rings, hallWidth, hallHeight, wallThickness, ... })`
+builds a circular maze as a subtree - concentric ring walls (a cylinder less
+a smaller one) with doorways cut through them by subtracting slabs, and
+short radial walls across the corridors, placed by a spanning tree grown
+from a seed - along with its cells and passages, for placing things in it.
+`tools/maze.mjs` writes a complete scene round one (floor, sky, light,
+camera); `scenes/maze.json` is seed 1.
+
 ## A note on duplicate keys
 
 JSON resolves duplicate keys silently, keeping the last one. This format puts
