@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { circularMaze, seeded } from './maze.js';
 import { compileScene } from './antisphere-scene.js';
 
-const OPTIONS = { seed: 3, rings: 5, hallWidth: 1.2, hallHeight: 2.5, wallThickness: 0.2, innerRadius: 1.5 };
+const OPTIONS = { seed: 3, rings: 5, hallWidth: 1.2, wallHeight: 2.5, wallThickness: 0.2, innerRadius: 1.5 };
 
 test('the same seed makes the same maze, and others other ones', () => {
   assert.deepEqual(circularMaze(OPTIONS).passages, circularMaze(OPTIONS).passages);
@@ -70,7 +70,7 @@ test('the walls stand where the maze says, and open where it says', () => {
     objects: { maze: maze.tree },
     root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { use: 'maze' } },
   });
-  const { hallWidth: w, wallThickness: t, innerRadius, hallHeight: h, rings } = OPTIONS;
+  const { hallWidth: w, wallThickness: t, innerRadius, wallHeight: h, rings } = OPTIONS;
   const rho = (i) => innerRadius + i * (w + t);
   const at = (r, a, z = h / 2) => [r * Math.cos(a), r * Math.sin(a), z];
   const near = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))) < 1e-6;
