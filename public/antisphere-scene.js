@@ -1858,7 +1858,8 @@ export function compileScene(rawSpec, options = {}) {
 
   // Every light, with the env it belongs to: the scene's (env 0) first, in
   // order, so the editor can replace just those; then each node's, its env
-  // that node. A node baked more than once - a lit room grafted into
+  // that node. So the list is in order of env, which the shader relies on:
+  // it finds an env's lights by binary search (firstLightOf()). A node baked more than once - a lit room grafted into
   // several places - gives its lights once for each copy, under each
   // copy's env; a hit is in only one of them.
   const lightList = [...topLights];

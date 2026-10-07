@@ -670,6 +670,9 @@ test('a node\'s lights belong to its env, the scene\'s to env 0, and come first'
   const right = envChain(built, at(built, [10, 0, 0]).node)[0];
   assert.deepEqual(built.lights.slice(1).map((lt) => lt.env).sort(), [left, left, right].sort());
   assert.deepEqual(built.lights.find((lt) => lt.env === right).pos, [10, 0, 2]);
+  // In order of env: the shader finds an env's lights by binary search.
+  const envs = built.lights.map((lt) => lt.env);
+  assert.deepEqual(envs, [...envs].sort((a, b) => a - b));
 });
 
 test('lights alone make a region, at the ambient level around it', () => {

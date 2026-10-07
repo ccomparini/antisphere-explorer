@@ -137,8 +137,10 @@ coefficients in place, with no recompile.
   inside its env - trace() takes a starting node, here the env node tagged
   as its inside - so a light sees only what its env holds, and is
   shadowed by that alone (a room's subtree, not the scene's). How a scope
-  looks right is the scene author's to decide. Still to come: finding a
-  hit's lights without testing every light in the scene.
+  looks right is the scene author's to decide. A hit's lights are found
+  by walking its env chain: the lights are stored in order of env, so each
+  env's are a run, found by binary search - a hit pays for the lights on
+  its chain, not the scene's.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.

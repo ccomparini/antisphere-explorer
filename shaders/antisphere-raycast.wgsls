@@ -98,7 +98,7 @@ const ABLATE_SHADE : u32 = 2u;   // add shading
 
 struct Light {
   pos   : vec3<f32>,
-  env   : u32,         // the env it lights (see inScope()): 0 is everywhere
+  env   : u32,         // the env it lights (see directLighting()): 0 is everywhere
   color : vec3<f32>,   // magnitude is radiant power, so values may exceed 1
   pad1  : f32,
 };
@@ -494,67 +494,76 @@ fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
   return mix(m.albedo, m.albedo2, ck);
 }
 
-// Whether a light of env `lightEnv` reaches a hit in env `env`: if the
-// hit's env is that one, or within it - following env from node to node
-// walks outward, to 0, whose lights reach everything. So a room's torch
-// lights the room and not the hall it opens off, and the hall's lamps
-// light into the room.
-fn inScope(lightEnv : u32, env : u32) -> bool {
-  if (lightEnv == 0u) { return true; }
-  var e = env;
-  loop {
-    if (e == lightEnv) { return true; }
-    if (e == 0u) { return false; }
-    e = nodes[e].env;
+// The first light of env `env`. The lights are in order of env - the
+// scene's own (env 0) first, then each node's, in node order (compileScene())
+// - so an env's lights are a run, found by binary search.
+fn firstLightOf(env : u32) -> u32 {
+  var low = 0u;
+  var high = arrayLength(&lights);
+  while (low < high) {
+    let middle = (low + high) / 2u;
+    if (lights[middle].env < env) { low = middle + 1u; } else { high = middle; }
+  }
+  return low;
+}
+
+// One light's direct light at a hit, with one shadow ray, added to `out`.
+fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>) {
+  let d = lt.pos - hit.position;
+  let d2 = dot(d, d);
+  let dist = sqrt(max(d2, 1e-8));
+  let L = d / dist; // I guess L is normalized direction to light
+
+  let ndl = dot(hit.normal, L);
+  if (ndl <= 0.0) { return; }            // back-facing, no ray needed
+
+  if (cam.shadows != 0u) {
+    shadowRays = shadowRays + 1u; // (profiling; shown via ablation)
+
+    // Any solid between the surface and the light occludes the light.
+    // We trace from the point on the surface toward the light so that
+    // directional lights can work. 
+    // From inside the light's env: it sees only what that env holds, so
+    // a room's lamp is shadowed by the room alone (and its rays take the
+    // room's subtree, not the scene's). Env 0's lights see everything.
+    let start = select(ROOT, lt.env | DEFAULT_INSIDE_BIT, lt.env != 0u);
+    let blocker = trace(hit.position, L, 0.0, dist, surfaces[hit.node], start);
+    if (blocker.node != 0u) {
+      // the ray hit something between us and the light,
+      // so we're in shadow:
+      return;
+    }
+  }
+
+  // Inverse square, softened near zero so a light sitting on a surface
+  // does not blow out.
+  let E = lt.color / (1.0 + d2);
+  (*out).diffuse = (*out).diffuse + E * ndl;
+  if (shininess > 0.0) {
+    let H = normalize(L + hit.toViewer);
+    (*out).specular = (*out).specular + E * pow(max(dot(hit.normal, H), 0.0), shininess);
   }
 }
 
-// Sums direct light over every source in scope (inScope()), with one
-// shadow ray each. A shininess of zero skips the specular term entirely.
+// Sums direct light over the lights that reach a hit: those of its env and
+// of every env enclosing it - following env from node to node walks
+// outward, to 0, whose lights reach everything. So a room's torch lights
+// the room and not the hall it opens off, and the hall's lamps light into
+// the room; and a hit costs its own env chain's lights, not the scene's.
+// A shininess of zero skips the specular term entirely.
 fn directLighting(hit : Hit, shininess : f32) -> Direct {
   var out : Direct;
   out.diffuse = vec3<f32>(0.0);
   out.specular = vec3<f32>(0.0);
 
   let n = arrayLength(&lights);
-  let env = nodes[hit.node].env;
-  for (var i : u32 = 0u; i < n; i = i + 1u) {
-    let lt = lights[i];
-    if (!inScope(lt.env, env)) { continue; }
-    let d = lt.pos - hit.position;
-    let d2 = dot(d, d);
-    let dist = sqrt(max(d2, 1e-8));
-    let L = d / dist; // I guess L is normalized direction to light
-
-    let ndl = dot(hit.normal, L);
-    if (ndl <= 0.0) { continue; }          // back-facing, no ray needed
-
-    if (cam.shadows != 0u) {
-      shadowRays = shadowRays + 1u; // (profiling; shown via ablation)
-
-      // Any solid between the surface and the light occludes the light.
-      // We trace from the point on the surface toward the light so that
-      // directional lights can work. 
-      // From inside the light's env: it sees only what that env holds, so
-      // a room's lamp is shadowed by the room alone (and its rays take the
-      // room's subtree, not the scene's). Env 0's lights see everything.
-      let start = select(ROOT, lt.env | DEFAULT_INSIDE_BIT, lt.env != 0u);
-      let blocker = trace(hit.position, L, 0.0, dist, surfaces[hit.node], start);
-      if (blocker.node != 0u) {
-        // the ray hit something between us and the light,
-        // so we're in shadow:
-        continue;
-      }
+  var env = nodes[hit.node].env;
+  loop {
+    for (var i = firstLightOf(env); i < n && lights[i].env == env; i = i + 1u) {
+      addLight(lights[i], hit, shininess, &out);
     }
-
-    // Inverse square, softened near zero so a light sitting on a surface
-    // does not blow out.
-    let E = lt.color / (1.0 + d2);
-    out.diffuse = out.diffuse + E * ndl;
-    if (shininess > 0.0) {
-      let H = normalize(L + hit.toViewer);
-      out.specular = out.specular + E * pow(max(dot(hit.normal, H), 0.0), shininess);
-    }
+    if (env == 0u) { break; }
+    env = nodes[env].env;
   }
   return out;
 }
