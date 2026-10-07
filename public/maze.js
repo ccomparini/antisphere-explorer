@@ -281,6 +281,6 @@ export function circularMaze({
     height: tall,
     hub: { center: [0, 0, h / 2], radius: rho(0) },
     exit: { angle: exitAngle },
-    radius: rho(rings) + t,
+    radius: rho(rings) + t, // t is wall thickness
   };
 }

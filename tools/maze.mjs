@@ -87,7 +87,7 @@ export function mazeScene(options = {}) {
   materials.sky ??= { kind: 'unlit', albedo: [0.07, 0.09, 0.14] };
   const R = maze.radius;
   const sun = [R * 0.8, -R * 1.1, R * 2.5];
-  const eye = [0, -R * 1.5, R * 1.5];
+  const eye = [0, -R * .95, Math.min(Math.max(maze.height + .5, R * 1.5), maze.height*6)];
   const distance = Math.hypot(...eye);
   return {
     maze,
