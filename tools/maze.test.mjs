@@ -19,7 +19,7 @@ test('writes a complete scene that compiles, on stdout', () => {
 });
 
 test('options reach the maze', () => {
-  const { maze, scene } = mazeScene({ seed: 2, rings: 4, hallHeight: 3, wallThickness: 0.3, material: 'brick' });
+  const { maze, scene } = mazeScene({ seed: 2, rings: 4, wallHeight: 3, wallThickness: 0.3, material: 'brick' });
   assert.equal(new Set(maze.cells.map((c) => c.ring)).size, 4);
   assert.ok('brick' in scene.materials);
   const walls = JSON.stringify(scene.objects.maze);
