@@ -1,0 +1,311 @@
+{
+  "_comment": "A candle that lights only its own sphere of the room. The flame is the top node; its outside is the env sphere carrying the flame's light, at the flame's centre, and the candle is inside that. Shadow rays start at the env sphere and see only its subtree, so the flame, above it, does not shadow its own light; camera rays, from the root, still see the flame. In a group the candle comes first: the members after it are grafted into the empty parts of its sphere, so the room's surfaces there are in the candle's env.",
+  "materials": {
+    "wax": {
+      "albedo": [
+        0.92,
+        0.88,
+        0.78
+      ]
+    },
+    "wick": {
+      "albedo": [
+        0.08,
+        0.07,
+        0.06
+      ]
+    },
+    "flame": {
+      "kind": "emissive",
+      "albedo": [
+        1.0,
+        0.75,
+        0.3
+      ],
+      "emission": 1.5
+    },
+    "floor": {
+      "albedo": [
+        0.35,
+        0.33,
+        0.3
+      ],
+      "albedo2": [
+        0.22,
+        0.21,
+        0.2
+      ],
+      "pattern": "checker",
+      "scale": 1
+    },
+    "stone": {
+      "albedo": [
+        0.6,
+        0.58,
+        0.54
+      ]
+    },
+    "night": {
+      "kind": "ambient",
+      "albedo": [
+        0.03,
+        0.03,
+        0.04
+      ]
+    }
+  },
+  "lights": [],
+  "camera": {
+    "position": [
+      0,
+      -9,
+      5
+    ],
+    "direction": [
+      0,
+      0.87,
+      -0.49
+    ],
+    "distance": 10
+  },
+  "objects": {
+    "candle": {
+      "spheroid": {
+        "center": [
+          0,
+          0,
+          1.18
+        ],
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "height": 0.22,
+        "radius": 0.055
+      },
+      "material": "flame",
+      "outside": {
+        "sphere": {
+          "center": [
+            0,
+            0,
+            1.4
+          ],
+          "radius": 6
+        },
+        "lights": [
+          {
+            "pos": [
+              0,
+              0,
+              1.18
+            ],
+            "color": [
+              1.6,
+              1.15,
+              0.6
+            ]
+          }
+        ],
+        "inside": {
+          "union": [
+            {
+              "difference": [
+                {
+                  "cylinder": {
+                    "center": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "axis": [
+                      0,
+                      0,
+                      1
+                    ],
+                    "radius": 0.25
+                  },
+                  "material": "wax",
+                  "inside": {
+                    "slab": {
+                      "center": [
+                        0,
+                        0,
+                        0.5
+                      ],
+                      "axis": [
+                        0,
+                        0,
+                        1
+                      ],
+                      "thickness": 1
+                    },
+                    "material": "wax"
+                  }
+                },
+                {
+                  "paraboloid": {
+                    "vertex": [
+                      0,
+                      0,
+                      0.93
+                    ],
+                    "axis": [
+                      0,
+                      0,
+                      1
+                    ],
+                    "focal": 0.15
+                  },
+                  "material": "wax"
+                }
+              ]
+            },
+            {
+              "cylinder": {
+                "center": [
+                  0,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 0.015
+              },
+              "material": "wick",
+              "inside": {
+                "slab": {
+                  "center": [
+                    0,
+                    0,
+                    1.0
+                  ],
+                  "axis": [
+                    0,
+                    0,
+                    1
+                  ],
+                  "thickness": 0.16
+                },
+                "material": "wick"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "room": {
+      "union": [
+        {
+          "plane": {
+            "normal": [
+              0,
+              0,
+              1
+            ],
+            "offset": 0
+          },
+          "material": "floor"
+        },
+        {
+          "slab": {
+            "center": [
+              0,
+              4,
+              0
+            ],
+            "axis": [
+              0,
+              1,
+              0
+            ],
+            "thickness": 0.4
+          },
+          "material": "stone",
+          "inside": {
+            "plane": {
+              "normal": [
+                0,
+                0,
+                1
+              ],
+              "offset": 3
+            },
+            "material": "stone"
+          }
+        },
+        {
+          "slab": {
+            "center": [
+              2.5,
+              -1,
+              0
+            ],
+            "axis": [
+              1,
+              0,
+              0
+            ],
+            "thickness": 1
+          },
+          "material": "stone",
+          "inside": {
+            "slab": {
+              "center": [
+                0,
+                -1,
+                0
+              ],
+              "axis": [
+                0,
+                1,
+                0
+              ],
+              "thickness": 1
+            },
+            "material": "stone",
+            "inside": {
+              "plane": {
+                "normal": [
+                  0,
+                  0,
+                  1
+                ],
+                "offset": 1.5
+              },
+              "material": "stone"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "root": {
+    "sphere": {
+      "center": [
+        0,
+        0,
+        0
+      ],
+      "radius": 100
+    },
+    "material": "night",
+    "inside": {
+      "group": [
+        {
+          "use": "candle",
+          "translate": [
+            -1,
+            0,
+            0
+          ]
+        },
+        "room"
+      ]
+    }
+  }
+}
