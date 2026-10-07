@@ -29,6 +29,8 @@ maze - write a scene with a circular maze in it
       --door-material <m>   the insides of the doorways (default: the walls')
       --top-material <m>    the tops of the walls (default: the walls')
       --floor-material <m>  the floor (default "floor", a checker)
+      --torches <share>     of the cells with a torch, 0 to 1 (default 0)
+      --sun <brightness>    the daylight, 0 for night (default 1)
   A material named here and not otherwise known is given a colour for its
   part: stone for walls, wood for doors, pale for tops, a checker for the
   floor.
@@ -42,7 +44,7 @@ const NAMES = {
 const NUMBERS = {
   '--seed': 'seed', '--rings': 'rings', '--hall-width': 'hallWidth',
   '--wall-height': 'wallHeight', '--wall-thickness': 'wallThickness',
-  '--inner-radius': 'innerRadius',
+  '--inner-radius': 'innerRadius', '--torches': 'torches', '--sun': 'sun',
 };
 
 function parseArguments(argv) {
@@ -77,14 +79,20 @@ export function mazeScene(options = {}) {
     doorMaterial = material,
     topMaterial = material,
     floorMaterial = 'floor',
+    sun: daylight = 1,
   } = options;
-  const maze = circularMaze({ ...options, material, doorMaterial, topMaterial });
+  const maze = circularMaze({ ...options, material, doorMaterial, topMaterial, floorMaterial });
   // One definition a name: the walls' first, if parts share one.
   const materials = {};
   for (const [name, part] of [[material, 'wall'], [doorMaterial, 'door'], [topMaterial, 'top'], [floorMaterial, 'floor']]) {
     materials[name] ??= LOOKS[part];
   }
   materials.sky ??= { kind: 'unlit', albedo: [0.07, 0.09, 0.14] };
+  // Dimmer daylight, dimmer ambient (the renderer's default is 0.13), but
+  // never quite dark.
+  if (daylight !== 1) {
+    materials.dusk ??= { kind: 'ambient', albedo: [0.13, 0.13, 0.14].map((level) => +(level * Math.max(daylight, 0.15)).toFixed(4)) };
+  }
   const R = maze.radius;
   const sun = [R * 0.8, -R * 1.1, R * 2.5];
   const eye = [0, -R * .95, Math.min(Math.max(maze.height + .5, R * 1.5), maze.height*6)];
@@ -95,20 +103,24 @@ export function mazeScene(options = {}) {
       _comment: `A circular maze, seed ${options.seed ?? 1}: written by tools/maze.mjs (public/maze.js).`,
       materials,
       // Bright enough at the maze to read as daylight, inverse square.
-      lights: [{ pos: sun, color: [1, 0.96, 0.9].map((c) => +(c * 2.5 * (1 + sun.reduce((s, v) => s + v * v, 0))).toFixed(1)) }],
+      // The maze's torches are on its nodes, lighting their own cells.
+      lights: [{ pos: sun, color: [1, 0.96, 0.9].map((c) => +(c * daylight * 2.5 * (1 + sun.reduce((s, v) => s + v * v, 0))).toFixed(1)) }],
       camera: { position: eye, direction: eye.map((v) => -v / distance), distance },
       objects: { maze: maze.tree },
+      // The maze first: within it, its own floor, so a torch lights the
+      // floor of its cell; around it, the floor beyond.
       root: {
         sphere: { center: [0, 0, 0], radius: R * 40 },
+        ...(daylight !== 1 ? { material: 'dusk' } : {}),
         inside: {
-          plane: { normal: [0, 0, 1], offset: 0 },
-          material: floorMaterial,
-          outside: {
-            union: [
-              { use: 'maze' },
-              { sphere: { center: [0, 0, 0], radius: R * 39 }, complement: true, material: 'sky' },
-            ],
-          },
+          union: [
+            { use: 'maze' },
+            {
+              plane: { normal: [0, 0, 1], offset: 0 },
+              material: floorMaterial,
+              outside: { sphere: { center: [0, 0, 0], radius: R * 39 }, complement: true, material: 'sky' },
+            },
+          ],
         },
       },
     },

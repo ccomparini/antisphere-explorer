@@ -587,16 +587,20 @@ lights of its region and of every region enclosing it, out to the scene's.
 ## Generated scenes: circular mazes
 
 Some scenes are easier generated than written. `public/maze.js`'s
-`circularMaze({ seed, rings, hallWidth, hallHeight, wallThickness, ... })`
+`circularMaze({ seed, rings, hallWidth, wallHeight, wallThickness, torches, ... })`
 builds a circular maze as a subtree - concentric ring walls with doorways
 through them and short radial walls across the corridors, placed by a
-spanning tree grown from a seed - along with its cells and passages, for
-placing things in it. The tree is a partition made of the maze's own
-surfaces: pure divisions between the rings and by angle, standing in the
-corridors, and each wall spelled face by face, its doorways slabs
-complemented.
+spanning tree grown from a seed, and the floor between them - along with
+its cells and passages, for placing things in it. The tree is a partition
+made of the maze's own surfaces: pure divisions through the middles of the
+walls, between the corridors and between the cells, so that each cell is a
+subtree of its own, and each wall spelled face by face, its doorways slabs
+complemented. A cell with a torch (`torches` is the share of cells that
+have one) is held by a node carrying the torch's light, so the torch lights
+that cell and nothing beyond it.
 `tools/maze.mjs` writes a complete scene round one (floor, sky, light,
-camera); `scenes/maze.json` is seed 1.
+camera; `--torches` and a dimmer `--sun` for night); `scenes/maze.json` is
+seed 1.
 
 ## A note on duplicate keys
 
