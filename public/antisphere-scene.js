@@ -1478,6 +1478,52 @@ export function compileScene(rawSpec, options = {}) {
     return left.length ? left : null;
   }
 
+  // Whether a node starts an env (bakeScopes()): it carries lights, or
+  // names an ambient material.
+  const startsEnv = (t) => t.lights?.length > 0
+    || (t.material !== INHERIT_MATERIAL && table[t.material]?.kind === KIND_AMBIENT);
+
+  // `t` as it is within `region` ({ prim, sign }, with `ball` if it has
+  // one): a copy without what lies on sides of its nodes proved clear of
+  // the region. The same subtree if nothing is clear of it. `owner` is the
+  // member the copy is part of. Exact, for materials and envs too
+  // (bakeScopes()):
+  //   - a node whose inside is clear is, there, its outside child, which
+  //     resolves in the same scopes as the node: so it is replaced by it.
+  //     Not by an absent one: absent, in an inside slot, would claim.
+  //   - a node whose outside is clear is its inside: replaced by its inside
+  //     child only if the node names no material and starts no env, so the
+  //     child resolves as it would below it; else the outside is dropped.
+  function pruneTo(t, region, owner, memberOf) {
+    const frame = region.ball ? { c: region.ball.c, L: region.ball.r } : null;
+    const clear = (prim, sign) => {
+      if (region.ball) {
+        const quick = ballClear(prim, sign, region.ball);
+        if (quick !== undefined) return quick;
+      }
+      return regionsDisjoint(prim, sign, region.prim, region.sign, frame);
+    };
+    const memo = new Map();
+    const walk = (n) => {
+      if (!n) return n;
+      if (memo.has(n)) return memo.get(n);
+      const insideClear = clear(n.prim, 1);
+      const outsideClear = !insideClear && clear(n.prim, -1);
+      const inside = insideClear ? null : walk(n.inside);
+      const outside = outsideClear ? null : walk(n.outside);
+      let out = n;
+      if (insideClear && outside) out = outside;
+      else if (outsideClear && inside && n.material === INHERIT_MATERIAL && !startsEnv(n)) out = inside;
+      else if (inside !== n.inside || outside !== n.outside) {
+        out = node(n.prim, inside, outside, n.material, n.env, n.prov, n.lights);
+        memberOf.set(out, owner);
+      }
+      memo.set(n, out);
+      return out;
+    };
+    return walk(t);
+  }
+
   // The longest chain of members a fold may make before they are divided
   // (see divide in buildGroup).
   const MAX_CHAIN = 4;
@@ -1643,32 +1689,51 @@ export function compileScene(rawSpec, options = {}) {
         // answer for both.
         const pathIndex = new Map((shape.paths ?? []).map((p, i) => [p, i]));
         const aliveKey = (alive) => (alive === UNPROVEN ? '*' : alive.map((p) => pathIndex.get(p)).join());
-        const done = new Map();            // node -> Map(aliveKey -> result)
-        const graft = (t, alive) => {
+        const done = new Map();            // node -> Map(aliveKey and env -> result)
+        // Within an env that an earlier member starts - a lit sphere round
+        // a candle - what is grafted is a copy of its own anyway: the env
+        // gives the nodes there env values of their own (bakeScopes()), so
+        // the member is copied for it whole. So there it is grafted pruned
+        // to the env's region (pruneTo()), one copy for the env, shared by
+        // every place in it: a candle's sphere gets the few nodes of a maze
+        // near it, not all of them. Elsewhere the member is shared, as it
+        // is. `scope` is the env node, or null.
+        const pruned = new Map();          // env node -> the member pruned to its region
+        const scopeIds = new Map([[null, 0]]);
+        const memberIn = (scope) => {
+          if (!scope) return m.tree;
+          if (!pruned.has(scope)) {
+            const ball = regionBall(scope.prim, true);
+            pruned.set(scope, pruneTo(m.tree, { prim: scope.prim, sign: 1, ball }, m.index, memberOf));
+          }
+          return pruned.get(scope);
+        };
+        const graft = (t, alive, scope) => {
           let byAlive = done.get(t);
           if (!byAlive) { byAlive = new Map(); done.set(t, byAlive); }
-          const key = aliveKey(alive);
-          if (!byAlive.has(key)) byAlive.set(key, graftOnce(t, alive));
+          if (!scopeIds.has(scope)) scopeIds.set(scope, scopeIds.size);
+          const key = `${aliveKey(alive)}|${scopeIds.get(scope)}`;
+          if (!byAlive.has(key)) byAlive.set(key, graftOnce(t, alive, scope));
           return byAlive.get(key);
         };
-        const graftOnce = (t, alive) => {
+        const graftOnce = (t, alive, scope) => {
           if (--budget < 0) throw GRAFT_BUDGET;
           let inside = t.inside, outside = t.outside;
           const owner = memberOf.get(t);
           const inAlive = knock(shape, alive, { prim: t.prim, sign: 1 });
           if (inAlive !== null) {
-            if (t.inside) inside = graft(t.inside, inAlive);
+            if (t.inside) inside = graft(t.inside, inAlive, startsEnv(t) ? t : scope);
             else report(owner, m.index);           // a region `owner` claims: the claim stands
           }
           const outAlive = knock(shape, alive, { prim: t.prim, sign: -1 });
-          if (outAlive !== null) outside = t.outside ? graft(t.outside, outAlive) : m.tree;
+          if (outAlive !== null) outside = t.outside ? graft(t.outside, outAlive, scope) : memberIn(scope);
           if (inside === t.inside && outside === t.outside) return t;
           const copy = node(t.prim, inside, outside, t.material, t.env, t.prov, t.lights);
           if (owner !== undefined) memberOf.set(copy, owner);
           return copy;
         };
         try {
-          acc = graft(acc, shape.paths ?? UNPROVEN);
+          acc = graft(acc, shape.paths ?? UNPROVEN, null);
         } catch (e) {
           if (e !== GRAFT_BUDGET) throw e;
           acc = union(acc, m.tree);

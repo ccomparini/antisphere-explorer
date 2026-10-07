@@ -723,6 +723,32 @@ test('a lit region baked twice has its lights twice, one per copy\'s env', () =>
   assert.equal(new Set(own.map((lt) => lt.env)).size, own.length, 'each copy its own env');
 });
 
+test('a group grafts into a lit region only the part of a member that reaches it', () => {
+  // A candle's light sphere, first, and a long row of balls after it: the
+  // row is grafted into the sphere's empty parts, so the balls there are in
+  // its env and lit - and only the balls that reach it come, not the row.
+  const row = { union: Array.from({ length: 30 }, (_, i) => ball(-58 + 4 * i, 1, { material: 'clay' })) };
+  const candle = (lights) => ({ sphere: { center: [0, 2, 0], radius: 3 }, ...(lights ? { lights: [lamp([0, 2, 0])] } : {}),
+                                inside: { sphere: { center: [0, 2, 0], radius: 0.5 }, material: 'clay' } });
+  const lit = buildEnvs({ group: [candle(true), row] });
+  const unlit = buildEnvs({ group: [candle(false), row] });
+  assert.ok(lit.nodes.length <= unlit.nodes.length + 4,
+    `${lit.nodes.length} nodes lit, ${unlit.nodes.length} unlit: the row copied whole for the light`);
+  // The same solids everywhere,
+  for (let x = -60; x <= 60; x += 0.5) {
+    for (const y of [-0.5, 0, 0.5, 1.5, 2.5]) {
+      const a = at(lit, [x, y, 0]), b = at(unlit, [x, y, 0]);
+      assert.equal(a.solid, b.solid, `at ${x}, ${y}`);
+      assert.equal(a.material, b.material, `at ${x}, ${y}`);
+    }
+  }
+  // and those within the sphere are in its env, those beyond not.
+  const sphereNode = lit.lights[lit.topLights].env;
+  assert.deepEqual(envChain(lit, at(lit, [2, 0, 0]).node), [sphereNode, 0]);
+  assert.deepEqual(envChain(lit, at(lit, [-2, 0.5, 0]).node), [sphereNode, 0]);
+  assert.deepEqual(envChain(lit, at(lit, [30, 0, 0]).node), [0]);
+});
+
 test('a light outside its own region warns', (t) => {
   const warned = [];
   t.mock.method(console, 'warn', (msg) => warned.push(msg));

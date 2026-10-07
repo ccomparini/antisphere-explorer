@@ -88,6 +88,13 @@ acceleration structure to build, keep in step, or traverse.
   alone. These trees are about divisions, not solidity: a region is
   claimed by an absent inside whatever its material, and a node filled with
   `null` divides space exactly as one filled with stone.
+- Inside an env one of its members starts - a candle's lit sphere - a
+  later member is grafted pruned to the env's region (`pruneTo()`): what
+  goes there is a copy anyway, with the env's own env values, so it takes
+  only the parts of the member that reach the region. A candle in a big
+  maze costs about a hundred nodes, not a second maze. Lights can then be
+  objects, placed first in a group: a light, an env round it, and whatever
+  follows lit where it lies within it.
 
 ## Moving objects
 
