@@ -40,6 +40,13 @@ const KIND_UNLIT    : u32 = 3u;
 // bakeScopes() in antisphere-scene.js), and its albedo is the ambient
 // level there.
 const KIND_AMBIENT  : u32 = 4u;
+// A glow region: like an ambient material, a region rather than a
+// substance - not solid by default, and a node naming one starts an env -
+// but lit from within instead of at a level: its albedo is the light at
+// its node's centre, falling to nothing at the node's surface (addGlow()).
+// Worked out from the node's own coefficients at every hit, so changing
+// them (a flickering radius) changes the light.
+const KIND_GLOW_REGION : u32 = 5u;
 
 const PATTERN_CHECKER          : u32 = 1u;
 const PATTERN_NOISE            : u32 = 2u;
@@ -466,7 +473,11 @@ fn surfaceMaterial(hit : Hit) -> Material {
 // material - shaped by a crude hemisphere term. Env 0 is the default.
 fn ambient(env : u32, N : vec3<f32>) -> vec3<f32> {
   var base = vec3<f32>(0.13, 0.13, 0.14);
-  if (env > 0u) { base = materials[nodes[env].material].albedo; }
+  if (env > 0u) {
+    // A glow region has no level of its own: its glow is all its light.
+    let m = materials[nodes[env].material];
+    base = select(m.albedo, vec3<f32>(0.0), m.kind == KIND_GLOW_REGION);
+  }
   return base; // * (0.77 + 0.23 * max(N.z, 0.0));
 }
 
@@ -505,6 +516,45 @@ fn firstLightOf(env : u32) -> u32 {
     if (lights[middle].env < env) { low = middle + 1u; } else { high = middle; }
   }
   return low;
+}
+
+// Where a glow region's light is, for a hit at P: its node's centre, as an
+// offset from the node's anchor - in each direction the quadric curves,
+// where it turns, and in any it does not, P's own. So a sphere's or a
+// spheroid's is its centre, a cone's its apex, a cylinder's the point of
+// its axis nearest P (a glowing line) and a slab's the point of its middle
+// plane nearest P.
+fn glowCentre(nd : Node, P : vec3<f32>) -> vec3<f32> {
+  let R = P - nd.anchor;
+  let c = 0.5 * nd.linear;
+  let kAlong = nd.curvature_perp + nd.curvature_delta;
+  let kAcross = nd.curvature_perp;
+  let most = max(abs(kAlong), abs(kAcross));
+  var along = dot(nd.axis, R);
+  var across = R - along * nd.axis;
+  if (abs(kAlong) > 1e-6 * most) { along = -dot(nd.axis, c) / kAlong; }
+  if (abs(kAcross) > 1e-6 * most) { across = -(c - dot(nd.axis, c) * nd.axis) / kAcross; }
+  return along * nd.axis + across;
+}
+
+// A glow region's light at a hit within it: its albedo at the centre
+// (glowCentre()), falling off as a light does, and by H(P) / H(centre) -
+// 1 at the centre and 0 on the node's surface, 1 - d^2/r^2 for a sphere -
+// squared, so it fades out smoothly at the edge. A shape whose centre is
+// not inside it (a cone's apex, a complemented sphere's) has no such
+// ratio, and glows as a plain light from it. Its shadow rays start inside
+// it, as a light's in it do.
+fn addGlow(env : u32, hit : Hit, shininess : f32, out : ptr<function, Direct>) {
+  let nd = nodes[env];
+  let centre = glowCentre(nd, hit.position);
+  let atCentre = fAbout(nd, centre);
+  var falloff = 1.0;
+  if (atCentre < 0.0) {
+    let ratio = clamp(fAt(nd, hit.position) / atCentre, 0.0, 1.0);
+    falloff = ratio * ratio;
+  }
+  if (falloff <= 0.0) { return; }
+  addLight(Light(nd.anchor + centre, env, materials[nd.material].albedo * falloff, 0.0), hit, shininess, out);
 }
 
 // One light's direct light at a hit, with one shadow ray, added to `out`.
@@ -546,8 +596,9 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
 }
 
 // Sums direct light over the lights that reach a hit: those of its env and
-// of every env enclosing it - following env from node to node walks
-// outward, to 0, whose lights reach everything. So a room's torch lights
+// of every env enclosing it, and the glow of each that is a glow region -
+// following env from node to node walks outward, to 0, whose lights
+// reach everything. So a room's torch lights
 // the room and not the hall it opens off, and the hall's lamps light into
 // the room; and a hit costs its own env chain's lights, not the scene's.
 // A shininess of zero skips the specular term entirely.
@@ -561,6 +612,9 @@ fn directLighting(hit : Hit, shininess : f32) -> Direct {
   loop {
     for (var i = firstLightOf(env); i < n && lights[i].env == env; i = i + 1u) {
       addLight(lights[i], hit, shininess, &out);
+    }
+    if (env != 0u && materials[nodes[env].material].kind == KIND_GLOW_REGION) {
+      addGlow(env, hit, shininess, &out);
     }
     if (env == 0u) { break; }
     env = nodes[env].env;

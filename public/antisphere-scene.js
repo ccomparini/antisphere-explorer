@@ -382,8 +382,18 @@ const KINDS = {
   // that names one starts an env (bakeScopes()): its albedo is the ambient
   // level for everything inside it.
   ambient:  { id: 4, params: () => [0, 0] },
+  // A glow region: a region like an ambient one, not solid by default, and
+  // a node that names one starts an env - but lit from within: its albedo
+  // is the light at its node's centre, falling to nothing at the node's
+  // surface, worked out by the shader from the node itself (addGlow() in
+  // the raycast shader). No ambient level within it.
+  glowRegion: { id: 5, params: () => [0, 0] },
 };
 const KIND_AMBIENT = 4;
+const KIND_GLOW_REGION = 5;
+// The kinds that make a region rather than a substance: a node naming one
+// starts an env (bakeScopes()).
+const isRegionKind = (kind) => kind === KIND_AMBIENT || kind === KIND_GLOW_REGION;
 
 // The ambient level outside every env: ambient() in the raycast shader
 // uses the same, and an outermost lit region with no level of its own
@@ -667,6 +677,7 @@ function bakeScopes(tree, table) {
   const memo = new Map();       // "material:env id" -> (subtree -> baked)
   const envIds = new Map();     // env node -> a number for the memo key
   let defaultAmbient = 0;       // its index once needed
+  let noAmbient = 0;            // likewise: an ambient level of nothing
   const ambientOutermost = () => {
     if (!defaultAmbient) {
       table.push({ ...table[0], albedo: DEFAULT_AMBIENT, kind: KIND_AMBIENT, solid: false });
@@ -683,10 +694,22 @@ function bakeScopes(tree, table) {
     const named = t.material !== INHERIT_MATERIAL;
     const lit = t.lights?.length > 0;
     let hereMat = named ? t.material : matScope;
-    if (lit && !named) hereMat = envNode ? envNode.material : ambientOutermost();
+    if (lit && !named) {
+      // The level around it - which, in a glow region, is none: the region's
+      // material would make this node a glow of its own.
+      if (!envNode) hereMat = ambientOutermost();
+      else if (table[envNode.material].kind !== KIND_GLOW_REGION) hereMat = envNode.material;
+      else {
+        if (!noAmbient) {
+          table.push({ ...table[0], albedo: [0, 0, 0], kind: KIND_AMBIENT, solid: false });
+          noAmbient = table.length - 1;
+        }
+        hereMat = noAmbient;
+      }
+    }
     const out = node(t.prim, null, null, hereMat, envNode, t.prov, t.lights);
     byScope.set(t, out);
-    const startsEnv = lit || (named && table[t.material].kind === KIND_AMBIENT);
+    const startsEnv = lit || (named && isRegionKind(table[t.material].kind));
     if (startsEnv) envIds.set(out, envIds.size + 1);
     out.inside = resolve(t.inside, hereMat, startsEnv ? out : envNode);
     out.outside = resolve(t.outside, matScope, envNode);
@@ -1108,7 +1131,7 @@ export function compileScene(rawSpec, options = {}) {
       pattern,
       // e.g. water, glass, or a spatial-subdivision-only material; an
       // ambient is a region's surroundings, not a substance
-      solid:   def.solid ?? kind !== KINDS.ambient,
+      solid:   def.solid ?? !isRegionKind(kind.id),
     });
     matIndex.set(name, table.length - 1);
   }
@@ -1481,7 +1504,7 @@ export function compileScene(rawSpec, options = {}) {
   // Whether a node starts an env (bakeScopes()): it carries lights, or
   // names an ambient material.
   const startsEnv = (t) => t.lights?.length > 0
-    || (t.material !== INHERIT_MATERIAL && table[t.material]?.kind === KIND_AMBIENT);
+    || (t.material !== INHERIT_MATERIAL && isRegionKind(table[t.material]?.kind));
 
   // `t` as it is within `region` ({ prim, sign }, with `ball` if it has
   // one): a copy without what lies on sides of its nodes proved clear of
@@ -1864,9 +1887,9 @@ export function compileScene(rawSpec, options = {}) {
       // Lights make the node a region (an env): what fills it is its
       // ambient level, if it names one, or the level around it.
       const lights = def.lights === undefined ? null : lightsOf(def.lights, `${path}.lights`);
-      if (lights && material !== INHERIT_MATERIAL && table[material].kind !== KIND_AMBIENT) {
+      if (lights && material !== INHERIT_MATERIAL && !isRegionKind(table[material].kind)) {
         at(`${path}.material`, 'a node with lights is a region, lit, not a substance: name an ' +
-                               'ambient material, for its ambient level, or none, to keep the level around it');
+                               'ambient or glowRegion material, or none, to keep the level around it');
       }
       out = node(primOf(def, path), insideTree, outsideTree, material, 0, provOf(where), lights);
     }

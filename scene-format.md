@@ -86,7 +86,7 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 
 | field      | type                                          | default          | meaning |
 |------------|-----------------------------------------------|------------------|---------|
-| `kind`     | `"lambert"` \| `"glossy"` \| `"emissive"` \| `"unlit"` \| `"ambient"` | `"lambert"` | shading model, see below |
+| `kind`     | `"lambert"` \| `"glossy"` \| `"emissive"` \| `"unlit"` \| `"ambient"` \| `"glowRegion"` | `"lambert"` | shading model, see below |
 | `albedo`   | `[r, g, b]`                                    | `[0.7, 0.7, 0.7]`| base surface color |
 | `albedo2`  | `[r, g, b]`                                    | `[0.3, 0.3, 0.3]`| secondary color, used by the `"checker"` pattern |
 | `pattern`  | `"flat"` \| `"checker"`                        | `"flat"`         | how `albedo`/`albedo2` are combined across the surface |
@@ -102,6 +102,11 @@ and behave. The name `inherit` is reserved (left over from the deprecated
   and is not solid unless `solid` says so. A node naming one starts an
   ambient region: its `albedo` is the ambient light level for everything in
   the node's `inside` subtree (see "Ambient regions" below).
+- `"glowRegion"`: no extra fields. A region like an ambient one - never
+  shades, not solid unless `solid` says so, and a node naming one starts a
+  region - but lit from within rather than at a level: its `albedo` is the
+  light at the node's centre, falling off as a light's does and fading to
+  nothing at the node's surface (see "Glow regions" below).
 
 Material `0` (vacuum/no material) is implicit and reserved; you never author
 it directly, but it is what a node resolves to when no material is named
@@ -579,6 +584,35 @@ Every node records the region it is in as the index of the node that starts
 it (`env`), and that node records the region enclosing it, so a region is
 known by its geometry rather than by its material: two regions using the
 same ambient material are still two regions.
+
+### Glow regions
+
+```
+"candlelight": { "kind": "glowRegion", "albedo": [1.2, 0.85, 0.45] }
+{ "sphere": { "center": [0, 0, 0.17], "radius": 2.5 }, "material": "candlelight", "inside": ... }
+```
+
+A node naming a `"glowRegion"` material starts a region lit from within:
+everything in its `"inside"` subtree is lit as if by a light at the node's
+centre, of the material's `albedo` there, falling off with distance as a
+light does, and also by H(P) / H(centre) squared - the node's own implicit
+function, which is 1 at the centre and 0 on its surface (1 - d²/r² for a
+sphere) - so the glow fades smoothly to nothing at the node's surface. The
+renderer works this out from the node at every hit, so changing the node -
+its radius, say, flickering - changes the glow. Its shadows are cast by what
+the region holds, as a region's lights' are. A glow region has no ambient
+level of its own: the glow is all its light, besides the lights of the
+regions round it.
+
+Any shape will do. Its centre is where the quadric turns in each direction
+it curves, and the lit point's own position in any it doesn't: a sphere's
+or a spheroid's centre, a cylinder's axis (a glowing line), a slab's middle
+plane. A shape whose centre is not inside it - a cone's apex, a complemented
+sphere's - glows as a plain light from there, with no fade.
+
+A light inside a solid is shadowed by it, so a visible flame should be the
+glow region's parent rather than within it: the region's shadow rays see
+only its own subtree (see `scenes/candle.json`).
 
 A node carrying `"lights"` starts a region too, with or without an ambient
 material, and its lights are the region's own: a surface is lit by the

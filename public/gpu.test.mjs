@@ -922,6 +922,60 @@ gpuTest('a region\'s lights light it, and the scene\'s everything; not each othe
   assert.ok(Math.abs(bSide[0][1] - bSide[1][1]) <= 2 && bSide[0][1] > 60, `and the scene's green everywhere: ${say}`);
 });
 
+gpuTest('a glow region lights from its centre, fading to nothing at its surface, as its node is now', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A floor seen from above, and over it a glow region, a sphere about
+  // [0, 0, 1]; around it no ambient light at all, so beyond the sphere
+  // the floor is black.
+  const floor = { plane: { normal: [0, 0, 1], offset: 0 }, material: 'white' };
+  const spec = (radius, lights = []) => ({
+    materials: {
+      white: { albedo: [0.8, 0.8, 0.8] },
+      glow: { kind: 'glowRegion', albedo: [3, 3, 3] },
+      dark: { kind: 'ambient', albedo: [0, 0, 0] },
+    },
+    lights,
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'dark', inside: {
+      sphere: { center: [0, 0, 1], radius }, material: lights.length ? 'dark' : 'glow',
+      inside: floor, outside: floor,
+    } },
+  });
+  // Looking straight down, orthographic: x to the left, so column 80 - 10 x.
+  const camera = () => {
+    const c = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  const level = (img, x) => img.at(Math.round(80 - 10 * x), 40)[0];
+  const glow = await renderPixels(spec(3), camera());
+  // As the formula has it, at each pixel's centre, x = (79.5 - column) / 10:
+  // the light at its centre, inverse square (softened, 1 + d^2), and by
+  // H(P) / H(centre) = 1 - d^2 / r^2, squared; on white 0.8, raised to
+  // 1/2.2 for the screen. The sphere meets the floor at x = sqrt(8), 2.83.
+  const expected = (column, radius) => {
+    const x = (79.5 - column) / 10, d2 = x * x + 1;
+    const falloff = Math.max(0, 1 - d2 / (radius * radius)) ** 2;
+    const light = 0.8 * (3 / (1 + d2)) * falloff * (1 / Math.sqrt(d2));
+    return 255 * Math.min(1, light) ** (1 / 2.2);
+  };
+  for (const column of [80, 70, 60, 55, 53, 52, 51, 50, 45, 40]) {
+    const seen = glow.at(column, 40)[0], want = expected(column, 3);
+    assert.ok(Math.abs(seen - want) <= 3, `column ${column}: ${seen}, the formula ${want.toFixed(1)}`);
+  }
+  assert.equal(glow.at(50, 40)[0], 0, 'nothing beyond it - no ambient within or without');
+  const edge = level(glow, 2.7);
+  // The light comes from the node as it is: a bigger sphere reaches further.
+  const bigger = await renderPixels(spec(4), camera());
+  assert.ok(level(bigger, 2.7) > edge + 10, `radius 4: ${level(bigger, 2.7)} at 2.7, against ${edge}`);
+  // And far from its surface it is a light at its centre, of its albedo.
+  const huge = await renderPixels(spec(90), camera());
+  const point = await renderPixels(spec(90, [{ pos: [0, 0, 1], color: [3, 3, 3] }]), camera());
+  for (const x of [0, 0.5, 1, 2]) {
+    assert.ok(Math.abs(level(huge, x) - level(point, x)) <= 3,
+              `at ${x}: glow ${level(huge, x)}, the same light ${level(point, x)} (within (1 - d^2/90^2)^2)`);
+  }
+});
+
 gpuTest('setLights replaces the scene\'s own lights and keeps those its nodes carry', async () => {
   const sc = ctx.createScene({
     materials: MATERIALS,

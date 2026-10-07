@@ -749,6 +749,28 @@ test('a group grafts into a lit region only the part of a member that reaches it
   assert.deepEqual(envChain(lit, at(lit, [30, 0, 0]).node), [0]);
 });
 
+test('a glow region is a region: an env, not solid; a lit node within it is no glow of its own', () => {
+  const built = compileScene({
+    materials: { clay: {}, glow: { kind: 'glowRegion', albedo: [2, 1.5, 1] } },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside:
+      ball(0, 5, { material: 'glow', inside: { union: [
+        ball(-2, 1, { material: 'clay' }),
+        ball(2, 1.5, { lights: [lamp([2, 0, 0])], inside: ball(2, 0.5, { material: 'clay' }) }),
+      ] } }) },
+  });
+  const region = envChain(built, at(built, [-2, 0, 0]).node)[0];
+  assert.equal(built.materials[built.nodes[region].material].kind, 5, 'the glow region starts the env');
+  assert.equal(at(built, [0, 0, 3]).solid, false, 'and is not solid');
+  // The lit ball within it starts an env too - but with no level, not the
+  // glow's material, which would make it a second glow.
+  const [lit, outer] = envChain(built, at(built, [2, 0, 0]).node);
+  assert.equal(outer, region);
+  const litMaterial = built.materials[built.nodes[lit].material];
+  assert.equal(litMaterial.kind, 4);
+  assert.deepEqual(litMaterial.albedo, [0, 0, 0]);
+});
+
 test('a light outside its own region warns', (t) => {
   const warned = [];
   t.mock.method(console, 'warn', (msg) => warned.push(msg));

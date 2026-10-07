@@ -147,7 +147,11 @@ coefficients in place, with no recompile.
   looks right is the scene author's to decide. A hit's lights are found
   by walking its env chain: the lights are stored in order of env, so each
   env's are a run, found by binary search - a hit pays for the lights on
-  its chain, not the scene's.
+  its chain, not the scene's. A glow region (a `"glowRegion"` material) is
+  an env lit from within: its light is at its node's centre, fading to
+  nothing at the node's surface by the node's own implicit function, worked
+  out from the node at every hit, so moving or resizing the node changes
+  it.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.
