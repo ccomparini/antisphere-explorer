@@ -933,3 +933,68 @@ gpuTest('setLights replaces the scene\'s own lights and keeps those its nodes ca
   assert.deepEqual(sc.lights.map((lt) => [lt.pos, lt.env]), [[[1, 2, 3], 0], [[0, 0, 1], 1]]);
   sc.destroy();
 });
+
+// -- a light's shadow rays start inside its env ------------------------------------------
+
+gpuTest('a region\'s light is shadowed by what the region holds, as a light of the scene\'s would be', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A region holding a floor and a ball, its light above; looking down.
+  const lamp = { pos: [1, 0, 2.6], color: [30, 30, 30] };
+  const ball = { sphere: { center: [0.5, 0, 1.3], radius: 0.4 }, material: 'clay' };
+  const floor = { slab: { center: [0, 0, -0.25], axis: [0, 0, 1], thickness: 0.5 }, material: 'clay' };
+  const spec = (scoped) => ({
+    materials: { clay: { albedo: [0.8, 0.8, 0.8] } },
+    lights: scoped ? [] : [lamp],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: {
+      sphere: { center: [0, 0, 1], radius: 3 }, ...(scoped ? { lights: [lamp] } : {}),
+      inside: { union: [ball, floor] },
+    } },
+  });
+  const camera = () => {
+    const c = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  // 8 high on 80 pixels: 10 a unit. Looking straight down, the frame's
+  // right is -X and its up -Y (as just short of straight down, facing -Y).
+  const px = (x, y) => [Math.round(80 - 10 * x), Math.round(40 + 10 * y)];
+  const scoped = await renderPixels(spec(true), camera());
+  const open = await renderPixels(spec(false), camera());
+  for (let y = 0; y < 80; y += 4) for (let x = 0; x < 160; x += 4) {
+    assert.deepEqual(scoped.at(x, y), open.at(x, y), `pixel ${x},${y}: the same light, scoped or not`);
+  }
+  // The ball's shadow falls round (0, 0) on the floor - seen from above at
+  // (-0.3, 0), clear of the ball itself (x 0.1 to 0.9); (-2, 0) is open.
+  assert.ok(scoped.at(...px(-0.3, 0))[0] + 30 < scoped.at(...px(-2, 0))[0],
+            `shadowed ${scoped.at(...px(-0.3, 0))}, open ${scoped.at(...px(-2, 0))}`);
+});
+
+gpuTest('a region\'s light sees only the region\'s subtree, even where other geometry overlaps it', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // The same, but the ball is a node before the region - the region is its
+  // outside - so it is not in the region's subtree, though it lies within
+  // it. The region's light, tracing from inside the region, does not see
+  // it.
+  const lamp = { pos: [1, 0, 2.6], color: [30, 30, 30] };
+  const ball = { sphere: { center: [0.5, 0, 1.3], radius: 0.4 }, material: 'clay' };
+  const floor = { slab: { center: [0, 0, -0.25], axis: [0, 0, 1], thickness: 0.5 }, material: 'clay' };
+  const spec = (scoped) => ({
+    materials: { clay: { albedo: [0.8, 0.8, 0.8] } },
+    lights: scoped ? [] : [lamp],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: {
+      ...ball,
+      outside: { sphere: { center: [0, 0, 1], radius: 3 }, ...(scoped ? { lights: [lamp] } : {}), inside: floor },
+    } },
+  });
+  const camera = () => {
+    const c = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  const px = (x, y) => [Math.round(80 - 10 * x), Math.round(40 + 10 * y)];   // right -X, up -Y
+  const scoped = await renderPixels(spec(true), camera());
+  const open = await renderPixels(spec(false), camera());
+  const shadow = px(-0.3, 0);
+  assert.ok(open.at(...shadow)[0] + 30 < scoped.at(...shadow)[0],
+            `the scene's light is shadowed by the ball (${open.at(...shadow)}), the region's is not (${scoped.at(...shadow)})`);
+});

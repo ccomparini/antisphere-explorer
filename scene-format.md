@@ -345,6 +345,10 @@ inside its own region; one that isn't is warned about. Lights move with
 the node - placed with `"translate"`, `"rotate"` and `"scale"`, or brought
 in from another file with an object.
 
+Such a light sees only what its region holds: its shadows are cast by the
+node's `"inside"` subtree and nothing else. Anything that should shade it
+belongs inside the region.
+
 ### `"use"`
 
 ```

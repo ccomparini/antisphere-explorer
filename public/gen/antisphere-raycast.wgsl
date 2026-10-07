@@ -269,6 +269,10 @@ struct Seg {
 
 const DEFAULT_INSIDE_BIT : u32 = 0x80000000u;
 
+// Node 1 is always the tree's root (0 is reserved): where trace() starts
+// for the whole scene.
+const ROOT : u32 = 1u;
+
 // trace()'s stack of deferred segments. It lives here, not in trace(),
 // because WGSL zero-fills every variable when it comes into scope: inside
 // trace() that was 32 * 3 stores to scratch memory on every call, so on
@@ -298,12 +302,18 @@ const DEGENERATE : f32 = 1e-12;
 // provisional hit that turned out hollow leaves its distances behind, and
 // resetting them costs time for a value no caller should read.
 //
+// `start` is where the trace begins, as a Seg's node: ROOT for the whole
+// scene, or a node tagged with DEFAULT_INSIDE_BIT to trace only that
+// node's inside - its subtree, as if the ray were already within it. A
+// light's shadow ray starts inside its env (see directLighting()), so it
+// sees only what that env holds.
 fn trace(
   O : vec3<f32>,
   D : vec3<f32>,
   tMin : f32,
   tMax : f32,
-  fromSurface: u32
+  fromSurface: u32,
+  start: u32
 ) -> Seg {
   // found.node == 0 means "no hit (yet)" - node 0 is reserved (see Node's
   // doc comment) so no real crossing can ever claim it. Segments pop in
@@ -320,7 +330,7 @@ fn trace(
   // shorter than the epsilon, so no popped segment can be degenerate. A
   // degenerate range from the caller then costs one node visit that pushes
   // nothing, instead of a test on every iteration forever after.
-  var seg = Seg(1u, tMin, tMax);   // node 1 is always the tree's root (0 is reserved)
+  var seg = Seg(start, tMin, tMax);   // ROOT, or a node's inside (see above)
   var sp : i32 = 0;                // traceStack's depth; see traceStack
 
   var guard : i32 = 0;
@@ -496,7 +506,7 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode]);
+  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT);
 }
 
 // Surface parameterization from the node's own numbers. A plane gets a
@@ -657,7 +667,11 @@ fn directLighting(hit : Hit, shininess : f32) -> Direct {
       // Any solid between the surface and the light occludes the light.
       // We trace from the point on the surface toward the light so that
       // directional lights can work. 
-      let blocker = trace(hit.position, L, 0.0, dist, surfaces[hit.node]);
+      // From inside the light's env: it sees only what that env holds, so
+      // a room's lamp is shadowed by the room alone (and its rays take the
+      // room's subtree, not the scene's). Env 0's lights see everything.
+      let start = select(ROOT, lt.env | DEFAULT_INSIDE_BIT, lt.env != 0u);
+      let blocker = trace(hit.position, L, 0.0, dist, surfaces[hit.node], start);
       if (blocker.node != 0u) {
         // the ray hit something between us and the light,
         // so we're in shadow:
@@ -760,7 +774,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // from what it computed.
   var found = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
-    found = trace(origin, dir, 1e-3, 1e4, 0u);
+    found = trace(origin, dir, 1e-3, 1e4, 0u, ROOT);
   }
 
   var col = vec3<f32>(0.0);
@@ -804,4 +818,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":674}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":688}]
