@@ -27,7 +27,7 @@ function run(args) {
     child.on('close', (status) => done({ status, stdout, stderr }));
   });
 }
-const scene = async (args) => {
+const model = async (args) => {
   const got = await run(args);
   assert.equal(got.status, 0, got.stderr);
   return JSON.parse(got.stdout);
@@ -73,57 +73,91 @@ function tar(files) {
 
 const file = (name, content) => { const path = join(scratch, name); writeFileSync(path, content); return path; };
 
-/** Its one object: the mesh's tree, centred and standing on the floor. */
-function checkMesh(got, name, material = 'clay') {
-  assert.ok(got.objects[name], `objects.${name}`);
-  assert.ok(got.materials[material], `the material ${material}`);
-  assert.ok(got.camera && got.lights.length, 'a scene to look at it in');
-  const built = compileScene(structuredClone(got));
-  assert.ok(built.nodes.length > 4);
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const H = (prim, R) => {
+  const along = dot(prim.axis, R);
+  return prim.k_perp * dot(R, R) + (prim.k_par - prim.k_perp) * along * along + 2 * dot(prim.linear, R) + prim.constant;
+};
+const CLAY = [0.7, 0.5, 0.4], BRASS = [0.7, 0.6, 0.2];
+
+/**
+ * What fills point R of a model, as a scene places it: inside a ball of
+ * clay, which it is made of unless it names a material of its own - the
+ * albedo there, or null where nothing solid is. By trace()'s rules, from
+ * the model down: a ray reaches it through the empty space round it,
+ * which forgets the ball's own claim.
+ */
+function albedoAt(got, R) {
+  const built = compileScene({
+    materials: { clay: { albedo: CLAY }, brass: { albedo: BRASS } },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'clay', inside: got },
+  });
+  let index = built.nodes[1].inside, found = 0;
+  while (index) {
+    const nd = built.nodes[index];
+    if (H(nd.prim, R) < 0) {
+      if (built.materials[nd.material].solid) { if (!found) found = index; } else found = 0;
+      if (!nd.inside) break;
+      index = nd.inside;
+    } else {
+      found = 0;
+      index = nd.outside;
+    }
+  }
+  return found ? built.materials[built.nodes[found].material].albedo : null;
 }
 
-test('PLY and STL files become scenes, named for the file', async () => {
-  checkMesh(await scene([file('tet.ply', PLY)]), 'tet');
-  checkMesh(await scene([file('wedge.stl', STL)]), 'wedge');
+// The tetrahedron as placed - centred over the origin, standing on z = 0 -
+// spans x and y from -1 to 1 and z from 0 to 2: its centroid is here.
+const INSIDE = [-0.5, -0.5, 0.5];
+
+/** The model alone - a subtree, no scene round it - and solid where the mesh is. */
+function checkMesh(got, inside = INSIDE, albedo = CLAY) {
+  assert.ok(got.spheroid, 'the mesh\'s bounding spheroid, at the top');
+  for (const key of ['objects', 'materials', 'lights', 'camera', 'root']) assert.ok(!(key in got), `no ${key}`);
+  assert.deepEqual(albedoAt(got, inside), albedo);
+  assert.equal(albedoAt(got, [0.9, 0.9, 1.9]), null, 'outside the slanted face');
+}
+
+test('PLY and STL files become models: the mesh alone, as a subtree', async () => {
+  checkMesh(await model([file('tet.ply', PLY)]));
+  checkMesh(await model([file('wedge.stl', STL)]));
 });
 
-test('--fit, --material and --name, as stl-to-scene takes them', async () => {
-  const got = await scene([file('tet.ply', PLY), '--fit', '5', '--material', 'brass', '--name', 'pyramid']);
-  checkMesh(got, 'pyramid', 'brass');
-  // Placed inside a ball of brass round it: 5 across, so the ball's
-  // radius is half its bounds' diagonal, about 4.3 (a side of 5 alone
-  // would be 2.5).
-  const ball = JSON.stringify(got.root).match(/"sphere":\{"center":\[[^\]]*\],"radius":([0-9.]+)\},"material":"brass"/);
-  assert.ok(ball && Math.abs(Number(ball[1]) - 1.01 * Math.sqrt(75) / 2) < 1e-9, `the ball: ${ball?.[0]}`);
+test('--fit and --material, as stl-to-scene takes them', async () => {
+  // 5 across rather than 2: the centroid 2.5 times as far out.
+  const got = await model([file('tet.ply', PLY), '--fit', '5', '--material', 'brass']);
+  assert.equal(got.material, 'brass');
+  assert.deepEqual(albedoAt(got, INSIDE.map((v) => v * 2.5)), BRASS, 'made of brass, whatever is round it');
+  assert.equal(albedoAt(got, [2.3, 2.3, 4.8]), null);
+  // With none, it names none, and is made of what is round it.
+  assert.ok(!('material' in await model([file('tet.ply', PLY)])));
 });
 
 test('--up turns the axis named onto the scene\'s up', async () => {
-  // A box 1 by 4 by 1, tall along y: as written it lies 1 high; with --up y
-  // (or -y) it stands 4 high. The ball of material round it says which:
-  // centred half its height up.
+  // A box 1 by 4 by 1, tall along y: as written it lies 1 high, so solid
+  // half a unit up and empty 3.5 up; with --up y (or -y) it stands 4 high,
+  // solid at both.
   const v = [[0, 0, 0], [1, 0, 0], [1, 4, 0], [0, 4, 0], [0, 0, 1], [1, 0, 1], [1, 4, 1], [0, 4, 1]];
   const quads = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]];
   const box = file('post.stl', Buffer.from(writeSTL(quads.flatMap(([a, b, c, d]) => [[v[a], v[b], v[c]], [v[a], v[c], v[d]]]))));
-  const height = (got) => 2 * JSON.parse(JSON.stringify(got.root).match(/"sphere":(\{"center":\[[^\]]*\],"radius":[0-9.e-]+\}),"material":"clay"/)[1]).center[2];
-  assert.equal(height(await scene([box])), 1);
-  for (const up of ['y', '-y']) {
-    const got = await scene([box, '--up', up]);
-    assert.ok(Math.abs(height(got) - 4) < 1e-12, `--up ${up}: ${height(got)}`);
-    checkMesh(got, 'post');
-  }
-  assert.ok(Math.abs(height(await scene([box, '--up', 'x'])) - 1) < 1e-12, '--up x: 1 wide, so 1 high');
+  const standing = (got) => [albedoAt(got, [0, 0, 0.5]) !== null, albedoAt(got, [0, 0, 3.5]) !== null];
+  assert.deepEqual(standing(await model([box])), [true, false]);
+  for (const up of ['y', '-y']) assert.deepEqual(standing(await model([box, '--up', up])), [true, true], `--up ${up}`);
+  assert.deepEqual(standing(await model([box, '--up', 'x'])), [true, false], '--up x: 1 wide, so 1 high');
   assert.match((await run([box, '--up', 'w'])).stderr, /--up w: x, y, z, -x, -y or -z/);
 });
 
 test('gzipped, and out of archives: by name after a #, or the one mesh there', async () => {
-  checkMesh(await scene([file('tet.ply.gz', gzipSync(PLY))]), 'tet');
-  checkMesh(await scene([file('wedge.stl.gz', gzipSync(STL))]), 'wedge');
+  checkMesh(await model([file('tet.ply.gz', gzipSync(PLY))]));
+  checkMesh(await model([file('wedge.stl.gz', gzipSync(STL))]));
   const archive = file('models.tar.gz', gzipSync(tar({ 'models/readme.txt': 'hello', 'models/scan/tet.ply': PLY, 'models/wedge.stl.gz': gzipSync(STL) })));
-  checkMesh(await scene([`${archive}#models/scan/tet.ply`]), 'tet');
-  checkMesh(await scene([`${archive}#models/wedge.stl.gz`]), 'wedge');
+  checkMesh(await model([`${archive}#models/scan/tet.ply`]));
+  checkMesh(await model([`${archive}#models/wedge.stl.gz`]));
   const one = file('one.tgz', gzipSync(tar({ 'readme.txt': 'hi', 'only/tet.ply': PLY })));
-  checkMesh(await scene([one]), 'tet');
-  checkMesh(await scene([file('plain.tar', tar({ 'tet.ply': PLY }))]), 'tet');
+  checkMesh(await model([one]));
+  checkMesh(await model([file('plain.tar', tar({ 'tet.ply': PLY }))]));
   const which = await run([archive]);
   assert.equal(which.status, 1);
   assert.match(which.stderr, /holds 2 meshes; name one after a #:\n {2}models\/scan\/tet.ply\n {2}models\/wedge.stl.gz/);
@@ -142,15 +176,15 @@ test('from a URL, http or file', async () => {
   await new Promise((done) => server.listen(0, '127.0.0.1', done));
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
-    checkMesh(await scene([`${base}/m/tet.ply.gz`]), 'tet');
-    checkMesh(await scene([`${base}/m/a.tar.gz#x/wedge.stl`]), 'wedge');
+    checkMesh(await model([`${base}/m/tet.ply.gz`]));
+    checkMesh(await model([`${base}/m/a.tar.gz#x/wedge.stl`]));
     const missing = await run([`${base}/m/nope.ply`]);
     assert.equal(missing.status, 1);
     assert.match(missing.stderr, /nope.ply: 404/);
   } finally {
     server.close();
   }
-  checkMesh(await scene([pathToFileURL(file('tet.ply', PLY)).href]), 'tet');
+  checkMesh(await model([pathToFileURL(file('tet.ply', PLY)).href]));
 });
 
 test('-o writes there, gzipped if its name ends .gz; --float32 rounds every number to a float32', async () => {
@@ -158,12 +192,12 @@ test('-o writes there, gzipped if its name ends .gz; --float32 rounds every numb
   const plain = join(scratch, 'out/tet.json');
   assert.equal((await run([source, '--fit', '3', '-o', plain])).status, 0);
   const full = JSON.parse(readFileSync(plain, 'utf8'));
-  checkMesh(full, 'tet');
+  checkMesh(full);
   const zipped = join(scratch, 'out/tet32.json.gz');
   assert.equal((await run([source, '--fit', '3', '--float32', '-o', zipped])).status, 0);
   const text = gunzipSync(readFileSync(zipped)).toString();
   const short = JSON.parse(text);
-  checkMesh(short, 'tet');
+  checkMesh(short);
   const numbers = (value, out = []) => {
     if (typeof value === 'number') out.push(value);
     else if (value && typeof value === 'object') Object.values(value).forEach((v) => numbers(v, out));

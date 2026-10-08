@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Convert a mesh - a file or a URL - into a scene, once, so that a scene
-// can reference it without converting it every time it loads.
+// Convert a mesh - a file or a URL - into a model a scene can reference,
+// once, rather than converting it every time it loads.
 //
 //   node tools/import-model.mjs model.stl > model.json
 //   node tools/import-model.mjs https://example.com/teapot.ply.gz --fit 2 --material brass -o teapot.json
 //   node tools/import-model.mjs \
 //     'http://graphics.stanford.edu/pub/3Dscanrep/dragon/dragon_recon.tar.gz#dragon_recon/dragon_vrip.ply' \
-//     --name dragon --up y --float32 -o public/scenes/parts/stanford/dragon.json.gz
+//     --up y --float32 -o public/scenes/parts/stanford/dragon.json.gz
 //
 // Reads PLY (ascii or binary) and STL (ascii or binary), either of them
 // gzipped, or in a tar archive (gzipped or not) - the file in it named
@@ -21,15 +21,20 @@
 // of minutes - so they are not in git: public/scenes/parts/stanford/ is
 // gitignored, for converting them into.
 //
-// What it writes is what tools/stl-to-scene.mjs writes (sceneAroundMesh()):
-// a complete scene, the mesh as one object - turned so that --up is up,
-// centred on the floor, scaled by --fit - inside a ball of --material,
-// with a floor, a sky, lights and a camera, so it opens as it is; and a
-// scene that wants the mesh alone references the object:
-// "@parts/stanford/dragon.json.gz#/objects/dragon".
-// An output name ending .gz is gzipped, which the loaders unzip.
+// What it writes is the model alone: a subtree, the mesh's planes inside
+// its bounding spheroid (meshToTree()), turned so that --up is up, centred
+// over the origin and standing on z = 0, and scaled by --fit. A scene
+// places it by reference wherever a subtree goes:
 //
-// Reports what it found on stderr, and writes the scene on stdout unless
+//   { "sphere": { ... }, "material": "jade",
+//     "inside": { "use": "@parts/stanford/dragon.json.gz", "scale": 4 } }
+//
+// A mesh names no material, so it is made of whatever the node around it
+// in the scene names - jade, there - unless --material names one for it,
+// which the scene then defines. An output name ending .gz is gzipped,
+// which the loaders unzip.
+//
+// Reports what it found on stderr, and writes the model on stdout unless
 // told where.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -39,10 +44,10 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { readSTL } from '../public/stl.js';
 import { readPLY } from '../public/ply.js';
 import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-import.js';
-import { compileScene, sceneAroundMesh } from '../public/antisphere-scene.js';
+import { compileScene } from '../public/antisphere-scene.js';
 
 const USAGE = `
-import-model - convert a mesh, from a file or a URL, into a scene
+import-model - convert a mesh, from a file or a URL, into a model for scenes
 
   node tools/import-model.mjs <source> [options]
 
@@ -52,8 +57,9 @@ import-model - convert a mesh, from a file or a URL, into a scene
   -o, --out <file>     write here instead of stdout; a name ending .gz is
                        gzipped
       --fit <size>     scale the model so its longest side is this
-      --material <m>   what the scene makes it of (default "clay")
-      --name <n>       the object's name in the scene (default: the file's)
+      --material <m>   what it is made of: a material the scene using it
+                       defines (default: none, so whatever the node around
+                       it in the scene names)
       --up <axis>      which of the file's axes is up: x, y, z (the default)
                        or one of them negated, -y; the model is turned so
                        that it points along +z, the scene's up
@@ -63,7 +69,7 @@ import-model - convert a mesh, from a file or a URL, into a scene
 `.trim();
 
 function parseArguments(argv) {
-  const options = { material: 'clay' };
+  const options = {};
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -76,7 +82,6 @@ function parseArguments(argv) {
       options.fit = Number(next());
       if (!(options.fit > 0)) throw new Error('--fit needs a positive number');
     } else if (arg === '--material') options.material = next();
-    else if (arg === '--name') options.name = next();
     else if (arg === '--up') {
       options.up = next();
       if (!UP[options.up]) throw new Error(`--up ${options.up}: x, y, z, -x, -y or -z`);
@@ -210,8 +215,6 @@ async function main(argv) {
   const turn = UP[options.up ?? 'z'];
   const upright = options.up && options.up !== 'z' ? read.triangles.map((tri) => tri.map(turn)) : read.triangles;
   const placed = placeTriangles(upright, { fit: options.fit });
-  const { lo, hi } = boundsOf(placed);
-  const size = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
 
   const started = Date.now();
   const model = meshToTree(placed);
@@ -220,18 +223,24 @@ async function main(argv) {
   say(`  ${stats.nodes} nodes, depth ${stats.depth}, ${stats.solidLeaves} solid regions`
       + ` (${((Date.now() - started) / 1000).toFixed(1)}s)`);
 
-  const name = options.name ?? read.name;
-  const scene = {
-    _comment: `${options.source}, converted by tools/import-model.mjs; the mesh alone is objects.${name}.`,
-    ...sceneAroundMesh(model, { name, material: options.material, size, bounds: { lo, hi } }),
+  const { lo, hi } = boundsOf(placed);
+  const out = {
+    _comment: `${options.source}, converted by tools/import-model.mjs: ` +
+              `${read.triangles.length} triangles, ${hi.map((v, i) => +(v - lo[i]).toPrecision(4)).join(' x ')} across.`,
+    ...(options.material ? { material: options.material } : {}),
+    ...model,
   };
 
-  // Compile before writing: a scene that will not load is worse than an
-  // error here, about a file nobody wrote by hand.
-  const built = compileScene(structuredClone(scene));
+  // Compile before writing, as a scene would place it: a model that will
+  // not load is worse than an error here, about a file nobody wrote by hand.
+  const built = compileScene({
+    materials: options.material ? { [options.material]: {} } : {},
+    lights: [],
+    root: structuredClone(out),
+  });
   say(`  compiles to ${built.nodes.length - 1} nodes`);
 
-  const json = JSON.stringify(scene, options.float32 ? (key, v) => (typeof v === 'number' ? asFloat32(v) : v) : undefined) + '\n';
+  const json = JSON.stringify(out, options.float32 ? (key, v) => (typeof v === 'number' ? asFloat32(v) : v) : undefined) + '\n';
   if (options.out) {
     mkdirSync(dirname(options.out), { recursive: true });
     writeFileSync(options.out, /\.gz$/i.test(options.out) ? gzipSync(json, { level: 9 }) : json);
