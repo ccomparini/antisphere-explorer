@@ -86,7 +86,7 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 
 | field      | type                                          | default          | meaning |
 |------------|-----------------------------------------------|------------------|---------|
-| `kind`     | `"lambert"` \| `"glossy"` \| `"emissive"` \| `"unlit"` \| `"ambient"` | `"lambert"` | shading model, see below |
+| `kind`     | `"lambert"` \| `"glossy"` \| `"emissive"` \| `"unlit"` \| `"ambient"` \| `"glowRegion"` | `"lambert"` | shading model, see below |
 | `albedo`   | `[r, g, b]`                                    | `[0.7, 0.7, 0.7]`| base surface color |
 | `albedo2`  | `[r, g, b]`                                    | `[0.3, 0.3, 0.3]`| secondary color, used by the `"checker"` pattern |
 | `pattern`  | `"flat"` \| `"checker"`                        | `"flat"`         | how `albedo`/`albedo2` are combined across the surface |
@@ -98,10 +98,17 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 - `"glossy"`: `shininess` (default `32`), `specular` (default `0.6`)
 - `"emissive"`: `emission` (default `1`)
 - `"lambert"`, `"unlit"`: no extra fields
-- `"ambient"`: no extra fields. An ambient material never shades a surface,
-  and is not solid unless `solid` says so. A node naming one starts an
-  ambient region: its `albedo` is the ambient light level for everything in
-  the node's `inside` subtree (see "Ambient regions" below).
+- `"ambient"`: `transmit` (default `0`). An ambient material never shades a
+  surface, and is not solid unless `solid` says so. A node naming one starts
+  an ambient region: its `albedo` is the ambient light level for everything
+  in the node's `inside` subtree, plus `transmit` times the level around it
+  (see "Ambient regions" below).
+- `"glowRegion"`: `transmit` (default `1`), `fill` (default `0`). A region
+  like an ambient one - never
+  shades, not solid unless `solid` says so, and a node naming one starts a
+  region - but lit from within rather than at a level: its `albedo` is the
+  light at the node's centre, falling off as a light's does and fading to
+  nothing at the node's surface (see "Glow regions" below).
 
 Material `0` (vacuum/no material) is implicit and reserved; you never author
 it directly, but it is what a node resolves to when no material is named
@@ -116,7 +123,11 @@ An array of:
 ```
 
 `color`'s magnitude is radiant power, not a 0–1 color — falloff is inverse
-square, so values commonly run well above 1. At least one light is required.
+square, so values commonly run well above 1.
+
+These are the scene's own lights, and light everything. A node may carry
+lights too (see `"lights"` under Subtrees): those light only its own region.
+A scene needs at least one light, here or on a node.
 
 ## `import`
 
@@ -322,6 +333,28 @@ true` it is the same shape turned inside out.
 - `"paint"`: deprecated alias for `"material"`; using it prints a console
   warning. Its old value `"inherit"` now just means the same as omitting a
   material, which already inherits by default.
+
+### `"lights"`
+
+```
+{ "sphere": { "center": [0, 0, 2], "radius": 3 },
+  "lights": [{ "pos": [0, 0, 4], "color": [40, 36, 30] }] }
+```
+
+A node with a shape of its own may carry lights, as the scene does (see
+`lights`). They light only its region - everything in its `"inside"`
+subtree - and regions within it: a room's lamp lights the room, not the
+hall it opens off, while the hall's lights, and the scene's, light into the
+room. Lights make the node an ambient region (see "Ambient regions"), so
+its `"material"` is an ambient one, for the region's ambient level, or none,
+to keep the level around it; anything else is an error. A light should be
+inside its own region; one that isn't is warned about. Lights move with
+the node - placed with `"translate"`, `"rotate"` and `"scale"`, or brought
+in from another file with an object.
+
+Such a light sees only what its region holds: its shadows are cast by the
+node's `"inside"` subtree and nothing else. Anything that should shade it
+belongs inside the region.
 
 ### `"use"`
 
@@ -549,24 +582,73 @@ solids can, by descending through `"inside"`. Only a node that names the
 material itself starts one; nodes inside that inherit it are divisions
 within the region.
 
+A region's ambient level is its own plus `transmit` times the level around
+it: an ambient material's own is its `albedo`, and by default it lets none
+of the outside in (`transmit` 0) - so a cave stays dark under a bright sky,
+ambient light having no shadows to keep it out. A `transmit` of 0.5, say,
+lets half in: a porch. A node carrying lights and no material of its own
+lets all of it in. The levels are worked out when the scene is compiled.
+
 Every node records the region it is in as the index of the node that starts
 it (`env`), and that node records the region enclosing it, so a region is
 known by its geometry rather than by its material: two regions using the
 same ambient material are still two regions.
 
+### Glow regions
+
+```
+"candlelight": { "kind": "glowRegion", "albedo": [1.2, 0.85, 0.45] }
+{ "sphere": { "center": [0, 0, 0.17], "radius": 2.5 }, "material": "candlelight", "inside": ... }
+```
+
+A node naming a `"glowRegion"` material starts a region lit from within:
+everything in its `"inside"` subtree is lit as if by a light at the node's
+centre, of the material's `albedo` there, falling off with distance as a
+light does, and also by H(P) / H(centre) squared - the node's own implicit
+function, which is 1 at the centre and 0 on its surface (1 - d²/r² for a
+sphere) - so the glow fades smoothly to nothing at the node's surface. The
+renderer works this out from the node at every hit, so changing the node -
+its radius, say, flickering - changes the glow. Its shadows are cast by what
+the region holds, as a region's lights' are.
+
+A glow region has no ambient level of its own; by default (`transmit` 1)
+the level around it carries on into it, so it fades into its surroundings
+with no edge. Its `fill` adds that fraction of the glow, unshadowed, as
+ambient light - a rough stand-in for light off the walls, which lifts its
+shadows near the centre and fades with the glow, to nothing at the edge
+(`"fill": 0.08` in `scenes/candle.json`).
+
+Any shape will do. Its centre is where the quadric turns in each direction
+it curves, and the lit point's own position in any it doesn't: a sphere's
+or a spheroid's centre, a cylinder's axis (a glowing line), a slab's middle
+plane. A shape whose centre is not inside it - a cone's apex, a complemented
+sphere's - glows as a plain light from there, with no fade.
+
+A light inside a solid is shadowed by it, so a visible flame should be the
+glow region's parent rather than within it: the region's shadow rays see
+only its own subtree (see `scenes/candle.json`).
+
+A node carrying `"lights"` starts a region too, with or without an ambient
+material, and its lights are the region's own: a surface is lit by the
+lights of its region and of every region enclosing it, out to the scene's.
+
 ## Generated scenes: circular mazes
 
 Some scenes are easier generated than written. `public/maze.js`'s
-`circularMaze({ seed, rings, hallWidth, hallHeight, wallThickness, ... })`
+`circularMaze({ seed, rings, hallWidth, wallHeight, wallThickness, torches, ... })`
 builds a circular maze as a subtree - concentric ring walls with doorways
 through them and short radial walls across the corridors, placed by a
-spanning tree grown from a seed - along with its cells and passages, for
-placing things in it. The tree is a partition made of the maze's own
-surfaces: pure divisions between the rings and by angle, standing in the
-corridors, and each wall spelled face by face, its doorways slabs
-complemented.
+spanning tree grown from a seed, and the floor between them - along with
+its cells and passages, for placing things in it. The tree is a partition
+made of the maze's own surfaces: pure divisions through the middles of the
+walls, between the corridors and between the cells, so that each cell is a
+subtree of its own, and each wall spelled face by face, its doorways slabs
+complemented. A cell with a torch (`torches` is the share of cells that
+have one) is held by a node carrying the torch's light, so the torch lights
+that cell and nothing beyond it.
 `tools/maze.mjs` writes a complete scene round one (floor, sky, light,
-camera); `scenes/maze.json` is seed 1.
+camera; `--torches` and a dimmer `--sun` for night); `scenes/maze.json` is
+seed 1.
 
 ## A note on duplicate keys
 

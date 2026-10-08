@@ -646,3 +646,166 @@ test('a subtree used in two envs is baked once for each', () => {
   const [first] = envChain(built, at(built, [0, 0, 0]).node);
   assert.deepEqual(built.materials[built.nodes[first].material].albedo, [0.2, 0.2, 0.3]);
 });
+
+// -- lights belong to envs ----------------------------------------------------------
+
+const lamp = (pos, color = [9, 9, 9]) => ({ pos, color });
+
+test('a node\'s lights belong to its env, the scene\'s to env 0, and come first', () => {
+  const built = compileScene({
+    materials: { clay: {}, air: { kind: 'ambient', albedo: [0.2, 0.2, 0.3] } },
+    lights: [lamp([0, 0, 50])],
+    // A group, which grafts each member only where it may reach: a union
+    // would graft each room into the other's absent outsides too, a copy
+    // (and its lights) in a region no ray reaches.
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { group: [
+      ball(-10, 4, { material: 'air', lights: [lamp([-10, 0, 2]), lamp([-9, 0, 2])],
+                     inside: ball(-10, 1, { material: 'clay' }) }),
+      ball(10, 4, { lights: [lamp([10, 0, 2])], inside: ball(10, 1, { material: 'clay' }) }),
+    ] } },
+  });
+  assert.equal(built.topLights, 1);
+  assert.deepEqual(built.lights.map((lt) => lt.env)[0], 0);
+  const left = envChain(built, at(built, [-10, 0, 0]).node)[0];
+  const right = envChain(built, at(built, [10, 0, 0]).node)[0];
+  assert.deepEqual(built.lights.slice(1).map((lt) => lt.env).sort(), [left, left, right].sort());
+  assert.deepEqual(built.lights.find((lt) => lt.env === right).pos, [10, 0, 2]);
+  // In order of env: the shader finds an env's lights by binary search.
+  const envs = built.lights.map((lt) => lt.env);
+  assert.deepEqual(envs, [...envs].sort((a, b) => a - b));
+});
+
+test('lights alone make a region, at the ambient level around it', () => {
+  const built = buildEnvs({ union: [
+    // Outermost: the default level, as before it was lit.
+    ball(-10, 4, { lights: [lamp([-10, 0, 2])], inside: ball(-10, 1, { material: 'clay' }) }),
+    // Inside an air region: air's level.
+    ball(10, 6, { material: 'air', inside:
+      ball(10, 4, { lights: [lamp([10, 0, 2])], inside: ball(10, 1, { material: 'clay' }) }) }),
+  ] });
+  const level = (x) => {
+    const env = envChain(built, at(built, [x, 0, 0]).node)[0];
+    const m = built.materials[built.nodes[env].material];
+    assert.equal(m.solid, false);
+    return m.ambient;            // the level there, baked (bakeScopes())
+  };
+  assert.deepEqual(level(-10), [0.13, 0.13, 0.14]);
+  assert.deepEqual(level(10), [0.2, 0.2, 0.3]);
+  assert.equal(at(built, [-10, 2.5, 0]).solid, false, 'the lit region is no substance');
+});
+
+test('lights go with a region, not a substance, and on a node with a shape', () => {
+  assert.throws(() => buildEnvs(ball(0, 4, { material: 'clay', lights: [lamp([0, 0, 1])] })),
+                /a node with lights is a region/);
+  assert.throws(() => buildEnvs({ use: 'r', lights: [lamp([0, 0, 1])] }, { r: ball(0, 4) }),
+                /lights go on a node with a shape/);
+  assert.throws(() => buildEnvs(ball(0, 4, { lights: [{ pos: [0, 0, 1] }] })), /needs pos and color/);
+});
+
+test('lights move with their node: translate, rotate and scale', () => {
+  const room = ball(0, 4, { material: 'air', lights: [lamp([1, 0, 0])], inside: ball(0, 1, { material: 'clay' }) });
+  const built = buildEnvs({ group: [
+    { use: 'room', translate: [20, 0, 0] },
+    { use: 'room', rotate: { axis: [0, 0, 1], degrees: 90 }, translate: [0, 20, 0] },
+    { use: 'room', scale: 2, translate: [-20, 0, 0] },
+  ] }, { room });
+  const positions = built.lights.slice(built.topLights).map((lt) => lt.pos.map((v) => +v.toFixed(9)));
+  assert.deepEqual(positions.map(String).sort(), ['-18,0,0', '0,21,0', '21,0,0'].sort());
+});
+
+test('a lit region baked twice has its lights twice, one per copy\'s env', () => {
+  const built = buildEnvs({ union: [
+    ball(-2, 5, { material: 'air', inside: { use: 'lamp' } }),
+    ball(2, 5, { material: 'warm', inside: { use: 'lamp' } }),
+  ] }, { lamp: ball(0, 1, { lights: [lamp([0, 0, 0.5])] }) });
+  const own = built.lights.slice(built.topLights);
+  assert.ok(own.length >= 2, `${own.length} lights`);
+  assert.equal(new Set(own.map((lt) => lt.env)).size, own.length, 'each copy its own env');
+});
+
+test('a group grafts into a lit region only the part of a member that reaches it', () => {
+  // A candle's light sphere, first, and a long row of balls after it: the
+  // row is grafted into the sphere's empty parts, so the balls there are in
+  // its env and lit - and only the balls that reach it come, not the row.
+  const row = { union: Array.from({ length: 30 }, (_, i) => ball(-58 + 4 * i, 1, { material: 'clay' })) };
+  const candle = (lights) => ({ sphere: { center: [0, 2, 0], radius: 3 }, ...(lights ? { lights: [lamp([0, 2, 0])] } : {}),
+                                inside: { sphere: { center: [0, 2, 0], radius: 0.5 }, material: 'clay' } });
+  const lit = buildEnvs({ group: [candle(true), row] });
+  const unlit = buildEnvs({ group: [candle(false), row] });
+  assert.ok(lit.nodes.length <= unlit.nodes.length + 4,
+    `${lit.nodes.length} nodes lit, ${unlit.nodes.length} unlit: the row copied whole for the light`);
+  // The same solids everywhere,
+  for (let x = -60; x <= 60; x += 0.5) {
+    for (const y of [-0.5, 0, 0.5, 1.5, 2.5]) {
+      const a = at(lit, [x, y, 0]), b = at(unlit, [x, y, 0]);
+      assert.equal(a.solid, b.solid, `at ${x}, ${y}`);
+      assert.equal(a.material, b.material, `at ${x}, ${y}`);
+    }
+  }
+  // and those within the sphere are in its env, those beyond not.
+  const sphereNode = lit.lights[lit.topLights].env;
+  assert.deepEqual(envChain(lit, at(lit, [2, 0, 0]).node), [sphereNode, 0]);
+  assert.deepEqual(envChain(lit, at(lit, [-2, 0.5, 0]).node), [sphereNode, 0]);
+  assert.deepEqual(envChain(lit, at(lit, [30, 0, 0]).node), [0]);
+});
+
+test('a glow region is a region: an env, not solid; a lit node within it is no glow of its own', () => {
+  const built = compileScene({
+    materials: { clay: {}, glow: { kind: 'glowRegion', albedo: [2, 1.5, 1] } },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside:
+      ball(0, 5, { material: 'glow', inside: { union: [
+        ball(-2, 1, { material: 'clay' }),
+        ball(2, 1.5, { lights: [lamp([2, 0, 0])], inside: ball(2, 0.5, { material: 'clay' }) }),
+      ] } }) },
+  });
+  const region = envChain(built, at(built, [-2, 0, 0]).node)[0];
+  assert.equal(built.materials[built.nodes[region].material].kind, 5, 'the glow region starts the env');
+  assert.equal(at(built, [0, 0, 3]).solid, false, 'and is not solid');
+  // The lit ball within it starts an env too - with no level of its own,
+  // letting in the glow's (all of the default, by its transmit of 1) - not
+  // the glow's material, which would make it a second glow.
+  const [lit, outer] = envChain(built, at(built, [2, 0, 0]).node);
+  assert.equal(outer, region);
+  const litMaterial = built.materials[built.nodes[lit].material];
+  assert.equal(litMaterial.kind, 4);
+  assert.deepEqual(litMaterial.albedo, [0, 0, 0]);
+  assert.deepEqual(built.materials[built.nodes[region].material].ambient, [0.13, 0.13, 0.14]);
+  assert.deepEqual(litMaterial.ambient, [0.13, 0.13, 0.14]);
+});
+
+test('an env\'s ambient level is its own and what its transmit lets in of the level around it', () => {
+  const built = compileScene({
+    materials: {
+      clay: {},
+      hall: { kind: 'ambient', albedo: [0.2, 0.2, 0.2] },
+      porch: { kind: 'ambient', albedo: [0.05, 0, 0], transmit: 0.5 },
+      glow: { kind: 'glowRegion', albedo: [1, 1, 1], fill: 0.1 },
+      shade: { kind: 'glowRegion', albedo: [1, 1, 1], transmit: 0.25 },
+    },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'hall', inside: { union: [
+      ball(-20, 5, { material: 'porch', inside: ball(-20, 1, { material: 'clay' }) }),
+      ball(0, 5, { material: 'glow', inside: ball(0, 4, { material: 'porch', inside: ball(0, 1, { material: 'clay' }) }) }),
+      ball(20, 5, { material: 'shade', inside: ball(20, 1, { material: 'clay' }) }),
+    ] } },
+  });
+  const level = (x) => {
+    const m = built.materials[built.nodes[envChain(built, at(built, [x, 0, 0]).node)[0]].material];
+    return m.ambient.map((v) => +v.toFixed(6));
+  };
+  assert.deepEqual(level(-20), [0.15, 0.1, 0.1], 'the porch: its own, and half the hall\'s');
+  assert.deepEqual(level(0), [0.15, 0.1, 0.1], 'the same porch in a glow, which lets all the hall\'s in');
+  assert.deepEqual(level(20), [0.05, 0.05, 0.05], 'a glow that lets a quarter in');
+  assert.deepEqual(built.materials[built.nodes[envChain(built, at(built, [0, 0, 0]).node)[1]].material].params, [1, 0.1],
+                   'a glow\'s transmit and fill go to the shader');
+  assert.throws(() => compileScene({ materials: { bad: { kind: 'ambient', transmit: 'all' } }, lights: [],
+                                     root: ball(0, 1, { material: 'bad' }) }), /transmit: must be a number/);
+});
+
+test('a light outside its own region warns', (t) => {
+  const warned = [];
+  t.mock.method(console, 'warn', (msg) => warned.push(msg));
+  buildEnvs(ball(0, 4, { lights: [lamp([0, 0, 1]), lamp([0, 0, 9])] }));
+  assert.equal(warned.filter((w) => /outside its own region/.test(w)).length, 1, warned.join('\n'));
+});

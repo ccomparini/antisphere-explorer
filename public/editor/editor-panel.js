@@ -612,7 +612,7 @@ export function createPanel(root, ctx) {
     });
     return Object.defineProperties({
       name, kind,
-      albedoLabel: kind === 'ambient' ? 'level' : 'albedo',
+      albedoLabel: kind === 'ambient' ? 'level' : kind === 'glowRegion' ? 'glow' : 'albedo',
       isChecker: def().pattern === 'checker',
       isGlossy: kind === 'glossy',
       isEmissive: kind === 'emissive',

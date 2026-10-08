@@ -46,13 +46,14 @@ test('walls, doorways, tops and floor can each have a material, given a look for
   const { scene } = mazeScene({ material: 'brick', doorMaterial: 'oak', topMaterial: 'slate', floorMaterial: 'grass' });
   for (const name of ['brick', 'oak', 'slate', 'grass']) assert.ok(name in scene.materials, name);
   assert.equal(scene.materials.grass.pattern, 'checker', 'the floor gets the floor look');
-  assert.equal(scene.root.inside.material, 'grass');
-  // Every node carrying one: tops are planes, doorways complemented slabs.
-  const seen = { top: new Set(), door: new Set(), wall: new Set() };
+  assert.equal(scene.root.inside.union[1].material, 'grass', 'the floor beyond the maze');
+  // Every node carrying one: the floor is the plane at 0, tops the other
+  // planes, doorways complemented slabs.
+  const seen = { top: new Set(), door: new Set(), wall: new Set(), floor: new Set() };
   const walk = (n) => {
     if (!n || typeof n !== 'object') return;
     if (n.material) {
-      const part = n.plane ? 'top' : n.slab?.complement ? 'door' : 'wall';
+      const part = n.plane ? (n.plane.offset === 0 ? 'floor' : 'top') : n.slab?.complement ? 'door' : 'wall';
       seen[part].add(n.material);
     }
     walk(n.inside); walk(n.outside);
@@ -61,7 +62,39 @@ test('walls, doorways, tops and floor can each have a material, given a look for
   assert.deepEqual([...seen.top], ['slate']);
   assert.deepEqual([...seen.door], ['oak']);
   assert.deepEqual([...seen.wall], ['brick']);
+  assert.deepEqual([...seen.floor], ['grass'], 'the floor within the maze');
   // Unless given, doorways and tops are the walls'.
   const plain = JSON.stringify(mazeScene({ material: 'brick' }).scene.objects.maze);
   assert.ok(!plain.includes('oak') && !plain.includes('slate'));
+});
+
+test('torches: lights on the nodes holding their cells, and a dimmer sun', () => {
+  const { maze, scene } = mazeScene({ seed: 3, rings: 3, torches: 0.5, sun: 0.1 });
+  assert.ok(maze.torches.length > 2 && maze.torches.length < maze.cells.length, `${maze.torches.length} torches`);
+  const carried = [];
+  const walk = (n) => {
+    if (!n || typeof n !== 'object') return;
+    if (n.lights) carried.push(...n.lights.map((light) => light.pos.join()));
+    walk(n.inside); walk(n.outside);
+  };
+  walk(scene.objects.maze);
+  assert.deepEqual(new Set(carried), new Set(maze.torches.map((torch) => torch.pos.join())));
+  assert.equal(mazeScene({ seed: 3, rings: 3 }).maze.torches.length, 0, 'none by default');
+  const dim = scene.lights[0].color[0], full = mazeScene({ seed: 3, rings: 3 }).scene.lights[0].color[0];
+  assert.ok(Math.abs(dim / full - 0.1) < 0.01, `${dim} vs ${full}`);
+  const built = compileScene(structuredClone(scene));
+  assert.ok(built.nodes.length > 20);
+});
+
+test('--torches-global: the same torches as the scene\'s own lights, and the same tree without them', () => {
+  const options = { seed: 3, rings: 3, torches: 0.5, sun: 0.1 };
+  const scoped = mazeScene(options), global = mazeScene({ ...options, scopeTorches: false });
+  const positions = (lights) => lights.map((light) => light.pos.join()).sort();
+  assert.deepEqual(positions(global.scene.lights.slice(1)), positions(scoped.maze.torches));
+  assert.equal(JSON.stringify(global.scene.objects.maze).includes('"lights"'), false);
+  assert.equal(JSON.stringify(global.scene.objects.maze), JSON.stringify(mazeScene({ ...options, torches: 0 }).scene.objects.maze),
+               'no torch nodes: the unlit tree');
+  const run = spawnSync('node', [script, '--seed', '3', '--rings', '3', '--torches', '0.5', '--torches-global'], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  assert.ok(JSON.parse(run.stdout).lights.length > 2);
 });

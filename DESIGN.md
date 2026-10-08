@@ -88,6 +88,13 @@ acceleration structure to build, keep in step, or traverse.
   alone. These trees are about divisions, not solidity: a region is
   claimed by an absent inside whatever its material, and a node filled with
   `null` divides space exactly as one filled with stone.
+- Inside an env one of its members starts - a candle's lit sphere - a
+  later member is grafted pruned to the env's region (`pruneTo()`): what
+  goes there is a copy anyway, with the env's own env values, so it takes
+  only the parts of the member that reach the region. A candle in a big
+  maze costs about a hundred nodes, not a second maze. Lights can then be
+  objects, placed first in a group: a light, an env round it, and whatever
+  follows lit where it lies within it.
 
 ## Moving objects
 
@@ -127,12 +134,28 @@ coefficients in place, with no recompile.
   inside subtree is all of its inside region, so this is exact for a ray
   that stays inside). A shadow ray that leaves its scope is blocked - that
   is the scoping: torches light their own room. A maze with many torches
-  then tests each hit against its room's few. A node's `env` is already the
-  index of the node starting its env (an ambient material's region), and
-  an env node's own `env` the one enclosing it: the scope's geometry, and
-  the chain outward that a hit's lights would be matched against. An outer
-  env's light - the sky's sun - can then reach into a room through a
-  window, as a torch inside cannot reach out.
+  then tests each hit against its room's few. Built so far: a node's `env`
+  is the index of the node starting its env (an ambient material's region,
+  or a node carrying `"lights"`), an env node's own `env` the one enclosing
+  it, and every light belongs to an env - a node's to its own, the scene's
+  to env 0 - so a hit is lit only by the lights on its chain outward. An
+  outer env's light - the sky's sun - reaches into a room through a
+  window, as a torch inside cannot reach out. A light's shadow rays start
+  inside its env - trace() takes a starting node, here the env node tagged
+  as its inside - so a light sees only what its env holds, and is
+  shadowed by that alone (a room's subtree, not the scene's). How a scope
+  looks right is the scene author's to decide. A hit's lights are found
+  by walking its env chain: the lights are stored in order of env, so each
+  env's are a run, found by binary search - a hit pays for the lights on
+  its chain, not the scene's. A glow region (a `"glowRegion"` material) is
+  an env lit from within: its light is at its node's centre, fading to
+  nothing at the node's surface by the node's own implicit function, worked
+  out from the node at every hit, so moving or resizing the node changes
+  it. Ambient light passes between envs by each one's `transmit`: an env's
+  level is its own plus that fraction of the level around it, baked at
+  compile time into a copy of the env node's material; only what varies
+  from point to point - a glow region's `fill`, its glow unshadowed - is
+  added per hit, in the same walk as the lights.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.

@@ -380,10 +380,28 @@ const KINDS = {
   unlit:    { id: 3, params: () => [0, 0] },
   // An ambient material never shades, and is not solid by default. A node
   // that names one starts an env (bakeScopes()): its albedo is the ambient
-  // level for everything inside it.
-  ambient:  { id: 4, params: () => [0, 0] },
+  // level for everything inside it, added to `transmit` (default 0) times
+  // the level around it.
+  ambient:  { id: 4, params: (d) => [d.transmit ?? 0, 0] },
+  // A glow region: a region like an ambient one, not solid by default, and
+  // a node that names one starts an env - but lit from within: its albedo
+  // is the light at its node's centre, falling to nothing at the node's
+  // surface, worked out by the shader from the node itself (addGlow() in
+  // the raycast shader). Its ambient is `transmit` (default 1) times the
+  // level around it, and `fill` (default 0) times its glow, unshadowed:
+  // light from its walls, roughly.
+  glowRegion: { id: 5, params: (d) => [d.transmit ?? 1, d.fill ?? 0] },
 };
 const KIND_AMBIENT = 4;
+const KIND_GLOW_REGION = 5;
+// The kinds that make a region rather than a substance: a node naming one
+// starts an env (bakeScopes()).
+const isRegionKind = (kind) => kind === KIND_AMBIENT || kind === KIND_GLOW_REGION;
+
+// The ambient level outside every env: ambient() in the raycast shader
+// uses the same, and an outermost lit region with no level of its own
+// keeps it (bakeScopes()).
+const DEFAULT_AMBIENT = [0.13, 0.13, 0.14];
 
 // ---------------------------------------------------------------------------
 // Provenance
@@ -416,9 +434,14 @@ export const ROOT_OWNER = '@root';
 // A node: test f(R); f < 0 descends into `inside`, otherwise `outside`.
 // prov is "provenance" and used to determine which object this node is
 // part of.
-function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = null) {
-  return { prim, inside, outside, material, env, prov };
+// lights: the lights it carries, if any (a scene file's node-level
+// "lights"), which make it an env (see bakeScopes()) - [{ pos, color }].
+function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = null, lights = null) {
+  return { prim, inside, outside, material, env, prov, lights };
 }
+
+/** A node's lights, each moved by `move` (a point to a point); null stays null. */
+const movedLights = (lights, move) => lights && lights.map((lt) => ({ ...lt, pos: move(lt.pos) }));
 
 // Union: returns a tree whose interior is the union of both interiors. A
 // null child means no further subdivision, so on the inside it is a region
@@ -436,7 +459,7 @@ function union(t, other, memo = new Map()) {
   const out = node(t.prim,
                    t.inside ? union(t.inside, other, memo) : null,
                    union(t.outside, other, memo),
-                   t.material, t.env, t.prov);
+                   t.material, t.env, t.prov, t.lights);
   memo.set(t, out);
   return out;
 }
@@ -471,7 +494,7 @@ function complement(t, memo = new Map()) {
   const out = node(complementSurface(t.prim),
                    complement(t.outside, memo),
                    complement(t.inside, memo),
-                   t.material, t.env, t.prov);
+                   t.material, t.env, t.prov, t.lights);
   memo.set(t, out);
   return out;
 }
@@ -556,7 +579,8 @@ function translateTree(t, offset, memo = new Map()) {
   const out = node(translatePrim(t.prim, offset),
                    translateTree(t.inside, offset, memo),
                    translateTree(t.outside, offset, memo),
-                   t.material, t.env, t.prov);
+                   t.material, t.env, t.prov,
+                   movedLights(t.lights, (p) => p.map((v, i) => v + offset[i])));
   memo.set(t, out);
   return out;
 }
@@ -575,7 +599,7 @@ function reown(t, from, to, memo = new Map()) {
   const out = (!mine && inside === t.inside && outside === t.outside)
     ? t
     : node(t.prim, inside, outside, t.material, t.env,
-           mine ? { ...t.prov, owner: to } : t.prov);
+           mine ? { ...t.prov, owner: to } : t.prov, t.lights);
   memo.set(t, out);
   return out;
 }
@@ -593,24 +617,27 @@ function rotateTree(t, rows, pivot) {
     const turned = rotatePrim(local, rows);
     return translatePrim(turned, pivot);
   };
-  return mapTree(t, turn);
+  const turnPoint = (p) => rows.map((row) => dot3(row, p.map((v, i) => v - pivot[i]))).map((v, i) => v + pivot[i]);
+  return mapTree(t, turn, turnPoint);
 }
 
 function scaleTree(t, factor, pivot) {
   if (!t) return t;
   const back = pivot.map((v) => -v);
   const grow = (prim) => translatePrim(scalePrim(translatePrim(prim, back), factor), pivot);
-  return mapTree(t, grow);
+  return mapTree(t, grow, (p) => p.map((v, i) => pivot[i] + factor * (v - pivot[i])));
 }
 
-// A copy of a subtree with every primitive changed by f, shared structure
-// kept shared.
-function mapTree(t, f) {
+// A copy of a subtree with every primitive changed by f, and every light
+// moved by g (the same transformation, of a point), shared structure kept
+// shared.
+function mapTree(t, f, g) {
   const memo = new Map();
   const walk = (u) => {
     if (!u) return u;
     if (memo.has(u)) return memo.get(u);
-    const out = node(f(u.prim), walk(u.inside), walk(u.outside), u.material, u.env, u.prov);
+    const out = node(f(u.prim), walk(u.inside), walk(u.outside), u.material, u.env, u.prov,
+                     movedLights(u.lights, g));
     memo.set(u, out);
     return out;
   };
@@ -627,13 +654,17 @@ function mapTree(t, f) {
 // always keeps the incoming scope, never the current node's own.
 //
 // Env: the same threading, of a node rather than a material. A node that
-// itself names an ambient material starts an env: everything in its inside
-// gets it as `env` - the node, so the env's geometry is its inside subtree
-// and its ambient level its material - while the node's own `env` is the
-// env enclosing it, so following env from node to node walks outward.
-// Outside keeps the incoming env. Which nodes start one is a question about
-// materials, asked here because this is where materials are resolved; the
-// tree's divisions are untouched. `table` is the compiled materials list.
+// itself names an ambient material, or carries lights, starts an env:
+// everything in its inside gets it as `env` - the node, so the env's
+// geometry is its inside subtree, its ambient level its material, and its
+// lights its own - while the node's own `env` is the env enclosing it, so
+// following env from node to node walks outward. Outside keeps the
+// incoming env. A lit node naming no material takes the enclosing env's
+// ambient material (or a default one, appended to `table` when needed), so
+// lighting a region leaves its ambient level as it was. Which nodes start
+// one is a question about materials and lights, asked here because this is
+// where materials are resolved; the tree's divisions are untouched.
+// `table` is the compiled materials list.
 //
 // Correct as long as the tree is static: nothing here moves a node between
 // material or env regions after this bakes it in, so if scenes ever need
@@ -648,17 +679,56 @@ function mapTree(t, f) {
 function bakeScopes(tree, table) {
   const memo = new Map();       // "material:env id" -> (subtree -> baked)
   const envIds = new Map();     // env node -> a number for the memo key
+  // An env's ambient level, as it is there: its own, plus its material's
+  // transmit (params[0]) times the level around it - an ambient material's
+  // own is its albedo, a glow region's nothing (its fill varies from point
+  // to point, so the shader adds it). Each env node names a copy of its
+  // material carrying that level (`ambient`), one per level it comes to.
+  const levels = new Map();     // env node -> its level
+  const copies = new Map();     // "material:level" -> the copy's index
+  const withLevel = (material, level) => {
+    const key = `${material}:${level.join()}`;
+    if (!copies.has(key)) {
+      table.push({ ...table[material], ambient: level });
+      copies.set(key, table.length - 1);
+    }
+    return copies.get(key);
+  };
+  // A node with lights and no material of its own: a region with no level
+  // of its own, letting all of the level around it in.
+  let passing = 0;
+  const passThrough = () => {
+    if (!passing) {
+      table.push({ ...table[0], albedo: [0, 0, 0], kind: KIND_AMBIENT, params: [1, 0], solid: false });
+      passing = table.length - 1;
+    }
+    return passing;
+  };
   const resolve = (t, matScope, envNode) => {
     if (!t) return t;
     const key = `${matScope}:${envNode ? envIds.get(envNode) : 0}`;
     let byScope = memo.get(key);
     if (!byScope) { byScope = new Map(); memo.set(key, byScope); }
     if (byScope.has(t)) return byScope.get(t);
-    const hereMat = t.material === INHERIT_MATERIAL ? matScope : t.material;
-    const out = node(t.prim, null, null, hereMat, envNode, t.prov);
+    const named = t.material !== INHERIT_MATERIAL;
+    const lit = t.lights?.length > 0;
+    let hereMat = named ? t.material : matScope;
+    if (lit && !named) hereMat = passThrough();
+    const startsEnv = lit || (named && isRegionKind(table[t.material].kind));
+    let level = null;
+    if (startsEnv) {
+      const m = table[hereMat];
+      const around = envNode ? levels.get(envNode) : DEFAULT_AMBIENT;
+      const own = m.kind === KIND_AMBIENT ? m.albedo : [0, 0, 0];
+      level = own.map((v, i) => v + m.params[0] * around[i]);
+      hereMat = withLevel(hereMat, level);
+    }
+    const out = node(t.prim, null, null, hereMat, envNode, t.prov, t.lights);
     byScope.set(t, out);
-    const startsEnv = t.material !== INHERIT_MATERIAL && table[t.material].kind === KIND_AMBIENT;
-    if (startsEnv) envIds.set(out, envIds.size + 1);
+    if (startsEnv) {
+      envIds.set(out, envIds.size + 1);
+      levels.set(out, level);
+    }
     out.inside = resolve(t.inside, hereMat, startsEnv ? out : envNode);
     out.outside = resolve(t.outside, matScope, envNode);
     return out;
@@ -690,7 +760,7 @@ function flatten(tree) {
     const env = t.env ? memo.get(t.env) : 0;
     if (env === undefined) throw new Error('flatten: a node\'s env was not above it');
     out[idx] = { prim: t.prim, material: t.material, env,
-                 inside: walk(t.inside), outside: walk(t.outside), prov: t.prov };
+                 inside: walk(t.inside), outside: walk(t.outside), prov: t.prov, lights: t.lights };
     return idx;
   };
   walk(tree);
@@ -1070,6 +1140,11 @@ export function compileScene(rawSpec, options = {}) {
     if (!(typeof scale === 'number' && scale > 0 && Number.isFinite(scale))) {
       at(`materials.${name}.scale`, `must be a positive number, got ${JSON.stringify(def.scale)}`);
     }
+    for (const field of ['transmit', 'fill']) {
+      if (def[field] !== undefined && !(typeof def[field] === 'number' && Number.isFinite(def[field]))) {
+        at(`materials.${name}.${field}`, `must be a number, got ${JSON.stringify(def[field])}`);
+      }
+    }
     table.push({
       albedo:  def.albedo  ?? [0.7, 0.7, 0.7],
       albedo2: def.albedo2 ?? [0.3, 0.3, 0.3],
@@ -1079,15 +1154,21 @@ export function compileScene(rawSpec, options = {}) {
       pattern,
       // e.g. water, glass, or a spatial-subdivision-only material; an
       // ambient is a region's surroundings, not a substance
-      solid:   def.solid ?? kind !== KINDS.ambient,
+      solid:   def.solid ?? !isRegionKind(kind.id),
     });
     matIndex.set(name, table.length - 1);
   }
 
-  const lightList = (spec.lights || []).map((lt, i) => {
-    if (!lt.pos || !lt.color) at(`lights[${i}]`, 'needs pos and color');
-    return { pos: lt.pos, color: lt.color };
-  });
+  // A list of lights, the scene's or a node's: [{ pos, color }].
+  const lightsOf = (list, path) => {
+    if (!Array.isArray(list)) at(path, 'needs a list of lights, [{ "pos": [x, y, z], "color": [r, g, b] }]');
+    return list.map((lt, i) => {
+      if (!lt?.pos || !lt?.color) at(`${path}[${i}]`, 'needs pos and color');
+      return { pos: lt.pos.slice(), color: lt.color.slice() };
+    });
+  };
+  // The scene's own lights: env 0's, which light everything.
+  const topLights = lightsOf(spec.lights ?? [], 'lights').map((lt) => ({ ...lt, env: 0 }));
 
   function substrate(name, path) {
     const m = matIndex.get(name);
@@ -1443,6 +1524,52 @@ export function compileScene(rawSpec, options = {}) {
     return left.length ? left : null;
   }
 
+  // Whether a node starts an env (bakeScopes()): it carries lights, or
+  // names an ambient material.
+  const startsEnv = (t) => t.lights?.length > 0
+    || (t.material !== INHERIT_MATERIAL && isRegionKind(table[t.material]?.kind));
+
+  // `t` as it is within `region` ({ prim, sign }, with `ball` if it has
+  // one): a copy without what lies on sides of its nodes proved clear of
+  // the region. The same subtree if nothing is clear of it. `owner` is the
+  // member the copy is part of. Exact, for materials and envs too
+  // (bakeScopes()):
+  //   - a node whose inside is clear is, there, its outside child, which
+  //     resolves in the same scopes as the node: so it is replaced by it.
+  //     Not by an absent one: absent, in an inside slot, would claim.
+  //   - a node whose outside is clear is its inside: replaced by its inside
+  //     child only if the node names no material and starts no env, so the
+  //     child resolves as it would below it; else the outside is dropped.
+  function pruneTo(t, region, owner, memberOf) {
+    const frame = region.ball ? { c: region.ball.c, L: region.ball.r } : null;
+    const clear = (prim, sign) => {
+      if (region.ball) {
+        const quick = ballClear(prim, sign, region.ball);
+        if (quick !== undefined) return quick;
+      }
+      return regionsDisjoint(prim, sign, region.prim, region.sign, frame);
+    };
+    const memo = new Map();
+    const walk = (n) => {
+      if (!n) return n;
+      if (memo.has(n)) return memo.get(n);
+      const insideClear = clear(n.prim, 1);
+      const outsideClear = !insideClear && clear(n.prim, -1);
+      const inside = insideClear ? null : walk(n.inside);
+      const outside = outsideClear ? null : walk(n.outside);
+      let out = n;
+      if (insideClear && outside) out = outside;
+      else if (outsideClear && inside && n.material === INHERIT_MATERIAL && !startsEnv(n)) out = inside;
+      else if (inside !== n.inside || outside !== n.outside) {
+        out = node(n.prim, inside, outside, n.material, n.env, n.prov, n.lights);
+        memberOf.set(out, owner);
+      }
+      memo.set(n, out);
+      return out;
+    };
+    return walk(t);
+  }
+
   // The longest chain of members a fold may make before they are divided
   // (see divide in buildGroup).
   const MAX_CHAIN = 4;
@@ -1608,32 +1735,51 @@ export function compileScene(rawSpec, options = {}) {
         // answer for both.
         const pathIndex = new Map((shape.paths ?? []).map((p, i) => [p, i]));
         const aliveKey = (alive) => (alive === UNPROVEN ? '*' : alive.map((p) => pathIndex.get(p)).join());
-        const done = new Map();            // node -> Map(aliveKey -> result)
-        const graft = (t, alive) => {
+        const done = new Map();            // node -> Map(aliveKey and env -> result)
+        // Within an env that an earlier member starts - a lit sphere round
+        // a candle - what is grafted is a copy of its own anyway: the env
+        // gives the nodes there env values of their own (bakeScopes()), so
+        // the member is copied for it whole. So there it is grafted pruned
+        // to the env's region (pruneTo()), one copy for the env, shared by
+        // every place in it: a candle's sphere gets the few nodes of a maze
+        // near it, not all of them. Elsewhere the member is shared, as it
+        // is. `scope` is the env node, or null.
+        const pruned = new Map();          // env node -> the member pruned to its region
+        const scopeIds = new Map([[null, 0]]);
+        const memberIn = (scope) => {
+          if (!scope) return m.tree;
+          if (!pruned.has(scope)) {
+            const ball = regionBall(scope.prim, true);
+            pruned.set(scope, pruneTo(m.tree, { prim: scope.prim, sign: 1, ball }, m.index, memberOf));
+          }
+          return pruned.get(scope);
+        };
+        const graft = (t, alive, scope) => {
           let byAlive = done.get(t);
           if (!byAlive) { byAlive = new Map(); done.set(t, byAlive); }
-          const key = aliveKey(alive);
-          if (!byAlive.has(key)) byAlive.set(key, graftOnce(t, alive));
+          if (!scopeIds.has(scope)) scopeIds.set(scope, scopeIds.size);
+          const key = `${aliveKey(alive)}|${scopeIds.get(scope)}`;
+          if (!byAlive.has(key)) byAlive.set(key, graftOnce(t, alive, scope));
           return byAlive.get(key);
         };
-        const graftOnce = (t, alive) => {
+        const graftOnce = (t, alive, scope) => {
           if (--budget < 0) throw GRAFT_BUDGET;
           let inside = t.inside, outside = t.outside;
           const owner = memberOf.get(t);
           const inAlive = knock(shape, alive, { prim: t.prim, sign: 1 });
           if (inAlive !== null) {
-            if (t.inside) inside = graft(t.inside, inAlive);
+            if (t.inside) inside = graft(t.inside, inAlive, startsEnv(t) ? t : scope);
             else report(owner, m.index);           // a region `owner` claims: the claim stands
           }
           const outAlive = knock(shape, alive, { prim: t.prim, sign: -1 });
-          if (outAlive !== null) outside = t.outside ? graft(t.outside, outAlive) : m.tree;
+          if (outAlive !== null) outside = t.outside ? graft(t.outside, outAlive, scope) : memberIn(scope);
           if (inside === t.inside && outside === t.outside) return t;
-          const copy = node(t.prim, inside, outside, t.material, t.env, t.prov);
+          const copy = node(t.prim, inside, outside, t.material, t.env, t.prov, t.lights);
           if (owner !== undefined) memberOf.set(copy, owner);
           return copy;
         };
         try {
-          acc = graft(acc, shape.paths ?? UNPROVEN);
+          acc = graft(acc, shape.paths ?? UNPROVEN, null);
         } catch (e) {
           if (e !== GRAFT_BUDGET) throw e;
           acc = union(acc, m.tree);
@@ -1742,6 +1888,11 @@ export function compileScene(rawSpec, options = {}) {
     if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
 
     let out;
+    if (def.lights !== undefined &&
+        (def.use !== undefined || def.group !== undefined ||
+         Object.keys(COMBINERS).some((op) => def[op] !== undefined))) {
+      at(`${path}.lights`, 'lights go on a node with a shape of its own, which is the region they light');
+    }
     if (def.use !== undefined) {
       out = named(def.use, path);
       if (out === BUILDING) at(path, `object "${def.use}" refers to itself`);
@@ -1755,7 +1906,15 @@ export function compileScene(rawSpec, options = {}) {
       // flatten()'s doc comment.
       const insideTree = tree(def.inside, `${path}.inside`, below(where, 'inside'));
       const outsideTree = tree(def.outside, `${path}.outside`, below(where, 'outside'));
-      out = node(primOf(def, path), insideTree, outsideTree, materialOf(def, path), 0, provOf(where));
+      const material = materialOf(def, path);
+      // Lights make the node a region (an env): what fills it is its
+      // ambient level, if it names one, or the level around it.
+      const lights = def.lights === undefined ? null : lightsOf(def.lights, `${path}.lights`);
+      if (lights && material !== INHERIT_MATERIAL && !isRegionKind(table[material].kind)) {
+        at(`${path}.material`, 'a node with lights is a region, lit, not a substance: name an ' +
+                               'ambient or glowRegion material, or none, to keep the level around it');
+      }
+      out = node(primOf(def, path), insideTree, outsideTree, material, 0, provOf(where), lights);
     }
 
     // "complement" turns the whole subtree inside out: what was interior
@@ -1807,6 +1966,23 @@ export function compileScene(rawSpec, options = {}) {
   if (!spec.root) at('root', 'missing');
   const overlaps = [];
   const nodes = flatten(bakeScopes(tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] }), table));
+
+  // Every light, with the env it belongs to: the scene's (env 0) first, in
+  // order, so the editor can replace just those; then each node's, its env
+  // that node. So the list is in order of env, which the shader relies on:
+  // it finds an env's lights by binary search (firstLightOf()). A node baked more than once - a lit room grafted into
+  // several places - gives its lights once for each copy, under each
+  // copy's env; a hit is in only one of them.
+  const lightList = [...topLights];
+  nodes.forEach((nd, i) => {
+    for (const lt of nd.lights ?? []) {
+      if (quadricAt(nd.prim, lt.pos) >= 0) {
+        const where = nd.prov ? `${nd.prov.owner}${nd.prov.path ? `/${nd.prov.path}` : ''}` : `node ${i}`;
+        warn(`${where}.lights`, `the light at [${lt.pos}] is outside its own region, so lights nothing in it`);
+      }
+      lightList.push({ ...lt, env: i });
+    }
+  });
   return {
     nodes,
     // provenance[i] is { owner, path } for authored node i, or null for
@@ -1814,6 +1990,7 @@ export function compileScene(rawSpec, options = {}) {
     provenance: nodes.map((n) => n.prov),
     materials: table,
     lights: lightList,
+    topLights: topLights.length,           // the first this many are the scene's own
     camera: spec.camera || null,
     gravity: parseGravity(spec.gravity, (path, msg) => at(path, msg)),
     spawn: parseSpawn(spec.spawn, (path, msg) => at(path, msg)),
@@ -1838,6 +2015,7 @@ export function packMaterials(list) {
       scale: m.scale,
       albedo2: m.albedo2,
       solid: m.solid ? 1 : 0,
+      ambient: m.ambient ?? [0, 0, 0],
     });
   });
   return views.buffer;
@@ -1981,6 +2159,6 @@ export function packNodes(list) {
 // written through the Light class generated from it.
 export function packLights(list) {
   const views = Light.allocate(list.length || 1);
-  list.forEach((lt, j) => Light.write(views, j, { pos: lt.pos, color: lt.color }));
+  list.forEach((lt, j) => Light.write(views, j, { pos: lt.pos, color: lt.color, env: lt.env ?? 0 }));
   return views.f32;
 }

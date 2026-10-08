@@ -846,3 +846,243 @@ gpuTest('a maze shows each face its own material: tops, doorways and walls', asy
   assert.ok(parts.stone > 20 && parts.oak > 0 && parts.slate > 20, JSON.stringify(parts));
   sc.destroy();
 });
+
+// -- lights scoped by env, as rendered --------------------------------------------------
+
+/** Render `spec` from `camera` onto a W x H stand-in canvas; the pixels, RGBA. */
+async function renderPixels(spec, camera, W = 160, H = 80) {
+  await import('./as-renderer.js');                  // registers ASRenderer
+  const sc = ctx.createScene(spec);
+  let config, tex;
+  const surface = {
+    configure(c) { config = c; }, unconfigure() {},
+    getCurrentTexture() {
+      tex ??= ctx.device.createTexture({ size: [W, H], format: config.format,
+                                         usage: config.usage | GPUTextureUsage.COPY_SRC });
+      return tex;
+    },
+  };
+  globalThis.window ??= { devicePixelRatio: 1 };
+  const view = ctx.createRenderer({ clientWidth: W, clientHeight: H, width: W, height: H,
+                                    getContext: () => surface }, { scene: sc, camera });
+  // Rows of a texture copy are padded to 256 bytes.
+  const stride = Math.ceil((W * 4) / 256) * 256;
+  const buf = ctx.device.createBuffer({ size: stride * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  const enc = ctx.device.createCommandEncoder();
+  view.encode(enc);
+  enc.copyTextureToBuffer({ texture: tex }, { buffer: buf, bytesPerRow: stride }, [W, H]);
+  ctx.device.queue.submit([enc.finish()]);
+  await buf.mapAsync(GPUMapMode.READ);
+  const raw = new Uint8Array(buf.getMappedRange().slice(0));
+  const bgra = config.format.startsWith('bgra');
+  view.destroy(); sc.destroy(); tex.destroy(); buf.destroy();
+  const at = (col, row) => {
+    const i = row * stride + col * 4;
+    return bgra ? [raw[i + 2], raw[i + 1], raw[i]] : [raw[i], raw[i + 1], raw[i + 2]];
+  };
+  return { at, W, H };
+}
+
+gpuTest('a region\'s lights light it, and the scene\'s everything; not each other\'s region', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  const red = { pos: [-1.5, 0, 0], color: [60, 0, 0] };
+  const blue = { pos: [1.5, 0, 0], color: [0, 0, 60] };
+  const green = { pos: [0, -10, 0], color: [0, 90, 0] };
+  // Two regions side by side, nothing solid between them, a white ball in
+  // each. Scoped, the red light is region A's and the blue region B's;
+  // unscoped, the same three lights are all the scene's.
+  const room = (x, lights) => ({
+    sphere: { center: [x, 0, 0], radius: 2.9 }, ...(lights ? { lights } : {}),
+    inside: { sphere: { center: [x, 0, 0], radius: 0.5 }, material: 'white' },
+  });
+  const spec = (scoped) => ({
+    materials: { white: { albedo: [0.8, 0.8, 0.8] } },
+    lights: scoped ? [green] : [green, red, blue],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { group: [
+      room(-3, scoped ? [red] : null), room(3, scoped ? [blue] : null),
+    ] } },
+  });
+  // Looking along +Y, orthographic, 8 either side: column = (x / 8 + 1) / 2 * 160.
+  const camera = () => {
+    const c = new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  const scoped = await renderPixels(spec(true), camera());
+  const open = await renderPixels(spec(false), camera());
+  const col = (x) => Math.round((x / 8 + 1) / 2 * 160);
+  // Ball B's side toward A, and ball A's side toward B.
+  const bSide = [scoped.at(col(2.6), 40), open.at(col(2.6), 40)];
+  const aSide = [scoped.at(col(-2.6), 40), open.at(col(-2.6), 40)];
+  const say = `B side ${bSide.join(' / ')}, A side ${aSide.join(' / ')} (scoped / open)`;
+  assert.ok(bSide[1][0] - bSide[0][0] > 40, `A's red no longer reaches B: ${say}`);
+  assert.ok(aSide[1][2] - aSide[0][2] > 40, `B's blue no longer reaches A: ${say}`);
+  assert.ok(Math.abs(bSide[0][2] - bSide[1][2]) <= 2 && Math.abs(aSide[0][0] - aSide[1][0]) <= 2,
+            `each still lit by its own: ${say}`);
+  assert.ok(Math.abs(bSide[0][1] - bSide[1][1]) <= 2 && bSide[0][1] > 60, `and the scene's green everywhere: ${say}`);
+});
+
+gpuTest('a glow region lights from its centre, fading to nothing at its surface, as its node is now', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A floor seen from above, and over it a glow region, a sphere about
+  // [0, 0, 1]; around it no ambient light at all, so beyond the sphere
+  // the floor is black.
+  const floor = { plane: { normal: [0, 0, 1], offset: 0 }, material: 'white' };
+  const spec = (radius, lights = []) => ({
+    materials: {
+      white: { albedo: [0.8, 0.8, 0.8] },
+      glow: { kind: 'glowRegion', albedo: [3, 3, 3] },
+      dark: { kind: 'ambient', albedo: [0, 0, 0] },
+    },
+    lights,
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'dark', inside: {
+      sphere: { center: [0, 0, 1], radius }, material: lights.length ? 'dark' : 'glow',
+      inside: floor, outside: floor,
+    } },
+  });
+  // Looking straight down, orthographic: x to the left, so column 80 - 10 x.
+  const camera = () => {
+    const c = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  const level = (img, x) => img.at(Math.round(80 - 10 * x), 40)[0];
+  const glow = await renderPixels(spec(3), camera());
+  // As the formula has it, at each pixel's centre, x = (79.5 - column) / 10:
+  // the light at its centre, inverse square (softened, 1 + d^2), and by
+  // H(P) / H(centre) = 1 - d^2 / r^2, squared; on white 0.8, raised to
+  // 1/2.2 for the screen. The sphere meets the floor at x = sqrt(8), 2.83.
+  const expected = (column, radius) => {
+    const x = (79.5 - column) / 10, d2 = x * x + 1;
+    const falloff = Math.max(0, 1 - d2 / (radius * radius)) ** 2;
+    const light = 0.8 * (3 / (1 + d2)) * falloff * (1 / Math.sqrt(d2));
+    return 255 * Math.min(1, light) ** (1 / 2.2);
+  };
+  for (const column of [80, 70, 60, 55, 53, 52, 51, 50, 45, 40]) {
+    const seen = glow.at(column, 40)[0], want = expected(column, 3);
+    assert.ok(Math.abs(seen - want) <= 3, `column ${column}: ${seen}, the formula ${want.toFixed(1)}`);
+  }
+  assert.equal(glow.at(50, 40)[0], 0, 'nothing beyond it - no ambient within or without');
+  const edge = level(glow, 2.7);
+  // The light comes from the node as it is: a bigger sphere reaches further.
+  const bigger = await renderPixels(spec(4), camera());
+  assert.ok(level(bigger, 2.7) > edge + 10, `radius 4: ${level(bigger, 2.7)} at 2.7, against ${edge}`);
+  // And far from its surface it is a light at its centre, of its albedo.
+  const huge = await renderPixels(spec(90), camera());
+  const point = await renderPixels(spec(90, [{ pos: [0, 0, 1], color: [3, 3, 3] }]), camera());
+  for (const x of [0, 0.5, 1, 2]) {
+    assert.ok(Math.abs(level(huge, x) - level(point, x)) <= 3,
+              `at ${x}: glow ${level(huge, x)}, the same light ${level(point, x)} (within (1 - d^2/90^2)^2)`);
+  }
+});
+
+gpuTest('a glow region\'s fill lights its shadows: its glow there, unshadowed, times the fill', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // The glow over a floor again, and a ball in it between the centre and
+  // the floor at x = 2: the ball's shadow falls round x = 2.
+  const floor = { plane: { normal: [0, 0, 1], offset: 0 }, material: 'white' };
+  const spec = (fill) => ({
+    materials: {
+      white: { albedo: [0.8, 0.8, 0.8] },
+      glow: { kind: 'glowRegion', albedo: [3, 3, 3], fill },
+      dark: { kind: 'ambient', albedo: [0, 0, 0] },
+    },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'dark', inside: {
+      sphere: { center: [0, 0, 1], radius: 3 }, material: 'glow',
+      inside: { sphere: { center: [1, 0, 0.5], radius: 0.2 }, material: 'white', outside: floor },
+      outside: floor,
+    } },
+  });
+  const camera = () => {
+    const c = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  const none = await renderPixels(spec(0), camera());
+  const half = await renderPixels(spec(0.5), camera());
+  const column = 60, x = (79.5 - column) / 10, d2 = x * x + 1;
+  const glow = 3 / (1 + d2) * (1 - d2 / 9) ** 2;
+  const want = 255 * (0.8 * 0.5 * glow) ** (1 / 2.2);
+  assert.equal(none.at(column, 40)[0], 0, 'in the ball\'s shadow, with no fill, nothing');
+  assert.ok(Math.abs(half.at(column, 40)[0] - want) <= 3, `with fill 0.5: ${half.at(column, 40)[0]}, the formula ${want.toFixed(1)}`);
+  // Where the glow reaches directly, the fill adds to it.
+  assert.ok(half.at(70, 40)[0] > none.at(70, 40)[0], `lit floor: ${half.at(70, 40)[0]} with fill, ${none.at(70, 40)[0]} without`);
+});
+
+gpuTest('setLights replaces the scene\'s own lights and keeps those its nodes carry', async () => {
+  const sc = ctx.createScene({
+    materials: MATERIALS,
+    lights: [{ pos: [0, 0, 50], color: [1, 1, 1] }],
+    root: { sphere: { center: [0, 0, 0], radius: 10 }, lights: [{ pos: [0, 0, 1], color: [5, 5, 5] }] },
+  });
+  assert.equal(sc.topLights, 1);
+  sc.setLights([{ pos: [1, 2, 3], color: [2, 2, 2] }]);
+  assert.deepEqual(sc.lights.map((lt) => [lt.pos, lt.env]), [[[1, 2, 3], 0], [[0, 0, 1], 1]]);
+  sc.destroy();
+});
+
+// -- a light's shadow rays start inside its env ------------------------------------------
+
+gpuTest('a region\'s light is shadowed by what the region holds, as a light of the scene\'s would be', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A region holding a floor and a ball, its light above; looking down.
+  const lamp = { pos: [1, 0, 2.6], color: [30, 30, 30] };
+  const ball = { sphere: { center: [0.5, 0, 1.3], radius: 0.4 }, material: 'clay' };
+  const floor = { slab: { center: [0, 0, -0.25], axis: [0, 0, 1], thickness: 0.5 }, material: 'clay' };
+  const spec = (scoped) => ({
+    materials: { clay: { albedo: [0.8, 0.8, 0.8] } },
+    lights: scoped ? [] : [lamp],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: {
+      sphere: { center: [0, 0, 1], radius: 3 }, ...(scoped ? { lights: [lamp] } : {}),
+      inside: { union: [ball, floor] },
+    } },
+  });
+  const camera = () => {
+    const c = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  // 8 high on 80 pixels: 10 a unit. Looking straight down, the frame's
+  // right is -X and its up -Y (as just short of straight down, facing -Y).
+  const px = (x, y) => [Math.round(80 - 10 * x), Math.round(40 + 10 * y)];
+  const scoped = await renderPixels(spec(true), camera());
+  const open = await renderPixels(spec(false), camera());
+  for (let y = 0; y < 80; y += 4) for (let x = 0; x < 160; x += 4) {
+    assert.deepEqual(scoped.at(x, y), open.at(x, y), `pixel ${x},${y}: the same light, scoped or not`);
+  }
+  // The ball's shadow falls round (0, 0) on the floor - seen from above at
+  // (-0.3, 0), clear of the ball itself (x 0.1 to 0.9); (-2, 0) is open.
+  assert.ok(scoped.at(...px(-0.3, 0))[0] + 30 < scoped.at(...px(-2, 0))[0],
+            `shadowed ${scoped.at(...px(-0.3, 0))}, open ${scoped.at(...px(-2, 0))}`);
+});
+
+gpuTest('a region\'s light sees only the region\'s subtree, even where other geometry overlaps it', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // The same, but the ball is a node before the region - the region is its
+  // outside - so it is not in the region's subtree, though it lies within
+  // it. The region's light, tracing from inside the region, does not see
+  // it.
+  const lamp = { pos: [1, 0, 2.6], color: [30, 30, 30] };
+  const ball = { sphere: { center: [0.5, 0, 1.3], radius: 0.4 }, material: 'clay' };
+  const floor = { slab: { center: [0, 0, -0.25], axis: [0, 0, 1], thickness: 0.5 }, material: 'clay' };
+  const spec = (scoped) => ({
+    materials: { clay: { albedo: [0.8, 0.8, 0.8] } },
+    lights: scoped ? [] : [lamp],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: {
+      ...ball,
+      outside: { sphere: { center: [0, 0, 1], radius: 3 }, ...(scoped ? { lights: [lamp] } : {}), inside: floor },
+    } },
+  });
+  const camera = () => {
+    const c = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  const px = (x, y) => [Math.round(80 - 10 * x), Math.round(40 + 10 * y)];   // right -X, up -Y
+  const scoped = await renderPixels(spec(true), camera());
+  const open = await renderPixels(spec(false), camera());
+  const shadow = px(-0.3, 0);
+  assert.ok(open.at(...shadow)[0] + 30 < scoped.at(...shadow)[0],
+            `the scene's light is shadowed by the ball (${open.at(...shadow)}), the region's is not (${scoped.at(...shadow)})`);
+});

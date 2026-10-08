@@ -39,9 +39,9 @@ const pointAt = (radius, angle, height) => [radius * Math.cos(angle), radius * M
 /**
  * Generate a circular maze.
  *
- * Returns { tree, cells, passages, openings, height, hub, exit, radius }:
- *   tree      a scene subtree - the walls, standing on z = 0 - to put
- *             under "objects" and place where it is wanted
+ * Returns { tree, cells, passages, openings, height, hub, exit, radius, torches }:
+ *   tree      a scene subtree - the walls and the floor between them, on
+ *             z = 0 - to put under "objects" and place where it is wanted
  *   cells     [{ ring, index, angle0, angle1, center }], one per cell
  *   passages  [[from, to]], the open ways between cells, by index into
  *             cells; -1 is the hub
@@ -52,14 +52,25 @@ const pointAt = (radius, angle, height) => [radius * Math.cos(angle), radius * M
  *   hub       { center, radius }: the open middle
  *   exit      { angle }: where the way out is cut through the outer wall
  *   radius    the outer wall's outside
+ *   torches   [{ cell, pos, color }]: the lights in the maze, by index into
+ *             cells; -1 is the hub
  *
  * `innerRadius` is the hub's, 1.25 hall widths by default. A doorway must
  * fit inside its cell where it goes through a wall, or this throws.
  *
  * `material` is the walls' faces (default "wall", which the scene must
  * define); `doorMaterial` the insides of the doorways, their jambs, and
- * `topMaterial` the tops, both `material` unless given. Each face is a node
- * of its own, so it shows its own.
+ * `topMaterial` the tops, and `floorMaterial` the floor within the maze, all
+ * `material` unless given. Each face is a node of its own, so it shows its
+ * own.
+ *
+ * `torches` is the share of cells, the hub among them, that have a light:
+ * 0 (the default) none, 1 all. A torch lights only its own cell (see
+ * "Lights" under Subtrees in scene-format.md): its walls and floor, and
+ * nothing it can see through a doorway. With `scopeTorches` false the
+ * torches are left off the tree, to be the scene's own lights (`torches`,
+ * returned), lighting everything: the same maze and torches, unscoped, for
+ * comparison.
  */
 export function circularMaze({
   seed = 1,
@@ -73,6 +84,9 @@ export function circularMaze({
   material,
   doorMaterial,
   topMaterial,
+  floorMaterial,
+  torches = 0,
+  scopeTorches = true,
 } = {}) {
   const random = seeded(seed);
   // Ring wall `ring` runs from wallInside(ring) out to wallOutside(ring);
@@ -157,15 +171,17 @@ export function circularMaze({
   const outermost = cellOf(rings - 1, Math.floor(random() * counts[rings - 1]));
   const exitAngle = middleAngle(outermost);
   open.push({ ring: rings, angle: exitAngle });
+  // Which cells have a torch.
+  const lit = new Set([-1, ...cells.keys()].filter(() => random() < torches));
 
   // -- geometry -------------------------------------------------------------
   //
   // The walls are the divisions: the tree is a spatial partition built
   // from the maze's own surfaces, outermost first.
   //   - Root: a cylinder half a hall beyond the outer wall, and within it the
-  //     slab the halls stand in, reaching half a hall above the tops - pure
-  //     divisions, so a ray that misses the maze, or passes over it, is
-  //     done in two tests.
+  //     slab the halls stand in, reaching half a hall above the tops and
+  //     below the floor - pure divisions, so a ray that misses the maze, or
+  //     passes over it, is done in two tests.
   //   - Then radially, middle first, by cylinders through the middle of each
   //     ring wall but the outer one: pure divisions, standing in stone,
   //     above every face. Between each two is a layer: corridor `ring`, with
@@ -173,15 +189,21 @@ export function circularMaze({
   //     outermost corridor, all of the outer wall). The hub, wall 0's inner
   //     half and the open middle, is innermost, so it comes last.
   //   - Then by angle, within a layer: planes through the axis, middle
-  //     first, also pure divisions, down to wedges of a quarter turn at most
-  //     holding at most one doorway of each wall and one radial wall. In a
-  //     wedge that narrow a slab along the line from the middle meets it
-  //     only once, so the slab alone is the wall or the doorway.
-  //   - Then in a wedge, a chain through outsides: the inner wall's outside
-  //     face, its inside that half wall's top and doorways; the outer
-  //     wall's inside face, likewise; and past both, the corridor, its top
-  //     and radial wall.
-  // So every doorway is cut twice, once in each layer its wall is half of.
+  //     first, at the corridor's cell boundaries - through the middle of
+  //     each radial wall, standing or open - so pure divisions again, in
+  //     stone or air, above every face. Each wedge is one cell. (The hub is
+  //     one cell; its wedges just keep each doorway to itself.) In a wedge
+  //     of a quarter turn or less a slab along the line from the middle
+  //     meets it only once, so the slab alone is the wall or the doorway.
+  //   - Then in a wedge: the floor, below it, and above, a chain through
+  //     outsides: the inner wall's outside face, its inside that half
+  //     wall's top and doorways; the outer wall's inside face, likewise;
+  //     and past both, the corridor: the halves of the radial walls at its
+  //     ends, each with its top below its slab.
+  // So every doorway is cut twice, once in each layer its wall is half of,
+  // and every radial wall twice, once in each cell it is the end of. And a
+  // cell is a subtree, which a torch can light: a node holding the cell,
+  // carrying its light, so the cell is its region.
   //
   // Faces are spelled as DESIGN.md says ("Spelling a solid's faces"): each
   // the surface of a node carrying the walls' material, entered on its
@@ -190,6 +212,7 @@ export function circularMaze({
   const wall = material ?? 'wall';
   const jamb = doorMaterial ?? wall;
   const cap = topMaterial ?? wall;
+  const ground = floorMaterial ?? wall;
   const margin = hallWidth / 2;
   const height = wallHeight + margin;
   const middleOf = (ring) => wallInside(ring) + wallThickness / 2;
@@ -203,8 +226,10 @@ export function circularMaze({
     ({ slab: { center: [0, 0, 0], axis: tangentOf(angle), thickness, ...(complement ? { complement: true } : {}) } });
   // Through the axis at `angle`; its inside is the half turn before it.
   const halfTurn = (angle) => ({ plane: { normal: tangentOf(angle), offset: 0 } });
-  // Below the tops.
+  // Below the tops; below the floor; below the top of the halls.
   const top = { plane: { normal: [0, 0, 1], offset: wallHeight } };
+  const floor = { plane: { normal: [0, 0, 1], offset: 0 } };
+  const ceiling = { plane: { normal: [0, 0, 1], offset: height } };
   const withChildren = (node, nodeMaterial, inside, outside) => ({
     ...node,
     material: nodeMaterial,
@@ -213,8 +238,8 @@ export function circularMaze({
   });
 
   // Angular BSP over `items` ({ kind, angle, half }: a slab's angle, and the
-  // angle half its width spans nearest the axis) in the range low..high;
-  // `leaf(items)` builds a wedge.
+  // angle half its width spans nearest the axis) in the range low..high,
+  // split at the middle; `leaf(items, low, high)` builds a wedge.
   const overlaps = (item, low, high) => {
     const into = (angle) => low + ((((angle - low) % TAU) + TAU) % TAU);
     const start = into(item.angle - item.half);
@@ -222,7 +247,7 @@ export function circularMaze({
   };
   const crowded = (items) => new Set(items.map((item) => item.kind)).size < items.length;
   const angular = (items, low, high, leaf, depth = 0) => {
-    if (!items.length || (!crowded(items) && high - low <= Math.PI / 2 + 1e-9) || depth > 12) return leaf(items);
+    if (!items.length || (!crowded(items) && high - low <= Math.PI / 2 + 1e-9) || depth > 12) return leaf(items, low, high);
     const divide = (low + high) / 2;
     return withChildren(
       halfTurn(divide),
@@ -230,6 +255,40 @@ export function circularMaze({
       angular(items.filter((item) => overlaps(item, low, divide)), low, divide, leaf, depth + 1),
       angular(items.filter((item) => overlaps(item, divide, high)), divide, high, leaf, depth + 1),
     );
+  };
+  // The same, a cell to a wedge: split at the cell boundary nearest the
+  // middle that leaves no side over a half turn (a plane through the axis
+  // parts only half turns), or if there is none, at the middle, a cell
+  // across it going both ways; and within a cell over a quarter turn, by
+  // the middle as above.
+  const byCell = (ringCells, items, leaf, wrap) => {
+    const within = (low, high) => items.filter((item) => overlaps(item, low, high));
+    const split = (first, last, low, high) => {
+      if (first === last) {
+        const cell = ringCells[first];
+        const quarters = (here, from, to) => (to - from <= Math.PI / 2 + 1e-9
+          ? leaf(cell, here)
+          : withChildren(halfTurn((from + to) / 2), null,
+            quarters(here.filter((item) => overlaps(item, from, (from + to) / 2)), from, (from + to) / 2),
+            quarters(here.filter((item) => overlaps(item, (from + to) / 2, to)), (from + to) / 2, to)));
+        return wrap(cell, quarters(within(low, high), low, high));
+      }
+      const fits = (angle) => angle - low <= Math.PI + 1e-9 && high - angle <= Math.PI + 1e-9;
+      let best = -1;
+      for (let index = first + 1; index <= last; index++) {
+        const angle = ringCells[index].angle0;
+        if (fits(angle) && (best < 0 || Math.abs(angle - (low + high) / 2) < Math.abs(ringCells[best].angle0 - (low + high) / 2))) best = index;
+      }
+      if (best >= 0) {
+        const divide = ringCells[best].angle0;
+        return withChildren(halfTurn(divide), null, split(first, best - 1, low, divide), split(best, last, divide, high));
+      }
+      const divide = (low + high) / 2;
+      const straddling = ringCells.findIndex((cell) => cell.angle0 < divide && divide < cell.angle1);
+      return withChildren(halfTurn(divide), null,
+        split(first, straddling, low, divide), split(straddling, last, divide, high));
+    };
+    return split(0, ringCells.length - 1, 0, TAU);
   };
   const slabsAt = (kind, angles, radius, width) => angles.map((angle) =>
     ({ kind, angle, half: Math.asin(Math.min(1, width / 2 / radius)) + 1e-6 }));
@@ -243,22 +302,37 @@ export function circularMaze({
     .filter((cell) => cell.ring === ring && !openRadial.has(`${ring}:${cell.angle1}`))
     .map((cell) => cell.angle1));
 
+  // A cell, in a wedge: the floor, and above it the rest. And if it has a
+  // torch, a node holding all of its wedges, carrying the torch.
+  const torchAt = (cell) => (cell < 0
+    ? [0, 0, wallHeight * 0.8]
+    : pointAt(Math.hypot(cells[cell].center[0], cells[cell].center[1]), middleAngle(cell), wallHeight * 0.8));
+  const torchColor = [1, 0.75, 0.45].map((part) => +(part * 0.6 * hallWidth * hallWidth).toFixed(3));
+  const floored = (above) => withChildren(floor, ground, null, above);
+  const torchFor = (cell, subtree) => (scopeTorches && lit.has(cell)
+    ? { ...ceiling, lights: [{ pos: torchAt(cell), color: torchColor }], inside: subtree }
+    : subtree);
+
   // Half a ring wall, in a wedge: below its tops, stone, but for its
   // doorways - slabs complemented, so the wall is their inside and the
   // opening their outside, the jambs faces of their own.
   const halfWall = (doors) => withChildren(top, cap, doors.reduceRight((rest, item) =>
     withChildren(across(item.angle, doorWidth, true), jamb, rest, null), null), null);
-  // A corridor, in a wedge: below its tops, its radial wall's slab, whose
-  // inside is the wall; past it, the next, and past the last, nothing.
-  const corridor = (radials) => (radials.length
-    ? withChildren(top, cap, radials.reduceRight((rest, item) =>
-      withChildren(across(item.angle, wallThickness), wall, null, rest), null), null)
-    : null);
+  // A corridor, in a wedge: its radial walls' slabs, each's inside the wall,
+  // below its own top; past one, the next, and past the last, nothing. (A
+  // top over them all would be crossed first, and a ray into the top of
+  // any but the first would then pass the outsides of those before it,
+  // which clear the hit: each top is the wall's, below its slab.)
+  const corridor = (radials) => radials.reduceRight((rest, item) =>
+    withChildren(across(item.angle, wallThickness), wall, withChildren(top, cap, null, null), rest), null);
 
   // The hub: the open middle, and beyond wall 0's inside face, its inner half.
-  const hubLayer = () => angular(
-    slabsAt('outer', doorsThrough(0), wallInside(0), doorWidth), 0, TAU,
-    (here) => withChildren(cylinder(wallInside(0), true), wall, halfWall(here), null));
+  const hubLayer = () => {
+    const hub = angular(
+      slabsAt('outer', doorsThrough(0), wallInside(0), doorWidth), 0, TAU,
+      (here) => floored(withChildren(cylinder(wallInside(0), true), wall, halfWall(here), null)));
+    return torchFor(-1, hub);
+  };
   // Corridor `ring`'s layer.
   const corridorLayer = (ring) => {
     const outermost = ring === rings - 1;
@@ -267,11 +341,12 @@ export function circularMaze({
       ...slabsAt('outer', doorsThrough(ring + 1), wallInside(ring + 1), doorWidth),
       ...slabsAt('radial', standingIn(ring), wallOutside(ring), wallThickness),
     ];
-    return angular(items, 0, TAU, (here) => {
+    const ringCells = cells.filter((cell) => cell.ring === ring);
+    return byCell(ringCells, items, (cell, here) => {
       const outerWall = outermost      // all of the outer wall: within its outside face too
         ? withChildren(cylinder(wallOutside(rings)), wall, halfWall(ofKind(here, 'outer')), null)
         : halfWall(ofKind(here, 'outer'));
-      return withChildren(
+      return floored(withChildren(
         cylinder(wallOutside(ring)),
         wall,
         halfWall(ofKind(here, 'inner')),
@@ -281,8 +356,8 @@ export function circularMaze({
           outerWall,
           corridor(ofKind(here, 'radial')),
         ),
-      );
-    });
+      ));
+    }, (cell, subtree) => torchFor(cellOf(ring, cell.index), subtree));
   };
 
   // The layers outward, divided through the middle of the ring wall between
@@ -297,7 +372,7 @@ export function circularMaze({
     cylinder(wallOutside(rings) + margin),
     null,
     withChildren(
-      { slab: { center: [0, 0, height / 2], axis: [0, 0, 1], thickness: height } },
+      { slab: { center: [0, 0, (height - margin) / 2], axis: [0, 0, 1], thickness: height + margin } },
       null,
       radial(0, layers.length - 1),
       null,
@@ -314,5 +389,7 @@ export function circularMaze({
     hub: { center: [0, 0, wallHeight / 2], radius: wallInside(0) },
     exit: { angle: exitAngle },
     radius: wallOutside(rings),
+    torches: [...lit].sort((first, second) => first - second)
+      .map((cell) => ({ cell, pos: torchAt(cell), color: torchColor })),
   };
 }
