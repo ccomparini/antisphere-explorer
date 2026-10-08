@@ -73,7 +73,8 @@
 import { ASContext } from './as-context.js';
 import { ASRenderer, DEBUG_VIEWS } from './as-renderer.js';
 import { ASCamera, attachCameraControls } from './as-camera.js';
-import { loadText, createTimestampQuery } from './gpu-setup.js';
+import { loadText, loadBytes, createTimestampQuery } from './gpu-setup.js';
+import { loadReferences } from './antisphere-scene.js';
 
 const canvas = document.getElementById('c');
 const el = (id) => document.getElementById(id);
@@ -97,9 +98,10 @@ main().catch((e) => { fail(e.message); throw e; });
 
 async function main() {
   // ?scene=other.json picks a different scene, so a benchmark setup is a
-  // shareable URL rather than an edit.
+  // shareable URL rather than an edit. A full URL loads from anywhere that
+  // allows it (CORS), and an .stl, there or here, is shown on its own.
   const sceneFile = new URLSearchParams(location.search).get('scene') || 'scene.json';
-  const scenePath = `scenes/${sceneFile}`;
+  const scenePath = /^[a-z][a-z0-9+.-]*:\/\//i.test(sceneFile) ? sceneFile : `scenes/${sceneFile}`;
 
   const gpu = await ASContext.create({ 'computeUrl': 'gen/antisphere-raycast.wgsl' });
   const scene = await gpu.loadScene(scenePath);
@@ -218,7 +220,9 @@ async function main() {
         // every poll.
         liveScene = text;
         try {
-          scene.update(JSON.parse(text));
+          // What it references is reloaded too: it may have changed, or be new.
+          const spec = JSON.parse(text);
+          scene.update(spec, { files: await loadReferences(spec, { from: scenePath, readText: loadText, readBytes: loadBytes }) });
           logSceneSize(scene);
           done.push('scene');
         } catch (err) {

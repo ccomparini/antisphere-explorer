@@ -28,7 +28,7 @@ globalThis.window ??= { devicePixelRatio: 1 };
 const { ASContext } = await import(new URL('as-context.js', PUBLIC));
 await import(new URL('as-renderer.js', PUBLIC));      // registers ASRenderer
 const { ASCamera } = await import(new URL('as-camera.js', PUBLIC));
-const { loadImports } = await import(new URL('antisphere-scene.js', PUBLIC));
+const { loadReferences } = await import(new URL('antisphere-scene.js', PUBLIC));
 
 const args = process.argv.slice(2);
 const sceneFile = args.find((a) => a.endsWith('.json')) ?? 'scene.json';
@@ -37,12 +37,12 @@ if (!sizes.length) sizes.push([1920, 1080], [1280, 720], [3840, 2160]);
 
 const load = (name) => readFile(new URL(name, PUBLIC), 'utf8');
 const gpu = await ASContext.create({ load });
-// As ASContext.loadScene does it, imports and all, but from disk.
+// As ASContext.loadScene does it, references and all, but from disk.
 const scenePath = `scenes/${sceneFile}`;
-const readJson = async (path) => JSON.parse(await load(path));
-const spec = await readJson(scenePath);
+const spec = JSON.parse(await load(scenePath));
 const scene = gpu.createScene(spec, {
-  imports: await loadImports(spec, readJson, { from: scenePath }), path: scenePath,
+  files: await loadReferences(spec, { from: scenePath, readText: load, readBytes: (p) => readFile(new URL(p, PUBLIC)) }),
+  path: scenePath,
 });
 const { device } = gpu;
 

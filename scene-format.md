@@ -24,6 +24,8 @@ Top level:
   "materials": { ... },       // optional, name -> material def
   "lights":    [ ... ],       // optional, but at least one is required at render time
   "objects":   { ... },       // optional, name -> reusable subtree template
+                              // (any of these may be, or contain, a reference
+                              // to another file: see References)
   "gravity":   { ... },       // optional, for whatever simulates the scene
   "spawn":     { ... },       // optional, likewise
   "root":      { ... }        // required, the scene's top-level subtree
@@ -129,50 +131,64 @@ These are the scene's own lights, and light everything. A node may carry
 lights too (see `"lights"` under Subtrees): those light only its own region.
 A scene needs at least one light, here or on a node.
 
-## `import`
+## References
+
+Wherever a scene expects an object it may instead name a file, after an
+`@`, and that file's content is the object — so a material library, a part,
+a set of lights or a mesh lives in one place and scenes refer to it:
 
 ```
-"import": ["parts/bolt.json", "parts/frame.json"]
-"import": { "fixings": "parts/bolt.json" }
+"materials": ["@lib/materials.json", { "teal": { "albedo": [0.15, 0.55, 0.55] } }],
+"objects": { "post": { "use": "@parts/bolt.json#/objects/bolt", "translate": [2, 0, 0] } },
+"root": { ..., "inside": "@parts/torus.stl" },
+"material": "@lib/materials.json#/brass"
 ```
 
-Borrows the objects of other scene files. An imported object is named for
-the file it came from, with a colon between:
+A string starting `@` is a reference; any other string is a name, as ever.
+After the `@` comes a path, relative to the file that names it
+(`parts/bolt.json` asking for `@../lib/metal.json` means `lib/metal.json`),
+or a URL. A fragment picks part of the file: a JSON pointer (RFC 6901), so
+`#/objects/bolt` is the file's `objects.bolt`, `~1` stands for `/` and `~0`
+for `~`; no fragment is the whole file, and a fragment alone, `"@#/objects/head"`,
+is part of the same file. A file ending `.stl` is a mesh, converted as it
+loads into a tree of its faces' planes inside a bounding spheroid. It names
+no material - an STL has none - so it is made of whatever material the node
+around it names, as any node that names none is:
+`{ "sphere": ..., "material": "gold", "inside": "@parts/torus.stl" }`.
+Either kind of file, ending `.gz`, is unzipped as it loads.
 
-```
-{ "use": "bolt:head" }
-```
+Where a reference may go:
 
-so two files may each have a `"body"` without arguing about it, and a name
-you use here is never shadowed by one you imported. With the list form the
-prefix is the file's own name, without directory or extension; with the
-object form you choose it.
+| Where | What it may be |
+|---|---|
+| `materials`, `objects` | a map, a reference to one, or an array of those, merged in order — a later entry of the same name wins |
+| each material, each object, `camera`, `gravity`, `spawn` | the object, or a reference |
+| `lights` (the scene's, or a node's) | an array, or a reference to one; an item may be a light, a reference to one, or a reference to an array, spliced in |
+| a subtree — `root`, `inside`, `outside`, a member of `group`/`union`/`intersect`/`difference`, `use` | a subtree, or a reference (an `.stl` gives the mesh's tree) |
+| `material` on a node | a name, or a reference to a material |
 
-Only `objects` and `materials` cross over. An imported file's `root`,
-`lights` and `camera` are how *it* is looked at on its own, not part of what
-it offers — so a parts file can be opened and admired in the editor while
-still being a library.
+**What a reference brings is the scene's.** It is copied in where it is
+named, and the names inside it then mean this scene's: a referenced bolt
+that says `"material": "steel"` is made of whatever this scene calls steel.
+That is what lets a part be re-skinned without editing its file, and a
+library supply the names. A file that means *its own* definition says so
+with a reference: `parts/bolt.json`'s bolt is
+`{ "union": ["@#/objects/head", "@#/objects/shaft"] }`, and a scene using it
+gets the steel from where it likes — `"steel": "@parts/bolt.json#/materials/steel"`,
+say, or its library's.
 
-Names inside an imported file keep meaning what they meant there: if its
-`bolt` is a union of its `head` and `shaft`, then importing it gives you
-`bolt:bolt` made of `bolt:head` and `bolt:shaft`, and its materials arrive
-prefixed too. Imported files may import in turn, and paths are relative to
-the file that names them — `parts/bolt.json` asking for `../common/metal.json`
-means `common/metal.json`. A file that imports itself, directly or in a
-circle, is an error rather than a hang.
+A subtree reference becomes an object of its own, named for where it came
+from, so every use of one reference shares one set of nodes. A file that
+includes itself, directly or round a circle, is an error rather than a hang.
 
-Anything this scene defines under an imported name wins: writing
-`"bolt:steel"` in your own `materials`, or `"bolt:head"` in your own
-`objects`, replaces that piece of the import for everything that uses it —
-which is how to re-skin or re-shape an imported part without editing the
-file it came from.
-
-What is refused is two files that would share a prefix, since one would
-silently disappear into the other. Name one of them with the object form.
+In a map of materials or objects, a key starting `_` (`"_comment"`) is a
+note, not an entry: it is dropped, and never brought over from another
+file.
 
 Loading happens before compiling, since the compiler reads no files itself.
-`loadScene()` does it for you; if you drive the compiler directly, `loadImports()`
-fetches everything a spec needs and `compileScene(spec, { imports })` takes the
+`loadScene()` does it for you; if you drive the compiler directly,
+`loadReferences()` fetches everything a spec references, and what those
+reference in turn, and `compileScene(spec, { files, path })` takes the
 result.
 
 ## `objects`

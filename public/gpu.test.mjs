@@ -15,6 +15,9 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { gzipSync } from 'node:zlib';
+import { writeSTL } from './stl.js';
 import { ASContext } from './as-context.js';
 import { matrixOf, separation } from './overlap.js';
 import { OverlapQuery, OverlapResult, viewsOf } from './gen/layouts.js';
@@ -1085,4 +1088,59 @@ gpuTest('a region\'s light sees only the region\'s subtree, even where other geo
   const shadow = px(-0.3, 0);
   assert.ok(open.at(...shadow)[0] + 30 < scoped.at(...shadow)[0],
             `the scene's light is shadowed by the ball (${open.at(...shadow)}), the region's is not (${scoped.at(...shadow)})`);
+});
+
+// -- loading by URL -------------------------------------------------------------------
+
+gpuTest('loadScene by URL: a scene referencing what sits beside it, an STL on its own, gzipped', async () => {
+  const tetrahedron = [
+    [[0,0,0],[0,1,0],[1,0,0]], [[0,0,0],[0,0,1],[0,1,0]],
+    [[0,0,0],[1,0,0],[0,0,1]], [[1,0,0],[0,1,0],[0,0,1]],
+  ];
+  // The mesh names no material: it is made of the clay of the root round it,
+  // which comes from a library beside the scene.
+  const files = {
+    '/scenes/s.json': JSON.stringify({
+      materials: ['@lib/m.json'],
+      lights: [{ pos: [0, 0, 5], color: [1, 1, 1] }],
+      root: { sphere: { center: [0, 0, 0], radius: 40 }, material: 'clay', inside: { use: '@parts/tet.stl' } },
+    }),
+    '/scenes/lib/m.json': JSON.stringify(MATERIALS),
+    '/scenes/parts/tet.stl': Buffer.from(writeSTL(tetrahedron)),
+  };
+  const server = createServer((req, res) => {
+    const body = files[req.url.split('?')[0]];
+    res.writeHead(body ? 200 : 404);
+    res.end(body ?? 'not found');
+  });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    // What the scene references, "@parts/tet.stl" and "@lib/m.json", is
+    // fetched from beside it.
+    const sc = await ctx.loadScene(`${base}/scenes/s.json`);
+    const hits = await cast(sc, [{ origin: [0.2, 0.2, 5], direction: [0, 0, -1] }]);
+    assert.ok(Math.abs(hits.t0[0] - (5 - 0.6)) < 1e-4, `hit at ${hits.t0[0]}: the slanted face`);
+    sc.destroy();
+
+    // On its own: a floor, a sky and the mesh, scaled to 2 across (x 2)
+    // and centred, on the floor. Over its (0.2, 0.2) it is 0.6 tall: 1.2.
+    const alone = await ctx.loadScene(`${base}/scenes/parts/tet.stl?v=2`);
+    assert.equal(alone.lights.length, 3);
+    const down = await cast(alone, [{ origin: [-0.6, -0.6, 5], direction: [0, 0, -1] }]);
+    assert.ok(Math.abs(down.t0[0] - (5 - 1.2)) < 1e-4, `hit at ${down.t0[0]}: the mesh's top`);
+    alone.destroy();
+
+    // Gzipped, the scene and what it references both.
+    files['/scenes/s.json.gz'] = gzipSync(files['/scenes/s.json'].replace('@parts/tet.stl', '@parts/tet.stl.gz'));
+    files['/scenes/parts/tet.stl.gz'] = gzipSync(files['/scenes/parts/tet.stl']);
+    const zipped = await ctx.loadScene(`${base}/scenes/s.json.gz`);
+    const again = await cast(zipped, [{ origin: [0.2, 0.2, 5], direction: [0, 0, -1] }]);
+    assert.ok(Math.abs(again.t0[0] - (5 - 0.6)) < 1e-4, `gzipped: hit at ${again.t0[0]}`);
+    zipped.destroy();
+
+    await assert.rejects(ctx.loadScene(`${base}/scenes/missing.json`), /404/);
+  } finally {
+    server.close();
+  }
 });

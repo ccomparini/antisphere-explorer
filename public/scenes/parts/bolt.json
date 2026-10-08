@@ -20,7 +20,7 @@
         { "slab": { "center": [0, 0, -0.5], "axis": [0, 0, 1], "thickness": 1.2 } }
       ]
     },
-    "bolt": { "union": ["head", "shaft"] }
+    "bolt": { "union": ["@#/objects/head", "@#/objects/shaft"] }
   },
 
   "lights": [{ "pos": [3, -4, 5], "color": [120, 118, 112] }],

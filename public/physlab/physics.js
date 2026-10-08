@@ -19,7 +19,7 @@ import { bindGroup } from '../bind-group.js';
  */
 export function compileSolid(geometry, materials, place = null, objects = {}) {
   const spec = place
-    ? { materials, lights: [], objects: { ...objects, '@solid': geometry }, root: { use: '@solid', ...place } }
+    ? { materials, lights: [], objects: { ...objects, 'physics:solid': geometry }, root: { use: 'physics:solid', ...place } }
     : { materials, lights: [], objects, root: geometry };
   const built = compileScene(spec);
   const solid = (i) => !!built.materials[built.nodes[i].material].solid;

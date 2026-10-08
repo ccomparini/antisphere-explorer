@@ -36,6 +36,8 @@
 
 import { Light, Material, Node } from './gen/layouts.js';
 import { regionsDisjoint } from './overlap.js';
+import { readSTL } from './stl.js';
+import { meshToTree, boundsOf } from './mesh-import.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -885,81 +887,85 @@ function boundOf(t, declared, memo, table) {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Imports
+// References
 //
-// A scene can borrow the objects of other scene files:
+// Wherever a scene expects an object, it may instead name a file - a path
+// or a URL, after an @ - and that file's content is the object:
 //
-//   "import": ["parts/bolt.json", "parts/frame.json"],
-//   ...
-//   { "use": "bolt:hex-head" }
+//   "materials": ["@lib/materials.json", { "teal": { ... } }],
+//   "objects": { "bolt": "@parts/bolt.json#/objects/bolt" },
+//   "inside": "@parts/torus.stl",
+//   "material": "@lib/metals.json#/brass"
 //
-// The name before the colon says which file an object came from, so two
-// files may both have a "body" without arguing about it. By default that
-// name is the file's own, without its directory or extension; write the
-// import as an object to choose it: { "frame": "parts/frame-v2.json" }.
+// A string starting @ is a reference; anything else is a name, as ever.
+// After the @, a path (relative to the file that names it) or a URL, and
+// maybe a fragment: a JSON pointer into the file (RFC 6901); none is the
+// whole file, and a fragment alone, "@#/objects/head", is the same file.
+// A file ending .stl is a mesh, read as its tree; either kind, ending .gz,
+// is unzipped as it loads.
 //
-// Only objects and materials cross over. An imported file's root, lights
-// and camera are how *it* is looked at, not part of what it offers.
+// Where (see expandReferences()):
+//   materials, objects   a map, a reference to one, or an array of those,
+//                        merged in order, later entries winning
+//   each material, each object, camera, gravity, spawn: or a reference
+//   lights (scene's, or a node's): an array or a reference to one; an item
+//                        a light, a reference to one, or a reference to an
+//                        array, spliced in
+//   a subtree - root, inside, outside, a member of group, union,
+//                        intersect or difference, a use - or a reference;
+//                        an .stl reference is the mesh's tree
+//   material on a node   a name, or a reference to a material
+//
+// What a reference brings is the scene's from then on: the names in it
+// mean the scene's. A file that means its own says so with a reference,
+// "@#/objects/head". In a map of materials or objects, a key starting _
+// ("_comment") is a note, not an entry: it is dropped, and never brought
+// over from another file. A subtree reference becomes an object of its own,
+// named for where it came from, and the place it was a use of that, so
+// every use of one reference shares one set of nodes; a material
+// reference likewise a material. Everything else is copied in.
 //
 // Loading is the caller's business, not the compiler's: compileScene() is
-// synchronous and reads no files, so the parsed files are handed to it in
-// `options.imports`. importsOf() says what a spec needs and loadImports()
-// will fetch them all, including what they import in turn.
+// synchronous and reads no files, so the files are handed to it in
+// `options.files`, which loadReferences() fetches - everything a scene
+// references, and everything those reference in turn.
 // ---------------------------------------------------------------------------
 
-const IMPORT_SEPARATOR = ':';
+/** Whether a path is a URL of its own (https://, file://, ...), not relative. */
+const isURL = (path) => /^[a-z][a-z0-9+.-]*:\/\//i.test(path);
 
-/** The name an imported file goes by, when the scene doesn't say. */
-function aliasFor(path) {
-  const file = String(path).split(/[\\/]/).pop();
-  return file.replace(/\.[^.]*$/, '');
+/**
+ * The file a path or URL names, without directories, query or fragment -
+ * or a .gz, which only says how it is stored: "dragon.json.gz" is
+ * "dragon.json".
+ */
+const fileOf = (path) => String(path).split(/[?#]/)[0].split(/[\\/]/).pop().replace(/\.gz$/i, '');
+
+/** Whether a path or URL names a gzipped file, unzipped as it loads. */
+export const isGzip = (path) => /\.gz$/i.test(String(path).split(/[?#]/)[0]);
+
+/** Whether a path or URL names an STL file, which is read as a mesh. */
+export const isSTL = (path) => /\.stl$/i.test(fileOf(path));
+
+/** Gzipped bytes, unzipped (DecompressionStream: browsers, and Node 18+). */
+export async function gunzip(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/** Whether a string, where an object may go, is a reference rather than a name: it starts @. */
+export function isReference(value) {
+  return typeof value === 'string' && value.startsWith('@');
 }
 
 /**
- * What this spec imports, as { alias, path } - including nothing, which is
- * the usual answer.
+ * Where a path named inside `from` actually points. A URL is where it says;
+ * a path inside a file that came from a URL is resolved against that URL,
+ * so a scene on another server references what sits beside it there.
  */
-export function importsOf(spec) {
-  const declared = spec?.import;
-  if (!declared) return [];
-  if (Array.isArray(declared)) {
-    return declared.map((path) => ({ alias: aliasFor(path), path }));
-  }
-  if (typeof declared === 'object') {
-    return Object.entries(declared).map(([alias, path]) => ({ alias, path }));
-  }
-  throw new Error('scene.json import: needs a list of files, or a map of name to file');
-}
-
-/**
- * Fetch every file a spec imports, and every file those import, as a map
- * from path to parsed spec - the shape compileScene() wants.
- *
- * `read` takes a path and returns the parsed JSON, however the caller
- * likes: fetch in a browser, readFile in node. Paths are resolved relative
- * to the file that named them, which `read` sees as given.
- */
-export async function loadImports(spec, read, { from = '', seen = new Map() } = {}) {
-  for (const { path } of importsOf(spec)) {
-    const resolved = resolvePath(from, path);
-    if (seen.has(resolved)) continue;
-    seen.set(resolved, null);                      // claim it before recursing
-    let imported;
-    try {
-      imported = await read(resolved);
-    } catch (cause) {
-      throw new Error(`cannot read imported scene "${resolved}": ${cause.message}`);
-    }
-    seen.set(resolved, imported);
-    await loadImports(imported, read, { from: resolved, seen });
-  }
-  const loaded = {};
-  for (const [path, value] of seen) if (value) loaded[path] = value;
-  return loaded;
-}
-
-/** Where a path named inside `from` actually points. */
 function resolvePath(from, path) {
+  if (isURL(path)) return path;
+  if (isURL(from)) return new URL(path, from).href;
   if (!from || path.startsWith('/')) return path;
   const directory = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : '';
   if (!directory) return path;
@@ -973,100 +979,275 @@ function resolvePath(from, path) {
   return (path.startsWith('/') ? '/' : '') + out.join('/');
 }
 
+/** What a JSON pointer (RFC 6901, as a URL fragment: percent-encoded) picks out of `doc`. */
+function pointerInto(doc, pointer, reference) {
+  if (pointer === '') return doc;
+  if (!pointer.startsWith('/')) {
+    throw new Error(`reference "${reference}": a fragment is a JSON pointer, starting "#/"`);
+  }
+  let here = doc;
+  for (const raw of pointer.slice(1).split('/')) {
+    const key = decodeURIComponent(raw).replace(/~1/g, '/').replace(/~0/g, '~');
+    if (here === null || typeof here !== 'object' || !Object.prototype.hasOwnProperty.call(here, key)) {
+      throw new Error(`reference "${reference}": the file has nothing at ${pointer}`);
+    }
+    here = here[key];
+  }
+  return here;
+}
+
 /** Every array of subtrees a node can carry. */
 const SUBTREE_ARRAYS = ['group', 'union', 'intersect', 'difference'];
 
 /**
- * Copy a subtree, renaming the objects and materials it names. Everything
- * else - shapes, transforms, bounds - is carried over untouched.
+ * A spec with its references replaced by what they name, from `files`
+ * (path or URL -> content: parsed JSON, or an STL's tree) - see the
+ * comment above. Returns { spec, missing }: `missing`, the files it needed
+ * and wasn't given; while there are any, `spec` is incomplete. `from` is
+ * the spec's own path, which its relative references are relative to.
+ * What has no references is returned as it is, not copied.
  */
-function renameWithin(def, renameObject, renameMaterial) {
-  if (def === null || def === undefined) return def;
-  if (typeof def === 'string') return renameObject(def);
-  if (Array.isArray(def)) return def.map((d) => renameWithin(d, renameObject, renameMaterial));
-  if (typeof def !== 'object') return def;
+export function expandReferences(spec, files = {}, { from = '' } = {}) {
+  const missing = new Set();
+  const own = { ...files, [from]: spec };          // "#/..." in the scene is the scene
+  const objects = new Map();                       // a subtree reference's key -> its subtree
+  const materials = new Map();                     // a material reference's key -> the material
+  const PENDING = Symbol('pending');
 
-  const out = { ...def };
-  if (typeof def.use === 'string') out.use = renameObject(def.use);
-  if (typeof def.material === 'string') out.material = renameMaterial(def.material);
-  if (typeof def.paint === 'string' && !LEGACY_PAINT_WORDS.includes(def.paint)) {
-    out.paint = renameMaterial(def.paint);
-  }
-  for (const side of ['inside', 'outside']) {
-    if (side in def) out[side] = renameWithin(def[side], renameObject, renameMaterial);
-  }
-  for (const op of SUBTREE_ARRAYS) {
-    if (Array.isArray(def[op])) {
-      out[op] = def[op].map((d) => renameWithin(d, renameObject, renameMaterial));
+  // What a reference names: { key, path, value }, or null while its file
+  // is missing. `trail` holds the references being copied in, outermost
+  // first, to catch a file copying itself in.
+  const lookUp = (reference, from, trail) => {
+    const target = reference.slice(1);
+    const hash = target.indexOf('#');
+    const file = hash < 0 ? target : target.slice(0, hash);
+    const pointer = hash < 0 ? '' : target.slice(hash + 1);
+    const path = file ? resolvePath(from, file) : from;
+    const key = pointer ? `${path}#${pointer}` : path;
+    if (trail.includes(key)) {
+      throw new Error(`reference "${reference}" includes itself, by way of ${[...trail, key].join(' -> ')}`);
     }
+    if (!(path in own)) { missing.add(path); return null; }
+    if (pointer && isSTL(path)) throw new Error(`reference "${reference}": an STL has no parts to point into`);
+    return { key, path, value: pointerInto(own[path], pointer, reference) };
+  };
+
+  // Each function below takes a value from a file at `from`, and returns
+  // it expanded: the same value if nothing in it is a reference.
+  const changed = (out, def) => Object.keys(out).some((k) => out[k] !== def[k]);
+
+  // A reference copied in: followed - through a file that is itself a
+  // reference, too - to what it names, which `expand` then expands.
+  const inline = (value, from, trail, expand) => {
+    if (!isReference(value)) return expand(value, from, trail);
+    const found = lookUp(value, from, trail);
+    return found ? inline(found.value, found.path, [...trail, found.key], expand) : undefined;
+  };
+
+  const material = (def, from, trail) => inline(def, from, trail, (v) => v);
+
+  const subtreeReference = (reference, from, trail) => {
+    const found = lookUp(reference, from, []);
+    if (!found) return reference;
+    if (!objects.has(found.key)) {
+      objects.set(found.key, PENDING);             // a cycle meets it as a use, and the compiler says so
+      objects.set(found.key, subtree(found.value, found.path, trail));
+    }
+    return found.key;
+  };
+
+  const subtree = (def, from, trail) => {
+    if (isReference(def)) return { use: subtreeReference(def, from, trail) };
+    if (def === null || typeof def !== 'object' || Array.isArray(def)) return def;
+    const out = { ...def };
+    if (isReference(def.use)) out.use = subtreeReference(def.use, from, trail);
+    if (isReference(def.material)) {
+      const found = lookUp(def.material, from, []);
+      if (found) {
+        if (!materials.has(found.key)) materials.set(found.key, found.value);
+        out.material = found.key;
+      }
+    }
+    for (const side of ['inside', 'outside']) {
+      if (def[side] !== undefined) out[side] = subtree(def[side], from, trail);
+    }
+    for (const op of SUBTREE_ARRAYS) {
+      if (Array.isArray(def[op])) {
+        const members = def[op].map((m) => (isReference(m) ? subtreeReference(m, from, trail) : subtree(m, from, trail)));
+        if (members.some((m, i) => m !== def[op][i])) out[op] = members;
+      }
+    }
+    if (def.lights !== undefined) out.lights = lights(def.lights, from, trail);
+    return changed(out, def) ? out : def;
+  };
+
+  // A list of lights; an item that names a list is spliced in, its own
+  // items expanded where it came from.
+  const lights = (list, from, trail) => inline(list, from, trail, (value, from, trail) => {
+    if (!Array.isArray(value)) return value;      // the compiler says what is wrong with it
+    const out = [];
+    let differs = false;
+    for (const item of value) {
+      const got = inline(item, from, trail, (v, from, trail) => (Array.isArray(v) ? lights(v, from, trail) : v));
+      if (got !== item) differs = true;
+      if (Array.isArray(got)) out.push(...got); else out.push(got);
+    }
+    return differs ? out : value;
+  });
+
+  // A map of materials or objects: or a reference to one, or an array of
+  // those, merged in order.
+  const merged = (value, from, trail, each) => inline(value, from, trail, (value, from, trail) => {
+    if (Array.isArray(value)) {
+      return Object.assign({}, ...value.map((part) => merged(part, from, trail, each) ?? {}));
+    }
+    if (value === null || typeof value !== 'object') return value;
+    const out = {};
+    // A key starting _ is a note ("_comment"), not an entry: dropped.
+    for (const [name, entry] of Object.entries(value)) if (!name.startsWith('_')) out[name] = each(entry, from, trail);
+    return changed(out, value) || Object.keys(out).length !== Object.keys(value).length ? out : value;
+  });
+
+  const out = { ...spec };
+  if (spec.materials !== undefined) out.materials = merged(spec.materials, from, [], material);
+  if (spec.objects !== undefined) out.objects = merged(spec.objects, from, [], subtree);
+  if (spec.lights !== undefined) out.lights = lights(spec.lights, from, []);
+  for (const key of ['camera', 'gravity', 'spawn']) {
+    if (spec[key] !== undefined) out[key] = inline(spec[key], from, [], (v) => v);
   }
-  return out;
+  if (spec.root !== undefined) out.root = subtree(spec.root, from, []);
+  if (objects.size) out.objects = { ...(out.objects ?? {}), ...Object.fromEntries(objects) };
+  if (materials.size) out.materials = { ...(out.materials ?? {}), ...Object.fromEntries(materials) };
+  return { spec: changed(out, spec) || Object.keys(out).length !== Object.keys(spec).length ? out : spec, missing };
 }
 
 /**
- * Fold every imported file's objects and materials into one spec, under
- * prefixed names. The result imports nothing and compiles like any other
- * scene, which is how the rest of the compiler stays unaware of all this.
+ * Fetch every file a spec references, and every file those reference, as
+ * the `files` that compileScene() and expandReferences() want.
+ *
+ * `readText` and `readBytes` take a resolved path or URL and return its
+ * text, or its bytes (an ArrayBuffer or Uint8Array), however the caller
+ * likes: fetch in a browser, readFile in node. A .json is read as text and
+ * parsed; an .stl as bytes and converted (meshToTree()); either, ending
+ * .gz, as bytes and unzipped first.
  */
-export function resolveImports(spec, imports = {}, { from = '', trail = [] } = {}) {
-  const wanted = importsOf(spec);
-  if (!wanted.length) return spec;
-
-  // Two files under one name would quietly become one file. The fix is to
-  // name them, so say so.
-  const byAlias = new Map();
-  for (const { alias, path } of wanted) {
-    if (byAlias.has(alias) && byAlias.get(alias) !== path) {
-      throw new Error(`scene.json import: "${byAlias.get(alias)}" and "${path}" would both ` +
-                      `be called "${alias}". Name one of them: ` +
-                      `"import": { "${alias}-2": "${path}" }`);
+export async function loadReferences(spec, { from = '', readText, readBytes, warn = console.warn } = {}) {
+  const files = {};
+  const load = async (path) => {
+    try {
+      if (isSTL(path) || isGzip(path)) {
+        if (!readBytes) throw new Error('an STL or a .gz needs loadReferences() given readBytes');
+        let bytes = new Uint8Array(await readBytes(path));
+        if (isGzip(path)) bytes = await gunzip(bytes);
+        if (!isSTL(path)) return JSON.parse(new TextDecoder().decode(bytes));
+        const read = readSTL(bytes);
+        if (read.openEdges) {
+          warn(`${path}: ${read.openEdges} open edges: the surface does not close, so what is inside it is a guess`);
+        }
+        const tree = meshToTree(read.triangles);
+        if (!tree) throw new Error('the mesh has no triangles with any area');
+        return tree;
+      }
+      return JSON.parse(await readText(path));
+    } catch (cause) {
+      throw new Error(`cannot load "${path}": ${cause.message}`);
     }
-    byAlias.set(alias, path);
+  };
+  for (;;) {
+    const { missing } = expandReferences(spec, files, { from });
+    if (!missing.size) return files;
+    await Promise.all([...missing].map(async (path) => { files[path] = await load(path); }));
+  }
+}
+
+/**
+ * A complete scene to look at a mesh in: `model` (a subtree, a reference,
+ * or a use of one) as the object `name`, inside a ball round `bounds`
+ * ({ lo, hi }, where the model is in the scene) that makes it of
+ * `material` - a mesh names none of its own. Standing on z = 0, about
+ * `size` across: a checked floor, a sky, three lights and a camera framing
+ * it. With floor false, just the model in a ball of vacuum, lit. What
+ * tools/stl-to-scene.mjs writes, and what the page shows for an STL on its
+ * own (sceneForMesh()).
+ */
+export function sceneAroundMesh(model, { name = 'model', material = 'clay', floor = true, size, bounds }) {
+  const placed = {
+    sphere: {
+      center: bounds.lo.map((v, i) => (v + bounds.hi[i]) / 2),
+      radius: 1.01 * Math.hypot(...bounds.lo.map((v, i) => bounds.hi[i] - v)) / 2,
+    },
+    material,
+    inside: { use: name },
+  };
+  const scene = {
+    materials: {
+      [material]: { albedo: [0.72, 0.58, 0.32], kind: 'glossy', shininess: 40, specular: 0.4 },
+    },
+    lights: [],
+    objects: { [name]: model },
+    root: null,
+  };
+  if (!floor) {
+    scene.lights = [{ pos: [size * 2, -size * 2, size * 3], color: [size * size * 40, size * size * 38, size * size * 34] }];
+    scene.root = { sphere: { center: [0, 0, 0], radius: size * 100 }, inside: placed };
+    return scene;
   }
 
-  const merged = { ...spec, objects: { ...(spec.objects || {}) },
-                   materials: { ...(spec.materials || {}) } };
-  delete merged.import;
+  const lamp = size * size * 20;
+  Object.assign(scene.materials, {
+    floor: { albedo: [0.32, 0.33, 0.35], albedo2: [0.19, 0.20, 0.22],
+             pattern: 'checker', scale: size / 4 },
+    sky: { kind: 'unlit', albedo: [0.07, 0.09, 0.14] },
+  });
+  scene.lights = [
+    { pos: [size * 1.5, -size * 2, size * 2.5], color: [lamp, lamp * 0.96, lamp * 0.88] },
+    { pos: [-size * 2, -size, size * 1.5], color: [lamp * 0.35, lamp * 0.38, lamp * 0.46] },
+    { pos: [0, size * 2.5, size], color: [lamp * 0.3, lamp * 0.28, lamp * 0.26] },
+  ];
+  const target = [0, 0, size * 0.4];
+  const eye = [size * 2.2, -size * 1.9, size * 1.4];
+  const look = eye.map((v, i) => target[i] - v);
+  const distance = Math.hypot(...look);
+  scene.camera = { position: eye, direction: look.map((v) => v / distance), distance };
+  scene.root = {
+    sphere: { center: [0, 0, 0], radius: size * 200 },
+    inside: {
+      plane: { normal: [0, 0, 1], offset: 0 },
+      material: 'floor',
+      outside: {
+        union: [
+          placed,
+          { sphere: { center: [0, 0, 0], radius: size * 199 }, complement: true, material: 'sky' },
+        ],
+      },
+    },
+  };
+  return scene;
+}
 
-  // What this scene says itself, which an import never overwrites: writing
-  // "bolt:steel" here is how you re-skin an imported part without editing
-  // the file it came from.
-  const ownObjects = new Set(Object.keys(spec.objects || {}));
-  const ownMaterials = new Set(Object.keys(spec.materials || {}));
-
-  for (const { alias, path } of wanted) {
-    const resolved = resolvePath(from, path);
-    if (trail.includes(resolved)) {
-      throw new Error(`scene.json import: "${resolved}" imports itself, by way of ` +
-                      trail.join(' -> '));
-    }
-    const imported = imports[resolved] ?? imports[path];
-    if (!imported) {
-      throw new Error(`scene.json import: nothing supplied for "${resolved}". ` +
-                      'Load it first - see loadImports() - and pass it in options.imports');
-    }
-
-    // Flatten what it imports before taking its objects, so a name it
-    // borrowed arrives already spelled the way it spells it.
-    const flat = resolveImports(imported, imports,
-                                { from: resolved, trail: [...trail, resolved] });
-    const prefixed = (name) => `${alias}${IMPORT_SEPARATOR}${name}`;
-    const renameObject = (name) => (flat.objects && name in flat.objects ? prefixed(name) : name);
-    const renameMaterial = (name) =>
-      (flat.materials && name in flat.materials ? prefixed(name) : name);
-
-    for (const [name, body] of Object.entries(flat.objects || {})) {
-      const key = prefixed(name);
-      if (ownObjects.has(key)) continue;                  // the scene's own wins
-      merged.objects[key] = renameWithin(body, renameObject, renameMaterial);
-    }
-    for (const [name, material] of Object.entries(flat.materials || {})) {
-      const key = prefixed(name);
-      if (ownMaterials.has(key)) continue;                // likewise
-      merged.materials[key] = material;
-    }
+/**
+ * A scene showing the STL at `path` on its own, from its bytes: as
+ * sceneAroundMesh() makes, referencing the STL and standing it, centred,
+ * on the floor, scaled to 2 across - STL has no units, and a model in
+ * millimetres would otherwise put the sky past where rays look. Returns
+ * { spec, files } for compileScene(), with no path of its own.
+ */
+export function sceneForMesh(path, bytes, { warn = console.warn } = {}) {
+  const read = readSTL(bytes);
+  if (read.openEdges) {
+    warn(`${path}: ${read.openEdges} open edges: the surface does not close, so what is inside it is a guess`);
   }
-  return merged;
+  const tree = meshToTree(read.triangles);
+  if (!tree) throw new Error(`${path}: the mesh has no triangles with any area`);
+  const { lo, hi } = boundsOf(read.triangles);
+  const size = 2;
+  const scale = size / Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  // Centred in x and y, standing on z = 0: where the floor expects it.
+  const translate = [-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]].map((v) => v * scale);
+  const placed = (v) => v.map((x, i) => x * scale + translate[i]);
+  const spec = sceneAroundMesh({ use: `@${path}`, scale, translate },
+                               { name: fileOf(path).replace(/\.[^.]*$/, ''), size, bounds: { lo: placed(lo), hi: placed(hi) } });
+  return { spec, files: { [path]: tree } };
 }
 
 // -- gravity and spawn ---------------------------------------------------------------
@@ -1112,10 +1293,19 @@ export function parseSpawn(def, at = (path, msg) => { throw new Error(`${path}: 
 export function compileScene(rawSpec, options = {}) {
   const at = (path, msg) => { throw new Error(`scene compilation: ${path}: ${msg}`); };
 
-  // Imported files are folded in before anything else looks at the spec, so
-  // everything below sees one ordinary scene whose objects happen to have
-  // colons in some of their names.
-  const spec = resolveImports(rawSpec, options.imports ?? {}, { from: options.path ?? '' });
+  // References are replaced by what they name before anything else looks
+  // at the spec, so everything below sees one ordinary scene - some of
+  // whose objects and materials are named for the files they came from.
+  if (rawSpec?.import !== undefined) {
+    at('import', 'references replace "import": name the file where the object goes - ' +
+                 '"use": "@parts/bolt.json#/objects/bolt", "materials": ["@lib/materials.json", { ... }] ' +
+                 '(see scene-format.md, References)');
+  }
+  const { spec, missing } = expandReferences(rawSpec, options.files ?? {}, { from: options.path ?? '' });
+  if (missing.size) {
+    at([...missing][0], `not loaded${missing.size > 1 ? ` (nor ${missing.size - 1} more)` : ''}: ` +
+                        'fetch what a scene references first - see loadReferences() - and pass it in options.files');
+  }
   const warn = (path, msg) => { console.warn(`warning: ${path}: ${msg}`); };
 
   // Material 0 is vacuum: never shaded, and not solid.

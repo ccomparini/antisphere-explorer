@@ -11,11 +11,12 @@
 // buffer per frame.
 
 import {
-  loadText, requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage,
+  loadText, loadBytes, requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage,
   createTraceBuffers,
 } from './gpu-setup.js';
 import {
-  compileScene, packNodes, packSurfaces, packMaterials, packLights, loadImports,
+  compileScene, packNodes, packSurfaces, packMaterials, packLights, loadReferences,
+  isSTL, isGzip, gunzip, sceneForMesh,
 } from './antisphere-scene.js';
 import { BINDINGS, RayQuery, Seg, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
@@ -114,17 +115,26 @@ export class ASContext {
   }
 
   /**
-   * Fetch and compile a scene file, along with anything it imports.
+   * Fetch and compile a scene file, along with everything it references.
    *
-   * Imported files are fetched relative to the file that names them, so a
-   * scene in scenes/ can say "import": ["parts/bolt.json"] and mean
-   * scenes/parts/bolt.json.
+   * References are fetched relative to the file that names them, so a
+   * scene in scenes/ can say "parts/bolt.json#/objects/bolt" and mean
+   * scenes/parts/bolt.json. `url` may be a full URL, on another server,
+   * and what it references is then fetched from beside it there.
+   *
+   * An STL on its own is shown in a scene made round it: a floor, a sky,
+   * lights and a camera (sceneForMesh()). A .gz is unzipped as it loads:
+   * scene.json.gz, model.stl.gz.
    */
   async loadScene(url) {
-    const spec = JSON.parse(await loadText(url));
-    const imports = await loadImports(spec, async (path) => JSON.parse(await loadText(path)),
-                                      { from: url });
-    return this.createScene(spec, { imports, path: url });
+    const bytes = async () => (isGzip(url) ? gunzip(await loadBytes(url)) : loadBytes(url));
+    if (isSTL(url)) {
+      const { spec, files } = sceneForMesh(url, new Uint8Array(await bytes()));
+      return this.createScene(spec, { files });
+    }
+    const spec = JSON.parse(isGzip(url) ? new TextDecoder().decode(await bytes()) : await loadText(url));
+    const files = await loadReferences(spec, { from: url, readText: loadText, readBytes: loadBytes });
+    return this.createScene(spec, { files, path: url });
   }
 
   createRenderer(canvas, opts) {
@@ -183,8 +193,8 @@ export class ASScene {
   constructor(context, spec, options = {}) {
     this.context = context;
     // Kept so update() can recompile: the editor hands back an edited spec,
-    // not the files it borrowed from.
-    this.imports = options.imports ?? {};
+    // not the files it references.
+    this.files = options.files ?? {};
     this.path = options.path ?? '';
     this.nodeBuf = this.lightBuf = this.matBuf = null;
 
@@ -200,8 +210,8 @@ export class ASScene {
    * here is touched, so a bad spec leaves the previous scene intact.
    */
   update(spec, options = {}) {
-    if (options.imports) this.imports = options.imports;
-    const built = compileScene(spec, { imports: this.imports, path: this.path });
+    if (options.files) this.files = options.files;
+    const built = compileScene(spec, { files: this.files, path: this.path });
     const { device } = this.context;
 
     this.destroyBuffers();

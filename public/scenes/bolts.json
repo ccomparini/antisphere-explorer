@@ -1,0 +1,41 @@
+{
+  "_comment": "Three bolts from parts/bolt.json, which knows nothing about this scene, by reference. The names in what a reference brings are the scene's: the bolt is made of whatever this scene calls steel - here, the steel parts/bolt.json defines. The sky comes from the material library.",
+
+  "materials": [
+    "@lib/materials.json",
+    {
+      "floor": { "albedo": [0.30, 0.31, 0.34], "albedo2": [0.18, 0.19, 0.21],
+                 "pattern": "checker", "scale": 2 },
+      "steel": "@parts/bolt.json#/materials/steel"
+    }
+  ],
+
+  "lights": [
+    { "pos": [4, -6, 7], "color": [260, 250, 235] },
+    { "pos": [-5, -2, 3], "color": [70, 76, 92] }
+  ],
+
+  "camera": { "position": [5.23838546, 4.15692679, 2.36864145], "direction": [-0.74834078, -0.593846685, -0.295520207], "distance": 7 },
+
+  "objects": {
+    "upright": { "use": "@parts/bolt.json#/objects/bolt", "translate": [-1.4, 0, 0.6] },
+    "leaning": { "use": "@parts/bolt.json#/objects/bolt", "rotate": { "axis": [0, 1, 0], "degrees": 25 },
+                 "translate": [0, 0, 0.6] },
+    "small": { "use": "@parts/bolt.json#/objects/bolt", "scale": 0.6, "translate": [1.4, 0, 0.36] }
+  },
+
+  "root": {
+    "sphere": { "center": [0, 0, 0], "radius": 400 },
+    "inside": {
+      "plane": { "normal": [0, 0, 1], "offset": 0 },
+      "material": "floor",
+      "outside": {
+        "union": [
+          "upright", "leaning", "small",
+          { "sphere": { "center": [0, 0, 0], "radius": 399 },
+            "complement": true, "material": "sky" }
+        ]
+      }
+    }
+  }
+}

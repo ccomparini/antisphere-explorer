@@ -15,7 +15,7 @@
 //
 // A scene is a file - every revision renders that same file - or a name
 // under public/scenes, read from each revision's own tree (so a scene a
-// revision changes is compared as each has it). Imports resolve in each
+// revision changes is compared as each has it). References resolve in each
 // revision's tree.
 //
 // Each revision other than the working tree is checked out, detached, in a
@@ -67,18 +67,19 @@ async function probe({ tree, scene, size: [width, height] }) {
   const { ASContext } = await import(new URL('as-context.js', PUBLIC));
   const renderer = await import(new URL('as-renderer.js', PUBLIC));
   const { ASCamera } = await import(new URL('as-camera.js', PUBLIC));
-  const { loadImports } = await import(new URL('antisphere-scene.js', PUBLIC));
+  const sceneModule = await import(new URL('antisphere-scene.js', PUBLIC));
   const load = (name) => readFile(new URL(name, PUBLIC), 'utf8');
   const gpu = await ASContext.create({ load });
   const { device } = gpu;
 
   const readJson = async (path) => JSON.parse(await load(path));
+  const readBytes = (p) => readFile(new URL(p, PUBLIC));
   const from = `scenes/${basename(scene.file)}`;
   const spec = JSON.parse(readFileSync(scene.file, 'utf8'));
-  const built = gpu.createScene(spec, {
-    imports: await loadImports(spec, readJson, { from, readBytes: (p) => readFile(new URL(p, PUBLIC)) }),
-    path: from,
-  });
+  // References, or, in a revision from before them, imports.
+  const built = gpu.createScene(spec, sceneModule.loadReferences
+    ? { files: await sceneModule.loadReferences(spec, { from, readText: load, readBytes }), path: from }
+    : { imports: await sceneModule.loadImports(spec, readJson, { from, readBytes }), path: from });
 
   // A canvas as far as ASRenderer can tell (see bench-render.mjs).
   let config = null, swap = null;
