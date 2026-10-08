@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene } from './antisphere-scene.js';
-import { meshToTree, treeStats, planeOfTriangle, boundsOf } from './mesh-import.js';
+import { meshToTree, treeStats, planeOfTriangle, boundsOf, boundingSpheroid } from './mesh-import.js';
 
 const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
 const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
@@ -65,9 +65,12 @@ function solidAt(built, R) {
   return found !== 0;
 }
 
+// A converted mesh names no material, so it is placed inside a node that
+// does - here the root - whose material its nodes inherit.
 const compile = (tree) => compileScene({
   materials: { clay: {} }, lights: [],
-  root: { sphere: { center: [0, 0, 0], radius: 1000 }, inside: tree },
+  objects: { mesh: tree },
+  root: { sphere: { center: [0, 0, 0], radius: 1000 }, material: 'clay', inside: { use: 'mesh' } },
 });
 
 /**
@@ -163,7 +166,7 @@ function torusMesh(major = 1, minor = 0.35, nu = 24, nv = 12) {
 test('a tetrahedron is four planes and one solid region', () => {
   const tet = [[[0,0,0],[0,1,0],[1,0,0]], [[0,0,0],[0,0,1],[0,1,0]],
                [[0,0,0],[1,0,0],[0,0,1]], [[1,0,0],[0,1,0],[0,0,1]]];
-  const tree = meshToTree(tet, { material: 'clay' });
+  const tree = meshToTree(tet, { bound: false });
   const stats = treeStats(tree);
   assert.equal(stats.nodes, 4, JSON.stringify(stats));
   assert.equal(stats.solidLeaves, 1, 'a convex solid has one inside');
@@ -174,7 +177,7 @@ test('a tetrahedron is four planes and one solid region', () => {
 
 test('a box, which nesting alone could also have managed', () => {
   const mesh = boxMesh([-1,-1,-1], [1,1,1]);
-  const tree = meshToTree(mesh, { material: 'clay' });
+  const tree = meshToTree(mesh, { bound: false });
   assert.equal(treeStats(tree).nodes, 6, 'one node per face, not one per triangle');
   assert.equal(treeStats(tree).solidLeaves, 1);
   const { wrong, inside } = agreesWithMesh(mesh, tree);
@@ -184,7 +187,7 @@ test('a box, which nesting alone could also have managed', () => {
 
 test('an L-prism, which it could not', () => {
   const mesh = lPrismMesh();
-  const tree = meshToTree(mesh, { material: 'clay' });
+  const tree = meshToTree(mesh);
   const { wrong, inside } = agreesWithMesh(mesh, tree);
   assert.ok(inside > 100, 'the arms are there');
   assert.equal(wrong, 0);
@@ -195,7 +198,7 @@ test('an L-prism, which it could not', () => {
 
 test('a curved closed surface keeps its geometry', () => {
   const mesh = icosphereMesh(2);
-  const tree = meshToTree(mesh, { material: 'clay' });
+  const tree = meshToTree(mesh);
   const { wrong, inside, tested } = agreesWithMesh(mesh, tree);
   assert.ok(inside > 100, `${inside} of ${tested} inside`);
   assert.equal(wrong, 0, `${wrong} of ${tested} points disagree`);
@@ -203,7 +206,7 @@ test('a curved closed surface keeps its geometry', () => {
 
 test('a torus: curved, hollow in the middle, and split to pieces', () => {
   const mesh = torusMesh();
-  const tree = meshToTree(mesh, { material: 'clay' });
+  const tree = meshToTree(mesh);
   const stats = treeStats(tree);
   const { wrong, inside, tested } = agreesWithMesh(mesh, tree);
   assert.ok(inside > 100, `${inside} of ${tested} inside — is the solid there at all?`);
@@ -211,17 +214,90 @@ test('a torus: curved, hollow in the middle, and split to pieces', () => {
   assert.ok(stats.solidLeaves >= 2, 'a torus is not convex');
 });
 
+// Vertices as an STL stores them: float32. The two halves of each of a
+// torus's flat quads then disagree about their plane by ~1e-7, far more
+// than a tolerance scaled to float64 allows for.
+const asFloat32 = (mesh) => mesh.map((tri) => tri.map((v) => v.map(Math.fround)));
+
+/** Planes in the tree that are, to within a hair, one above them again. */
+function planesRepeated(tree) {
+  let repeated = 0;
+  const walk = (t, above) => {
+    if (!t) return;
+    const { normal: n, offset } = t.plane;
+    if (above.some((a) => dot(a.normal, n) > 1 - 1e-9 && Math.abs(a.offset - offset) < 1e-5)) repeated++;
+    above.push(t.plane);
+    walk(t.inside, above);
+    walk(t.outside, above);
+    above.pop();
+  };
+  walk(tree, []);
+  return repeated;
+}
+
+test('a float32 torus: no plane twice, and right up to its surface', () => {
+  const major = 1, minor = 0.35;
+  const mesh = asFloat32(torusMesh(major, minor));
+  const tree = meshToTree(mesh, { bound: false });
+  // A repeated plane bounds a sliver between itself and its twin, reaching
+  // right across the model: rays see it as specks in the air.
+  assert.equal(planesRepeated(tree), 0, 'planes repeated');
+
+  // Near the surface, where slivers and lost faces show: within 0.03 of the
+  // tube, either side.
+  const built = compile(tree);
+  let tested = 0, wrong = 0, seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let k = 0; k < 3000; k++) {
+    const u = rnd() * 2 * Math.PI, v = rnd() * 2 * Math.PI, w = minor + (rnd() - 0.5) * 0.06;
+    const p = [(major + w * Math.cos(v)) * Math.cos(u), (major + w * Math.cos(v)) * Math.sin(u), w * Math.sin(v)];
+    const verdict = insideMesh(mesh, p);
+    if (!verdict.sure) continue;
+    tested++;
+    if (verdict.inside !== solidAt(built, p)) wrong++;
+  }
+  assert.ok(tested > 2500, `only ${tested} points judged`);
+  assert.equal(wrong, 0, `${wrong} of ${tested} points near the surface disagree`);
+});
+
+test('by default the tree is wrapped in a spheroid round every vertex, its outside empty', () => {
+  for (const mesh of [torusMesh(), icosphereMesh(2), boxMesh([2, 3, 4], [3, 3.6, 6])]) {
+    const tree = meshToTree(mesh);
+    assert.ok(tree.spheroid && tree.inside && !('outside' in tree), Object.keys(tree).join());
+    // Spatial division only: no node, the wrapper or a face, names a material.
+    const named = [];
+    const walk = (t) => { if (!t) return; if ('material' in t) named.push(t); walk(t.inside); walk(t.outside); };
+    walk(tree);
+    assert.equal(named.length, 0, 'nodes naming a material');
+    // Every vertex strictly inside it.
+    const { center, axis, height, radius } = tree.spheroid;
+    const worst = Math.max(...mesh.flat().map((p) => {
+      const q = sub(p, center), x = dot(axis, q);
+      const across = Math.hypot(q[0] - x * axis[0], q[1] - x * axis[1], q[2] - x * axis[2]);
+      return Math.hypot(x / (height / 2), across / radius);
+    }));
+    assert.ok(worst < 1, `a vertex at ${worst} of the way out`);
+    const { wrong, inside } = agreesWithMesh(mesh, tree);
+    assert.ok(inside > 100);
+    assert.equal(wrong, 0);
+  }
+  // A torus is flat, so its spheroid is too: about its axis, wider than tall.
+  const { axis, height, radius } = boundingSpheroid(torusMesh());
+  assert.ok(Math.abs(Math.abs(axis[2]) - 1) < 1e-9, `axis ${axis}`);
+  assert.ok(height < radius, `height ${height}, radius ${radius}`);
+});
+
 test('where nothing divides, the outermost faces come first', () => {
   // A convex model has no dividing plane, so every node is a supporting one
   // and its outside is void: each turns away every ray passing wide of it.
   for (const mesh of [boxMesh([-1,-1,-1], [1,1,1]), icosphereMesh(1)]) {
-    const tree = meshToTree(mesh, { material: 'clay' });
+    const tree = meshToTree(mesh, { bound: false });
     assert.ok(!('outside' in tree), 'the root turns away everything past it');
     assert.ok(!('outside' in tree.inside), 'and so does the next');
   }
   // And they are taken outermost first, so the cheapest question is asked
   // soonest: the first plane sheds more of the model's box than the tenth.
-  const tree = meshToTree(icosphereMesh(2), { material: 'clay' });
+  const tree = meshToTree(icosphereMesh(2), { bound: false });
   const shed = (node) => node.plane.offset;          // unit sphere: offset is the reach
   let first = tree, tenth = tree;
   for (let i = 0; i < 10 && tenth.inside; i++) tenth = tenth.inside;
@@ -231,7 +307,7 @@ test('where nothing divides, the outermost faces come first', () => {
 
 test('a box is its own bounding box', () => {
   const mesh = boxMesh([-1,-1,-1], [1,1,1]);
-  const tree = meshToTree(mesh, { material: 'clay' });
+  const tree = meshToTree(mesh, { bound: false });
   assert.equal(treeStats(tree).nodes, 6, 'six faces, and no separate bound');
   const { wrong, inside } = agreesWithMesh(mesh, tree);
   assert.ok(inside > 100);
@@ -239,9 +315,9 @@ test('a box is its own bounding box', () => {
 });
 
 test('an empty or degenerate mesh makes no tree', () => {
-  assert.equal(meshToTree([], { material: 'clay' }), null);
+  assert.equal(meshToTree([]), null);
   const flat = [[[0,0,0],[1,0,0],[2,0,0]]];        // no area
-  assert.equal(meshToTree(flat, { material: 'clay' }), null);
+  assert.equal(meshToTree(flat), null);
 });
 
 // -- passing triangles whole instead of cutting them -------------------------------
@@ -250,7 +326,7 @@ test('whole triangles give the same tree where nothing needs cutting', () => {
   // On these, a straddling triangle handed to both children reaches both,
   // and the result is exact - which is the appeal of never cutting.
   for (const mesh of [boxMesh([-1,-1,-1], [1,1,1]), lPrismMesh(), icosphereMesh(1)]) {
-    const whole = meshToTree(mesh, { material: 'clay', split: false, maxDepth: 300 });
+    const whole = meshToTree(mesh, { split: false, maxDepth: 300 });
     const { wrong, inside } = agreesWithMesh(mesh, whole, { samples: 800 });
     assert.ok(inside > 40, 'the solid is there');
     assert.equal(wrong, 0);
@@ -263,9 +339,10 @@ test('whole triangles overfill a torus, which is why cutting is the default', ()
   // boundary that isn't there reads as solid. No holes - the error is
   // always extra material, bulging outside the surface.
   const mesh = torusMesh(1, 0.35, 12, 8);
-  const whole = meshToTree(mesh, { material: 'clay', split: false, maxDepth: 300 });
-  const loose = agreesWithMesh(mesh, whole, { samples: 800 });
-  const cut = agreesWithMesh(mesh, meshToTree(mesh, { material: 'clay' }), { samples: 800 });
+  const whole = meshToTree(mesh, { split: false, maxDepth: 300 });
+  // Rare now - ~0.2% of points - so enough samples to be sure of meeting it.
+  const loose = agreesWithMesh(mesh, whole, { samples: 8000 });
+  const cut = agreesWithMesh(mesh, meshToTree(mesh), { samples: 800 });
   assert.equal(cut.wrong, 0, 'cutting is exact');
   assert.ok(loose.wrong > 0,
             'if this ever passes, passing triangles whole has been made sound - ' +
