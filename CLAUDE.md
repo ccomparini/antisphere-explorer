@@ -7,7 +7,9 @@ that divides space. What the model is, why, and where it is going:
 
 Read it before design work; it is the one source of truth for the model.
 The code and the docs in this repo outrank anything remembered from earlier
-sessions.
+sessions. What holds for every project here - the git workflow, the
+machine, documentation and maths notation - is in the workspace's own
+`CLAUDE.md`, one level up; this file says what is particular to this one.
 
 ## Workflow
 
@@ -42,12 +44,3 @@ Raptor Lake iGPU, Mesa's Vulkan driver). WebGPU runs headless in Node
 through Dawn (the `webgpu` package); there is no browser. Scripts must keep
 the object `webgpu.create()` returns referenced (e.g. on
 `navigator.gpu`): if it is garbage collected mid-run, Dawn crashes.
-
-## Documentation conventions
-
-Markdown, with LaTeX for maths:
-
-- **Vectors**: lowercase with an arrow, e.g. `v⃗`
-- **Aggregate objects** (a node as a whole, as opposed to a vector
-  component of it): bold, no arrow
-- **Aligned equation systems**: `align` / `aligned`
