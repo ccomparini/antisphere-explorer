@@ -1,41 +1,31 @@
 {
-  "materials": {
-    "shell": {
-      "albedo":  [0.35, 0.36, 0.40],
-      "albedo2": [0.25, 0.26, 0.30],
-      "pattern": "noise"
-    },
-    "floor": {
-      "albedo": [0.34, 0.36, 0.39],
-      "albedo2": [0.15, 0.16, 0.19],
-      "pattern": "noise",
-      "scale": 1.0
-    },
-    "stone": {
-      "albedo": [0.58, 0.53, 0.46],
-      "albedo2": [0.44, 0.40, 0.36],
-      "pattern": "noise",
-      "scale": 0.4167
-    },
-    "core": {
-      "kind": "emissive",
-      "albedo": [0.74, 0.44, 0.16],
-      "emission": 0.55
-    },
-    "brass": {
-      "kind": "glossy",
-      "albedo": [0.66, 0.58, 0.22],
-      "shininess": 95,
-      "specular": 1.1
-    },
-    "chalk": { "kind": "unlit", "albedo": [0.80, 0.78, 0.72] },
-    "jade": {
-      "kind": "glossy",
-      "albedo": [0.22, 0.52, 0.40],
-      "shininess": 160,
-      "specular": 1.6
+  "materials": [
+    "@lib/materials.json",
+    {
+      "shell": {
+        "albedo":  [0.35, 0.36, 0.40],
+        "albedo2": [0.25, 0.26, 0.30],
+        "pattern": "noise"
+      },
+      "floor": {
+        "albedo": [0.34, 0.36, 0.39],
+        "albedo2": [0.15, 0.16, 0.19],
+        "pattern": "noise",
+        "scale": 1.0
+      },
+      "stone": {
+        "albedo": [0.58, 0.53, 0.46],
+        "albedo2": [0.44, 0.40, 0.36],
+        "pattern": "noise",
+        "scale": 0.4167
+      },
+      "core": {
+        "kind": "emissive",
+        "albedo": [0.74, 0.44, 0.16],
+        "emission": 0.55
+      }
     }
-  },
+  ],
 
   "lights": [
     { "pos": [-8.2,  8.4, 8.0], "color": [44, 34, 20] }

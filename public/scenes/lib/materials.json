@@ -1,17 +1,125 @@
 {
-  "_comment": "Common materials, for scenes to reference rather than redefine: \"materials\": [\"@lib/materials.json\", { ...the scene's own... }], or one at a time, \"@lib/materials.json#/brass\". Keys starting _, like this one, are notes: never materials, and not brought over.",
-
-  "sky": { "kind": "unlit", "albedo": [0.07, 0.09, 0.14] },
-  "floor": { "albedo": [0.30, 0.31, 0.34], "albedo2": [0.18, 0.19, 0.21], "pattern": "checker", "scale": 1 },
-  "stone": { "albedo": [0.62, 0.58, 0.52] },
-  "clay": { "albedo": [0.72, 0.45, 0.32] },
-  "chalk": { "kind": "unlit", "albedo": [0.78, 0.76, 0.70] },
-  "steel": { "kind": "glossy", "albedo": [0.55, 0.58, 0.62], "shininess": 64, "specular": 0.8 },
-  "brass": { "kind": "glossy", "albedo": [0.72, 0.58, 0.25], "shininess": 28, "specular": 0.6 },
-  "gold": { "kind": "glossy", "albedo": [0.72, 0.58, 0.32], "shininess": 40, "specular": 0.4 },
-  "jade": { "kind": "glossy", "albedo": [0.22, 0.52, 0.40], "shininess": 160, "specular": 1.6 },
-  "wax": { "albedo": [0.92, 0.88, 0.78] },
-  "wick": { "albedo": [0.08, 0.07, 0.06] },
-  "flame": { "kind": "emissive", "albedo": [1.0, 0.75, 0.3], "emission": 1.5 },
-  "night": { "kind": "ambient", "albedo": [0.03, 0.03, 0.04] }
+   "_comment" : "Common materials, for scenes to reference rather than redefine: \"materials\": [\"@lib/materials.json\", { ...the scene's own... }], or one at a time, \"@lib/materials.json#/brass\". Keys starting _, like this one, are notes: never materials, and not brought over.",
+   "brass" : {
+      "albedo" : [
+         0.72,
+         0.58,
+         0.25
+      ],
+      "kind" : "glossy",
+      "shininess" : 95,
+      "specular" : 1.1
+   },
+   "chalk" : {
+      "albedo" : [
+         0.78,
+         0.76,
+         0.7
+      ],
+      "kind" : "unlit"
+   },
+   "clay" : {
+      "albedo" : [
+         0.72,
+         0.45,
+         0.32
+      ]
+   },
+   "flame" : {
+      "albedo" : [
+         1,
+         0.75,
+         0.3
+      ],
+      "emission" : 1.5,
+      "kind" : "emissive"
+   },
+   "floor" : {
+      "albedo" : [
+         0.3,
+         0.31,
+         0.34
+      ],
+      "albedo2" : [
+         0.18,
+         0.19,
+         0.21
+      ],
+      "pattern" : "checker",
+      "scale" : 1
+   },
+   "gold" : {
+      "albedo" : [
+         0.72,
+         0.58,
+         0.32
+      ],
+      "kind" : "glossy",
+      "shininess" : 40,
+      "specular" : 0.4
+   },
+   "jade" : {
+      "kind": "glossy",
+      "albedo": [
+        0.2,
+        0.5,
+        0.39
+      ],
+      "albedo2": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "pattern": "noise",
+      "scale": 0.2,
+      "shininess": 160,
+      "specular": 1.6
+   },
+   "night" : {
+      "albedo" : [
+         0.03,
+         0.03,
+         0.04
+      ],
+      "kind" : "ambient"
+   },
+   "sky" : {
+      "albedo" : [
+         0.07,
+         0.09,
+         0.14
+      ],
+      "kind" : "unlit"
+   },
+   "steel" : {
+      "albedo" : [
+         0.55,
+         0.58,
+         0.62
+      ],
+      "kind" : "glossy",
+      "shininess" : 64,
+      "specular" : 0.8
+   },
+   "stone" : {
+      "albedo" : [
+         0.62,
+         0.58,
+         0.52
+      ]
+   },
+   "wax" : {
+      "albedo" : [
+         0.92,
+         0.88,
+         0.78
+      ]
+   },
+   "wick" : {
+      "albedo" : [
+         0.08,
+         0.07,
+         0.06
+      ]
+   }
 }
