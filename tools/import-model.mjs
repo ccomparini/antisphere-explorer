@@ -6,7 +6,7 @@
 //   node tools/import-model.mjs https://example.com/teapot.ply.gz --fit 2 --material brass -o teapot.json
 //   node tools/import-model.mjs \
 //     'http://graphics.stanford.edu/pub/3Dscanrep/dragon/dragon_recon.tar.gz#dragon_recon/dragon_vrip.ply' \
-//     --name dragon --float32 -o public/scenes/parts/stanford/dragon.json.gz
+//     --name dragon --up y --float32 -o public/scenes/parts/stanford/dragon.json.gz
 //
 // Reads PLY (ascii or binary) and STL (ascii or binary), either of them
 // gzipped, or in a tar archive (gzipped or not) - the file in it named
@@ -16,15 +16,17 @@
 //   bunny   http://graphics.stanford.edu/pub/3Dscanrep/bunny.tar.gz#bunny/reconstruction/bun_zipper.ply
 //   dragon  http://graphics.stanford.edu/pub/3Dscanrep/dragon/dragon_recon.tar.gz#dragon_recon/dragon_vrip.ply
 //
-// They are stress tests, taken at full resolution and big - the dragon is
-// 871,414 triangles and takes a minute or so - so they are not in git:
-// public/scenes/parts/stanford/ is gitignored, for converting them into.
+// They are y up, hence --up y. They are stress tests, taken at full
+// resolution, and big - the dragon is 871,414 triangles and takes a couple
+// of minutes - so they are not in git: public/scenes/parts/stanford/ is
+// gitignored, for converting them into.
 //
 // What it writes is what tools/stl-to-scene.mjs writes (sceneAroundMesh()):
-// a complete scene, the mesh as one object - centred on the floor, scaled
-// by --fit - inside a ball of --material, with a floor, a sky, lights and
-// a camera, so it opens as it is; and a scene that wants the mesh alone
-// references the object: "@parts/stanford/dragon.json.gz#/objects/dragon".
+// a complete scene, the mesh as one object - turned so that --up is up,
+// centred on the floor, scaled by --fit - inside a ball of --material,
+// with a floor, a sky, lights and a camera, so it opens as it is; and a
+// scene that wants the mesh alone references the object:
+// "@parts/stanford/dragon.json.gz#/objects/dragon".
 // An output name ending .gz is gzipped, which the loaders unzip.
 //
 // Reports what it found on stderr, and writes the scene on stdout unless
@@ -52,6 +54,9 @@ import-model - convert a mesh, from a file or a URL, into a scene
       --fit <size>     scale the model so its longest side is this
       --material <m>   what the scene makes it of (default "clay")
       --name <n>       the object's name in the scene (default: the file's)
+      --up <axis>      which of the file's axes is up: x, y, z (the default)
+                       or one of them negated, -y; the model is turned so
+                       that it points along +z, the scene's up
       --float32        numbers as float32, in as few digits as give the same
                        float32 back: the GPU works in f32, and a mesh's
                        vertices usually are float32 to begin with
@@ -72,6 +77,10 @@ function parseArguments(argv) {
       if (!(options.fit > 0)) throw new Error('--fit needs a positive number');
     } else if (arg === '--material') options.material = next();
     else if (arg === '--name') options.name = next();
+    else if (arg === '--up') {
+      options.up = next();
+      if (!UP[options.up]) throw new Error(`--up ${options.up}: x, y, z, -x, -y or -z`);
+    }
     else if (arg === '--float32') options.float32 = true;
     else if (arg === '-h' || arg === '--help') options.help = true;
     else if (arg.startsWith('-')) throw new Error(`unknown option ${arg}`);
@@ -81,6 +90,18 @@ function parseArguments(argv) {
   options.source = rest[0];
   return options;
 }
+
+// Turning the axis named up onto +z, each a rotation (so windings, and
+// what is inside, are kept): a quarter turn about x for y, about y for x, a
+// half turn about x for -z.
+const UP = {
+  z: ([x, y, z]) => [x, y, z],
+  '-z': ([x, y, z]) => [x, -y, -z],
+  y: ([x, y, z]) => [x, -z, y],
+  '-y': ([x, y, z]) => [x, z, -y],
+  x: ([x, y, z]) => [-z, y, x],
+  '-x': ([x, y, z]) => [z, y, -x],
+};
 
 const isURL = (path) => /^[a-z][a-z0-9+.-]*:\/\//i.test(path);
 const isGzipped = (bytes) => bytes[0] === 0x1f && bytes[1] === 0x8b;
@@ -186,7 +207,9 @@ async function main(argv) {
       + (read.openEdges ? `, ${read.openEdges} open edges (what is inside it is partly a guess)` : ''));
   if (!read.triangles.length) throw new Error('nothing to convert');
 
-  const placed = placeTriangles(read.triangles, { fit: options.fit });
+  const turn = UP[options.up ?? 'z'];
+  const upright = options.up && options.up !== 'z' ? read.triangles.map((tri) => tri.map(turn)) : read.triangles;
+  const placed = placeTriangles(upright, { fit: options.fit });
   const { lo, hi } = boundsOf(placed);
   const size = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
 

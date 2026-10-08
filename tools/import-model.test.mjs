@@ -97,6 +97,24 @@ test('--fit, --material and --name, as stl-to-scene takes them', async () => {
   assert.ok(ball && Math.abs(Number(ball[1]) - 1.01 * Math.sqrt(75) / 2) < 1e-9, `the ball: ${ball?.[0]}`);
 });
 
+test('--up turns the axis named onto the scene\'s up', async () => {
+  // A box 1 by 4 by 1, tall along y: as written it lies 1 high; with --up y
+  // (or -y) it stands 4 high. The ball of material round it says which:
+  // centred half its height up.
+  const v = [[0, 0, 0], [1, 0, 0], [1, 4, 0], [0, 4, 0], [0, 0, 1], [1, 0, 1], [1, 4, 1], [0, 4, 1]];
+  const quads = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]];
+  const box = file('post.stl', Buffer.from(writeSTL(quads.flatMap(([a, b, c, d]) => [[v[a], v[b], v[c]], [v[a], v[c], v[d]]]))));
+  const height = (got) => 2 * JSON.parse(JSON.stringify(got.root).match(/"sphere":(\{"center":\[[^\]]*\],"radius":[0-9.e-]+\}),"material":"clay"/)[1]).center[2];
+  assert.equal(height(await scene([box])), 1);
+  for (const up of ['y', '-y']) {
+    const got = await scene([box, '--up', up]);
+    assert.ok(Math.abs(height(got) - 4) < 1e-12, `--up ${up}: ${height(got)}`);
+    checkMesh(got, 'post');
+  }
+  assert.ok(Math.abs(height(await scene([box, '--up', 'x'])) - 1) < 1e-12, '--up x: 1 wide, so 1 high');
+  assert.match((await run([box, '--up', 'w'])).stderr, /--up w: x, y, z, -x, -y or -z/);
+});
+
 test('gzipped, and out of archives: by name after a #, or the one mesh there', async () => {
   checkMesh(await scene([file('tet.ply.gz', gzipSync(PLY))]), 'tet');
   checkMesh(await scene([file('wedge.stl.gz', gzipSync(STL))]), 'wedge');
