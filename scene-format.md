@@ -148,17 +148,64 @@ you use here is never shadowed by one you imported. With the list form the
 prefix is the file's own name, without directory or extension; with the
 object form you choose it.
 
+The prefix alone names the file's main object: its object of that name, or
+its only object if it has just one. So `{ "use": "bolt" }` is `bolt:bolt`,
+and an STL's mesh (below) is just `{ "use": "torus" }`. An object of this
+scene's own by that name wins, and the import is still there by its full
+name.
+
 Only `objects` and `materials` cross over. An imported file's `root`,
 `lights` and `camera` are how *it* is looked at on its own, not part of what
 it offers — so a parts file can be opened and admired in the editor while
 still being a library.
+
+### Meshes: `.stl`
+
+```
+"import": ["parts/torus.stl"]
+```
+
+A file ending in `.stl` (binary or ASCII) is a triangle mesh rather than a
+scene, and is converted to plane nodes as it loads (`meshToTree()` in
+`mesh-import.js`, as `tools/stl-to-scene.mjs` does). It offers one object,
+named for the file: `{ "use": "torus" }`, in full `torus:torus`. It is
+spatial division only:
+an STL has no materials, so none of its nodes names one, and where it is
+used says what it is made of - `{ "use": "torus", "material": "gold" }`
+(see `"use"`), or a material in scope around it. Without either it inherits
+whatever is around it, which is often vacuum. The mesh keeps the file's own
+coordinates and units; place it where it is used, with `"translate"`,
+`"rotate"` and `"scale"`.
+
+The converted planes are wrapped in a bounding spheroid round the mesh's
+vertices, whose outside is empty. A ray that misses it
+passes the mesh in one test, `group` can tell where the mesh is (a tree of
+planes alone bounds nothing), and what a `union` grafts onto the mesh's
+outsides is turned away by its own spheroid rather than walked through.
+
+The mesh should be closed: the conversion treats behind every face as
+inside, which means something only if the surface separates an inside from
+an outside. One that isn't still loads, with a warning on the console. See
+`scenes/imported-stl.json`.
+
+A big mesh takes a while to convert - the Stanford Dragon, 871,414
+triangles, about a minute - so it can be converted once instead:
+`tools/stanford-model.mjs` fetches a model from the Stanford 3D Scanning
+Repository and writes what an STL import would give as an ordinary parts
+file, `public/scenes/parts/stanford/<model>.json`, which is generated and
+not in git. `scenes/dragon.json` imports one.
 
 Names inside an imported file keep meaning what they meant there: if its
 `bolt` is a union of its `head` and `shaft`, then importing it gives you
 `bolt:bolt` made of `bolt:head` and `bolt:shaft`, and its materials arrive
 prefixed too. Imported files may import in turn, and paths are relative to
 the file that names them — `parts/bolt.json` asking for `../common/metal.json`
-means `common/metal.json`. A file that imports itself, directly or in a
+means `common/metal.json`. An import may also be a full URL,
+`"https://example.com/models/teapot.stl"`, and a scene loaded from a URL has
+its relative paths resolved against it, so what it imports comes from
+beside it there. Its name is the file's, without any query: `teapot`.
+A file ending in `.gz` is unzipped as it loads - `parts/dragon.json.gz`,
+`parts/teapot.stl.gz` - and named without it: `dragon`, `teapot`. A file that imports itself, directly or in a
 circle, is an error rather than a hang.
 
 Anything this scene defines under an imported name wins: writing
@@ -173,7 +220,8 @@ silently disappear into the other. Name one of them with the object form.
 Loading happens before compiling, since the compiler reads no files itself.
 `loadScene()` does it for you; if you drive the compiler directly, `loadImports()`
 fetches everything a spec needs and `compileScene(spec, { imports })` takes the
-result.
+result. `loadImports()` reads `.stl` files with the `readBytes` it is given,
+since they are not JSON.
 
 ## `objects`
 
@@ -366,6 +414,17 @@ Places a previously-defined `objects` entry inline. Commonly combined with a
 transform to drop copies of the same object in different places, at
 different sizes and pointing different ways, without duplicating its
 definition.
+
+```
+{ "use": "bolt", "material": "brass" }
+```
+
+With a `"material"`, this placement is made of that material, whatever the
+object's own: every node in it is as if it had been written with that
+`"material"`, including nodes that named none and would have inherited. The
+object's divisions are unchanged, so what is empty because of an absent
+`"outside"` stays empty. Any material works, `null` and ambient ones
+included. Other uses of the object are not affected.
 
 ### `"group"`
 

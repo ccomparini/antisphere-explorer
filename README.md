@@ -11,6 +11,22 @@ This is raycaster implemented using this concept.
 The model as it stands now (nodes are general quadrics of revolution these
 days), and where it is going, is in [DESIGN.md](DESIGN.md).
 
+## Viewing
+
+`antisphere-raycast.html` shows `scenes/scene.json`, or another scene:
+
+    antisphere-raycast.html?scene=imported-stl.json
+    antisphere-raycast.html?scene=https://example.com/models/scene.json
+    antisphere-raycast.html?scene=https://example.com/models/teapot.stl
+
+A name is a file in `public/scenes/`; a full URL loads from anywhere that
+allows it (the server must permit cross-origin requests), along with what
+that scene imports, from beside it there. An `.stl`, here or there, is
+shown on its own, scaled to 2 across on a floor with a sky and lights.
+Anything ending in `.gz` (`scene.json.gz`, `model.stl.gz`) is unzipped as it
+loads.
+`tools/bench-render.mjs` takes the same.
+
 ## Shaders
 
 The shader sources live in `shaders/` as `.wgsls` files ("WGSL source"):

@@ -36,6 +36,8 @@
 
 import { Light, Material, Node } from './gen/layouts.js';
 import { regionsDisjoint } from './overlap.js';
+import { readSTL } from './stl.js';
+import { meshToTree, boundsOf } from './mesh-import.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -585,6 +587,24 @@ function translateTree(t, offset, memo = new Map()) {
   return out;
 }
 
+// A subtree made of one material: what { "use", "material" } places (see
+// tree()). Every node takes `material`, as if each had been written with
+// the use's "material", whatever it said before - including nothing, which
+// would have inherited. (Envs follow, when bakeScopes() places them.) A
+// node's lights are not its material: they stay.
+// Which nodes there are, and how they divide space, is unchanged.
+// Memoized, so shared structure stays shared.
+function repaintTree(t, material, memo = new Map()) {
+  if (!t) return t;
+  if (memo.has(t)) return memo.get(t);
+  const out = node(t.prim,
+                   repaintTree(t.inside, material, memo),
+                   repaintTree(t.outside, material, memo),
+                   material, t.env, t.prov, t.lights);
+  memo.set(t, out);
+  return out;
+}
+
 // Re-attribute to `to` every node that `from` owns, copying them - and any
 // node above them, so it can point at the copies - while leaving untouched
 // subtrees shared. Used to give an instance nodes of its own (see the
@@ -901,6 +921,13 @@ function boundOf(t, declared, memo, table) {
 // Only objects and materials cross over. An imported file's root, lights
 // and camera are how *it* is looked at, not part of what it offers.
 //
+// A file ending in .stl is a mesh rather than a scene. It is converted on
+// loading (stlAsScene()) into a scene offering one object, named for the
+// file: "import": ["parts/teapot.stl"] gives { "use": "teapot:teapot" }.
+// It is spatial division only, naming no material, so where it is used
+// says what it is made of: { "use": "teapot:teapot", "material": "brass" },
+// or a material in scope around it.
+//
 // Loading is the caller's business, not the compiler's: compileScene() is
 // synchronous and reads no files, so the parsed files are handed to it in
 // `options.imports`. importsOf() says what a spec needs and loadImports()
@@ -909,10 +936,28 @@ function boundOf(t, declared, memo, table) {
 
 const IMPORT_SEPARATOR = ':';
 
+/** Whether a path is a URL of its own (https:, file:, ...), not relative. */
+const isURL = (path) => /^[a-z][a-z0-9+.-]*:/i.test(path);
+
+/**
+ * The file a path or URL names, without directories, query or fragment -
+ * or a .gz, which only says how it is stored: "dragon.json.gz" is
+ * "dragon.json".
+ */
+const fileOf = (path) => String(path).split(/[?#]/)[0].split(/[\\/]/).pop().replace(/\.gz$/i, '');
+
+/** Whether a path or URL names a gzipped file, unzipped as it loads. */
+export const isGzip = (path) => /\.gz$/i.test(String(path).split(/[?#]/)[0]);
+
+/** Gzipped bytes, unzipped (DecompressionStream: browsers, and Node 18+). */
+export async function gunzip(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
 /** The name an imported file goes by, when the scene doesn't say. */
 function aliasFor(path) {
-  const file = String(path).split(/[\\/]/).pop();
-  return file.replace(/\.[^.]*$/, '');
+  return fileOf(path).replace(/\.[^.]*$/, '');
 }
 
 /**
@@ -931,35 +976,181 @@ export function importsOf(spec) {
   throw new Error('scene.json import: needs a list of files, or a map of name to file');
 }
 
+/** Whether a path or URL names an STL file, which is read as a mesh. */
+export const isSTL = (path) => /\.stl$/i.test(fileOf(path));
+
+/**
+ * An STL as a scene that offers it: one object named `name`, in the file's
+ * own coordinates (place it with "translate", "rotate" and "scale" where it
+ * is used, and give it a "material" there). A mesh that isn't closed still
+ * converts, but what counts as inside is then a guess, so `warn` says so.
+ */
+export function stlAsScene(source, name, { warn = console.warn } = {}) {
+  const read = readSTL(source);
+  if (read.openEdges) {
+    warn(`${read.openEdges} open edges: the surface does not close, so what is inside it is a guess`);
+  }
+  return meshAsScene(read.triangles, name);
+}
+
+/**
+ * Triangles as a scene that offers them: one object named `name`, and no
+ * materials, since a mesh has none (see stlAsScene()). Also what
+ * tools/stanford-model.mjs writes, converted once, so that loading it skips
+ * the conversion.
+ */
+export function meshAsScene(triangles, name) {
+  const model = meshToTree(triangles);
+  if (!model) throw new Error('the mesh has no triangles with any area');
+  return { objects: { [name]: model } };
+}
+
+/**
+ * A complete scene to look at a mesh in: `model` (a subtree, or a use of
+ * one) as the object `name`, made of `material`, standing on z = 0 and
+ * about `size` across - a checked floor, a sky, three lights and a camera
+ * framing it. With floor false, just the model in a ball of vacuum, lit.
+ * What tools/stl-to-scene.mjs writes, and what the page shows for an STL
+ * on its own (sceneForMesh()).
+ */
+export function sceneAroundMesh(model, { name = 'model', material = 'clay', floor = true, size }) {
+  const scene = {
+    materials: {
+      [material]: { albedo: [0.72, 0.58, 0.32], kind: 'glossy', shininess: 40, specular: 0.4 },
+    },
+    lights: [],
+    objects: { [name]: model },
+    root: null,
+  };
+  if (!floor) {
+    scene.lights = [{ pos: [size * 2, -size * 2, size * 3], color: [size * size * 40, size * size * 38, size * size * 34] }];
+    scene.root = { sphere: { center: [0, 0, 0], radius: size * 100 }, inside: { use: name, material } };
+    return scene;
+  }
+
+  const lamp = size * size * 20;
+  Object.assign(scene.materials, {
+    floor: { albedo: [0.32, 0.33, 0.35], albedo2: [0.19, 0.20, 0.22],
+             pattern: 'checker', scale: size / 4 },
+    sky: { kind: 'unlit', albedo: [0.07, 0.09, 0.14] },
+  });
+  scene.lights = [
+    { pos: [size * 1.5, -size * 2, size * 2.5], color: [lamp, lamp * 0.96, lamp * 0.88] },
+    { pos: [-size * 2, -size, size * 1.5], color: [lamp * 0.35, lamp * 0.38, lamp * 0.46] },
+    { pos: [0, size * 2.5, size], color: [lamp * 0.3, lamp * 0.28, lamp * 0.26] },
+  ];
+  scene.camera = {
+    target: [0, 0, size * 0.4],
+    yaw: 0.9, pitch: 0.35, distance: size * 3,
+  };
+  scene.root = {
+    sphere: { center: [0, 0, 0], radius: size * 200 },
+    inside: {
+      plane: { normal: [0, 0, 1], offset: 0 },
+      material: 'floor',
+      outside: {
+        union: [
+          { use: name, material },
+          { sphere: { center: [0, 0, 0], radius: size * 199 }, complement: true, material: 'sky' },
+        ],
+      },
+    },
+  };
+  return scene;
+}
+
+/**
+ * A scene showing the STL at `path` on its own, from its bytes: as
+ * sceneAroundMesh() makes, importing the STL from `path` and standing it,
+ * centred, on the floor, scaled to 2 across - STL has no units, and a
+ * model in millimetres would otherwise put the sky past where rays look.
+ * Returns { spec, imports } for compileScene().
+ */
+export function sceneForMesh(path, bytes, { warn = console.warn } = {}) {
+  const read = readSTL(bytes);
+  if (read.openEdges) {
+    warn(`${path}: ${read.openEdges} open edges: the surface does not close, so what is inside it is a guess`);
+  }
+  const name = aliasFor(path);
+  const part = meshAsScene(read.triangles, name);
+  const { lo, hi } = boundsOf(read.triangles);
+  const size = 2;
+  const scale = size / Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  // Centred in x and y, standing on z = 0: where the floor expects it.
+  const translate = [-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]].map((v) => v * scale);
+  const spec = sceneAroundMesh({ use: name, scale, translate }, { size });
+  spec.import = [path];
+  return { spec, imports: { [path]: part } };
+}
+
 /**
  * Fetch every file a spec imports, and every file those import, as a map
  * from path to parsed spec - the shape compileScene() wants.
  *
  * `read` takes a path and returns the parsed JSON, however the caller
  * likes: fetch in a browser, readFile in node. Paths are resolved relative
- * to the file that named them, which `read` sees as given.
+ * to the file that named them, which `read` sees as given. An .stl import
+ * is read with `readBytes` instead, which returns its bytes (an ArrayBuffer
+ * or Uint8Array), and converted by stlAsScene(); so is anything ending in
+ * .gz, unzipped first (a .json.gz, an .stl.gz).
  */
-export async function loadImports(spec, read, { from = '', seen = new Map() } = {}) {
+export async function loadImports(spec, read, {
+  from = '',
+  seen = new Map(),
+  readBytes,
+  warn = console.warn,
+} = {}) {
   for (const { path } of importsOf(spec)) {
     const resolved = resolvePath(from, path);
     if (seen.has(resolved)) continue;
     seen.set(resolved, null);                      // claim it before recursing
+    if (isSTL(resolved)) {
+      if (!readBytes) {
+        throw new Error(`cannot import "${resolved}": an STL needs loadImports() given readBytes`);
+      }
+      let bytes;
+      try {
+        bytes = await readBytes(resolved);
+        if (isGzip(resolved)) bytes = await gunzip(bytes);
+      } catch (cause) {
+        throw new Error(`cannot read imported mesh "${resolved}": ${cause.message}`);
+      }
+      try {
+        seen.set(resolved, stlAsScene(bytes, aliasFor(resolved), {
+          warn: (msg) => warn(`${resolved}: ${msg}`),
+        }));
+      } catch (cause) {
+        throw new Error(`cannot import mesh "${resolved}": ${cause.message}`);
+      }
+      continue;
+    }
     let imported;
     try {
-      imported = await read(resolved);
+      if (isGzip(resolved)) {
+        if (!readBytes) throw new Error('a .gz needs loadImports() given readBytes');
+        imported = JSON.parse(new TextDecoder().decode(await gunzip(await readBytes(resolved))));
+      } else {
+        imported = await read(resolved);
+      }
     } catch (cause) {
       throw new Error(`cannot read imported scene "${resolved}": ${cause.message}`);
     }
     seen.set(resolved, imported);
-    await loadImports(imported, read, { from: resolved, seen });
+    await loadImports(imported, read, { from: resolved, seen, readBytes, warn });
   }
   const loaded = {};
   for (const [path, value] of seen) if (value) loaded[path] = value;
   return loaded;
 }
 
-/** Where a path named inside `from` actually points. */
+/**
+ * Where a path named inside `from` actually points. A URL is where it says;
+ * a path inside a file that came from a URL is resolved against that URL,
+ * so a scene on another server can import what sits beside it there.
+ */
 function resolvePath(from, path) {
+  if (isURL(path)) return path;
+  if (isURL(from)) return new URL(path, from).href;
   if (!from || path.startsWith('/')) return path;
   const directory = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : '';
   if (!directory) return path;
@@ -1033,6 +1224,7 @@ export function resolveImports(spec, imports = {}, { from = '', trail = [] } = {
   // the file it came from.
   const ownObjects = new Set(Object.keys(spec.objects || {}));
   const ownMaterials = new Set(Object.keys(spec.materials || {}));
+  const shortFor = new Map();            // an import's name -> its main object, prefixed
 
   for (const { alias, path } of wanted) {
     const resolved = resolvePath(from, path);
@@ -1051,6 +1243,9 @@ export function resolveImports(spec, imports = {}, { from = '', trail = [] } = {
     const flat = resolveImports(imported, imports,
                                 { from: resolved, trail: [...trail, resolved] });
     const prefixed = (name) => `${alias}${IMPORT_SEPARATOR}${name}`;
+    const offered = Object.keys(flat.objects || {});
+    const main = offered.includes(alias) ? alias : offered.length === 1 ? offered[0] : null;
+    if (main && !ownObjects.has(alias)) shortFor.set(alias, prefixed(main));
     const renameObject = (name) => (flat.objects && name in flat.objects ? prefixed(name) : name);
     const renameMaterial = (name) =>
       (flat.materials && name in flat.materials ? prefixed(name) : name);
@@ -1065,6 +1260,17 @@ export function resolveImports(spec, imports = {}, { from = '', trail = [] } = {
       if (ownMaterials.has(key)) continue;                // likewise
       merged.materials[key] = material;
     }
+  }
+
+  // An import's name alone is its object of that name, or its only object:
+  // "torus" for an STL import's one object, "torus:torus" (or "pot" for
+  // "pot:x", imported as { "pot": "x.stl" }), and "bolt" for parts/bolt.json's
+  // "bolt". Only where this scene has no "torus" of its own, which wins as
+  // it does over any imported name.
+  if (shortFor.size) {
+    const lengthen = (name) => shortFor.get(name) ?? name;
+    for (const name of ownObjects) merged.objects[name] = renameWithin(merged.objects[name], lengthen, (m) => m);
+    if (merged.root) merged.root = renameWithin(merged.root, lengthen, (m) => m);
   }
   return merged;
 }
@@ -1896,6 +2102,11 @@ export function compileScene(rawSpec, options = {}) {
     if (def.use !== undefined) {
       out = named(def.use, path);
       if (out === BUILDING) at(path, `object "${def.use}" refers to itself`);
+      // { "use", "material" }: this placement made of one material,
+      // whatever the object's own (see repaintTree()).
+      if (def.material !== undefined) {
+        out = repaintTree(out, materialOf(def, path));
+      }
     } else if (def.group !== undefined) {
       out = buildGroup(def, path, where);
     } else if (Object.keys(COMBINERS).some((op) => def[op] !== undefined)) {

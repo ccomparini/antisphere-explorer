@@ -11,11 +11,12 @@
 // buffer per frame.
 
 import {
-  loadText, requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage,
+  loadText, loadBytes, requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage,
   createTraceBuffers,
 } from './gpu-setup.js';
 import {
   compileScene, packNodes, packSurfaces, packMaterials, packLights, loadImports,
+  isSTL, isGzip, gunzip, sceneForMesh,
 } from './antisphere-scene.js';
 import { BINDINGS, RayQuery, Seg, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
@@ -118,12 +119,25 @@ export class ASContext {
    *
    * Imported files are fetched relative to the file that names them, so a
    * scene in scenes/ can say "import": ["parts/bolt.json"] and mean
-   * scenes/parts/bolt.json.
+   * scenes/parts/bolt.json. An imported .stl is fetched as bytes and
+   * converted (see loadImports()). `url` may be a full URL, on another
+   * server, and what it imports is then fetched from beside it there.
+   *
+   * An STL on its own is shown in a scene made round it: a floor, a sky,
+   * lights and a camera (sceneForMesh()). A .gz is unzipped as it loads:
+   * scene.json.gz, model.stl.gz.
    */
   async loadScene(url) {
-    const spec = JSON.parse(await loadText(url));
-    const imports = await loadImports(spec, async (path) => JSON.parse(await loadText(path)),
-                                      { from: url });
+    const bytes = async () => (isGzip(url) ? gunzip(await loadBytes(url)) : loadBytes(url));
+    if (isSTL(url)) {
+      const { spec, imports } = sceneForMesh(url, await bytes());
+      return this.createScene(spec, { imports, path: url });
+    }
+    const spec = JSON.parse(isGzip(url) ? new TextDecoder().decode(await bytes()) : await loadText(url));
+    const imports = await loadImports(spec, async (path) => JSON.parse(await loadText(path)), {
+      from: url,
+      readBytes: loadBytes,
+    });
     return this.createScene(spec, { imports, path: url });
   }
 

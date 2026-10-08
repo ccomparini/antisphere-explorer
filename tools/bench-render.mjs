@@ -28,22 +28,45 @@ globalThis.window ??= { devicePixelRatio: 1 };
 const { ASContext } = await import(new URL('as-context.js', PUBLIC));
 await import(new URL('as-renderer.js', PUBLIC));      // registers ASRenderer
 const { ASCamera } = await import(new URL('as-camera.js', PUBLIC));
-const { loadImports } = await import(new URL('antisphere-scene.js', PUBLIC));
+const { loadImports, isSTL, isGzip, gunzip, sceneForMesh } = await import(new URL('antisphere-scene.js', PUBLIC));
 
 const args = process.argv.slice(2);
-const sceneFile = args.find((a) => a.endsWith('.json')) ?? 'scene.json';
+const isURL = (a) => /^[a-z][a-z0-9+.-]*:/i.test(a);
+const sceneFile = args.find((a) => isURL(a) || /\.(json|stl)(\.gz)?$/i.test(a)) ?? 'scene.json';
 const sizes = args.filter((a) => /^\d+x\d+$/.test(a)).map((s) => s.split('x').map(Number));
 if (!sizes.length) sizes.push([1920, 1080], [1280, 720], [3840, 2160]);
 
 const load = (name) => readFile(new URL(name, PUBLIC), 'utf8');
 const gpu = await ASContext.create({ load });
-// As ASContext.loadScene does it, imports and all, but from disk.
-const scenePath = `scenes/${sceneFile}`;
-const readJson = async (path) => JSON.parse(await load(path));
-const spec = await readJson(scenePath);
-const scene = gpu.createScene(spec, {
-  imports: await loadImports(spec, readJson, { from: scenePath }), path: scenePath,
-});
+// As ASContext.loadScene does it, imports and all, but from disk - or,
+// for a URL, from wherever it says.
+const scenePath = isURL(sceneFile) ? sceneFile : `scenes/${sceneFile}`;
+const fetched = async (path) => {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`${path}: ${response.status} ${response.statusText}`);
+  return response;
+};
+const readJson = async (path) => (isURL(path) ? (await fetched(path)).json() : JSON.parse(await load(path)));
+const readBytes = async (path) => (isURL(path)
+  ? new Uint8Array(await (await fetched(path)).arrayBuffer())
+  : readFile(new URL(path, PUBLIC)));
+let scene;
+const unzipped = async (path) => (isGzip(path) ? gunzip(await readBytes(path)) : readBytes(path));
+if (isSTL(scenePath)) {
+  const { spec, imports } = sceneForMesh(scenePath, await unzipped(scenePath));
+  scene = gpu.createScene(spec, { imports, path: scenePath });
+} else {
+  const spec = isGzip(scenePath)
+    ? JSON.parse(new TextDecoder().decode(await unzipped(scenePath)))
+    : await readJson(scenePath);
+  scene = gpu.createScene(spec, {
+    imports: await loadImports(spec, readJson, {
+      from: scenePath,
+      readBytes,
+    }),
+    path: scenePath,
+  });
+}
 const { device } = gpu;
 
 /** A canvas as far as ASRenderer can tell: its current texture is just a texture. */

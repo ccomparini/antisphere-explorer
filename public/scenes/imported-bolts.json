@@ -1,5 +1,5 @@
 {
-  "_comment": "Three bolts from parts/bolt.json, which knows nothing about this scene. An imported object is named for the file it came from, so parts with the same names elsewhere stay out of each other's way.",
+  "_comment": "Three bolts from parts/bolt.json, which knows nothing about this scene. An imported object is named for the file it came from (bolt:head), so parts with the same names elsewhere stay out of each other's way; and the file's own name alone is its object of that name, bolt for bolt:bolt.",
 
   "import": ["parts/bolt.json"],
 
@@ -17,10 +17,10 @@
   "camera": { "position": [5.23838546, 4.15692679, 2.36864145], "direction": [-0.74834078, -0.593846685, -0.295520207], "distance": 7 },
 
   "objects": {
-    "upright": { "use": "bolt:bolt", "translate": [-1.4, 0, 0.6] },
-    "leaning": { "use": "bolt:bolt", "rotate": { "axis": [0, 1, 0], "degrees": 25 },
+    "upright": { "use": "bolt", "translate": [-1.4, 0, 0.6] },
+    "leaning": { "use": "bolt", "rotate": { "axis": [0, 1, 0], "degrees": 25 },
                  "translate": [0, 0, 0.6] },
-    "small": { "use": "bolt:bolt", "scale": 0.6, "translate": [1.4, 0, 0.36] }
+    "small": { "use": "bolt", "scale": 0.6, "translate": [1.4, 0, 0.36] }
   },
 
   "root": {

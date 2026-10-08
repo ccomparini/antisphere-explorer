@@ -29,7 +29,7 @@ import { attachFlightInput } from './flight-input.js';
 import { fromBasis, fromAxisAngle, fromTo, multiply, rotate } from './quat.js';
 import { PhysicsWorld } from './physics-world.js';
 import { octahedron, octahedronBody } from './shapes.js';
-import { loadText, checkShader } from '../gpu-setup.js';
+import { loadText, loadBytes, checkShader } from '../gpu-setup.js';
 import { FrameProfiler } from './profiler.js';
 
 // What physlab's own things are made of, where the scene doesn't say.
@@ -204,7 +204,11 @@ async function main() {
   const scenePath = `../scenes/${sceneName}`;
   const readJson = async (path) => JSON.parse(await loadText(path));
   const raw = await readJson(scenePath);
-  const file = resolveImports(raw, await loadImports(raw, readJson, { from: scenePath }), { from: scenePath });
+  const imports = await loadImports(raw, readJson, {
+    from: scenePath,
+    readBytes: loadBytes,
+  });
+  const file = resolveImports(raw, imports, { from: scenePath });
   const gravity = gravityOf(parseGravity(file.gravity));
   const spawn = parseSpawn(file.spawn) ?? { at: [0, 0, 0], facing: [1, 0, 0] };
   // Not world objects: what things are made of, what lights them, and the
