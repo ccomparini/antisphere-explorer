@@ -29,6 +29,11 @@ struct Material {
   scale   : f32,       // pattern tile size: larger is bigger tiles
   albedo2 : vec3<f32>,
   solid   : u32,       // 0 or 1; used to determine if it stops rays
+  // An env node's material: the env's ambient level - its own and what it
+  // lets in of the level around it (transmit, params.x), baked by
+  // bakeScopes() in antisphere-scene.js, one copy of the material for each
+  // level. 0 for any other material.
+  ambient : vec3<f32>,
 };
 
 const KIND_LAMBERT  : u32 = 0u;
@@ -465,24 +470,18 @@ struct Hit {
 
 struct Direct { diffuse : vec3<f32>, specular : vec3<f32>, };
 
+// The ambient level at a hit: its env's, baked into the env node's material
+// (Material.ambient: its own, and what it lets in of the levels round it).
+// Env 0's is the default. A glow region's fill, which varies from point to
+// point, is added with its direct light (addGlow()).
+fn surfaceAmbient(hit : Hit) -> vec3<f32> {
+  let env = nodes[hit.node].env;
+  if (env == 0u) { return vec3<f32>(0.13, 0.13, 0.14); }
+  return materials[nodes[env].material].ambient;
+}
+
 fn surfaceMaterial(hit : Hit) -> Material {
   return materials[nodes[hit.node].material];
-}
-
-// Ambient is the level of the env the node is in - its env node's
-// material - shaped by a crude hemisphere term. Env 0 is the default.
-fn ambient(env : u32, N : vec3<f32>) -> vec3<f32> {
-  var base = vec3<f32>(0.13, 0.13, 0.14);
-  if (env > 0u) {
-    // A glow region has no level of its own: its glow is all its light.
-    let m = materials[nodes[env].material];
-    base = select(m.albedo, vec3<f32>(0.0), m.kind == KIND_GLOW_REGION);
-  }
-  return base; // * (0.77 + 0.23 * max(N.z, 0.0));
-}
-
-fn surfaceAmbient(hit : Hit) -> vec3<f32> {
-  return ambient(nodes[hit.node].env, hit.normal);
 }
 
 fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
@@ -537,24 +536,34 @@ fn glowCentre(nd : Node, P : vec3<f32>) -> vec3<f32> {
   return along * nd.axis + across;
 }
 
-// A glow region's light at a hit within it: its albedo at the centre
-// (glowCentre()), falling off as a light does, and by H(P) / H(centre) -
-// 1 at the centre and 0 on the node's surface, 1 - d^2/r^2 for a sphere -
-// squared, so it fades out smoothly at the edge. A shape whose centre is
-// not inside it (a cone's apex, a complemented sphere's) has no such
-// ratio, and glows as a plain light from it. Its shadow rays start inside
-// it, as a light's in it do.
-fn addGlow(env : u32, hit : Hit, shininess : f32, out : ptr<function, Direct>) {
-  let nd = nodes[env];
-  let centre = glowCentre(nd, hit.position);
+// How a glow region's light at P is faded: (H(P) / H(centre))^2, or 1
+// where the centre (an offset from the anchor) is not inside the node. No
+// inverse square: the caller's.
+fn glowFalloff(nd : Node, P : vec3<f32>, centre : vec3<f32>) -> f32 {
   let atCentre = fAbout(nd, centre);
-  var falloff = 1.0;
-  if (atCentre < 0.0) {
-    let ratio = clamp(fAt(nd, hit.position) / atCentre, 0.0, 1.0);
-    falloff = ratio * ratio;
-  }
+  if (atCentre >= 0.0) { return 1.0; }
+  let ratio = clamp(fAt(nd, P) / atCentre, 0.0, 1.0);
+  return ratio * ratio;
+}
+
+// A glow region's light at a hit within it: its albedo at the centre
+// (glowCentre()), falling off as a light does, and by glowFalloff(). Its
+// shadow rays start inside it, as a light's in it do. And its fill
+// (params.y): that light again, unshadowed, as ambient light - let in by
+// `through`, the transmit of the envs between. Shading takes albedo times
+// ambient plus diffuse, so the fill goes in with the diffuse.
+fn addGlow(env : u32, through : f32, hit : Hit, shininess : f32, out : ptr<function, Direct>) {
+  let nd = nodes[env];
+  let m = materials[nd.material];
+  let centre = glowCentre(nd, hit.position);
+  let falloff = glowFalloff(nd, hit.position, centre);
   if (falloff <= 0.0) { return; }
-  addLight(Light(nd.anchor + centre, env, materials[nd.material].albedo * falloff, 0.0), hit, shininess, out);
+  let lt = Light(nd.anchor + centre, env, m.albedo * falloff, 0.0);
+  if (m.params.y != 0.0) {
+    let d = lt.pos - hit.position;
+    (*out).diffuse = (*out).diffuse + through * m.params.y * lt.color / (1.0 + dot(d, d));
+  }
+  addLight(lt, hit, shininess, out);
 }
 
 // One light's direct light at a hit, with one shadow ray, added to `out`.
@@ -598,7 +607,8 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
 // Sums direct light over the lights that reach a hit: those of its env and
 // of every env enclosing it, and the glow of each that is a glow region -
 // following env from node to node walks outward, to 0, whose lights
-// reach everything. So a room's torch lights
+// reach everything. A glow region's fill comes in here too (addGlow()),
+// let in by the transmit (params.x) of the envs between. So a room's torch lights
 // the room and not the hall it opens off, and the hall's lamps light into
 // the room; and a hit costs its own env chain's lights, not the scene's.
 // A shininess of zero skips the specular term entirely.
@@ -609,14 +619,15 @@ fn directLighting(hit : Hit, shininess : f32) -> Direct {
 
   let n = arrayLength(&lights);
   var env = nodes[hit.node].env;
+  var through = 1.0;
   loop {
     for (var i = firstLightOf(env); i < n && lights[i].env == env; i = i + 1u) {
       addLight(lights[i], hit, shininess, &out);
     }
-    if (env != 0u && materials[nodes[env].material].kind == KIND_GLOW_REGION) {
-      addGlow(env, hit, shininess, &out);
-    }
     if (env == 0u) { break; }
+    let m = materials[nodes[env].material];
+    if (m.kind == KIND_GLOW_REGION) { addGlow(env, through, hit, shininess, &out); }
+    through = through * m.params.x;
     env = nodes[env].env;
   }
   return out;

@@ -221,9 +221,9 @@ export class Light {
 }
 
 export class Material {
-  static SIZE = 48;
+  static SIZE = 64;
   static ALIGN = 16;
-  static STRIDE = 48;
+  static STRIDE = 64;
   static FIELDS = Object.freeze({
     kind: Object.freeze({ offset: 0, type: 'u32' }),
     pattern: Object.freeze({ offset: 4, type: 'u32' }),
@@ -232,6 +232,7 @@ export class Material {
     scale: Object.freeze({ offset: 28, type: 'f32' }),
     albedo2: Object.freeze({ offset: 32, type: 'vec3<f32>' }),
     solid: Object.freeze({ offset: 44, type: 'u32' }),
+    ambient: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Material.STRIDE)); }
@@ -266,6 +267,11 @@ export class Material {
     if (values.solid !== undefined) {
       u32[w + 11] = values.solid;
     }
+    if (values.ambient !== undefined) {
+      f32[w + 12] = values.ambient[0];
+      f32[w + 13] = values.ambient[1];
+      f32[w + 14] = values.ambient[2];
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -278,6 +284,7 @@ export class Material {
       scale: f32[w + 7],
       albedo2: [f32[w + 8], f32[w + 9], f32[w + 10]],
       solid: u32[w + 11],
+      ambient: [f32[w + 12], f32[w + 13], f32[w + 14]],
     };
   }
 }

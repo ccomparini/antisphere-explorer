@@ -151,7 +151,11 @@ coefficients in place, with no recompile.
   an env lit from within: its light is at its node's centre, fading to
   nothing at the node's surface by the node's own implicit function, worked
   out from the node at every hit, so moving or resizing the node changes
-  it.
+  it. Ambient light passes between envs by each one's `transmit`: an env's
+  level is its own plus that fraction of the level around it, baked at
+  compile time into a copy of the env node's material; only what varies
+  from point to point - a glow region's `fill`, its glow unshadowed - is
+  added per hit, in the same walk as the lights.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.

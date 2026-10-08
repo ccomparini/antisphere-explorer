@@ -380,14 +380,17 @@ const KINDS = {
   unlit:    { id: 3, params: () => [0, 0] },
   // An ambient material never shades, and is not solid by default. A node
   // that names one starts an env (bakeScopes()): its albedo is the ambient
-  // level for everything inside it.
-  ambient:  { id: 4, params: () => [0, 0] },
+  // level for everything inside it, added to `transmit` (default 0) times
+  // the level around it.
+  ambient:  { id: 4, params: (d) => [d.transmit ?? 0, 0] },
   // A glow region: a region like an ambient one, not solid by default, and
   // a node that names one starts an env - but lit from within: its albedo
   // is the light at its node's centre, falling to nothing at the node's
   // surface, worked out by the shader from the node itself (addGlow() in
-  // the raycast shader). No ambient level within it.
-  glowRegion: { id: 5, params: () => [0, 0] },
+  // the raycast shader). Its ambient is `transmit` (default 1) times the
+  // level around it, and `fill` (default 0) times its glow, unshadowed:
+  // light from its walls, roughly.
+  glowRegion: { id: 5, params: (d) => [d.transmit ?? 1, d.fill ?? 0] },
 };
 const KIND_AMBIENT = 4;
 const KIND_GLOW_REGION = 5;
@@ -676,14 +679,30 @@ function mapTree(t, f, g) {
 function bakeScopes(tree, table) {
   const memo = new Map();       // "material:env id" -> (subtree -> baked)
   const envIds = new Map();     // env node -> a number for the memo key
-  let defaultAmbient = 0;       // its index once needed
-  let noAmbient = 0;            // likewise: an ambient level of nothing
-  const ambientOutermost = () => {
-    if (!defaultAmbient) {
-      table.push({ ...table[0], albedo: DEFAULT_AMBIENT, kind: KIND_AMBIENT, solid: false });
-      defaultAmbient = table.length - 1;
+  // An env's ambient level, as it is there: its own, plus its material's
+  // transmit (params[0]) times the level around it - an ambient material's
+  // own is its albedo, a glow region's nothing (its fill varies from point
+  // to point, so the shader adds it). Each env node names a copy of its
+  // material carrying that level (`ambient`), one per level it comes to.
+  const levels = new Map();     // env node -> its level
+  const copies = new Map();     // "material:level" -> the copy's index
+  const withLevel = (material, level) => {
+    const key = `${material}:${level.join()}`;
+    if (!copies.has(key)) {
+      table.push({ ...table[material], ambient: level });
+      copies.set(key, table.length - 1);
     }
-    return defaultAmbient;
+    return copies.get(key);
+  };
+  // A node with lights and no material of its own: a region with no level
+  // of its own, letting all of the level around it in.
+  let passing = 0;
+  const passThrough = () => {
+    if (!passing) {
+      table.push({ ...table[0], albedo: [0, 0, 0], kind: KIND_AMBIENT, params: [1, 0], solid: false });
+      passing = table.length - 1;
+    }
+    return passing;
   };
   const resolve = (t, matScope, envNode) => {
     if (!t) return t;
@@ -694,23 +713,22 @@ function bakeScopes(tree, table) {
     const named = t.material !== INHERIT_MATERIAL;
     const lit = t.lights?.length > 0;
     let hereMat = named ? t.material : matScope;
-    if (lit && !named) {
-      // The level around it - which, in a glow region, is none: the region's
-      // material would make this node a glow of its own.
-      if (!envNode) hereMat = ambientOutermost();
-      else if (table[envNode.material].kind !== KIND_GLOW_REGION) hereMat = envNode.material;
-      else {
-        if (!noAmbient) {
-          table.push({ ...table[0], albedo: [0, 0, 0], kind: KIND_AMBIENT, solid: false });
-          noAmbient = table.length - 1;
-        }
-        hereMat = noAmbient;
-      }
+    if (lit && !named) hereMat = passThrough();
+    const startsEnv = lit || (named && isRegionKind(table[t.material].kind));
+    let level = null;
+    if (startsEnv) {
+      const m = table[hereMat];
+      const around = envNode ? levels.get(envNode) : DEFAULT_AMBIENT;
+      const own = m.kind === KIND_AMBIENT ? m.albedo : [0, 0, 0];
+      level = own.map((v, i) => v + m.params[0] * around[i]);
+      hereMat = withLevel(hereMat, level);
     }
     const out = node(t.prim, null, null, hereMat, envNode, t.prov, t.lights);
     byScope.set(t, out);
-    const startsEnv = lit || (named && isRegionKind(table[t.material].kind));
-    if (startsEnv) envIds.set(out, envIds.size + 1);
+    if (startsEnv) {
+      envIds.set(out, envIds.size + 1);
+      levels.set(out, level);
+    }
     out.inside = resolve(t.inside, hereMat, startsEnv ? out : envNode);
     out.outside = resolve(t.outside, matScope, envNode);
     return out;
@@ -1121,6 +1139,11 @@ export function compileScene(rawSpec, options = {}) {
     const scale = def.scale ?? 1;
     if (!(typeof scale === 'number' && scale > 0 && Number.isFinite(scale))) {
       at(`materials.${name}.scale`, `must be a positive number, got ${JSON.stringify(def.scale)}`);
+    }
+    for (const field of ['transmit', 'fill']) {
+      if (def[field] !== undefined && !(typeof def[field] === 'number' && Number.isFinite(def[field]))) {
+        at(`materials.${name}.${field}`, `must be a number, got ${JSON.stringify(def[field])}`);
+      }
     }
     table.push({
       albedo:  def.albedo  ?? [0.7, 0.7, 0.7],
@@ -1992,6 +2015,7 @@ export function packMaterials(list) {
       scale: m.scale,
       albedo2: m.albedo2,
       solid: m.solid ? 1 : 0,
+      ambient: m.ambient ?? [0, 0, 0],
     });
   });
   return views.buffer;

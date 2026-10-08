@@ -98,11 +98,13 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 - `"glossy"`: `shininess` (default `32`), `specular` (default `0.6`)
 - `"emissive"`: `emission` (default `1`)
 - `"lambert"`, `"unlit"`: no extra fields
-- `"ambient"`: no extra fields. An ambient material never shades a surface,
-  and is not solid unless `solid` says so. A node naming one starts an
-  ambient region: its `albedo` is the ambient light level for everything in
-  the node's `inside` subtree (see "Ambient regions" below).
-- `"glowRegion"`: no extra fields. A region like an ambient one - never
+- `"ambient"`: `transmit` (default `0`). An ambient material never shades a
+  surface, and is not solid unless `solid` says so. A node naming one starts
+  an ambient region: its `albedo` is the ambient light level for everything
+  in the node's `inside` subtree, plus `transmit` times the level around it
+  (see "Ambient regions" below).
+- `"glowRegion"`: `transmit` (default `1`), `fill` (default `0`). A region
+  like an ambient one - never
   shades, not solid unless `solid` says so, and a node naming one starts a
   region - but lit from within rather than at a level: its `albedo` is the
   light at the node's centre, falling off as a light's does and fading to
@@ -580,6 +582,13 @@ solids can, by descending through `"inside"`. Only a node that names the
 material itself starts one; nodes inside that inherit it are divisions
 within the region.
 
+A region's ambient level is its own plus `transmit` times the level around
+it: an ambient material's own is its `albedo`, and by default it lets none
+of the outside in (`transmit` 0) - so a cave stays dark under a bright sky,
+ambient light having no shadows to keep it out. A `transmit` of 0.5, say,
+lets half in: a porch. A node carrying lights and no material of its own
+lets all of it in. The levels are worked out when the scene is compiled.
+
 Every node records the region it is in as the index of the node that starts
 it (`env`), and that node records the region enclosing it, so a region is
 known by its geometry rather than by its material: two regions using the
@@ -600,9 +609,14 @@ function, which is 1 at the centre and 0 on its surface (1 - d²/r² for a
 sphere) - so the glow fades smoothly to nothing at the node's surface. The
 renderer works this out from the node at every hit, so changing the node -
 its radius, say, flickering - changes the glow. Its shadows are cast by what
-the region holds, as a region's lights' are. A glow region has no ambient
-level of its own: the glow is all its light, besides the lights of the
-regions round it.
+the region holds, as a region's lights' are.
+
+A glow region has no ambient level of its own; by default (`transmit` 1)
+the level around it carries on into it, so it fades into its surroundings
+with no edge. Its `fill` adds that fraction of the glow, unshadowed, as
+ambient light - a rough stand-in for light off the walls, which lifts its
+shadows near the centre and fades with the glow, to nothing at the edge
+(`"fill": 0.08` in `scenes/candle.json`).
 
 Any shape will do. Its centre is where the quadric turns in each direction
 it curves, and the lit point's own position in any it doesn't: a sphere's

@@ -976,6 +976,40 @@ gpuTest('a glow region lights from its centre, fading to nothing at its surface,
   }
 });
 
+gpuTest('a glow region\'s fill lights its shadows: its glow there, unshadowed, times the fill', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // The glow over a floor again, and a ball in it between the centre and
+  // the floor at x = 2: the ball's shadow falls round x = 2.
+  const floor = { plane: { normal: [0, 0, 1], offset: 0 }, material: 'white' };
+  const spec = (fill) => ({
+    materials: {
+      white: { albedo: [0.8, 0.8, 0.8] },
+      glow: { kind: 'glowRegion', albedo: [3, 3, 3], fill },
+      dark: { kind: 'ambient', albedo: [0, 0, 0] },
+    },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'dark', inside: {
+      sphere: { center: [0, 0, 1], radius: 3 }, material: 'glow',
+      inside: { sphere: { center: [1, 0, 0.5], radius: 0.2 }, material: 'white', outside: floor },
+      outside: floor,
+    } },
+  });
+  const camera = () => {
+    const c = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  const none = await renderPixels(spec(0), camera());
+  const half = await renderPixels(spec(0.5), camera());
+  const column = 60, x = (79.5 - column) / 10, d2 = x * x + 1;
+  const glow = 3 / (1 + d2) * (1 - d2 / 9) ** 2;
+  const want = 255 * (0.8 * 0.5 * glow) ** (1 / 2.2);
+  assert.equal(none.at(column, 40)[0], 0, 'in the ball\'s shadow, with no fill, nothing');
+  assert.ok(Math.abs(half.at(column, 40)[0] - want) <= 3, `with fill 0.5: ${half.at(column, 40)[0]}, the formula ${want.toFixed(1)}`);
+  // Where the glow reaches directly, the fill adds to it.
+  assert.ok(half.at(70, 40)[0] > none.at(70, 40)[0], `lit floor: ${half.at(70, 40)[0]} with fill, ${none.at(70, 40)[0]} without`);
+});
+
 gpuTest('setLights replaces the scene\'s own lights and keeps those its nodes carry', async () => {
   const sc = ctx.createScene({
     materials: MATERIALS,
