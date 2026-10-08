@@ -352,6 +352,24 @@ export function meshToTree(triangles, options = {}) {
 }
 
 /** Nodes, depth and leaves, for judging what an import cost. */
+/**
+ * The triangles moved and scaled: with `centre`, over the origin in x and y
+ * and standing on z = 0, where a floor expects them; with `fit`, scaled so
+ * the longest side of their bounds is that - mesh files have no units.
+ * The same triangles if neither moves them.
+ */
+export function placeTriangles(triangles, { centre = true, fit } = {}) {
+  const { lo, hi } = boundsOf(triangles);
+  const size = [0, 1, 2].map((i) => hi[i] - lo[i]);
+  const scale = fit ? fit / Math.max(...size) : 1;
+  const shift = centre
+    ? [-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]]
+    : [0, 0, 0];
+  if (!centre && scale === 1) return triangles;
+  return triangles.map((tri) =>
+    tri.map((v) => [0, 1, 2].map((i) => (v[i] + shift[i]) * scale)));
+}
+
 export function treeStats(node) {
   let nodes = 0, solid = 0, empty = 0;
   const walk = (n, depth) => {

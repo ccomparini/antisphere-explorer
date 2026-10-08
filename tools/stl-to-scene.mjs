@@ -11,7 +11,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { readSTL } from '../public/stl.js';
-import { meshToTree, treeStats, boundsOf } from '../public/mesh-import.js';
+import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-import.js';
 import { compileScene, sceneAroundMesh } from '../public/antisphere-scene.js';
 
 const USAGE = `
@@ -50,20 +50,6 @@ function parseArguments(argv) {
   return options;
 }
 
-/** Move the model over the origin and scale it, since STL has no units. */
-function place(triangles, { centre, fit }) {
-  const { lo, hi } = boundsOf(triangles);
-  const size = [0, 1, 2].map((i) => hi[i] - lo[i]);
-  const scale = fit ? fit / Math.max(...size) : 1;
-  // Centred in x and y, standing on z = 0: where a floor expects it.
-  const shift = centre
-    ? [-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]]
-    : [0, 0, 0];
-  if (!centre && scale === 1) return triangles;
-  return triangles.map((tri) =>
-    tri.map((v) => [0, 1, 2].map((i) => (v[i] + shift[i]) * scale)));
-}
-
 function main(argv) {
   const options = parseArguments(argv);
   if (options.help || !options.file) {
@@ -85,7 +71,7 @@ function main(argv) {
     process.exit(1);
   }
 
-  const placed = place(read.triangles, options);
+  const placed = placeTriangles(read.triangles, options);
   const { lo, hi } = boundsOf(placed);
   const size = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
 
