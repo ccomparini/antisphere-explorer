@@ -16,6 +16,9 @@ import { bindGroup } from './bind-group.js';
 
 export const DEBUG_VIEWS = ['shaded', 'node visits', 'shadow rays', 'stack depth',
                             'material id', 'normals'];
+// Not a view to look at: the per-pixel work counts, exactly, for tools to
+// read back from the render target (`tex`) - DEBUG_COUNTS in the shader.
+export const DEBUG_COUNTS = 6;
 
 export class ASRenderer {
   /**
@@ -135,7 +138,8 @@ export class ASRenderer {
     this.tex = this.context.device.createTexture({
       size: [w, h],
       format: 'rgba8unorm',
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      // COPY_SRC: for tools that read it back (DEBUG_COUNTS).
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
     });
     this._pipeGen = -1;       // the texture changed, so the bind groups did too
   }

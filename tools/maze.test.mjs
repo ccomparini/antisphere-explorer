@@ -85,3 +85,16 @@ test('torches: lights on the nodes holding their cells, and a dimmer sun', () =>
   const built = compileScene(structuredClone(scene));
   assert.ok(built.nodes.length > 20);
 });
+
+test('--torches-global: the same torches as the scene\'s own lights, and the same tree without them', () => {
+  const options = { seed: 3, rings: 3, torches: 0.5, sun: 0.1 };
+  const scoped = mazeScene(options), global = mazeScene({ ...options, scopeTorches: false });
+  const positions = (lights) => lights.map((light) => light.pos.join()).sort();
+  assert.deepEqual(positions(global.scene.lights.slice(1)), positions(scoped.maze.torches));
+  assert.equal(JSON.stringify(global.scene.objects.maze).includes('"lights"'), false);
+  assert.equal(JSON.stringify(global.scene.objects.maze), JSON.stringify(mazeScene({ ...options, torches: 0 }).scene.objects.maze),
+               'no torch nodes: the unlit tree');
+  const run = spawnSync('node', [script, '--seed', '3', '--rings', '3', '--torches', '0.5', '--torches-global'], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  assert.ok(JSON.parse(run.stdout).lights.length > 2);
+});

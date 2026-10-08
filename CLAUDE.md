@@ -27,6 +27,8 @@ sessions.
     npm run shaders          build shaders/*.wgsls into public/gen/
     npm run shaders:watch    rebuild on change
     node tools/bench-render.mjs [scene.json] [WxH ...]
+    node tools/bench-compare.mjs [-r rev ...] scene ...
+                             scenes x revisions, one table, with work counts
     node tools/shader-stats.mjs [file.wgsl] [entry ...] [--dump DIR]
 
 Shader sources are `shaders/*.wgsls`; `public/gen/` is generated but

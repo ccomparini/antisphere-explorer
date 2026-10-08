@@ -31,6 +31,8 @@ maze - write a scene with a circular maze in it
       --floor-material <m>  the floor (default "floor", a checker)
       --torches <share>     of the cells with a torch, 0 to 1 (default 0)
       --sun <brightness>    the daylight, 0 for night (default 1)
+      --torches-global      the torches as the scene's own lights, lighting
+                            everything, rather than each its own cell
   A material named here and not otherwise known is given a colour for its
   part: stone for walls, wood for doors, pale for tops, a checker for the
   floor.
@@ -58,7 +60,8 @@ function parseArguments(argv) {
       const value = Number(next());
       if (!Number.isFinite(value)) throw new Error(`${arg} needs a number`);
       options[NUMBERS[arg]] = value;
-    } else if (arg === '-h' || arg === '--help') options.help = true;
+    } else if (arg === '--torches-global') options.scopeTorches = false;
+    else if (arg === '-h' || arg === '--help') options.help = true;
     else throw new Error(`unknown option ${arg}`);
   }
   return options;
@@ -103,8 +106,12 @@ export function mazeScene(options = {}) {
       _comment: `A circular maze, seed ${options.seed ?? 1}: written by tools/maze.mjs (public/maze.js).`,
       materials,
       // Bright enough at the maze to read as daylight, inverse square.
-      // The maze's torches are on its nodes, lighting their own cells.
-      lights: [{ pos: sun, color: [1, 0.96, 0.9].map((c) => +(c * daylight * 2.5 * (1 + sun.reduce((s, v) => s + v * v, 0))).toFixed(1)) }],
+      // The maze's torches are on its nodes, lighting their own cells - or,
+      // unscoped, here with the sun, lighting everything.
+      lights: [
+        { pos: sun, color: [1, 0.96, 0.9].map((c) => +(c * daylight * 2.5 * (1 + sun.reduce((s, v) => s + v * v, 0))).toFixed(1)) },
+        ...(options.scopeTorches === false ? maze.torches.map(({ pos, color }) => ({ pos, color })) : []),
+      ],
       camera: { position: eye, direction: eye.map((v) => -v / distance), distance },
       objects: { maze: maze.tree },
       // The maze first: within it, its own floor, so a torch lights the

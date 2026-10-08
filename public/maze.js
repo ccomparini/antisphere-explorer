@@ -67,7 +67,10 @@ const pointAt = (radius, angle, height) => [radius * Math.cos(angle), radius * M
  * `torches` is the share of cells, the hub among them, that have a light:
  * 0 (the default) none, 1 all. A torch lights only its own cell (see
  * "Lights" under Subtrees in scene-format.md): its walls and floor, and
- * nothing it can see through a doorway.
+ * nothing it can see through a doorway. With `scopeTorches` false the
+ * torches are left off the tree, to be the scene's own lights (`torches`,
+ * returned), lighting everything: the same maze and torches, unscoped, for
+ * comparison.
  */
 export function circularMaze({
   seed = 1,
@@ -83,6 +86,7 @@ export function circularMaze({
   topMaterial,
   floorMaterial,
   torches = 0,
+  scopeTorches = true,
 } = {}) {
   const random = seeded(seed);
   // Ring wall `ring` runs from wallInside(ring) out to wallOutside(ring);
@@ -305,7 +309,7 @@ export function circularMaze({
     : pointAt(Math.hypot(cells[cell].center[0], cells[cell].center[1]), middleAngle(cell), wallHeight * 0.8));
   const torchColor = [1, 0.75, 0.45].map((part) => +(part * 0.6 * hallWidth * hallWidth).toFixed(3));
   const floored = (above) => withChildren(floor, ground, null, above);
-  const torchFor = (cell, subtree) => (lit.has(cell)
+  const torchFor = (cell, subtree) => (scopeTorches && lit.has(cell)
     ? { ...ceiling, lights: [{ pos: torchAt(cell), color: torchColor }], inside: subtree }
     : subtree);
 

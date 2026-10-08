@@ -197,6 +197,11 @@ const DEBUG_SHADOW   : u32 = 2u;   // shadow rays actually traced
 const DEBUG_DEPTH    : u32 = 3u;   // peak traversal stack depth
 const DEBUG_MATERIAL : u32 = 4u;
 const DEBUG_NORMAL   : u32 = 5u;
+// The counts themselves, exactly, for tools to read back rather than for
+// looking at (tools/bench-compare.mjs): node visits in red (low byte) and
+// green (high), shadow rays traced in blue, peak stack depth in alpha,
+// each byte n stored as n / 255, which rgba8unorm keeps exactly.
+const DEBUG_COUNTS   : u32 = 6u;
 
 var<private> visits    : u32 = 0u;
 var<private> shadowRays: u32 = 0u;
@@ -889,7 +894,13 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     default: {}
   }
 
+  if (cam.debug == DEBUG_COUNTS) {
+    let v = min(visits, 65535u);
+    let counts = vec4<u32>(v & 255u, v >> 8u, min(shadowRays, 255u), min(peakDepth, 255u));
+    textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(counts) / 255.0);
+    return;
+  }
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":762}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":773}]
