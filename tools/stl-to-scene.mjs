@@ -21,7 +21,9 @@ stl-to-scene - convert an STL into an antisphere scene
 
   -o, --out <file>     write here instead of stdout
       --fit <size>     scale the model so its longest side is this
-      --material <m>   what the scene makes it of (default "clay")
+      --material <m>   what it is made of (default: named for the file,
+                       "teapot" for teapot.stl - the scene it writes
+                       defines it)
       --name <n>       the object's name in the scene (default "model")
       --no-centre      leave the model where the file put it
       --no-floor       just the model, no floor, sky or camera
@@ -30,7 +32,7 @@ stl-to-scene - convert an STL into an antisphere scene
 `.trim();
 
 function parseArguments(argv) {
-  const options = { material: 'clay', name: 'model', centre: true, floor: true, split: true };
+  const options = { name: 'model', centre: true, floor: true, split: true };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -47,6 +49,8 @@ function parseArguments(argv) {
     else rest.push(arg);
   }
   options.file = rest[0];
+  // An STL is only geometry: what it is made of is named for the file.
+  options.material ??= options.file?.split(/[\\/]/).pop().replace(/\.[^.]*$/, '');
   return options;
 }
 
@@ -76,7 +80,8 @@ function main(argv) {
   const size = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
 
   const started = Date.now();
-  const model = meshToTree(placed, { split: options.split });
+  const mesh = meshToTree(placed, { split: options.split });
+  const model = mesh && { material: options.material, ...mesh };
   if (!model) {
     say('  the mesh produced no geometry');
     process.exit(1);

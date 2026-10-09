@@ -405,6 +405,11 @@ const isRegionKind = (kind) => kind === KIND_AMBIENT || kind === KIND_GLOW_REGIO
 // keeps it (bakeScopes()).
 const DEFAULT_AMBIENT = [0.13, 0.13, 0.14];
 
+// What a material the scene names but never defines looks like (see
+// substrate() in compileScene()): plain and grey, so it shows, and reads as
+// unfinished.
+const DEFAULT_LOOK = { albedo: [0.6, 0.6, 0.6], albedo2: [0.3, 0.3, 0.3], scale: 1, kind: 0, params: [0, 0], pattern: 0, solid: true };
+
 // ---------------------------------------------------------------------------
 // Provenance
 //
@@ -953,6 +958,14 @@ export async function gunzip(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+/**
+ * The material an STL's mesh is made of: named for its file, "torus" for
+ * parts/torus.stl.gz. An STL is only ever geometry, so the scene decides
+ * what that is - by defining the name, or, for one placement, with a
+ * "material" on its use.
+ */
+export const meshMaterial = (path) => fileOf(path).replace(/\.[^.]*$/, '');
+
 /** Whether a string, where an object may go, is a reference rather than a name: it starts @. */
 export function isReference(value) {
   return typeof value === 'string' && value.startsWith('@');
@@ -1146,7 +1159,7 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
         }
         const tree = meshToTree(read.triangles);
         if (!tree) throw new Error('the mesh has no triangles with any area');
-        return tree;
+        return { material: meshMaterial(path), ...tree };
       }
       return JSON.parse(await readText(path));
     } catch (cause) {
@@ -1237,8 +1250,10 @@ export function sceneForMesh(path, bytes, { warn = console.warn } = {}) {
   if (read.openEdges) {
     warn(`${path}: ${read.openEdges} open edges: the surface does not close, so what is inside it is a guess`);
   }
-  const tree = meshToTree(read.triangles);
-  if (!tree) throw new Error(`${path}: the mesh has no triangles with any area`);
+  const mesh = meshToTree(read.triangles);
+  if (!mesh) throw new Error(`${path}: the mesh has no triangles with any area`);
+  const name = meshMaterial(path);
+  const tree = { material: name, ...mesh };
   const { lo, hi } = boundsOf(read.triangles);
   const size = 2;
   const scale = size / Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
@@ -1246,7 +1261,7 @@ export function sceneForMesh(path, bytes, { warn = console.warn } = {}) {
   const translate = [-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]].map((v) => v * scale);
   const placed = (v) => v.map((x, i) => x * scale + translate[i]);
   const spec = sceneAroundMesh({ use: `@${path}`, scale, translate },
-                               { name: fileOf(path).replace(/\.[^.]*$/, ''), size, bounds: { lo: placed(lo), hi: placed(hi) } });
+                               { name, material: name, size, bounds: { lo: placed(lo), hi: placed(hi) } });
   return { spec, files: { [path]: tree } };
 }
 
@@ -1360,9 +1375,20 @@ export function compileScene(rawSpec, options = {}) {
   // The scene's own lights: env 0's, which light everything.
   const topLights = lightsOf(spec.lights ?? [], 'lights').map((lt) => ({ ...lt, env: 0 }));
 
+  // A name the scene never defines gets a plain look of its own rather than
+  // stopping the scene - an STL names its material after its file, and a
+  // scene placing one may not say what that is yet. Said once compiled,
+  // and only if a node that is drawn still names it: a use can replace the
+  // name its object's top node had (see tree()).
+  const undefinedNames = new Map();        // name -> { index, path }
   function substrate(name, path) {
-    const m = matIndex.get(name);
-    if (m === undefined) at(path, `unknown material "${name}"`);
+    let m = matIndex.get(name);
+    if (m === undefined) {
+      table.push({ ...DEFAULT_LOOK });
+      m = table.length - 1;
+      matIndex.set(name, m);
+      undefinedNames.set(name, { index: m, path });
+    }
     return m;
   }
 
@@ -2086,6 +2112,14 @@ export function compileScene(rawSpec, options = {}) {
     if (def.use !== undefined) {
       out = named(def.use, path);
       if (out === BUILDING) at(path, `object "${def.use}" refers to itself`);
+      // { "use", "material" }: this placement's object with its top node
+      // naming that material instead - and so everything inheriting from
+      // it. Nodes below that name their own, and pure divisions naming
+      // null, keep theirs. Copied, so the object's other uses are as they
+      // were.
+      if (def.material !== undefined && out) {
+        out = node(out.prim, out.inside, out.outside, materialOf(def, path), out.env, out.prov, out.lights);
+      }
     } else if (def.group !== undefined) {
       out = buildGroup(def, path, where);
     } else if (Object.keys(COMBINERS).some((op) => def[op] !== undefined)) {
@@ -2156,6 +2190,12 @@ export function compileScene(rawSpec, options = {}) {
   if (!spec.root) at('root', 'missing');
   const overlaps = [];
   const nodes = flatten(bakeScopes(tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] }), table));
+  if (undefinedNames.size) {
+    const drawn = new Set(nodes.map((nd) => nd.material));
+    for (const [name, { index, path }] of undefinedNames) {
+      if (drawn.has(index)) warn(path, `material "${name}" is not defined: shown in a plain grey - define it in "materials"`);
+    }
+  }
 
   // Every light, with the env it belongs to: the scene's (env 0) first, in
   // order, so the editor can replace just those; then each node's, its env

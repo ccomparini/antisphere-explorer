@@ -1,5 +1,5 @@
 {
-  "_comment": "Tori from parts/torus.stl, a mesh converted to planes as it loads, by reference: every use of it shares one set of nodes. A mesh names no material, so each sits inside a ball naming the one it is made of, whose material its nodes inherit.",
+  "_comment": "Tori from parts/torus.stl, a mesh converted to planes as it loads, by reference: every use of it shares one set of nodes. An STL is only geometry, so it is made of a material named for the file, torus, which a scene defines - or, as each placement here does, a use names another.",
 
   "materials": [
     "@lib/materials.json",
@@ -18,23 +18,15 @@
   "camera": { "position": [4.232067, 3.358361, 3.009793], "direction": [-0.705344, -0.559727, -0.434966], "distance": 6 },
 
   "objects": {
-    "flat": {
-      "sphere": { "center": [-1.3, 0, 0.3], "radius": 1.5 },
-      "material": "gold",
-      "inside": { "use": "@parts/torus.stl", "translate": [-1.3, 0, 0] }
-    },
-    "standing": {
-      "sphere": { "center": [1.3, 0, 1.0], "radius": 1.5 },
-      "material": "gold",
-      "inside": { "use": "@parts/torus.stl",
+    "flat": { "use": "@parts/torus.stl", "material": "gold", "translate": [-1.3, 0, 0] },
+    "standing": { "use": "@parts/torus.stl",
+                  "material": "gold",
                   "rotate": { "axis": [1, 0, 0], "degrees": 90 },
-                  "translate": [1.3, 0.3, 1.0] }
-    },
-    "small": {
-      "sphere": { "center": [0.3, 1.6, 0.15], "radius": 0.75 },
-      "material": "teal",
-      "inside": { "use": "@parts/torus.stl", "scale": 0.5, "translate": [0.3, 1.6, 0] }
-    }
+                  "translate": [1.3, 0.3, 1.0] },
+    "small": { "use": "@parts/torus.stl",
+               "material": "teal",
+               "scale": 0.5,
+               "translate": [0.3, 1.6, 0] }
   },
 
   "root": {

@@ -78,7 +78,7 @@ const H = (prim, R) => {
   const along = dot(prim.axis, R);
   return prim.k_perp * dot(R, R) + (prim.k_par - prim.k_perp) * along * along + 2 * dot(prim.linear, R) + prim.constant;
 };
-const CLAY = [0.7, 0.5, 0.4], BRASS = [0.7, 0.6, 0.2];
+const CLAY = [0.7, 0.5, 0.4], BRASS = [0.7, 0.6, 0.2], WEDGE = [0.2, 0.3, 0.9];
 
 /**
  * What fills point R of a model, as a scene places it: inside a ball of
@@ -89,7 +89,7 @@ const CLAY = [0.7, 0.5, 0.4], BRASS = [0.7, 0.6, 0.2];
  */
 function albedoAt(got, R) {
   const built = compileScene({
-    materials: { clay: { albedo: CLAY }, brass: { albedo: BRASS } },
+    materials: { clay: { albedo: CLAY }, brass: { albedo: BRASS }, wedge: { albedo: WEDGE } },
     lights: [],
     root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'clay', inside: got },
   });
@@ -112,8 +112,12 @@ function albedoAt(got, R) {
 // spans x and y from -1 to 1 and z from 0 to 2: its centroid is here.
 const INSIDE = [-0.5, -0.5, 0.5];
 
-/** The model alone - a subtree, no scene round it - and solid where the mesh is. */
-function checkMesh(got, inside = INSIDE, albedo = CLAY) {
+/**
+ * The model alone - a subtree, no scene round it - and solid where the mesh
+ * is: made of the material it names (an STL, wedge.stl here, names its
+ * file's), or, naming none (a PLY), of the clay round it.
+ */
+function checkMesh(got, inside = INSIDE, albedo = got.material === 'wedge' ? WEDGE : CLAY) {
   assert.ok(got.spheroid, 'the mesh\'s bounding spheroid, at the top');
   for (const key of ['objects', 'materials', 'lights', 'camera', 'root']) assert.ok(!(key in got), `no ${key}`);
   assert.deepEqual(albedoAt(got, inside), albedo);
@@ -121,8 +125,13 @@ function checkMesh(got, inside = INSIDE, albedo = CLAY) {
 }
 
 test('PLY and STL files become models: the mesh alone, as a subtree', async () => {
-  checkMesh(await model([file('tet.ply', PLY)]));
-  checkMesh(await model([file('wedge.stl', STL)]));
+  const ply = await model([file('tet.ply', PLY)]);
+  assert.ok(!('material' in ply), 'a PLY names no material');
+  checkMesh(ply);
+  const stl = await model([file('wedge.stl', STL)]);
+  assert.equal(stl.material, 'wedge', 'an STL, only geometry, names one for its file');
+  checkMesh(stl);
+  assert.equal((await model([file('wedge.stl', STL), '--material', 'brass'])).material, 'brass', 'unless told');
 });
 
 test('--fit and --material, as stl-to-scene takes them', async () => {

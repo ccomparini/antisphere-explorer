@@ -26,13 +26,14 @@
 // over the origin and standing on z = 0, and scaled by --fit. A scene
 // places it by reference wherever a subtree goes:
 //
-//   { "sphere": { ... }, "material": "jade",
-//     "inside": { "use": "@parts/stanford/dragon.json.gz", "scale": 4 } }
+//   { "use": "@parts/stanford/dragon.json.gz", "material": "jade", "scale": 4 }
 //
-// A mesh names no material, so it is made of whatever the node around it
-// in the scene names - jade, there - unless --material names one for it,
-// which the scene then defines. An output name ending .gz is gzipped,
-// which the loaders unzip.
+// It is made of the material its top node names - --material, or, for an
+// STL, which is only ever geometry, one named for the file ("teapot" for
+// teapot.stl) - which the scene defines, or replaces for one placement
+// with a "material" on the use. A PLY with no --material names none, and is
+// made of whatever the node round it in the scene names. An output name
+// ending .gz is gzipped, which the loaders unzip.
 //
 // Reports what it found on stderr, and writes the model on stdout unless
 // told where.
@@ -58,8 +59,8 @@ import-model - convert a mesh, from a file or a URL, into a model for scenes
                        gzipped
       --fit <size>     scale the model so its longest side is this
       --material <m>   what it is made of: a material the scene using it
-                       defines (default: none, so whatever the node around
-                       it in the scene names)
+                       defines (default: for an STL, its file's name; for a
+                       PLY, none, so what the node round it names)
       --up <axis>      which of the file's axes is up: x, y, z (the default)
                        or one of them negated, -y; the model is turned so
                        that it points along +z, the scene's up
@@ -180,7 +181,7 @@ async function readSource(source, say) {
   const format = file.match(MESH)?.[1]?.toLowerCase();
   if (!format) throw new Error(`${file}: not a mesh this reads - .ply or .stl (maybe .gz, or in an archive)`);
   const read = format === 'ply' ? readPLY(bytes) : readSTL(bytes);
-  return { name: file.replace(MESH, ''), ...read };
+  return { name: file.replace(MESH, ''), format, ...read };
 }
 
 /**
@@ -224,17 +225,18 @@ async function main(argv) {
       + ` (${((Date.now() - started) / 1000).toFixed(1)}s)`);
 
   const { lo, hi } = boundsOf(placed);
+  const material = options.material ?? (read.format === 'stl' ? read.name : undefined);
   const out = {
     _comment: `${options.source}, converted by tools/import-model.mjs: ` +
               `${read.triangles.length} triangles, ${hi.map((v, i) => +(v - lo[i]).toPrecision(4)).join(' x ')} across.`,
-    ...(options.material ? { material: options.material } : {}),
+    ...(material ? { material } : {}),
     ...model,
   };
 
   // Compile before writing, as a scene would place it: a model that will
   // not load is worse than an error here, about a file nobody wrote by hand.
   const built = compileScene({
-    materials: options.material ? { [options.material]: {} } : {},
+    materials: material ? { [material]: {} } : {},
     lights: [],
     root: structuredClone(out),
   });
