@@ -86,6 +86,11 @@ Each key is a material name; the value describes how surfaces using it look
 and behave. The name `inherit` is reserved (left over from the deprecated
 `paint` field) and can't be used as a material name.
 
+A name a node uses but `materials` never defines doesn't stop the scene: it
+is shown in a plain grey, and the compiler warns, naming it - if a node that
+is drawn still uses it. (An STL names its material for its file, and a
+scene placing one may not have said what that is yet; see References.)
+
 | field      | type                                          | default          | meaning |
 |------------|-----------------------------------------------|------------------|---------|
 | `kind`     | `"lambert"` \| `"glossy"` \| `"emissive"` \| `"unlit"` \| `"ambient"` \| `"glowRegion"` | `"lambert"` | shading model, see below |
@@ -151,11 +156,12 @@ or a URL. A fragment picks part of the file: a JSON pointer (RFC 6901), so
 `#/objects/bolt` is the file's `objects.bolt`, `~1` stands for `/` and `~0`
 for `~`; no fragment is the whole file, and a fragment alone, `"@#/objects/head"`,
 is part of the same file. A file ending `.stl` is a mesh, converted as it
-loads into a tree of its faces' planes inside a bounding spheroid. It names
-no material - an STL has none - so it is made of whatever material the node
-around it names, as any node that names none is:
-`{ "sphere": ..., "material": "gold", "inside": "@parts/torus.stl" }`.
-Either kind of file, ending `.gz`, is unzipped as it loads.
+loads into a tree of its faces' planes inside a bounding spheroid. An STL is
+only ever geometry, so it is made of a material named for the file -
+`torus` for `parts/torus.stl` - which the scene defines, or which a use
+replaces for one placement: `{ "use": "@parts/torus.stl", "material": "gold" }`.
+(`tools/import-model.mjs` names an STL's material the same way when it
+converts one.) Either kind of file, ending `.gz`, is unzipped as it loads.
 
 Where a reference may go:
 
@@ -376,12 +382,20 @@ belongs inside the region.
 
 ```
 { "use": "<object name>" }
+{ "use": "@parts/torus.stl", "material": "teal" }
 ```
 
 Places a previously-defined `objects` entry inline. Commonly combined with a
 transform to drop copies of the same object in different places, at
 different sizes and pointing different ways, without duplicating its
 definition.
+
+With a `"material"`, this placement's object has its top node name that
+material instead - and so does everything in it that inherits from the top
+node. Nodes inside it that name their own material keep it (a bolt's steel,
+a glow region), and pure divisions naming `null` stay empty; the object's
+other uses are as they were. For a mesh, whose nodes all inherit from its
+top, that is the whole mesh.
 
 ### `"group"`
 

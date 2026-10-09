@@ -33,8 +33,10 @@ test('a box becomes a scene that compiles', () => {
   assert.ok(scene.camera, 'and there is somewhere to look from');
   const built = compileScene(scene);
   assert.ok(built.nodes.length > 6);
-  // The model kept its own material, and the scene has a floor to stand on.
-  assert.ok(Object.keys(scene.materials).includes('clay'));
+  // Made of a material named for the file - an STL is only geometry - which
+  // the scene defines; and there is a floor to stand on.
+  assert.equal(scene.objects.model.material, 'box');
+  assert.ok(Object.keys(scene.materials).includes('box'));
   assert.ok(Object.keys(scene.materials).includes('floor'));
 });
 
@@ -60,8 +62,9 @@ test('--fit scales it, and it stands on the floor', () => {
     }
     return f ? built.nodes[f].material : 0;
   };
-  const clay = Object.keys(scene.materials).indexOf('clay') + 1;
-  assert.equal(materialAt([0, 0, 1]), clay, 'solid a unit up: the box is 2 across, on the floor');
+  const box = Object.keys(scene.materials).indexOf('box2') + 1;
+  assert.ok(box > 0, 'made of box2, named for the file');
+  assert.equal(materialAt([0, 0, 1]), box, 'solid a unit up: the box is 2 across, on the floor');
   assert.equal(materialAt([0, 0, 2.5]), 0, 'and empty above it');
 });
 
@@ -83,4 +86,12 @@ test('an open surface is converted, with a warning', () => {
 test('no arguments prints how to use it', () => {
   assert.throws(() => execFileSync('node', [script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
                 /status 1|Command failed/);
+});
+
+test('--material names what it is made of instead', () => {
+  const file = join(scratch, 'box4.stl');
+  writeFileSync(file, Buffer.from(writeSTL(boxSTL())));
+  const scene = JSON.parse(run([file, '--material', 'brass']));
+  assert.equal(scene.objects.model.material, 'brass');
+  assert.ok(scene.materials.brass && !scene.materials.box4);
 });

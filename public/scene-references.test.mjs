@@ -30,7 +30,7 @@ function albedoAt(built, R) {
   return found ? built.materials[built.nodes[found].material].albedo : null;
 }
 
-const STEEL = [0.6, 0.6, 0.7], IRON = [0.3, 0.3, 0.32], CLAY = [0.7, 0.5, 0.4];
+const STEEL = [0.6, 0.6, 0.7], IRON = [0.3, 0.3, 0.32], CLAY = [0.7, 0.5, 0.4], GREY = [0.6, 0.6, 0.6];
 
 /** A file offering two parts and a thing made of them, linking its own parts by reference. */
 const boltFile = () => ({
@@ -72,12 +72,96 @@ test('a subtree by reference, relative to the file naming it, and its own parts 
   assert.equal(albedoAt(built, [2, 0.3, -0.6]), null, 'beside the shaft');
 });
 
-test('names in what a reference brings are the scene\'s', () => {
+test('names in what a reference brings are the scene\'s', (t) => {
   // The scene calls something else steel: the bolt is made of that.
   const built = compile(host({ materials: { steel: { albedo: IRON } } }));
   assert.deepEqual(albedoAt(built, [2, 0, 0]), IRON);
-  // And with none, it is the scene's problem, named as the compiler names it.
-  assert.throws(() => compile(host({ materials: { clay: {} } })), /steel/);
+  // And with none, it shows in a plain grey, and the compiler says so.
+  const warned = [];
+  t.mock.method(console, 'warn', (message) => warned.push(message));
+  const plain = compile(host({ materials: { clay: {} } }));
+  assert.deepEqual(albedoAt(plain, [2, 0, 0]), GREY);
+  assert.ok(warned.some((w) => /material "steel" is not defined: shown in a plain grey/.test(w)), warned.join('\n'));
+});
+
+/** What fills point R: the material of the node whose absent inside claims it - its albedo, or null if empty or not solid. */
+function filledAt(built, R) {
+  let index = 1;
+  for (;;) {
+    const nd = built.nodes[index];
+    if (H(nd.prim, R) < 0) {
+      if (!nd.inside) return built.materials[nd.material].solid ? built.materials[nd.material].albedo : null;
+      index = nd.inside;
+    } else {
+      if (!nd.outside) return null;
+      index = nd.outside;
+    }
+  }
+}
+
+test('a use may name its object\'s material: the top node\'s, and so what inherits from it', () => {
+  // A ball of clay: a core of steel; past it, a pocket naming null (a pure
+  // division, its inside vacuum); past that, an unnamed shell, which
+  // inherits the ball's clay.
+  const ball = {
+    sphere: { center: [0, 0, 0], radius: 3 }, material: 'clay',
+    inside: {
+      sphere: { center: [0, 0, 0], radius: 1 }, material: 'steel',
+      outside: {
+        sphere: { center: [0, 1.5, 0], radius: 0.3 }, material: null,
+        outside: { sphere: { center: [0, 0, 0], radius: 2 } },
+      },
+    },
+  };
+  const spec = {
+    materials: { clay: { albedo: CLAY }, steel: { albedo: STEEL }, iron: { albedo: IRON } },
+    lights: [],
+    objects: { ball },
+    root: { sphere: { center: [0, 0, 0], radius: 40 }, material: null, inside: { union: [
+      { use: 'ball', translate: [-5, 0, 0] },
+      { use: 'ball', translate: [5, 0, 0], material: 'iron' },
+    ] } },
+  };
+  const built = compileScene(spec);
+  for (const [x, outer] of [[-5, CLAY], [5, IRON]]) {
+    assert.deepEqual(filledAt(built, [x, 0, 1.5]), outer, `${x}: the unnamed shell, inheriting the top node's`);
+    assert.deepEqual(filledAt(built, [x, 0, 0]), STEEL, `${x}: the core keeps its own`);
+    assert.equal(filledAt(built, [x, 1.5, 0]), null, `${x}: the pocket naming null stays empty`);
+  }
+});
+
+test('an STL names its material for its file; a scene defines it, or a use names another', (t) => {
+  const tetrahedron = [
+    [[0, 0, 0], [0, 1, 0], [1, 0, 0]], [[0, 0, 0], [0, 0, 1], [0, 1, 0]],
+    [[0, 0, 0], [1, 0, 0], [0, 0, 1]], [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+  ];
+  const spec = (materials) => ({
+    materials, lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 40 }, material: null, inside: { union: [
+      { use: '@tet.stl' },
+      { use: '@tet.stl', translate: [3, 0, 0], material: 'iron' },
+    ] } },
+  });
+  const bytes = new Uint8Array(writeSTL(tetrahedron));
+  return (async () => {
+    const got = await loadReferences(spec({}), { from: 'scenes/s.json', readBytes: async () => bytes });
+    assert.equal(got['scenes/tet.stl'].material, 'tet');
+    const built = compileScene(spec({ tet: { albedo: STEEL }, iron: { albedo: IRON } }), { files: got, path: 'scenes/s.json' });
+    assert.deepEqual(albedoAt(built, [0.2, 0.2, 0.2]), STEEL, 'the scene\'s tet');
+    assert.deepEqual(albedoAt(built, [3.2, 0.2, 0.2]), IRON, 'this placement\'s iron');
+    // Not defined, and drawn: plain grey, and said once. Not defined but
+    // replaced at every use: nothing to say.
+    const warned = [];
+    t.mock.method(console, 'warn', (message) => warned.push(message));
+    const plain = compileScene(spec({ iron: { albedo: IRON } }), { files: got, path: 'scenes/s.json' });
+    assert.deepEqual(albedoAt(plain, [0.2, 0.2, 0.2]), GREY);
+    assert.equal(warned.filter((w) => /"tet" is not defined/.test(w)).length, 1);
+    warned.length = 0;
+    const replaced = { ...spec({ iron: { albedo: IRON } }) };
+    replaced.root.inside.union[0].material = 'iron';
+    compileScene(replaced, { files: got, path: 'scenes/s.json' });
+    assert.deepEqual(warned, []);
+  })();
 });
 
 test('every use of one reference shares one set of nodes', () => {
