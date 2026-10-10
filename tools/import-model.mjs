@@ -45,6 +45,7 @@ import { readSTL } from '../public/stl.js';
 import { readPLY } from '../public/ply.js';
 import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-import.js';
 import { compileScene } from '../public/antisphere-scene.js';
+import { stringifyJSON } from '../public/fbm-json.js';
 
 const USAGE = `
 import-model - convert a mesh, from a file or a URL, into a model for scenes
@@ -66,6 +67,7 @@ import-model - convert a mesh, from a file or a URL, into a model for scenes
       --float32        numbers as float32, in as few digits as give the same
                        float32 back: the GPU works in f32, and a mesh's
                        vertices usually are float32 to begin with
+      --pretty         make output more readable
 `.trim();
 
 function parseArguments(argv) {
@@ -87,6 +89,7 @@ function parseArguments(argv) {
       if (!UP[options.up]) throw new Error(`--up ${options.up}: x, y, z, -x, -y or -z`);
     }
     else if (arg === '--float32') options.float32 = true;
+    else if (arg === '--pretty') options.pretty = true;
     else if (arg === '-h' || arg === '--help') options.help = true;
     else if (arg.startsWith('-')) throw new Error(`unknown option ${arg}`);
     else rest.push(arg);
@@ -197,6 +200,8 @@ function asFloat32(x) {
   return Number(f.toPrecision(9));
 }
 
+const float32Converter = (key, val) => (typeof val === 'number' ? asFloat32(val) : val);
+
 async function main(argv) {
   const options = parseArguments(argv);
   if (options.help || !options.source) {
@@ -240,7 +245,8 @@ async function main(argv) {
   });
   say(`  compiles to ${built.nodes.length - 1} nodes`);
 
-  const json = JSON.stringify(out, options.float32 ? (key, v) => (typeof v === 'number' ? asFloat32(v) : v) : undefined) + '\n';
+  const filter = options.float32 ? float32Converter : undefined;
+  const json = stringifyJSON(out, filter, options.pretty?2:null) + "\n"
   if (options.out) {
     mkdirSync(dirname(options.out), { recursive: true });
     writeFileSync(options.out, /\.gz$/i.test(options.out) ? gzipSync(json, { level: 9 }) : json);
