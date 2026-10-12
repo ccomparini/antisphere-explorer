@@ -37,8 +37,11 @@
 // Reports what it found on stderr, and writes the model on stdout unless
 // told where.
 
+const VERSION_MAJ = 0;
+const VERSION_MIN = 2;
+
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { readSTL } from '../public/stl.js';
@@ -69,6 +72,8 @@ import-model - convert a mesh, from a file or a URL, into a model for scenes
                        vertices usually are float32 to begin with
       --pretty         make output more readable
 `.trim();
+
+const thisScriptName = path.relative(process.cwd(), fileURLToPath(import.meta.url));
 
 function parseArguments(argv) {
   const options = {};
@@ -230,8 +235,14 @@ async function main(argv) {
 
   const { lo, hi } = boundsOf(placed);
   const out = {
-    _comment: `${options.source}, converted by tools/import-model.mjs: ` +
-              `${read.triangles.length} triangles, ${hi.map((v, i) => +(v - lo[i]).toPrecision(4)).join(' x ')} across.`,
+    _meta: {
+      importer:           thisScriptName,
+      importerVersionMaj: VERSION_MAJ,
+      importerVersionMin: VERSION_MIN,
+      importArguments:    argv,
+      sourceTricount:     read.triangles.length,
+      dimensions:         hi.map((v, i) => +(v - lo[i]).toPrecision(4)),
+    },
     ...(options.material ? { material: options.material } : {}),
     ...model,
   };
@@ -248,7 +259,7 @@ async function main(argv) {
   const filter = options.float32 ? float32Converter : undefined;
   const json = stringifyJSON(out, filter, options.pretty?2:null) + "\n"
   if (options.out) {
-    mkdirSync(dirname(options.out), { recursive: true });
+    mkdirSync(path.dirname(options.out), { recursive: true });
     writeFileSync(options.out, /\.gz$/i.test(options.out) ? gzipSync(json, { level: 9 }) : json);
     say(`  written to ${options.out}`);
   } else {
