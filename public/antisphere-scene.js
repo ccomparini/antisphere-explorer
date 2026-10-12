@@ -442,8 +442,41 @@ function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = nul
   return { prim, inside, outside, material, env, prov, lights };
 }
 
-/** A node's lights, each moved by `move` (a point to a point); null stays null. */
-const movedLights = (lights, move) => lights && lights.map((lt) => ({ ...lt, pos: move(lt.pos) }));
+/**
+ * A light as scene.json gives it - { pos, color }, a point light, or
+ * { direction, color }, a directional one, its light travelling along
+ * direction - as the shader takes it: { pos, color, pos_w }, in
+ * homogeneous form. A point light has pos_w 1, at pos; a directional one
+ * pos_w 0, pos the unit vector towards it. `fail(message)` reports a
+ * problem.
+ */
+export function compileLight(lt, fail = (msg) => { throw new Error(msg); }) {
+  if (!lt || typeof lt !== 'object') fail('a light is { "pos" or "direction": [x, y, z], "color": [r, g, b] }');
+  if (!isVec3(lt.color)) fail('needs a color, [r, g, b]');
+  if ((lt.pos === undefined) === (lt.direction === undefined)) {
+    fail('needs one of "pos" (a point light) or "direction" (a directional light, the way its light travels)');
+  }
+  if (lt.pos !== undefined) {
+    if (!isVec3(lt.pos)) fail(`pos must be a point [x, y, z], got ${JSON.stringify(lt.pos)}`);
+    return { pos: lt.pos.slice(), color: lt.color.slice(), pos_w: 1 };
+  }
+  const length = isVec3(lt.direction) ? Math.hypot(...lt.direction) : 0;
+  if (!(length > 0)) fail(`direction must be a direction [x, y, z], got ${JSON.stringify(lt.direction)}`);
+  return { pos: lt.direction.map((v) => -v / length), color: lt.color.slice(), pos_w: 0 };
+}
+
+/**
+ * A node's lights, each moved by `move` (a point to a point); null stays
+ * null. A directional light's direction turns as the node does, but doesn't
+ * move or grow: move(pos) - move(0), made unit length again.
+ */
+const movedLights = (lights, move) => lights && lights.map((lt) => {
+  if (lt.pos_w !== 0) return { ...lt, pos: move(lt.pos) };
+  const origin = move([0, 0, 0]);
+  const turned = move(lt.pos).map((v, i) => v - origin[i]);
+  const length = Math.hypot(...turned);
+  return { ...lt, pos: turned.map((v) => v / length) };
+});
 
 // Union: returns a tree whose interior is the union of both interiors. A
 // null child means no further subdivision, so on the inside it is a region
@@ -1349,13 +1382,10 @@ export function compileScene(rawSpec, options = {}) {
     matIndex.set(name, table.length - 1);
   }
 
-  // A list of lights, the scene's or a node's: [{ pos, color }].
+  // A list of lights, the scene's or a node's (see compileLight()).
   const lightsOf = (list, path) => {
     if (!Array.isArray(list)) at(path, 'needs a list of lights, [{ "pos": [x, y, z], "color": [r, g, b] }]');
-    return list.map((lt, i) => {
-      if (!lt?.pos || !lt?.color) at(`${path}[${i}]`, 'needs pos and color');
-      return { pos: lt.pos.slice(), color: lt.color.slice() };
-    });
+    return list.map((lt, i) => compileLight(lt, (msg) => at(`${path}[${i}]`, msg)));
   };
   // The scene's own lights: env 0's, which light everything.
   const topLights = lightsOf(spec.lights ?? [], 'lights').map((lt) => ({ ...lt, env: 0 }));
@@ -2166,7 +2196,7 @@ export function compileScene(rawSpec, options = {}) {
   const lightList = [...topLights];
   nodes.forEach((nd, i) => {
     for (const lt of nd.lights ?? []) {
-      if (quadricAt(nd.prim, lt.pos) >= 0) {
+      if (lt.pos_w !== 0 && quadricAt(nd.prim, lt.pos) >= 0) {
         const where = nd.prov ? `${nd.prov.owner}${nd.prov.path ? `/${nd.prov.path}` : ''}` : `node ${i}`;
         warn(`${where}.lights`, `the light at [${lt.pos}] is outside its own region, so lights nothing in it`);
       }
@@ -2349,6 +2379,6 @@ export function packNodes(list) {
 // written through the Light class generated from it.
 export function packLights(list) {
   const views = Light.allocate(list.length || 1);
-  list.forEach((lt, j) => Light.write(views, j, { pos: lt.pos, color: lt.color, env: lt.env ?? 0 }));
+  list.forEach((lt, j) => Light.write(views, j, { pos: lt.pos, color: lt.color, env: lt.env ?? 0, pos_w: lt.pos_w ?? 1 }));
   return views.f32;
 }

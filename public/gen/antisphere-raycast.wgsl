@@ -245,12 +245,20 @@ const ABLATE_NONE  : u32 = 0u;   // dispatch and ray setup only
 const ABLATE_TRACE : u32 = 1u;   // add traversal, no shading
 const ABLATE_SHADE : u32 = 2u;   // add shading
 
+// A light, in homogeneous form: pos_w 1 is a point light at pos, pos_w 0 a
+// directional one, pos then the unit direction towards it (the opposite of
+// the way its light travels). addLight() treats both alike.
 struct Light {
   pos   : vec3<f32>,
   env   : u32,         // the env it lights (see directLighting()): 0 is everywhere
-  color : vec3<f32>,   // magnitude is radiant power, so values may exceed 1
-  pad1  : f32,
+  color : vec3<f32>,   // a point light's radiant power, so values may exceed 1;
+                       // a directional light's irradiance, facing it
+  pos_w : f32,         // pos's w: 1 a point light, 0 a directional one
 };
+
+// How far a ray may go: camera rays, and shadow rays towards a directional
+// light, which has no distance of its own.
+const FAR : f32 = 1e4;
 
 @group(0) @binding(0) var<uniform> cam : Camera;
 @group(0) @binding(1) var<storage, read> nodes : array<Node>;
@@ -695,7 +703,7 @@ fn addGlow(env : u32, through : f32, hit : Hit, shininess : f32, out : ptr<funct
   let centre = glowCentre(nd, hit.position);
   let falloff = glowFalloff(nd, hit.position, centre);
   if (falloff <= 0.0) { return; }
-  let lt = Light(nd.anchor + centre, env, m.albedo * falloff, 0.0);
+  let lt = Light(nd.anchor + centre, env, m.albedo * falloff, 1.0);
   if (m.params.y != 0.0) {
     let d = lt.pos - hit.position;
     (*out).diffuse = (*out).diffuse + through * m.params.y * lt.color / (1.0 + dot(d, d));
@@ -705,10 +713,11 @@ fn addGlow(env : u32, through : f32, hit : Hit, shininess : f32, out : ptr<funct
 
 // One light's direct light at a hit, with one shadow ray, added to `out`.
 fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>) {
-  let d = lt.pos - hit.position;
+  // Towards the light: to its position, or (pos_w 0) its direction as it is.
+  let d = lt.pos - hit.position * lt.pos_w;
   let d2 = dot(d, d);
   let dist = sqrt(max(d2, 1e-8));
-  let L = d / dist; // I guess L is normalized direction to light
+  let L = d / dist;
 
   let ndl = dot(hit.normal, L);
   if (ndl <= 0.0) { return; }            // back-facing, no ray needed
@@ -723,7 +732,7 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
     // a room's lamp is shadowed by the room alone (and its rays take the
     // room's subtree, not the scene's). Env 0's lights see everything.
     let start = select(ROOT, lt.env | DEFAULT_INSIDE_BIT, lt.env != 0u);
-    let blocker = trace(hit.position, L, 0.0, dist, surfaces[hit.node], start);
+    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start);
     if (blocker.node != 0u) {
       // the ray hit something between us and the light,
       // so we're in shadow:
@@ -732,8 +741,9 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
   }
 
   // Inverse square, softened near zero so a light sitting on a surface
-  // does not blow out.
-  let E = lt.color / (1.0 + d2);
+  // does not blow out - for a point light. A directional light (pos_w 0) is as
+  // bright everywhere: its color, as given.
+  let E = lt.color / (1.0 + d2 * lt.pos_w);
   (*out).diffuse = (*out).diffuse + E * ndl;
   if (shininess > 0.0) {
     let H = normalize(L + hit.toViewer);
@@ -853,7 +863,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // from what it computed.
   var found = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
-    found = trace(origin, dir, 1e-3, 1e4, 0u, ROOT);
+    found = trace(origin, dir, 1e-3, FAR, 0u, ROOT);
   }
 
   var col = vec3<f32>(0.0);
@@ -903,4 +913,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":773}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":783}]

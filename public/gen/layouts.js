@@ -182,7 +182,7 @@ export class Light {
     pos: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
     env: Object.freeze({ offset: 12, type: 'u32' }),
     color: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
-    pad1: Object.freeze({ offset: 28, type: 'f32' }),
+    pos_w: Object.freeze({ offset: 28, type: 'f32' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Light.STRIDE)); }
@@ -204,8 +204,8 @@ export class Light {
       f32[w + 5] = values.color[1];
       f32[w + 6] = values.color[2];
     }
-    if (values.pad1 !== undefined) {
-      f32[w + 7] = values.pad1;
+    if (values.pos_w !== undefined) {
+      f32[w + 7] = values.pos_w;
     }
   }
 
@@ -215,7 +215,7 @@ export class Light {
       pos: [f32[w], f32[w + 1], f32[w + 2]],
       env: u32[w + 3],
       color: [f32[w + 4], f32[w + 5], f32[w + 6]],
-      pad1: f32[w + 7],
+      pos_w: f32[w + 7],
     };
   }
 }

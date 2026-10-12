@@ -699,7 +699,31 @@ test('lights go with a region, not a substance, and on a node with a shape', () 
                 /a node with lights is a region/);
   assert.throws(() => buildEnvs({ use: 'r', lights: [lamp([0, 0, 1])] }, { r: ball(0, 4) }),
                 /lights go on a node with a shape/);
-  assert.throws(() => buildEnvs(ball(0, 4, { lights: [{ pos: [0, 0, 1] }] })), /needs pos and color/);
+  assert.throws(() => buildEnvs(ball(0, 4, { lights: [{ pos: [0, 0, 1] }] })), /needs a color/);
+});
+
+test('a directional light: its direction, unit and towards it, pos_w 0; a point light pos_w 1', () => {
+  const built = buildEnvs(ball(0, 4, { lights: [{ direction: [0, 0, -2], color: [1, 1, 1] }, lamp([0, 0, 1])] }));
+  const [sun, point] = built.lights.slice(built.topLights);
+  assert.deepEqual(sun.pos, [-0, -0, 1], 'towards the light: up, for one shining down');
+  assert.equal(sun.pos_w, 0);
+  assert.equal(point.pos_w, 1);
+  assert.deepEqual(built.lights[0].pos_w, 1, 'the scene\'s own lamp');
+  const bad = (light) => () => buildEnvs(ball(0, 4, { lights: [light] }));
+  assert.throws(bad({ direction: [0, 0, 0], color: [1, 1, 1] }), /direction must be a direction/);
+  assert.throws(bad({ direction: [0, 0, 1], pos: [0, 0, 1], color: [1, 1, 1] }), /one of "pos".*or "direction"/);
+  assert.throws(bad({ color: [1, 1, 1] }), /one of "pos".*or "direction"/);
+});
+
+test('a directional light turns with its node, but doesn\'t move or grow', () => {
+  const sunlit = { ball: ball(0, 4, { lights: [{ direction: [0, 0, -1], color: [1, 1, 1] }] }) };
+  const placed = (how) => {
+    const built = buildEnvs({ use: 'ball', ...how }, sunlit);
+    return built.lights[built.topLights].pos.map((v) => +v.toFixed(12) + 0);
+  };
+  assert.deepEqual(placed({ translate: [5, 6, 7] }), [0, 0, 1]);
+  assert.deepEqual(placed({ scale: 3 }), [0, 0, 1]);
+  assert.deepEqual(placed({ rotate: { axis: [1, 0, 0], degrees: 90 } }), [0, -1, 0], 'up, turned a quarter about x');
 });
 
 test('lights move with their node: translate, rotate and scale', () => {

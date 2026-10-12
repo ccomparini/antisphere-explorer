@@ -563,15 +563,18 @@ export function createPanel(root, ctx) {
       if (peak > 0) hues[i] = c.map((x) => x / peak);
       return { hue: hues[i] ?? [1, 1, 1], intensity: peak };
     };
+    // A point light's x, y and z are its position; a directional light's,
+    // its direction.
+    const where = () => (light().direction ? 'direction' : 'pos');
     const setAxis = (axis, v) => {
-      const pos = light().pos.slice();
-      pos[axis] = v;
-      doc.setLight(i, { pos });
+      const at = light()[where()].slice();
+      at[axis] = v;
+      doc.setLight(i, { [where()]: at });
     };
     return {
-      get x() { return tidy(light().pos[0]); }, set x(v) { setAxis(0, v); },
-      get y() { return tidy(light().pos[1]); }, set y(v) { setAxis(1, v); },
-      get z() { return tidy(light().pos[2]); }, set z(v) { setAxis(2, v); },
+      get x() { return tidy(light()[where()][0]); }, set x(v) { setAxis(0, v); },
+      get y() { return tidy(light()[where()][1]); }, set y(v) { setAxis(1, v); },
+      get z() { return tidy(light()[where()][2]); }, set z(v) { setAxis(2, v); },
       get hue() { return toHex(split().hue); },
       set hue(v) {
         const { intensity } = split();

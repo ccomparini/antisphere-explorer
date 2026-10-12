@@ -259,7 +259,7 @@ export class SceneDocument {
       mutate(this.#spec);
       const sameLightCount = (before.lights ?? []).length === (this.#spec.lights ?? []).length;
       if (kind === 'lights' && sameLightCount) {
-        this.#scene.setLights(this.#spec.lights.map((l) => ({ pos: l.pos.slice(), color: l.color.slice() })));
+        this.#scene.setLights(this.#spec.lights.map((l) => structuredClone(l)));
       } else {
         error = this.#compile();
       }

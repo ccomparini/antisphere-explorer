@@ -1013,6 +1013,32 @@ gpuTest('a glow region\'s fill lights its shadows: its glow there, unshadowed, t
   assert.ok(half.at(70, 40)[0] > none.at(70, 40)[0], `lit floor: ${half.at(70, 40)[0]} with fill, ${none.at(70, 40)[0]} without`);
 });
 
+gpuTest('a directional light: as bright everywhere, its shadows parallel', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A floor and a ball a unit above it, lit only by light travelling at 45
+  // degrees, along +x and down; seen from above, no ambient light.
+  const spec = {
+    materials: { white: { albedo: [0.8, 0.8, 0.8] }, dark: { kind: 'ambient', albedo: [0, 0, 0] } },
+    lights: [{ direction: [1, 0, -1], color: [1, 1, 1] }],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'dark', inside: {
+      sphere: { center: [0, 0, 1], radius: 0.4 }, material: 'white',
+      outside: { plane: { normal: [0, 0, 1], offset: 0 }, material: 'white' },
+    } },
+  };
+  const camera = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+  camera.orthoHeight = 4;
+  const img = await renderPixels(spec, camera);
+  const level = (x, y = 0) => img.at(Math.round(80 - 10 * x), Math.round(40 + 10 * y))[0];
+  // No falloff: the floor 7 apart alike, at albedo x color x cos 45, through 1/2.2.
+  const lit = 255 * (0.8 * Math.SQRT1_2) ** (1 / 2.2);
+  for (const x of [-4, -2, 3]) assert.ok(Math.abs(level(x) - lit) <= 2, `at ${x}: ${level(x)}, the formula ${lit.toFixed(1)}`);
+  assert.ok(Math.abs(level(-4, 3) - lit) <= 2, `and off to the side: ${level(-4, 3)}`);
+  // The ball's shadow: a unit along the light's way from under its centre,
+  // stretched by root 2 along it - to x = 1 +- 0.57 - and lit again past.
+  assert.equal(level(1), 0, `in the shadow at x = 1: ${level(1)}`);
+  assert.ok(Math.abs(level(1.9) - lit) <= 2, `past it: ${level(1.9)}`);
+});
+
 gpuTest('setLights replaces the scene\'s own lights and keeps those its nodes carry', async () => {
   const sc = ctx.createScene({
     materials: MATERIALS,

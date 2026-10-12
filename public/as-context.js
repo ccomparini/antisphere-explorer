@@ -15,7 +15,7 @@ import {
   createTraceBuffers,
 } from './gpu-setup.js';
 import {
-  compileScene, packNodes, packSurfaces, packMaterials, packLights, loadReferences,
+  compileScene, compileLight, packNodes, packSurfaces, packMaterials, packLights, loadReferences,
   isSTL, isGzip, gunzip, sceneForMesh,
 } from './antisphere-scene.js';
 import { BINDINGS, RayQuery, Seg, viewsOf } from './gen/layouts.js';
@@ -252,7 +252,7 @@ export class ASScene {
    * and no bind group is invalidated. Cheap enough to do per frame.
    */
   setLights(lights) {
-    this.lights = [...lights.map((lt) => ({ ...lt, env: 0 })), ...this.lights.slice(this.topLights)];
+    this.lights = [...lights.map((lt) => ({ ...compileLight(lt), env: 0 })), ...this.lights.slice(this.topLights)];
     this.topLights = lights.length;
     this.context.device.queue.writeBuffer(this.lightBuf, 0, packLights(this.lights));
   }

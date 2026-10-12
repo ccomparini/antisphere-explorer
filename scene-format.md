@@ -118,14 +118,22 @@ anywhere above it.
 
 ## `lights`
 
-An array of:
+An array of point lights and directional lights:
 
 ```
-{ "pos": [x, y, z], "color": [r, g, b] }
+{ "pos": [x, y, z], "color": [r, g, b] }          a point light
+{ "direction": [x, y, z], "color": [r, g, b] }    a directional light
 ```
 
-`color`'s magnitude is radiant power, not a 0–1 color — falloff is inverse
-square, so values commonly run well above 1.
+A point light is at `pos`, and its `color`'s magnitude is radiant power, not
+a 0–1 color — falloff is inverse square, so values commonly run well above 1.
+
+A directional light is infinitely far away, like the sun: its light travels
+along `direction` (`[0, 0, -1]` shines straight down), its shadows are
+parallel, and it is as bright everywhere, with no falloff - `color` is the
+light on a surface facing it, so values around 1 are typical. Its shadow
+rays run as far as camera rays do. On a node (see `"lights"` under
+Subtrees), its direction turns with the node, but doesn't move or grow.
 
 These are the scene's own lights, and light everything. A node may carry
 lights too (see `"lights"` under Subtrees): those light only its own region.
