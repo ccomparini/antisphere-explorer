@@ -880,30 +880,27 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     col = shade(hit);
   }
 
-  var outCol = pow(col, vec3<f32>(1.0 / 2.2));
+  var outCol = vec4<f32>(pow(col, vec3<f32>(1.0 / 2.2)), 1.0);
   switch (cam.debug) {
-    case DEBUG_VISITS:   { outCol = ramp(f32(visits) / 48.0); }
-    case DEBUG_SHADOW:   { outCol = ramp(f32(shadowRays) / max(1.0, f32(arrayLength(&lights)))); }
-    case DEBUG_DEPTH:    { outCol = ramp(f32(peakDepth) / 32.0); }
+    case DEBUG_VISITS:   { outCol = vec4<f32>(ramp(f32(visits) / 48.0), 1.0); }
+    case DEBUG_SHADOW:   { outCol = vec4<f32>(ramp(f32(shadowRays) / max(1.0, f32(arrayLength(&lights)))), 1.0); }
+    case DEBUG_DEPTH:    { outCol = vec4<f32>(ramp(f32(peakDepth) / 32.0), 1.0); }
     case DEBUG_MATERIAL: {
       // Same source main's shading uses (nodes[found.node].material).
       // found.node is 0 on a miss (never a real node - see Node's doc
       // comment), which is the only reliable miss test (see trace()).
       let shown = found.node != 0u;
       let f = f32(select(0, nodes[found.node].material, shown)) * 1.9;
-      outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), shown);
+      outCol = vec4<f32>(select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), shown), 1.0);
     }
-    case DEBUG_NORMAL:   { outCol = N * 0.5 + 0.5; }
+    case DEBUG_NORMAL:   { outCol = vec4<f32>(N * 0.5 + 0.5, 1.0); }
+    case DEBUG_COUNTS:   {
+      let v = min(visits, 65535u);
+      outCol = vec4<f32>(vec4<u32>(v & 255u, v >> 8u, min(shadowRays, 255u), min(peakDepth, 255u))) / 255.0;
+    }
     default: {}
   }
-
-  if (cam.debug == DEBUG_COUNTS) {
-    let v = min(visits, 65535u);
-    let counts = vec4<u32>(v & 255u, v >> 8u, min(shadowRays, 255u), min(peakDepth, 255u));
-    textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(counts) / 255.0);
-    return;
-  }
-  textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
+  textureStore(outTex, vec2<i32>(gid.xy), outCol);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":776}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":773}]
