@@ -645,6 +645,9 @@ fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
 // scene's own (env 0) first, then each node's, in node order (compileScene())
 // - so an env's lights are a run, found by binary search.
 fn firstLightOf(env : u32) -> u32 {
+  // The scene's own lights, env 0's, come first: every hit's chain ends
+  // there, and most hits are in no env at all.
+  if (env == 0u) { return 0u; }
   var low = 0u;
   var high = arrayLength(&lights);
   while (low < high) {
@@ -903,4 +906,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":773}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":776}]

@@ -513,6 +513,9 @@ fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
 // scene's own (env 0) first, then each node's, in node order (compileScene())
 // - so an env's lights are a run, found by binary search.
 fn firstLightOf(env : u32) -> u32 {
+  // The scene's own lights, env 0's, come first: every hit's chain ends
+  // there, and most hits are in no env at all.
+  if (env == 0u) { return 0u; }
   var low = 0u;
   var high = arrayLength(&lights);
   while (low < high) {
