@@ -1,0 +1,38 @@
+{
+   "_comment" : "The Stanford Dragon at full resolution (871,414 triangles), a stress test. Its parts file is generated, not in git: run node tools/stanford-model.mjs dragon first (a minute or so).",
+   "lights" : [
+      {
+         "color" : [ 260, 250, 235 ],
+         "pos" : [ 4, -6, 7 ]
+      },
+      {
+         "color" : [ 70, 76, 92 ],
+         "pos" : [ -5, -2, 3 ]
+      }
+   ],
+   "materials" : [
+      "@lib/materials.json"
+   ],
+   "objects" : {
+      "dragon" : {
+         "material" : "jade",
+         "_rotate" : {
+            "axis" : [ 1, 0, 0 ],
+            "degrees" : 90
+         },
+         "scale" : 10,
+         "_translate" : [ 0, 0, -0.527 ],
+         "use" : "@https://fbmstudios.net/chris/dragon.json.gz"
+      }
+   },
+   "root" : {
+      "material" : "floor",
+      "outside" : {
+         "use" : "dragon"
+      },
+      "plane" : {
+         "normal" : [ 0, 0, 1 ],
+         "offset" : 0
+      }
+   }
+}
