@@ -294,13 +294,24 @@ struct Seg {
 
 const DEFAULT_INSIDE_BIT : u32 = 0x80000000u;
 
+// trace()'s stack holds Pieces, Segs less their t1: the stack is always the
+// rest of the ray, in order, nearest on top, each piece ending where the one
+// below it begins (and the bottom one at tMax) - popping a piece and pushing
+// what it splits into, far to near, keeps it so - so a piece's end is the t0
+// of the entry under it, read when it is popped. A piece too short to push
+// is left out, and the piece before it then reaches over that sliver.
+struct Piece {
+  node : u32,   // as Seg's
+  t0   : f32,
+};
+
 // Node 1 is always the tree's root (0 is reserved): where trace() starts
 // for the whole scene.
 const ROOT : u32 = 1u;
 
-// trace()'s stack of deferred segments. It lives here, not in trace(),
-// because WGSL zero-fills every variable when it comes into scope: inside
-// trace() that was 32 * 3 stores to scratch memory on every call, so on
+// trace()'s stack of deferred segments (as Pieces). It lives here, not in
+// trace(), because WGSL zero-fills every variable when it comes into scope:
+// inside trace() that was 32 * 3 stores to scratch memory on every call, so on
 // every shadow ray, before the ray did anything. At module scope the fill
 // happens once per invocation. One stack serves every call: trace() does not
 // recurse, its calls never overlap, and each starts from an empty stack and
@@ -308,7 +319,7 @@ const ROOT : u32 = 1u;
 // is never seen. (It also means one copy in scratch memory rather than one
 // per call site trace() gets inlined into.)
 const TRACE_STACK_SIZE : i32 = 32;
-var<private> traceStack : array<Seg, TRACE_STACK_SIZE>;
+var<private> traceStack : array<Piece, TRACE_STACK_SIZE>;
 
 // Below this, a ray's polynomial coefficient counts as zero: see the ruled
 // surfaces in trace().
@@ -481,7 +492,7 @@ fn trace(
         if ((A * mid + B) * mid + C < 0.0) {
           child = descent_node | DEFAULT_INSIDE_BIT;
         }
-        traceStack[sp] = Seg(child, sa, sb);
+        traceStack[sp] = Piece(child, sa);
         sp = sp + 1;
         peakDepth = max(peakDepth, u32(sp));
       }
@@ -489,7 +500,11 @@ fn trace(
 
     if (sp == 0) { break; }
     sp = sp - 1;
-    seg = traceStack[sp];
+    let piece = traceStack[sp];
+    // It ends where the piece under it begins, or, the last, at tMax.
+    var end = tMax;
+    if (sp > 0) { end = traceStack[sp - 1].t0; }
+    seg = Seg(piece.node, piece.t0, end);
 
     guard = guard + 1;
     if (guard >= 512) {
@@ -913,4 +928,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":783}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":798}]
