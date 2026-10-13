@@ -2343,7 +2343,16 @@ export function packSurfaces(list) {
 //
 // inside/outside are 0 or a real index (see flatten()'s doc comment for
 // what 0 means on each side).
-export function packNodes(list) {
+// A material id's trace flags, as Node.material_id in shaders/node.wgsls has
+// them: the high bits, over the material's index.
+const MATERIAL_SOLID = 0x80000000;
+
+/**
+ * The nodes as the GPU takes them. With `materials` (the compiled table),
+ * each node's material id carries its material's trace flags - solid -
+ * which trace() reads; without, just the index (physics, which reads none).
+ */
+export function packNodes(list, materials = null) {
   const views = Node.allocate(list.length);
   list.forEach((nd, j) => {
     const { axis, k_par, k_perp, linear } = nd.prim;
@@ -2359,7 +2368,7 @@ export function packNodes(list) {
       anchor: a,
       inside: nd.inside,
       outside: nd.outside,
-      material: nd.material,
+      material_id: (nd.material | (materials?.[nd.material]?.solid ? MATERIAL_SOLID : 0)) >>> 0,
       env: nd.env,
     });
   });

@@ -56,7 +56,12 @@ struct Node {
   // authors to make things look right.
   // Material 0 is reseved for empty space. The "outside" material is
   // implicitly 0.
-  material        : i32,
+  //
+  // It is a material id: the low bits that index, the high bits trace
+  // flags - what a ray does here, read without looking the material up
+  // (see trace()). MATERIAL_SOLID: the material is solid. Index with
+  // materialIndex().
+  material_id     : u32,
 
   // Where R is measured from (see above): the quadric's centre where it has
   // one, else a point of its axis or middle plane near the object it is
@@ -70,6 +75,11 @@ struct Node {
   // node walks outward to 0. Precomputed (bakeScopes()).
   env             : u32,
 };
+
+// A material id's trace flags (see Node.material_id), and its index.
+const MATERIAL_SOLID : u32 = 0x80000000u;
+const MATERIAL_INDEX : u32 = 0x7fffffffu;
+fn materialIndex(id : u32) -> u32 { return id & MATERIAL_INDEX; }
 
 // The implicit function at an arbitrary point. trace() no longer calls this:
 // along a ray it works with the A/B/C coefficients of the same polynomial
@@ -1523,4 +1533,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/overlap.wgsls","offset":101,"lines":253},{"path":"shaders/collision.wgsls","offset":354,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":905,"lines":620}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":109},{"path":"shaders/overlap.wgsls","offset":111,"lines":253},{"path":"shaders/collision.wgsls","offset":364,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":915,"lines":620}]

@@ -108,7 +108,7 @@ export class Node {
     const_term: Object.freeze({ offset: 32, type: 'f32' }),
     inside: Object.freeze({ offset: 36, type: 'u32' }),
     outside: Object.freeze({ offset: 40, type: 'u32' }),
-    material: Object.freeze({ offset: 44, type: 'i32' }),
+    material_id: Object.freeze({ offset: 44, type: 'u32' }),
     anchor: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
     env: Object.freeze({ offset: 60, type: 'u32' }),
   });
@@ -144,8 +144,8 @@ export class Node {
     if (values.outside !== undefined) {
       u32[w + 10] = values.outside;
     }
-    if (values.material !== undefined) {
-      i32[w + 11] = values.material;
+    if (values.material_id !== undefined) {
+      u32[w + 11] = values.material_id;
     }
     if (values.anchor !== undefined) {
       f32[w + 12] = values.anchor[0];
@@ -167,7 +167,7 @@ export class Node {
       const_term: f32[w + 8],
       inside: u32[w + 9],
       outside: u32[w + 10],
-      material: i32[w + 11],
+      material_id: u32[w + 11],
       anchor: [f32[w + 12], f32[w + 13], f32[w + 14]],
       env: u32[w + 15],
     };
@@ -978,7 +978,7 @@ export const BINDINGS = Object.freeze({
   "antisphere-raycast": Object.freeze({
     slots: Object.freeze({"cam":0,"nodes":1,"outTex":2,"lights":3,"materials":4,"surfaces":5,"rayQueries":6,"rayResults":7}),
     entries: Object.freeze({
-      "traceFrom": Object.freeze(["nodes","materials","surfaces","rayQueries","rayResults"]),
+      "traceFrom": Object.freeze(["nodes","surfaces","rayQueries","rayResults"]),
       "main": Object.freeze(["cam","nodes","outTex","lights","materials","surfaces"]),
     }),
   }),

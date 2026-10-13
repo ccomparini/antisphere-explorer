@@ -56,7 +56,12 @@ struct Node {
   // authors to make things look right.
   // Material 0 is reseved for empty space. The "outside" material is
   // implicitly 0.
-  material        : i32,
+  //
+  // It is a material id: the low bits that index, the high bits trace
+  // flags - what a ray does here, read without looking the material up
+  // (see trace()). MATERIAL_SOLID: the material is solid. Index with
+  // materialIndex().
+  material_id     : u32,
 
   // Where R is measured from (see above): the quadric's centre where it has
   // one, else a point of its axis or middle plane near the object it is
@@ -70,6 +75,11 @@ struct Node {
   // node walks outward to 0. Precomputed (bakeScopes()).
   env             : u32,
 };
+
+// A material id's trace flags (see Node.material_id), and its index.
+const MATERIAL_SOLID : u32 = 0x80000000u;
+const MATERIAL_INDEX : u32 = 0x7fffffffu;
+fn materialIndex(id : u32) -> u32 { return id & MATERIAL_INDEX; }
 
 // The implicit function at an arbitrary point. trace() no longer calls this:
 // along a ray it works with the A/B/C coefficients of the same polynomial
@@ -332,13 +342,18 @@ const DEGENERATE : f32 = 1e-12;
 // node's inside - its subtree, as if the ray were already within it. A
 // light's shadow ray starts inside its env (see directLighting()), so it
 // sees only what that env holds.
+//
+// `stop_flags` says what this ray stops at: a region whose material id has
+// any of these trace flags (see Node.material_id) - MATERIAL_SOLID, today,
+// for every ray.
 fn trace(
   O : vec3<f32>,
   D : vec3<f32>,
   tMin : f32,
   tMax : f32,
   fromSurface: u32,
-  start: u32
+  start: u32,
+  stop_flags: u32
 ) -> Seg {
   // found.node == 0 means "no hit (yet)" - node 0 is reserved (see Node's
   // doc comment) so no real crossing can ever claim it. Segments pop in
@@ -368,7 +383,7 @@ fn trace(
       // there's nothing left to split, this *is* the answer already.
       let seg_nn = seg.node & ~DEFAULT_INSIDE_BIT;
       let seg_node = nodes[seg_nn];
-      if (materials[seg_node.material].solid != 0u) {
+      if ((seg_node.material_id & stop_flags) != 0u) {
         if (found.node == 0u) { found = Seg(seg_nn, seg.t0, seg.t1); }
         //else { found.t1 = seg.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
       } else {
@@ -531,7 +546,7 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT);
+  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT, MATERIAL_SOLID);
 }
 
 // Surface parameterization from the node's own numbers. A plane gets a
@@ -622,11 +637,11 @@ struct Direct { diffuse : vec3<f32>, specular : vec3<f32>, };
 fn surfaceAmbient(hit : Hit) -> vec3<f32> {
   let env = nodes[hit.node].env;
   if (env == 0u) { return vec3<f32>(0.13, 0.13, 0.14); }
-  return materials[nodes[env].material].ambient;
+  return materials[materialIndex(nodes[env].material_id)].ambient;
 }
 
 fn surfaceMaterial(hit : Hit) -> Material {
-  return materials[nodes[hit.node].material];
+  return materials[materialIndex(nodes[hit.node].material_id)];
 }
 
 fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
@@ -699,7 +714,7 @@ fn glowFalloff(nd : Node, P : vec3<f32>, centre : vec3<f32>) -> f32 {
 // ambient plus diffuse, so the fill goes in with the diffuse.
 fn addGlow(env : u32, through : f32, hit : Hit, shininess : f32, out : ptr<function, Direct>) {
   let nd = nodes[env];
-  let m = materials[nd.material];
+  let m = materials[materialIndex(nd.material_id)];
   let centre = glowCentre(nd, hit.position);
   let falloff = glowFalloff(nd, hit.position, centre);
   if (falloff <= 0.0) { return; }
@@ -732,7 +747,7 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
     // a room's lamp is shadowed by the room alone (and its rays take the
     // room's subtree, not the scene's). Env 0's lights see everything.
     let start = select(ROOT, lt.env | DEFAULT_INSIDE_BIT, lt.env != 0u);
-    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start);
+    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start, MATERIAL_SOLID);
     if (blocker.node != 0u) {
       // the ray hit something between us and the light,
       // so we're in shadow:
@@ -772,7 +787,7 @@ fn directLighting(hit : Hit, shininess : f32) -> Direct {
       addLight(lights[i], hit, shininess, &out);
     }
     if (env == 0u) { break; }
-    let m = materials[nodes[env].material];
+    let m = materials[materialIndex(nodes[env].material_id)];
     if (m.kind == KIND_GLOW_REGION) { addGlow(env, through, hit, shininess, &out); }
     through = through * m.params.x;
     env = nodes[env].env;
@@ -863,7 +878,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // from what it computed.
   var found = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
-    found = trace(origin, dir, 1e-3, FAR, 0u, ROOT);
+    found = trace(origin, dir, 1e-3, FAR, 0u, ROOT, MATERIAL_SOLID);
   }
 
   var col = vec3<f32>(0.0);
@@ -882,7 +897,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     hit.normal = normalize(gradAt(nd, hit.position));
     if (dot(hit.normal, dir) > 0.0) { hit.normal = -hit.normal; }   // face the ray
     hit.toViewer = -dir;
-    hit.surfaceCoords = frame(nd, hit.position) / materials[nd.material].scale;
+    hit.surfaceCoords = frame(nd, hit.position) / materials[materialIndex(nd.material_id)].scale;
     N = hit.normal;
     col = shade(hit);
   }
@@ -893,11 +908,11 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     case DEBUG_SHADOW:   { outCol = ramp(f32(shadowRays) / max(1.0, f32(arrayLength(&lights)))); }
     case DEBUG_DEPTH:    { outCol = ramp(f32(peakDepth) / 32.0); }
     case DEBUG_MATERIAL: {
-      // Same source main's shading uses (nodes[found.node].material).
+      // Same source main's shading uses (nodes[found.node].material_id).
       // found.node is 0 on a miss (never a real node - see Node's doc
       // comment), which is the only reliable miss test (see trace()).
       let shown = found.node != 0u;
-      let f = f32(select(0, nodes[found.node].material, shown)) * 1.9;
+      let f = f32(select(0u, materialIndex(nodes[found.node].material_id), shown)) * 1.9;
       outCol = select(vec3<f32>(0.0), 0.42 + 0.3 * vec3<f32>(sin(f), sin(f + 2.1), sin(f + 4.2)), shown);
     }
     case DEBUG_NORMAL:   { outCol = N * 0.5 + 0.5; }
@@ -913,4 +928,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":99},{"path":"shaders/random.wgsls","offset":101,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":132,"lines":783}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":109},{"path":"shaders/random.wgsls","offset":111,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":142,"lines":788}]

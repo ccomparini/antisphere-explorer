@@ -228,7 +228,7 @@ export class ASScene {
     // Members of groups that may overlap (compileScene).
     this.overlaps = built.overlaps;
 
-    const nodeData = packNodes(built.nodes);
+    const nodeData = packNodes(built.nodes, built.materials);
     // Which nodes are the same surface (packSurfaces), for rays that start
     // on one.
     this.surfaces = packSurfaces(built.nodes);
