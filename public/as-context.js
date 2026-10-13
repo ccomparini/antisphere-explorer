@@ -258,13 +258,13 @@ export class ASScene {
   }
 
   /**
-   * Cast rays on the GPU and read back what each one hit: { node, t0, t1 },
-   * parallel arrays with one entry per ray - the Seg that the shader's
-   * trace() returns for each:
-   *   node   the node whose region the ray entered, or 0 for a miss
-   *   t0     how far along the ray it entered
-   *   t1     where the segment it was found in ends (not a thickness)
-   * node == 0 is the only miss test; t0 and t1 are meaningless for a miss.
+   * Cast rays on the GPU and read back what each one hit: { node, hitPos,
+   * t0 }, one entry per ray - the Seg that the shader's trace() returns for
+   * each, and the distance worked out from it:
+   *   node    the node whose region the ray entered, or 0 for a miss
+   *   hitPos  where it entered, [x, y, z]
+   *   t0      how far along the ray that is, in units of its direction
+   * node == 0 is the only miss test; hitPos and t0 are meaningless for a miss.
    *
    * A ray is { origin, direction, tMin?, tMax?, fromNode? }: tMin defaults
    * to 1e-3 and tMax to 1000. fromNode is a node whose surface the ray
@@ -293,7 +293,7 @@ export class ASScene {
   async _cast(rays) {
     const { device, pipelines, _rayQuery: rq } = this.context;
     if (!pipelines || rays.length === 0 || !this.nodeBuf) {
-      return { node: new Uint32Array(0), t0: new Float32Array(0), t1: new Float32Array(0) };
+      return { node: new Uint32Array(0), t0: new Float32Array(0), hitPos: [] };
     }
     if (rays.length > rq.maxRays) {
       throw new Error(`castRays: ${rays.length} rays, capacity is ${rq.maxRays}`);
@@ -338,14 +338,17 @@ export class ASScene {
 
     const hits = viewsOf(raw);
     const n = rays.length;
-    const node = new Uint32Array(n), t0 = new Float32Array(n), t1 = new Float32Array(n);
+    const node = new Uint32Array(n), t0 = new Float32Array(n), hitPos = [];
     for (let i = 0; i < n; i++) {
       const hit = Seg.read(hits, i);
       node[i] = hit.node;
-      t0[i] = hit.t0;
-      t1[i] = hit.t1;
+      hitPos.push(hit.hitPos);
+      // How far along the ray, from the point: (hit - origin) . d / |d|^2.
+      const { origin: o, direction: d } = rays[i];
+      const along = (hit.hitPos[0] - o[0]) * d[0] + (hit.hitPos[1] - o[1]) * d[1] + (hit.hitPos[2] - o[2]) * d[2];
+      t0[i] = along / (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
     }
-    return { node, t0, t1 };
+    return { node, t0, hitPos };
   }
 
   /**
@@ -364,13 +367,14 @@ export class ASScene {
   }
 
   /**
-   * What one ray hits first: { node, t0, t1 }, or null for a miss. The node
-   * indexes this scene's nodes, and provenance[node] says which authored
-   * object it came from; the hit point is origin + t0 * direction.
+   * What one ray hits first: { node, t0, hitPos }, or null for a miss. The
+   * node indexes this scene's nodes, and provenance[node] says which
+   * authored object it came from; hitPos is the hit point, origin + t0 *
+   * direction.
    */
   async pick(origin, direction, opts = {}) {
-    const { node, t0, t1 } = await this.castRays([{ origin, direction, ...opts }]);
-    return node[0] ? { node: node[0], t0: t0[0], t1: t1[0] } : null;
+    const { node, t0, hitPos } = await this.castRays([{ origin, direction, ...opts }]);
+    return node[0] ? { node: node[0], t0: t0[0], hitPos: hitPos[0] } : null;
   }
 
   destroyBuffers() {

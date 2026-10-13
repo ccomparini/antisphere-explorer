@@ -341,13 +341,12 @@ export class RayQuery {
 }
 
 export class Seg {
-  static SIZE = 12;
-  static ALIGN = 4;
-  static STRIDE = 12;
+  static SIZE = 16;
+  static ALIGN = 16;
+  static STRIDE = 16;
   static FIELDS = Object.freeze({
-    node: Object.freeze({ offset: 0, type: 'u32' }),
-    t0: Object.freeze({ offset: 4, type: 'f32' }),
-    t1: Object.freeze({ offset: 8, type: 'f32' }),
+    hitPos: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
+    node: Object.freeze({ offset: 12, type: 'u32' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Seg.STRIDE)); }
@@ -356,23 +355,21 @@ export class Seg {
 
   static writeAt(views, byteOffset, values) {
     const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    if (values.hitPos !== undefined) {
+      f32[w] = values.hitPos[0];
+      f32[w + 1] = values.hitPos[1];
+      f32[w + 2] = values.hitPos[2];
+    }
     if (values.node !== undefined) {
-      u32[w] = values.node;
-    }
-    if (values.t0 !== undefined) {
-      f32[w + 1] = values.t0;
-    }
-    if (values.t1 !== undefined) {
-      f32[w + 2] = values.t1;
+      u32[w + 3] = values.node;
     }
   }
 
   static readAt(views, byteOffset) {
     const { f32, u32, i32 } = views, w = byteOffset >> 2;
     return {
-      node: u32[w],
-      t0: f32[w + 1],
-      t1: f32[w + 2],
+      hitPos: [f32[w], f32[w + 1], f32[w + 2]],
+      node: u32[w + 3],
     };
   }
 }

@@ -153,11 +153,19 @@ var<storage, read> materials : array<Material>;
 // already-resolved index; 0 is never real (see Node's doc comment), so it
 // just means void.
 //
+// A segment is where along the ray it starts - a point, so that a ray
+// whose origin and direction change (a reflection) can carry its pieces
+// the same way - and its end is where the next one starts: trace()'s
+// stack is always the rest of the ray, in order, nearest on top, each
+// piece ending where the one under it begins, and the last at the ray's
+// end. Popping a piece and pushing what it splits into, far to near, keeps
+// it so. A piece too short to push is left out, and the piece before it
+// then reaches over that sliver.
+//
 // trace() returns one of these too, as its answer: see trace().
 struct Seg {
-  node : u32,   // the subtree still to visit; encoded (see DEFAULT_INSIDE_BIT)
-  t0   : f32,
-  t1   : f32,
+  hitPos : vec3<f32>,   // where the segment starts
+  node   : u32,         // the subtree still to visit; encoded (see DEFAULT_INSIDE_BIT)
 };
 
 const DEFAULT_INSIDE_BIT : u32 = 0x80000000u;
@@ -187,13 +195,14 @@ const DEGENERATE : f32 = 1e-12;
 var<storage, read> surfaces : array<u32>;
 
 // The first solid thing along a ray, as a Seg: node is the node whose
-// region the ray entered (never tagged), t0 how far along the ray it
-// entered, and t1 where the segment it was found in ends. t1 is not
-// necessarily the far side of the object, so it isn't a thickness.
+// region the ray entered (never tagged), hitPos where it entered.
 //
-// node == 0 is the one test for a miss. t0 and t1 mean nothing then: a
-// provisional hit that turned out hollow leaves its distances behind, and
-// resetting them costs time for a value no caller should read.
+// node == 0 is the one test for a miss. hitPos means nothing then: a
+// provisional hit that turned out hollow leaves its point behind, and
+// resetting it costs time for a value no caller should read.
+//
+// D must be of unit length: a stack entry's distance along the ray is
+// worked out from its point, as dot(point - O, D).
 //
 // `start` is where the trace begins, as a Seg's node: ROOT for the whole
 // scene, or a node tagged with DEFAULT_INSIDE_BIT to trace only that
@@ -212,10 +221,9 @@ fn trace(
   // doc comment) so no real crossing can ever claim it. Segments pop in
   // non-decreasing t (see the loop below), so the first transition into
   // solid is always the nearest one; once found, further solid pops just
-  // extend t1 (the full extent of that continuous run), and the moment a
-  // pop turns up non-solid again, that run is done and nothing nearer is
-  // left to find.
-  var found : Seg = Seg(0u, -1.0, tMax);
+  // extend the run, and the moment a pop turns up non-solid again, that
+  // run is done and nothing nearer is left to find.
+  var found : Seg = Seg(vec3<f32>(0.0), 0u);
 
   // The root is held in a variable rather than seeded onto the stack, which
   // is what lets a length check at the top of the loop go. The push below is
@@ -223,7 +231,9 @@ fn trace(
   // shorter than the epsilon, so no popped segment can be degenerate. A
   // degenerate range from the caller then costs one node visit that pushes
   // nothing, instead of a test on every iteration forever after.
-  var seg = Seg(start, tMin, tMax);   // ROOT, or a node's inside (see above)
+  var seg = Seg(O + tMin * D, start);   // ROOT, or a node's inside (see above)
+  var t0 = tMin;                   // where seg starts and ends, along the ray
+  var t1 = tMax;
   var sp : i32 = 0;                // traceStack's depth; see traceStack
 
   var guard : i32 = 0;
@@ -237,8 +247,7 @@ fn trace(
       let seg_nn = seg.node & ~DEFAULT_INSIDE_BIT;
       let seg_node = nodes[seg_nn];
       if (materials[seg_node.material].solid != 0u) {
-        if (found.node == 0u) { found = Seg(seg_nn, seg.t0, seg.t1); }
-        //else { found.t1 = seg.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
+        if (found.node == 0u) { found = Seg(seg.hitPos, seg_nn); }
       } else {
         // non-solid inside, so clear the hit:
         found.node = 0u;
@@ -311,7 +320,7 @@ fn trace(
         // therefore gets a sentinel rather than a division by zero, which
         // WGSL calls an indeterminate value and which would poison the
         // min/max below. +1e30 is safe in either slot: as r1 it fails
-        // r1 < seg.t1, and as r0 it would fail r0 > seg.t0, so only the real
+        // r1 < t1, and as r0 it would fail r0 > t0, so only the real
         // root ever splits a segment. q/A is still evaluated and discarded.
         //
         // For a plane q works out to exactly -B, so C/q is the linear root
@@ -327,11 +336,11 @@ fn trace(
 
       // Up to two split points carve the segment into up to three subsegments.
       var b : array<f32, 4>;
-      b[0] = seg.t0;
+      b[0] = t0;
       var nb : i32 = 1;
-      if (r0 > seg.t0 && r0 < seg.t1) { b[nb] = r0; nb = nb + 1; }
-      if (r1 > seg.t0 && r1 < seg.t1) { b[nb] = r1; nb = nb + 1; }
-      b[nb] = seg.t1;
+      if (r0 > t0 && r0 < t1) { b[nb] = r0; nb = nb + 1; }
+      if (r1 > t0 && r1 < t1) { b[nb] = r1; nb = nb + 1; }
+      b[nb] = t1;
 
       // Push far to near so the nearest subsegment pops first. This is the
       // only write to the stack, and the length test here is what makes the
@@ -349,7 +358,7 @@ fn trace(
         if ((A * mid + B) * mid + C < 0.0) {
           child = descent_node | DEFAULT_INSIDE_BIT;
         }
-        traceStack[sp] = Seg(child, sa, sb);
+        traceStack[sp] = Seg(O + sa * D, child);
         sp = sp + 1;
         peakDepth = max(peakDepth, u32(sp));
       }
@@ -358,6 +367,11 @@ fn trace(
     if (sp == 0) { break; }
     sp = sp - 1;
     seg = traceStack[sp];
+    // How far along the ray it starts, and ends: where the one under it
+    // starts, or, the last, at tMax.
+    t0 = dot(seg.hitPos - O, D);
+    t1 = tMax;
+    if (sp > 0) { t1 = dot(traceStack[sp - 1].hitPos - O, D); }
 
     guard = guard + 1;
     if (guard >= 512) {
@@ -729,7 +743,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // Each stage's output has to stay live or the compiler will delete
   // the work being measured, so every level writes something derived
   // from what it computed.
-  var found = Seg(0u, -1.0, 0.0);
+  var found = Seg(vec3<f32>(0.0), 0u);
   if (cam.ablate >= ABLATE_TRACE) {
     found = trace(origin, dir, 1e-3, FAR, 0u, ROOT);
   }
@@ -739,14 +753,14 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (cam.ablate < ABLATE_TRACE) {
     col = abs(dir) * 0.25;
   } else if (cam.ablate < ABLATE_SHADE) {
-    col = select(vec3<f32>(0.0), vec3<f32>(fract(found.t0 * 0.05)), found.node != 0u);
+    col = select(vec3<f32>(0.0), vec3<f32>(fract(dot(found.hitPos - origin, dir) * 0.05)), found.node != 0u);
   } else if (found.node != 0) {
     // the ray entered found.node - render according to the node's material
     // (see shade())
     let nd = nodes[found.node];
     var hit : Hit;
     hit.node = found.node;
-    hit.position = origin + found.t0 * dir;
+    hit.position = found.hitPos;
     hit.normal = normalize(gradAt(nd, hit.position));
     if (dot(hit.normal, dir) > 0.0) { hit.normal = -hit.normal; }   // face the ray
     hit.toViewer = -dir;
