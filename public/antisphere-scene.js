@@ -34,7 +34,11 @@
 //   regionBall() checks the signs rather than just whether K inverts.
 // ---------------------------------------------------------------------------
 
-import { Light, Material, Node } from './gen/layouts.js';
+import {
+  Light, Material, Node,
+  KIND_LAMBERT, KIND_GLOSSY, KIND_EMISSIVE, KIND_UNLIT, KIND_AMBIENT, KIND_GLOW_REGION,
+  PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, MATERIAL_SOLID,
+} from './gen/layouts.js';
 import { regionsDisjoint } from './overlap.js';
 import { readSTL } from './stl.js';
 import { meshToTree, boundsOf } from './mesh-import.js';
@@ -366,25 +370,27 @@ const INHERIT_MATERIAL = -1;
 // entry silently shadowing what used to be special syntax.
 const LEGACY_PAINT_WORDS = ['partition', 'inherit', 'bare'];
 
+// The shader's PATTERN_* (flat, 0, is the absence of one).
 const PATTERNS = {
   flat             : 0,
-  checker          : 1,
-  noise            : 2,
-  industrialcarpet : 3,
+  checker          : PATTERN_CHECKER,
+  noise            : PATTERN_NOISE,
+  industrialcarpet : PATTERN_INDUSTRIALCARPET,
 };
 
 // Each kind names a shading function in the shader. Adding one means a
-// function and a switch arm there, plus an entry here and its parameters.
+// function and a switch arm there, and a KIND_ const, plus an entry here and
+// its parameters.
 const KINDS = {
-  lambert:  { id: 0, params: () => [0, 0] },
-  glossy:   { id: 1, params: (d) => [d.shininess ?? 32, d.specular ?? 0.6] },
-  emissive: { id: 2, params: (d) => [d.emission ?? 1, 0] },
-  unlit:    { id: 3, params: () => [0, 0] },
+  lambert:  { id: KIND_LAMBERT, params: () => [0, 0] },
+  glossy:   { id: KIND_GLOSSY, params: (d) => [d.shininess ?? 32, d.specular ?? 0.6] },
+  emissive: { id: KIND_EMISSIVE, params: (d) => [d.emission ?? 1, 0] },
+  unlit:    { id: KIND_UNLIT, params: () => [0, 0] },
   // An ambient material never shades, and is not solid by default. A node
   // that names one starts an env (bakeScopes()): its albedo is the ambient
   // level for everything inside it, added to `transmit` (default 0) times
   // the level around it.
-  ambient:  { id: 4, params: (d) => [d.transmit ?? 0, 0] },
+  ambient:  { id: KIND_AMBIENT, params: (d) => [d.transmit ?? 0, 0] },
   // A glow region: a region like an ambient one, not solid by default, and
   // a node that names one starts an env - but lit from within: its albedo
   // is the light at its node's centre, falling to nothing at the node's
@@ -392,10 +398,8 @@ const KINDS = {
   // the raycast shader). Its ambient is `transmit` (default 1) times the
   // level around it, and `fill` (default 0) times its glow, unshadowed:
   // light from its walls, roughly.
-  glowRegion: { id: 5, params: (d) => [d.transmit ?? 1, d.fill ?? 0] },
+  glowRegion: { id: KIND_GLOW_REGION, params: (d) => [d.transmit ?? 1, d.fill ?? 0] },
 };
-const KIND_AMBIENT = 4;
-const KIND_GLOW_REGION = 5;
 // The kinds that make a region rather than a substance: a node naming one
 // starts an env (bakeScopes()).
 const isRegionKind = (kind) => kind === KIND_AMBIENT || kind === KIND_GLOW_REGION;
@@ -2343,10 +2347,9 @@ export function packSurfaces(list) {
 //
 // inside/outside are 0 or a real index (see flatten()'s doc comment for
 // what 0 means on each side).
-// A material id's trace flags, as Node.material_id in shaders/node.wgsls has
-// them: the high bits, over the material's index.
-const MATERIAL_SOLID = 0x80000000;
-
+// MATERIAL_SOLID (from shaders/node.wgsls, by way of layouts.js) is a
+// material id's trace flag: the high bits of Node.material_id, over the
+// material's index.
 /**
  * The nodes as the GPU takes them. With `materials` (the compiled table),
  * each node's material id carries its material's trace flags - solid -

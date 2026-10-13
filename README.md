@@ -63,6 +63,10 @@ through a uniform or storage buffer, laid out by WGSL's rules, so the JS
 never spells out an offset, and `BINDINGS`: each output's resources by
 name, with the binding the build gave each and the ones each entry point
 uses (worked out from its calls; see `tools/shader-build/bindings.js`).
+It also exports every scalar `const` the shaders declare at module scope -
+`MATERIAL_SOLID`, the `KIND_` ids, the `DEBUG_` views - so a flag or an id
+is written once, in WGSL, and the JS imports it; one name given two values
+by two outputs fails the build.
 Compile errors are reported at their line in
 `shaders/`. With the watcher running, R in the page reloads the shaders; a
 change to a shared struct also changes `layouts.js`, which needs a full page

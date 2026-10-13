@@ -160,3 +160,17 @@ ${outputs.join('\n')}
 });
 `;
 }
+
+/**
+ * Every output's scalar consts (sharedConstants() in layout.js), as JS
+ * exports, so the host never writes a flag, an id or a limit a second time:
+ * [{ name, literal, from }], in the order first met.
+ */
+export function emitConstants(list) {
+  if (!list.length) return '';
+  const lines = list.map((c) => `export const ${c.name} = ${c.literal};`);
+  return `
+// The shaders' scalar consts, as they declare them.
+${lines.join('\n')}
+`;
+}

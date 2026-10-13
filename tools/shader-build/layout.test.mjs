@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sharedStructs, parseDeclarations, layouts, LayoutError } from './layout.js';
+import { sharedStructs, sharedConstants, parseDeclarations, layouts, LayoutError } from './layout.js';
 import { emitModule } from './emit-js.js';
 import { buildAll } from './index.js';
 
@@ -205,4 +205,49 @@ test('the build passes #warning through to its warn option', async () => {
   await buildAll({ outputs: [{ entry: 'shaders/w.wgsls', out: 'gen/w.wgsl' }] },
                  () => '\n#warning "check me"\nfn f() {}', { warn: (m) => warnings.push(m) });
   assert.deepEqual(warnings, ['shaders/w.wgsls:2: #warning check me']);
+});
+
+test('scalar consts are shared: one literal each, its type suffix gone', () => {
+  const code = `
+    const FLAG : u32 = 0x80000000u;   // a comment
+    const COUNT : i32 = 32;
+    const LIMIT = 1e4;
+    const TINY : f32 = 1.5e-12f;
+    const BELOW = -0.25;
+    const ON = true;
+    const SUM : u32 = 1u + 2u;        // an expression: not shared
+    const V = vec3<f32>(1.0);         // not a scalar
+    fn f() { const LOCAL : u32 = 7u; }`;
+  const got = Object.fromEntries(sharedConstants(code).map((c) => [c.name, c.literal]));
+  assert.deepEqual(got, { FLAG: '0x80000000', COUNT: '32', LIMIT: '1e4', TINY: '1.5e-12', BELOW: '-0.25', ON: 'true' });
+  assert.equal(sharedConstants(code).find((c) => c.name === 'FLAG').value, 0x80000000);
+});
+
+test('the build exports every output\'s consts, once, and refuses one name with two values', async () => {
+  const tree = {
+    'shaders/a.wgsls': 'const FLAG : u32 = 0x80000000u;\nconst FAR : f32 = 1e4;\nstruct N { x : f32 }\nvar<storage> n : N;',
+    'shaders/b.wgsls': 'const FAR : f32 = 10000.0;\nconst ONLY_B = 3u;',
+    'shaders/c.wgsls': 'const FLAG : u32 = 1u;',
+    'shaders/d.wgsls': 'const N = 2u;',
+  };
+  const read = (p) => tree[p];
+  const files = await buildAll({
+    outputs: [{ entry: 'shaders/a.wgsls', out: 'gen/a.wgsl' }, { entry: 'shaders/b.wgsls', out: 'gen/b.wgsl' }],
+    layouts: 'gen/layouts.js',
+  }, read);
+  const layouts = files.find((f) => f.path === 'gen/layouts.js').content;
+  assert.match(layouts, /\nexport const FLAG = 0x80000000;\n/);
+  assert.equal(layouts.match(/export const FAR = /g).length, 1, 'the same value in two outputs: one export');
+  assert.match(layouts, /\nexport const ONLY_B = 3;\n/);
+  const mod = await import(`data:text/javascript,${encodeURIComponent(layouts)}`);
+  assert.equal(mod.FLAG, 0x80000000);
+  assert.equal(mod.FAR, 1e4);
+  const failsWith = (promise, pattern) =>
+    assert.rejects(promise, (e) => { assert.match(e.message, pattern); return true; });
+  await failsWith(buildAll({
+    outputs: [{ entry: 'shaders/a.wgsls', out: 'x' }, { entry: 'shaders/c.wgsls', out: 'y' }], layouts: 'l',
+  }, read), /^const FLAG is 0x80000000 in shaders\/a\.wgsls and 1 in shaders\/c\.wgsls/);
+  await failsWith(buildAll({
+    outputs: [{ entry: 'shaders/a.wgsls', out: 'x' }, { entry: 'shaders/d.wgsls', out: 'y' }], layouts: 'l',
+  }, read), /^N is both a struct and a const/);
 });

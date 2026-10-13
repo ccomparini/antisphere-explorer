@@ -1007,3 +1007,44 @@ export const BINDINGS = Object.freeze({
     }),
   }),
 });
+
+// The shaders' scalar consts, as they declare them.
+export const MATERIAL_SOLID = 0x80000000;
+export const MATERIAL_INDEX = 0x7fffffff;
+export const KIND_LAMBERT = 0;
+export const KIND_GLOSSY = 1;
+export const KIND_EMISSIVE = 2;
+export const KIND_UNLIT = 3;
+export const KIND_AMBIENT = 4;
+export const KIND_GLOW_REGION = 5;
+export const PATTERN_CHECKER = 1;
+export const PATTERN_NOISE = 2;
+export const PATTERN_INDUSTRIALCARPET = 3;
+export const DEBUG_OFF = 0;
+export const DEBUG_VISITS = 1;
+export const DEBUG_SHADOW = 2;
+export const DEBUG_DEPTH = 3;
+export const DEBUG_MATERIAL = 4;
+export const DEBUG_NORMAL = 5;
+export const DEBUG_COUNTS = 6;
+export const PROJECTION_PERSPECTIVE = 0;
+export const PROJECTION_ORTHOGRAPHIC = 1;
+export const ABLATE_NONE = 0;
+export const ABLATE_TRACE = 1;
+export const ABLATE_SHADE = 2;
+export const FAR = 1e4;
+export const DEFAULT_INSIDE_BIT = 0x80000000;
+export const ROOT = 1;
+export const TRACE_STACK_SIZE = 32;
+export const DEGENERATE = 1e-12;
+export const JACOBI_SWEEPS = 5;
+export const OVERLAP_STEPS = 24;
+export const OVERLAP_TAU = 1e-5;
+export const NEVER = 1e6;
+export const CONTACT_SLOP = 1e-3;
+export const PROJECTION_SWEEPS = 8;
+export const MAX_WAYS = 3;
+export const MAX_CORNER_PLANES = 12;
+export const FIXED = 1048576.0;
+export const MANIFOLD_SWEEPS = 24;
+export const RESTITUTION = 0.0;

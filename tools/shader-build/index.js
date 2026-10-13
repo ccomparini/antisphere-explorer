@@ -20,9 +20,9 @@
 // emit-js.js), and BINDINGS, each output's bindings by name.
 
 import { build, ShaderSourceError } from './preprocess.js';
-import { sharedStructs, LayoutError } from './layout.js';
+import { sharedStructs, sharedConstants, LayoutError } from './layout.js';
 import { assignBindings, BindingError } from './bindings.js';
-import { emitModule, emitBindings } from './emit-js.js';
+import { emitModule, emitBindings, emitConstants } from './emit-js.js';
 import { mapLine } from '../../public/shader-map.js';
 
 const TOOL = 'tools/build-shaders.mjs';
@@ -49,17 +49,19 @@ export async function buildAll(config, read, { warn = console.warn } = {}) {
   const files = [];
   const shared = new Map();                 // struct name -> { layout, from }
   const bindings = {};                      // output name -> { slots, entries }
+  const constants = new Map();              // const name -> { literal, value, from }
 
   for (const output of config.outputs) {
     const linked = await build(output.entry, { defines: output.defines ?? {}, read, warn });
     const { map } = linked;
 
-    let code, structs;
+    let code, structs, scalars;
     try {
       const assigned = assignBindings(linked.code);
       code = assigned.code;
       bindings[outputName(output.out)] = { slots: assigned.slots, entries: assigned.entries };
       structs = sharedStructs(code);
+      scalars = sharedConstants(code);
     } catch (e) {
       if (!(e instanceof LayoutError || e instanceof BindingError)) throw e;
       const at = mapLine(map, e.line);
@@ -73,6 +75,14 @@ export async function buildAll(config, read, { warn = console.warn } = {}) {
       }
       if (!seen) shared.set(s.name, { layout: s, from: output.entry });
     }
+    for (const c of scalars) {
+      const seen = constants.get(c.name);
+      if (seen && seen.value !== c.value) {
+        throw new Error(`const ${c.name} is ${seen.literal} in ${seen.from} and ${c.literal} in ${output.entry}; ` +
+                        'one name must mean one value, since both share one JS export');
+      }
+      if (!seen) constants.set(c.name, { ...c, from: output.entry });
+    }
 
     const header = wgslHeader(output.entry);
     const shifted = map.map((b) => ({ ...b, offset: b.offset + header.length }));
@@ -80,6 +90,12 @@ export async function buildAll(config, read, { warn = console.warn } = {}) {
       path: output.out,
       content: `${header.join('\n')}\n${code}\n// sourcemap: ${JSON.stringify(shifted)}\n`,
     });
+  }
+
+  for (const name of constants.keys()) {
+    if (shared.has(name)) {
+      throw new Error(`${name} is both a struct and a const, and layouts.js can't export both`);
+    }
   }
 
   if (config.layouts) {
@@ -93,6 +109,7 @@ export async function buildAll(config, read, { warn = console.warn } = {}) {
       path: config.layouts,
       content: emitModule([...shared.values()].map((s) => s.layout), header)
              + emitBindings(bindings)
+             + emitConstants([...constants.values()])
     });
   }
   return files;

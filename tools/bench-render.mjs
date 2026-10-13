@@ -28,6 +28,7 @@ globalThis.window ??= { devicePixelRatio: 1 };
 const { ASContext } = await import(new URL('as-context.js', PUBLIC));
 await import(new URL('as-renderer.js', PUBLIC));      // registers ASRenderer
 const { ASCamera } = await import(new URL('as-camera.js', PUBLIC));
+const { ABLATE_NONE, ABLATE_TRACE, ABLATE_SHADE } = await import(new URL('gen/layouts.js', PUBLIC));
 const { loadReferences } = await import(new URL('antisphere-scene.js', PUBLIC));
 
 const args = process.argv.slice(2);
@@ -121,10 +122,10 @@ async function wallClock(view, frames = 60) {
 
 // The page's ablation ladder, in its order.
 const LADDER = [
-  { name: 'dispatch',    ablate: 0, shadows: 0 },
-  { name: 'traversal',   ablate: 1, shadows: 0 },
-  { name: 'shading',     ablate: 2, shadows: 0 },
-  { name: 'shadow rays', ablate: 2, shadows: 1 },
+  { name: 'dispatch',    ablate: ABLATE_NONE,  shadows: 0 },
+  { name: 'traversal',   ablate: ABLATE_TRACE, shadows: 0 },
+  { name: 'shading',     ablate: ABLATE_SHADE, shadows: 0 },
+  { name: 'shadow rays', ablate: ABLATE_SHADE, shadows: 1 },
 ];
 
 const info = gpu.adapter.info;

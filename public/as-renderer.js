@@ -11,14 +11,14 @@
 import { configureCanvas, createCameraUniform } from './gpu-setup.js';
 import { ASContext } from './as-context.js';
 import { ASCamera } from './as-camera.js';
-import { BINDINGS, Camera } from './gen/layouts.js';
+import { BINDINGS, Camera, PROJECTION_PERSPECTIVE, PROJECTION_ORTHOGRAPHIC } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
 
 export const DEBUG_VIEWS = ['shaded', 'node visits', 'shadow rays', 'stack depth',
                             'material id', 'normals'];
 // Not a view to look at: the per-pixel work counts, exactly, for tools to
 // read back from the render target (`tex`) - DEBUG_COUNTS in the shader.
-export const DEBUG_COUNTS = 6;
+export { DEBUG_COUNTS } from './gen/layouts.js';
 
 export class ASRenderer {
   /**
@@ -216,7 +216,7 @@ export class ASRenderer {
       debug: overrides.debugView ?? this.debugView,
       ablate: overrides.ablate ?? 2,                         // 2 = full shading path
       light_count: this.scene ? this.scene.lights.length : 0,
-      projection: ortho ? 1 : 0,
+      projection: ortho ? PROJECTION_ORTHOGRAPHIC : PROJECTION_PERSPECTIVE,
       ortho_half_height: ortho ? this.camera.halfHeight() : 0,
     });
     this.context.device.queue.writeBuffer(buffer, 0, views.buffer);

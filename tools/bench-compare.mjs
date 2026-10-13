@@ -132,6 +132,8 @@ async function probe({ tree, scene, size: [width, height] }) {
     };
     out.compute = await compute(undefined, 60, 5);
     // The ablation ladder (bench-render.mjs): each rung adds a stage.
+    // ABLATE_NONE, _TRACE and _SHADE, written as numbers: a revision from
+    // before layouts.js exported the shaders' consts has no names for them.
     const rung = (ablate, shadows) => compute({ shadows, ablate, debugView: 0 });
     const [dispatch, traversal, shading, shadowed] = [await rung(0, 0), await rung(1, 0), await rung(2, 0), await rung(2, 1)];
     out.traversal = traversal - dispatch;

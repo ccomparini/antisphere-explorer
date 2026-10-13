@@ -73,7 +73,10 @@ export function tokenize(code) {
  * The declarations layouts depend on:
  * { structs: Map<name, {name, line, members: [{name, type, align?, size?, line}]}>,
  *   aliases: Map<name, type>, consts: Map<name, integer>,
+ *   scalars: Map<name, {name, literal, value, line}>,
  *   vars: [{name, space, type, line}] }
+ * where scalars are the consts whose value is one literal - a number, maybe
+ * negative, or a bool - `literal` its text without WGSL's type suffix.
  * where a type is { name, args: (type | {value})[], line }.
  */
 export function parseDeclarations(code) {
@@ -139,7 +142,7 @@ export function parseDeclarations(code) {
     return attrs;
   };
 
-  const structs = new Map(), aliases = new Map(), consts = new Map(), vars = [];
+  const structs = new Map(), aliases = new Map(), consts = new Map(), scalars = new Map(), vars = [];
   let depth = 0;
   while (i < tokens.length) {
     const tok = at();
@@ -172,12 +175,26 @@ export function parseDeclarations(code) {
       aliases.set(name, type());
     } else if (tok.t === 'const') {
       next();
-      const name = ident().t;
+      const nameTok = ident();
+      const name = nameTok.t;
       if (at().t === ':') { next(); type(); }
       expect('=');
       const value = at();
       if (/^(0[xX][0-9a-fA-F]+|\d+)[iu]?$/.test(value.t) && tokens[i + 1]?.t === ';') {
         consts.set(name, parseInt(value.t, /^0[xX]/.test(value.t) ? 16 : 10));
+      }
+      // One literal, maybe negated: a scalar the host can share.
+      const negative = value.t === '-';
+      const lit = negative ? tokens[i + 1] : value;
+      const end = tokens[i + (negative ? 2 : 1)];
+      if (lit && end?.t === ';') {
+        const number = /^(0[xX][0-9a-fA-F]+|(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?)[iufh]?$/.exec(lit.t);
+        if (number) {
+          const literal = (negative ? '-' : '') + number[1];
+          scalars.set(name, { name, literal, value: Number(literal), line: nameTok.line });
+        } else if (!negative && (lit.t === 'true' || lit.t === 'false')) {
+          scalars.set(name, { name, literal: lit.t, value: lit.t === 'true', line: nameTok.line });
+        }
       }
     } else if (tok.t === 'var') {
       next();
@@ -197,7 +214,7 @@ export function parseDeclarations(code) {
       next();
     }
   }
-  return { structs, aliases, consts, vars };
+  return { structs, aliases, consts, scalars, vars };
 }
 
 // -- layouts ---------------------------------------------------------------------------
@@ -323,4 +340,13 @@ export function sharedStructs(code) {
     if (v.space === 'uniform' || v.space === 'storage') visit(of(v.type));
   }
   return [...found.values()];
+}
+
+/**
+ * The scalar consts a source declares at module scope - those whose value
+ * is one literal: [{ name, literal, value, line }]. The host gets them all
+ * (emit-js.js), so a flag or an id is written once, in WGSL.
+ */
+export function sharedConstants(code) {
+  return [...parseDeclarations(code).scalars.values()];
 }
