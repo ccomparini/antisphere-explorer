@@ -1170,3 +1170,34 @@ gpuTest('loadScene by URL: a scene referencing what sits beside it, an STL on it
     server.close();
   }
 });
+
+// -- reflection, as rendered -----------------------------------------------------------
+
+gpuTest('a mirror shows what its reflected ray sees, times its albedo; past MAX_BOUNCES, black', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  const { MAX_BOUNCES } = await import('./gen/layouts.js');
+  // Looking along +Y, orthographic, at a wall filling y > 0; behind the
+  // camera (eye plane y = -10), unseen by the camera's own rays, a wall
+  // filling y < -20. Unlit, so the colours are exact.
+  const spec = (front, back) => ({
+    materials: {
+      front: { kind: 'unlit', albedo: [0.5, 0.5, 0.5], ...front },
+      back:  { kind: 'unlit', albedo: [1, 0, 0], ...back },
+    },
+    lights: [],
+    root: { plane: { normal: [0, -1, 0], offset: 0 }, material: 'front',
+            outside: { plane: { normal: [0, 1, 0], offset: -20 }, material: 'back' } },
+  });
+  const camera = () => new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic', orthoHeight: 4 });
+  const centre = async (s) => (await renderPixels(s, camera())).at(80, 40);
+  const half = Math.round(255 * 0.5 ** (1 / 2.2));    // 0.5, after gamma
+  const near = (got, want, what) => assert.ok(got.every((v, i) => Math.abs(v - want[i]) <= 1), `${what}: ${got}, not ${want}`);
+
+  near(await centre(spec({}, {})), [half, half, half], 'not reflective: its own colour');
+  near(await centre(spec({ reflective: true }, {})), [half, 0, 0], 'a mirror: the red wall behind the camera, at half');
+  near(await centre(spec({ reflective: true, albedo: [1, 1, 0] }, {})), [255, 0, 0], 'a yellow mirror passes the red');
+  // Two mirrors facing: the ray bounces between them, and the hit after
+  // the last bounce it may take shows black.
+  assert.equal(MAX_BOUNCES, 1, 'this test counts on one bounce');
+  near(await centre(spec({ reflective: true }, { reflective: true })), [0, 0, 0], 'a mirror seen in a mirror, past MAX_BOUNCES');
+});

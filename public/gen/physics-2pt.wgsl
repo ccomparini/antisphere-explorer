@@ -89,7 +89,8 @@ struct Node {
 //              shading's call; the bits below say how it is bent.
 //   bits 28-29 IOR, the index of refraction a ray going on through takes:
 //              none set, 1.0 (straight on); IOR_GLASS 1.5; IOR_WATER 1.333
-//   bit 27     REFLECTIVE: a ray going on is reflected, not refracted
+//   bit 27     REFLECTIVE: a mirror - a camera ray goes on reflected, and
+//              the hit shows what it sees, times its albedo (shade())
 //   bits 0-26  the material's index (materialIndex())
 const MATERIAL_SOLID      : u32 = 0x80000000u;
 const MATERIAL_OPTICAL    : u32 = 0x40000000u;
@@ -1552,4 +1553,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":128},{"path":"shaders/overlap.wgsls","offset":130,"lines":253},{"path":"shaders/collision.wgsls","offset":383,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":934,"lines":620}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":129},{"path":"shaders/overlap.wgsls","offset":131,"lines":253},{"path":"shaders/collision.wgsls","offset":384,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":935,"lines":620}]

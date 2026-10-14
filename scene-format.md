@@ -97,7 +97,7 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 | `optical`  | boolean                                         | `true`           | meets light: camera and shadow rays stop at it (`false`: invisible, and casts no shadow) |
 | `iorGlass` | boolean                                         | `false`          | a ray going on through it refracts with index 1.5 |
 | `iorWater` | boolean                                         | `false`          | a ray going on through it refracts with index 1.333 |
-| `reflective` | boolean                                       | `false`          | a ray going on from it is reflected, not refracted |
+| `reflective` | boolean                                       | `false`          | a mirror: no shading of its own; it shows what a camera ray reflected from it sees, times its `albedo` (one bounce: a mirror seen in a mirror is black) |
 
 The boolean fields are the material's **trace flags**: every single-bit
 `MATERIAL_` constant in `shaders/node.wgsls`, named without `MATERIAL_` and
@@ -107,7 +107,7 @@ seen but walked through, `"optical": false` alone is there but unseen, and
 an odd combination may render oddly, or be just what is wanted. A material
 with neither `solid` nor `optical` has no interaction at all, like vacuum.
 `"ambient"` and `"glowRegion"` materials default to no flags. (Refraction
-and reflection are not drawn yet; the flags are carried for them.)
+is not drawn yet; `iorGlass` and `iorWater` are carried for it.)
 
 `kind`-specific extra fields:
 

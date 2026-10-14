@@ -127,7 +127,9 @@ coefficients in place, with no recompile.
   transparency can instead resume the same trace past the hit, from the
   segments on its stack. Several continuations from one hit are a bounded
   per-pixel queue of weighted rays, run in a loop as trace()'s own stack
-  is. The stop mask above says which materials end each.
+  is. The stop mask above says which materials end each. Built so far:
+  mirrors (`reflective`), one bounce, for camera rays - main()'s loop
+  round its one trace() call site, MAX_BOUNCES deep.
 - **Lights scoped by env.** An env node is a scope, and its lights belong
   to it: a hit is lit only by the lights of its env and those enclosing it,
   each shadow ray traced from that env node rather than the root (a node's

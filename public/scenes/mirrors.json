@@ -1,0 +1,40 @@
+{
+  "camera": { "position": [7.5, -9.5, 3.2], "direction": [-0.55, 0.8, -0.24], "distance": 12 },
+
+  "materials": {
+    "shell":  { "albedo": [0.28, 0.29, 0.33] },
+    "floor":  { "albedo": [0.36, 0.37, 0.40], "albedo2": [0.14, 0.15, 0.18],
+                "pattern": "checker", "scale": 1 },
+    "mirror": { "reflective": true, "albedo": [0.9, 0.9, 0.9] },
+    "gold":   { "reflective": true, "albedo": [1.0, 0.78, 0.36] },
+    "red":    { "kind": "glossy", "albedo": [0.70, 0.16, 0.12], "shininess": 60, "specular": 0.8 },
+    "green":  { "kind": "glossy", "albedo": [0.18, 0.55, 0.24], "shininess": 60, "specular": 0.8 },
+    "blue":   { "kind": "glossy", "albedo": [0.16, 0.26, 0.70], "shininess": 60, "specular": 0.8 },
+    "chalk":  { "kind": "unlit", "albedo": [0.85, 0.83, 0.78] }
+  },
+
+  "lights": [
+    { "pos": [-4, -6, 7], "color": [60, 52, 44] },
+    { "pos": [6, -2, 4], "color": [14, 18, 30] }
+  ],
+
+  "root": {
+    "sphere": { "center": [0, 0, 0], "radius": 25, "complement": true },
+    "material": "shell",
+    "outside": {
+      "plane": { "offset": -1 },
+      "material": "floor",
+      "outside": {
+        "plane": { "normal": [0, -1, 0], "offset": -5 },
+        "material": "mirror",
+        "outside": { "group": [
+          { "sphere": { "center": [0, 0, 0.5], "radius": 1.5 }, "material": "gold" },
+          { "sphere": { "center": [-2.8, -1.2, -0.3], "radius": 0.7 }, "material": "red" },
+          { "sphere": { "center": [2.6, -1.6, -0.3], "radius": 0.7 }, "material": "green" },
+          { "sphere": { "center": [-0.6, -3.4, -0.5], "radius": 0.5 }, "material": "blue" },
+          { "sphere": { "center": [2.0, 2.6, -0.4], "radius": 0.6 }, "material": "chalk" }
+        ] }
+      }
+    }
+  }
+}

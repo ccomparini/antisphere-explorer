@@ -1037,6 +1037,7 @@ export const DEFAULT_INSIDE_BIT = 0x80000000;
 export const ROOT = 1;
 export const TRACE_STACK_SIZE = 32;
 export const DEGENERATE = 1e-12;
+export const MAX_BOUNCES = 1;
 export const JACOBI_SWEEPS = 5;
 export const OVERLAP_STEPS = 24;
 export const OVERLAP_TAU = 1e-5;
