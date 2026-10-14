@@ -181,7 +181,9 @@ fn noise2d(x: f32, y: f32) -> f32 {
 
 
 // Ordered so the two scalars and the vec2 fill the 16 bytes ahead of the
-// first vec3, which has to start on a 16-byte boundary anyway: 48 bytes.
+// first vec3, which has to start on a 16-byte boundary anyway: 64 bytes,
+// with 4 free after albedo2. What a ray does in a material - its trace
+// flags - is not here but in each node's material id (Node.material_id).
 struct Material {
   kind    : u32,       // selects the shading function
   pattern : u32,       // albedo modulation, independent of kind
@@ -189,7 +191,6 @@ struct Material {
   albedo  : vec3<f32>,
   scale   : f32,       // pattern tile size: larger is bigger tiles
   albedo2 : vec3<f32>,
-  solid   : u32,       // 0 or 1; used to determine if it stops rays
   // An env node's material: the env's ambient level - its own and what it
   // lets in of the level around it (transmit, params.x), baked by
   // bakeScopes() in antisphere-scene.js, one copy of the material for each
@@ -201,13 +202,13 @@ const KIND_LAMBERT  : u32 = 0u;
 const KIND_GLOSSY   : u32 = 1u;
 const KIND_EMISSIVE : u32 = 2u;
 const KIND_UNLIT    : u32 = 3u;
-// An ambient material never shades, and is not solid. A node naming one
+// An ambient material never shades, and has no trace flags by default. A node naming one
 // starts an env: every node beneath it has it as its env (see Node.env and
 // bakeScopes() in antisphere-scene.js), and its albedo is the ambient
 // level there.
 const KIND_AMBIENT  : u32 = 4u;
 // A glow region: like an ambient material, a region rather than a
-// substance - not solid by default, and a node naming one starts an env -
+// substance - no trace flags by default, and a node naming one starts an env -
 // but lit from within instead of at a level: its albedo is the light at
 // its node's centre, falling to nothing at the node's surface (addGlow()).
 // Worked out from the node's own coefficients at every hit, so changing
@@ -948,4 +949,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":128},{"path":"shaders/random.wgsls","offset":130,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":161,"lines":789}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":128},{"path":"shaders/random.wgsls","offset":130,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":161,"lines":790}]

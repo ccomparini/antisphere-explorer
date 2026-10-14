@@ -2248,8 +2248,8 @@ export function compileScene(rawSpec, options = {}) {
 }
 
 // A material as the GPU stores it: Material in shaders/antisphere-raycast.wgsls,
-// written through the Material class generated from it. solid crosses as
-// u32, since bool can't be shared with the GPU.
+// written through the Material class generated from it. Its trace flags
+// go to the GPU in its nodes' material ids (packNodes()), not here.
 export function packMaterials(list) {
   const views = Material.allocate(list.length);
   list.forEach((m, j) => {
@@ -2260,7 +2260,6 @@ export function packMaterials(list) {
       albedo: m.albedo,
       scale: m.scale,
       albedo2: m.albedo2,
-      solid: isSolid(m) ? 1 : 0,
       ambient: m.ambient ?? [0, 0, 0],
     });
   });

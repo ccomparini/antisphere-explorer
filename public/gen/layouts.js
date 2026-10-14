@@ -231,7 +231,6 @@ export class Material {
     albedo: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
     scale: Object.freeze({ offset: 28, type: 'f32' }),
     albedo2: Object.freeze({ offset: 32, type: 'vec3<f32>' }),
-    solid: Object.freeze({ offset: 44, type: 'u32' }),
     ambient: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
   });
 
@@ -264,9 +263,6 @@ export class Material {
       f32[w + 9] = values.albedo2[1];
       f32[w + 10] = values.albedo2[2];
     }
-    if (values.solid !== undefined) {
-      u32[w + 11] = values.solid;
-    }
     if (values.ambient !== undefined) {
       f32[w + 12] = values.ambient[0];
       f32[w + 13] = values.ambient[1];
@@ -283,7 +279,6 @@ export class Material {
       albedo: [f32[w + 4], f32[w + 5], f32[w + 6]],
       scale: f32[w + 7],
       albedo2: [f32[w + 8], f32[w + 9], f32[w + 10]],
-      solid: u32[w + 11],
       ambient: [f32[w + 12], f32[w + 13], f32[w + 14]],
     };
   }
