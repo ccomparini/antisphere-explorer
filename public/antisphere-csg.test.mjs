@@ -10,7 +10,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene } from './antisphere-scene.js';
+import { compileScene, isSolid } from './antisphere-scene.js';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -42,7 +42,7 @@ function at(built, R) {
   for (let step = 0; step < 500; step++) {
     const nd = built.nodes[index];
     if (H(nd.prim, R) < 0) {
-      if (built.materials[nd.material].solid) { if (!found) found = index; }
+      if (isSolid(built.materials[nd.material])) { if (!found) found = index; }
       else found = 0;
       index = nd.inside;
     } else {
@@ -608,7 +608,7 @@ test('a node\'s env is the node its ambient region starts at, and envs chain out
   const kindOf = (e) => built.materials[built.nodes[e].material];
   assert.deepEqual(kindOf(outer).albedo, [0.2, 0.2, 0.3]);
   assert.deepEqual(kindOf(inner).albedo, [0.4, 0.3, 0.2]);
-  assert.equal(kindOf(outer).solid, false);
+  assert.equal(isSolid(kindOf(outer)), false);
   assert.equal(at(built, [0, 10, 0]).solid, false, 'air is no substance');
   assert.equal(at(built, [5, 2, 0]).solid, false);
 });
@@ -686,7 +686,7 @@ test('lights alone make a region, at the ambient level around it', () => {
   const level = (x) => {
     const env = envChain(built, at(built, [x, 0, 0]).node)[0];
     const m = built.materials[built.nodes[env].material];
-    assert.equal(m.solid, false);
+    assert.equal(isSolid(m), false);
     return m.ambient;            // the level there, baked (bakeScopes())
   };
   assert.deepEqual(level(-10), [0.13, 0.13, 0.14]);

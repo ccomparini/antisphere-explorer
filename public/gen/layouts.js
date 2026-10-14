@@ -1010,12 +1010,12 @@ export const BINDINGS = Object.freeze({
 
 // The shaders' scalar consts, as they declare them.
 export const MATERIAL_SOLID = 0x80000000;
-export const MATERIAL_OPTICAL = 0x60000000;
-export const MATERIAL_PLAIN = 0x20000000;
-export const MATERIAL_WATER = 0x40000000;
-export const MATERIAL_GLASS = 0x60000000;
-export const MATERIAL_REFLECTIVE = 0x10000000;
-export const MATERIAL_INDEX = 0x0fffffff;
+export const MATERIAL_OPTICAL = 0x40000000;
+export const MATERIAL_IOR = 0x30000000;
+export const MATERIAL_IOR_GLASS = 0x20000000;
+export const MATERIAL_IOR_WATER = 0x10000000;
+export const MATERIAL_REFLECTIVE = 0x08000000;
+export const MATERIAL_INDEX = 0x07ffffff;
 export const KIND_LAMBERT = 0;
 export const KIND_GLOSSY = 1;
 export const KIND_EMISSIVE = 2;

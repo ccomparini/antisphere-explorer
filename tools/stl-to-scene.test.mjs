@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeSTL } from '../public/stl.js';
-import { compileScene } from '../public/antisphere-scene.js';
+import { compileScene, isSolid } from '../public/antisphere-scene.js';
 
 const script = fileURLToPath(new URL('./stl-to-scene.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'stl-'));
@@ -54,7 +54,7 @@ test('--fit scales it, and it stands on the floor', () => {
     for (let s = 0; s < 5000 && i !== 0; s++) {
       const nd = built.nodes[i];
       if (H(nd.prim, R) < 0) {
-        if (built.materials[nd.material].solid) { if (!f) f = i; } else f = 0;
+        if (isSolid(built.materials[nd.material])) { if (!f) f = i; } else f = 0;
         i = nd.inside;
       } else { f = 0; i = nd.outside; }
     }

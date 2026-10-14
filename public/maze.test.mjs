@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { circularMaze, seeded } from './maze.js';
-import { compileScene } from './antisphere-scene.js';
+import { compileScene, isSolid } from './antisphere-scene.js';
 
 const OPTIONS = { seed: 3, rings: 5, hallWidth: 1.2, wallHeight: 2.5, wallThickness: 0.2, innerRadius: 1.5 };
 
@@ -52,7 +52,7 @@ function solidAt(built, R) {
   for (let step = 0; step < 20000 && index !== 0; step++) {
     const nd = built.nodes[index];
     if (H(nd.prim, R) < 0) {
-      if (built.materials[nd.material].solid) { if (!found) found = index; } else found = 0;
+      if (isSolid(built.materials[nd.material])) { if (!found) found = index; } else found = 0;
       index = nd.inside;
     } else {
       found = 0;

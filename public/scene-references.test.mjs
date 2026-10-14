@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { compileScene, expandReferences, loadReferences, isReference } from './antisphere-scene.js';
+import { compileScene, expandReferences, loadReferences, isReference, isSolid } from './antisphere-scene.js';
 import { writeSTL } from './stl.js';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -19,7 +19,7 @@ function albedoAt(built, R) {
   while (index) {
     const nd = built.nodes[index];
     if (H(nd.prim, R) < 0) {
-      if (built.materials[nd.material].solid) { if (!found) found = index; } else found = 0;
+      if (isSolid(built.materials[nd.material])) { if (!found) found = index; } else found = 0;
       if (!nd.inside) break;
       index = nd.inside;
     } else {

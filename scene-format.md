@@ -93,7 +93,21 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 | `albedo2`  | `[r, g, b]`                                    | `[0.3, 0.3, 0.3]`| secondary color, used by the `"checker"` pattern |
 | `pattern`  | `"flat"` \| `"checker"`                        | `"flat"`         | how `albedo`/`albedo2` are combined across the surface |
 | `scale`    | number                                          | `1`              | checker pattern tile size: larger is bigger tiles |
-| `solid`    | boolean                                         | `true`           | whether this material counts as solid geometry (`false` for e.g. water, glass, or a material only ever used on a purely spatial-subdivision node) |
+| `solid`    | boolean                                         | `true`           | there physically: the walk camera, physics and picking stop at it |
+| `optical`  | boolean                                         | `true`           | meets light: camera and shadow rays stop at it (`false`: invisible, and casts no shadow) |
+| `iorGlass` | boolean                                         | `false`          | a ray going on through it refracts with index 1.5 |
+| `iorWater` | boolean                                         | `false`          | a ray going on through it refracts with index 1.333 |
+| `reflective` | boolean                                       | `false`          | a ray going on from it is reflected, not refracted |
+
+The boolean fields are the material's **trace flags**: every single-bit
+`MATERIAL_` constant in `shaders/node.wgsls`, named without `MATERIAL_` and
+camelCased, so a flag added there is a field here at once. Each sets or
+clears its own bit and no combination is refused: `"solid": false` alone is
+seen but walked through, `"optical": false` alone is there but unseen, and
+an odd combination may render oddly, or be just what is wanted. A material
+with neither `solid` nor `optical` has no interaction at all, like vacuum.
+`"ambient"` and `"glowRegion"` materials default to no flags. (Refraction
+and reflection are not drawn yet; the flags are carried for them.)
 
 `kind`-specific extra fields:
 
@@ -101,13 +115,13 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 - `"emissive"`: `emission` (default `1`)
 - `"lambert"`, `"unlit"`: no extra fields
 - `"ambient"`: `transmit` (default `0`). An ambient material never shades a
-  surface, and is not solid unless `solid` says so. A node naming one starts
+  surface, and has no trace flags unless its fields set them. A node naming one starts
   an ambient region: its `albedo` is the ambient light level for everything
   in the node's `inside` subtree, plus `transmit` times the level around it
   (see "Ambient regions" below).
 - `"glowRegion"`: `transmit` (default `1`), `fill` (default `0`). A region
   like an ambient one - never
-  shades, not solid unless `solid` says so, and a node naming one starts a
+  shades, has no trace flags unless its fields set them, and a node naming one starts a
   region - but lit from within rather than at a level: its `albedo` is the
   light at the node's centre, falling off as a light's does and fading to
   nothing at the node's surface (see "Glow regions" below).
@@ -326,8 +340,9 @@ region.
 What fills an undivided region is decided by materials, not by the shape:
 the node's own `"material"` applies to its `"inside"`, so an undivided
 inside is a region of that material, while an undivided outside is left to
-whatever encloses it. A material with `"solid": false` — vacuum among them —
-is a region a ray passes through.
+whatever encloses it. A material with neither `"solid"` nor `"optical"` —
+vacuum among them — is a region every ray passes through; one without
+`"optical"`, a region light passes through.
 
 A bare primitive with neither field is therefore just the shape, made of
 whatever material the node names (or inherits), and with `"complement":
@@ -480,7 +495,7 @@ Selecting a cut face in the editor picks the object that did the cutting,
 which is usually what you want to drag.
 
 One thing a cutter's material can't do is make the region it carves
-invisible: a material with `"solid": false` there stops the whole region
+invisible: a material with `"optical": false` there stops the whole region
 registering as a hit, rather than revealing what was cut.
 
 Nesting is how anything more complicated is said:

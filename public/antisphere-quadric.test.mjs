@@ -12,8 +12,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene, packNodes, packSurfaces } from './antisphere-scene.js';
+import { compileScene, packNodes, packSurfaces, MATERIAL_FLAG_KEYS, isSolid } from './antisphere-scene.js';
 import { Node, viewsOf } from './gen/layouts.js';
+import * as layouts from './gen/layouts.js';
 
 // Every node of a one-primitive scene, as the GPU would see it.
 function packed(shape, extra = {}) {
@@ -568,27 +569,67 @@ test('packSurfaces: copies and complements of a surface share an id, other surfa
   assert.ok(built.nodes.length - 1 > byShape.size, 'and some of them copied');
 });
 
-test('a node\'s material id carries its material\'s trace flags over the index', async () => {
-  const { MATERIAL_SOLID, MATERIAL_PLAIN, MATERIAL_INDEX } = await import('./gen/layouts.js');
-  const built = compileScene({
-    materials: { stone: {}, air: { solid: false } },
-    lights: [],
-    root: { sphere: { center: [0, 0, 0], radius: 5 }, material: null,
-            inside: { sphere: { center: [0, 0, 0], radius: 2 }, material: 'air',
-                      inside: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'stone' } } },
-  });
+test('a material\'s flag keys are the single-bit MATERIAL_ constants', () => {
+  assert.deepEqual(Object.keys(MATERIAL_FLAG_KEYS).sort(), ['iorGlass', 'iorWater', 'optical', 'reflective', 'solid']);
+  assert.equal(MATERIAL_FLAG_KEYS.solid, layouts.MATERIAL_SOLID >>> 0);
+  assert.equal(MATERIAL_FLAG_KEYS.iorGlass, layouts.MATERIAL_IOR_GLASS);
+  // Masks are more than one bit, so no keys: not INDEX, not IOR.
+  for (const bit of Object.values(MATERIAL_FLAG_KEYS)) {
+    assert.equal(bit & layouts.MATERIAL_INDEX, 0);
+    assert.notEqual(bit, layouts.MATERIAL_IOR);
+  }
+});
+
+test('a node\'s material id carries its material\'s trace flags over the index', () => {
+  const { MATERIAL_SOLID: SOLID, MATERIAL_OPTICAL: OPTICAL, MATERIAL_IOR_GLASS: GLASS,
+          MATERIAL_IOR_WATER: WATER, MATERIAL_REFLECTIVE: REFLECTIVE, MATERIAL_INDEX } = layouts;
+  const u32 = (v) => v >>> 0;     // as a u32, not JS's signed int
+  const materials = {
+    stone:  {},                                         // solid and seen, by default
+    ghost:  { solid: false },                           // seen, walked through
+    fence:  { optical: false },                         // there, unseen
+    glass:  { iorGlass: true },
+    water:  { solid: false, iorWater: true },
+    mirror: { reflective: true },
+    odd:    { optical: false, iorGlass: true, iorWater: true },   // compiled as written
+    level:  { kind: 'ambient' },                        // a region's surroundings: no flags
+    lit:    { kind: 'ambient', optical: true },         // unless it says so
+  };
+  const want = {
+    stone: SOLID | OPTICAL, ghost: OPTICAL, fence: SOLID, glass: SOLID | OPTICAL | GLASS,
+    water: OPTICAL | WATER, mirror: SOLID | OPTICAL | REFLECTIVE, odd: SOLID | GLASS | WATER,
+    level: 0, lit: OPTICAL,
+  };
+  // Each material fills one ball, nested; the outermost is a pure division.
+  let root = null;
+  for (const name of Object.keys(materials).reverse()) {
+    root = { sphere: { center: [0, 0, 0], radius: 10 - Object.keys(materials).indexOf(name) }, material: name, ...(root ? { inside: root } : {}) };
+  }
+  const built = compileScene({ materials, lights: [], root: { sphere: { center: [0, 0, 0], radius: 20 }, material: null, inside: root } });
   const views = viewsOf(packNodes(built.nodes, built.materials));
-  const SOLID_PLAIN = (MATERIAL_SOLID | MATERIAL_PLAIN) >>> 0;   // >>> 0: as a u32, not JS's signed int
+  const named = new Map();
   for (let i = 1; i < built.nodes.length; i++) {
     const id = Node.read(views, i).material_id;
     const { material } = built.nodes[i];
     assert.equal(id & MATERIAL_INDEX, material, `node ${i}'s index`);
-    // A solid material is SOLID and PLAIN (optical, no refraction); a
-    // division or a non-solid material has no flags: no interaction.
-    assert.equal((id & ~MATERIAL_INDEX) >>> 0, built.materials[material].solid ? SOLID_PLAIN : 0, `node ${i}`);
+    assert.equal(u32(id & ~MATERIAL_INDEX), built.materials[material].flags, `node ${i}'s flags`);
+    named.set(material, u32(id & ~MATERIAL_INDEX));
   }
+  assert.equal(named.get(0), 0, 'a pure division: no flags, no interaction');
+  // By name: the table is in the order the scene names them, from 1.
+  Object.entries(want).forEach(([name, flags], k) => {
+    if (!['level', 'lit'].includes(name)) assert.equal(named.get(k + 1), u32(flags), `${name}'s nodes`);
+    assert.equal(built.materials[k + 1].flags, u32(flags), name);
+    assert.equal(isSolid(built.materials[k + 1]), (flags & SOLID) !== 0, `${name} isSolid`);
+  });
+  // The ambients' nodes are filled by baked copies (bakeScopes()), which
+  // keep the flags.
+  const ambients = [...named].filter(([j]) => j > Object.keys(want).length).map(([, f]) => f).sort();
+  assert.deepEqual(ambients, [0, u32(OPTICAL)]);
   // Without the table, the index alone (physics reads no flags).
   for (let i = 1; i < built.nodes.length; i++) {
     assert.equal(Node.read(viewsOf(packNodes(built.nodes)), i).material_id, built.nodes[i].material);
   }
+  assert.throws(() => compileScene({ materials: { x: { solid: 'yes' } }, lights: [], root: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'x' } }),
+                /materials\.x\.solid: must be true or false/);
 });
