@@ -90,7 +90,7 @@ struct Node {
 //   bits 28-29 IOR, the index of refraction a ray going on through takes:
 //              none set, 1.0 (straight on); IOR_GLASS 1.5; IOR_WATER 1.333
 //   bit 27     REFLECTIVE: a mirror - a camera ray goes on reflected, and
-//              the hit shows what it sees, times its albedo (shade())
+//              the hit shows what it sees, times its albedo (main())
 //   bits 0-26  the material's index (materialIndex())
 const MATERIAL_SOLID      : u32 = 0x80000000u;
 const MATERIAL_OPTICAL    : u32 = 0x40000000u;
@@ -842,34 +842,17 @@ fn shadeUnlit(hit : Hit) -> vec3<f32> {
   return albedoAt(hit, surfaceMaterial(hit));
 }
 
-// What shading a hit gives: its own light, and whether the ray goes on
-// from it - a continuation, whose light is multiplied by `tint`. How a
-// continuing ray is bent is main()'s, by the hit's trace flags.
-struct Shaded {
-  color     : vec3<f32>,
-  tint      : vec3<f32>,
-  continues : bool,
-};
-
-// A reflective hit (MATERIAL_REFLECTIVE) is a mirror: no shading of its own,
-// only what the reflected ray sees, times its albedo.
-fn shade(hit : Hit) -> Shaded {
-  let m = surfaceMaterial(hit);
-  if ((nodes[hit.node].material_id & MATERIAL_REFLECTIVE) != 0u) {
-    return Shaded(vec3<f32>(0.0), albedoAt(hit, m), true);
+fn shade(hit : Hit) -> vec3<f32> {
+  switch (surfaceMaterial(hit).kind) {
+    case KIND_GLOSSY:   { return shadeGlossy(hit); }
+    case KIND_EMISSIVE: { return shadeEmissive(hit); }
+    case KIND_UNLIT:    { return shadeUnlit(hit); }
+    default:            { return shadeLambert(hit); }
   }
-  var color : vec3<f32>;
-  switch (m.kind) {
-    case KIND_GLOSSY:   { color = shadeGlossy(hit); }
-    case KIND_EMISSIVE: { color = shadeEmissive(hit); }
-    case KIND_UNLIT:    { color = shadeUnlit(hit); }
-    default:            { color = shadeLambert(hit); }
-  }
-  return Shaded(color, vec3<f32>(0.0), false);
 }
 
-// How many times a camera ray may go on from a hit (Shaded.continues): a
-// mirror reached past that shows black.
+// How many times a camera ray may go on from a hit (main()): a mirror
+// reached past that shows black.
 const MAX_BOUNCES : u32 = 1u;
 
 // Perceptually ordered ramp for the cost views: dark blue through cyan,
@@ -920,8 +903,12 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // the work being measured, so every level writes something derived
   // from what it computed.
   //
-  // The camera ray, and each ray it goes on as (Shaded.continues), in one
-  // loop - one trace() call site, however many bounces. A continuation
+  // The camera ray, and each ray it goes on as, in one loop - one trace()
+  // call site, however many bounces. The loop only traces and bends: a
+  // mirror (MATERIAL_REFLECTIVE) has no light of its own, only a tint on
+  // what its reflected ray sees, so the one hit shaded is the last, after
+  // the loop. (Shading inside it - and its shadow rays' trace() - cost
+  // 12-32% on scenes with no mirror at all, on Intel.) A continuation
   // starts exactly on the surface it leaves, as a shadow ray does
   // (fromSurface): it never meets that surface where it starts, and which
   // side it is on goes by its direction. The debug views show the first hit.
@@ -931,6 +918,8 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   var weight = vec3<f32>(1.0);
   var tMin = 1e-3;
   var fromSurface = 0u;
+  var hit : Hit;
+  var shadeHit = false;
   for (var bounce = 0u; bounce <= MAX_BOUNCES; bounce = bounce + 1u) {
     if (cam.ablate < ABLATE_TRACE) {
       col = abs(dir) * 0.25;
@@ -944,10 +933,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     }
     if (seg.node == 0u) { break; }   // a miss: nothing more (black, for now)
 
-    // the ray entered seg.node - render according to the node's material
-    // (see shade())
     let nd = nodes[seg.node];
-    var hit : Hit;
     hit.node = seg.node;
     hit.position = origin + seg.t0 * dir;
     hit.normal = normalize(gradAt(nd, hit.position));
@@ -955,17 +941,17 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     hit.toViewer = -dir;
     hit.surfaceCoords = frame(nd, hit.position) / materials[materialIndex(nd.material_id)].scale;
     if (bounce == 0u) { N = hit.normal; }
-    let shaded = shade(hit);
-    col = col + weight * shaded.color;
-    if (!shaded.continues) { break; }
+    if ((nd.material_id & MATERIAL_REFLECTIVE) == 0u) { shadeHit = true; break; }
 
-    // Going on: reflected (MATERIAL_REFLECTIVE, so far the only way on).
-    weight = weight * shaded.tint;
+    // A mirror: reflected, its albedo the tint on what that ray sees. One
+    // reached on the last bounce leaves shadeHit false: black.
+    weight = weight * albedoAt(hit, surfaceMaterial(hit));
     dir = reflect(dir, hit.normal);
     origin = hit.position;
     fromSurface = surfaces[hit.node];
     tMin = 0.0;
   }
+  if (shadeHit) { col = weight * shade(hit); }
 
   var outCol = pow(col, vec3<f32>(1.0 / 2.2));
   switch (cam.debug) {
@@ -993,4 +979,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":129},{"path":"shaders/random.wgsls","offset":131,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":162,"lines":833}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":129},{"path":"shaders/random.wgsls","offset":131,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":162,"lines":819}]

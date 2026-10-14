@@ -90,7 +90,7 @@ struct Node {
 //   bits 28-29 IOR, the index of refraction a ray going on through takes:
 //              none set, 1.0 (straight on); IOR_GLASS 1.5; IOR_WATER 1.333
 //   bit 27     REFLECTIVE: a mirror - a camera ray goes on reflected, and
-//              the hit shows what it sees, times its albedo (shade())
+//              the hit shows what it sees, times its albedo (main())
 //   bits 0-26  the material's index (materialIndex())
 const MATERIAL_SOLID      : u32 = 0x80000000u;
 const MATERIAL_OPTICAL    : u32 = 0x40000000u;
