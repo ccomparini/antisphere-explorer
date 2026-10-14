@@ -59,8 +59,8 @@ struct Node {
   //
   // It is a material id: the low bits that index, the high bits trace
   // flags - what a ray does here, read without looking the material up
-  // (see trace()). MATERIAL_SOLID: the material is solid. Index with
-  // materialIndex().
+  // (see trace(), and the MATERIAL_ constants below for the layout). Index
+  // with materialIndex().
   material_id     : u32,
 
   // Where R is measured from (see above): the quadric's centre where it has
@@ -77,8 +77,29 @@ struct Node {
 };
 
 // A material id's trace flags (see Node.material_id), and its index.
-const MATERIAL_SOLID : u32 = 0x80000000u;
-const MATERIAL_INDEX : u32 = 0x7fffffffu;
+// A material id's trace flags: what a ray does in the region. All of them 0
+// means no interaction at all - a pure division, empty space - so nothing
+// is ever set just to say "passes".
+//
+//   bit 31      SOLID: there, physically - for the walk camera, physics,
+//               and castRays()
+//   bits 29-30  OPTICAL, a two-bit field: how it meets light
+//                 00  no interaction
+//                 01  PLAIN: interacts, no refraction (opaque solids;
+//                     tinted glass)
+//                 10  WATER: refracts, index 1.333
+//                 11  GLASS: refracts, index 1.5
+//               Whether a ray stops there or goes on is the material's
+//               shading's call; the field says how it bends if it goes on.
+//   bit 28      REFLECTIVE: a ray going on is reflected, not refracted
+//   bits 0-27   the material's index (materialIndex())
+const MATERIAL_SOLID      : u32 = 0x80000000u;
+const MATERIAL_OPTICAL    : u32 = 0x60000000u;
+const MATERIAL_PLAIN      : u32 = 0x20000000u;
+const MATERIAL_WATER      : u32 = 0x40000000u;
+const MATERIAL_GLASS      : u32 = 0x60000000u;
+const MATERIAL_REFLECTIVE : u32 = 0x10000000u;
+const MATERIAL_INDEX      : u32 = 0x0fffffffu;
 fn materialIndex(id : u32) -> u32 { return id & MATERIAL_INDEX; }
 
 // The implicit function at an arbitrary point. trace() no longer calls this:
@@ -344,8 +365,9 @@ const DEGENERATE : f32 = 1e-12;
 // sees only what that env holds.
 //
 // `stop_flags` says what this ray stops at: a region whose material id has
-// any of these trace flags (see Node.material_id) - MATERIAL_SOLID, today,
-// for every ray.
+// any of these trace flags (see Node.material_id): MATERIAL_OPTICAL for a
+// ray that is light (camera rays, shadow rays), MATERIAL_SOLID for one that
+// wants what is physically there (castRays()).
 fn trace(
   O : vec3<f32>,
   D : vec3<f32>,
@@ -747,7 +769,7 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
     // a room's lamp is shadowed by the room alone (and its rays take the
     // room's subtree, not the scene's). Env 0's lights see everything.
     let start = select(ROOT, lt.env | DEFAULT_INSIDE_BIT, lt.env != 0u);
-    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start, MATERIAL_SOLID);
+    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start, MATERIAL_OPTICAL);
     if (blocker.node != 0u) {
       // the ray hit something between us and the light,
       // so we're in shadow:
@@ -878,7 +900,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // from what it computed.
   var found = Seg(0u, -1.0, 0.0);
   if (cam.ablate >= ABLATE_TRACE) {
-    found = trace(origin, dir, 1e-3, FAR, 0u, ROOT, MATERIAL_SOLID);
+    found = trace(origin, dir, 1e-3, FAR, 0u, ROOT, MATERIAL_OPTICAL);
   }
 
   var col = vec3<f32>(0.0);
@@ -928,4 +950,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":109},{"path":"shaders/random.wgsls","offset":111,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":142,"lines":788}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":130},{"path":"shaders/random.wgsls","offset":132,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":163,"lines":789}]

@@ -37,7 +37,7 @@
 import {
   Light, Material, Node,
   KIND_LAMBERT, KIND_GLOSSY, KIND_EMISSIVE, KIND_UNLIT, KIND_AMBIENT, KIND_GLOW_REGION,
-  PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, MATERIAL_SOLID,
+  PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, MATERIAL_SOLID, MATERIAL_PLAIN,
 } from './gen/layouts.js';
 import { regionsDisjoint } from './overlap.js';
 import { readSTL } from './stl.js';
@@ -2347,12 +2347,12 @@ export function packSurfaces(list) {
 //
 // inside/outside are 0 or a real index (see flatten()'s doc comment for
 // what 0 means on each side).
-// MATERIAL_SOLID (from shaders/node.wgsls, by way of layouts.js) is a
-// material id's trace flag: the high bits of Node.material_id, over the
-// material's index.
+// The MATERIAL_ trace flags (from shaders/node.wgsls, by way of
+// layouts.js) are a material id's high bits, over the material's index.
 /**
  * The nodes as the GPU takes them. With `materials` (the compiled table),
- * each node's material id carries its material's trace flags - solid -
+ * each node's material id carries its material's trace flags - a solid one
+ * is SOLID and PLAIN (optical, no refraction), anything else has none -
  * which trace() reads; without, just the index (physics, which reads none).
  */
 export function packNodes(list, materials = null) {
@@ -2371,7 +2371,7 @@ export function packNodes(list, materials = null) {
       anchor: a,
       inside: nd.inside,
       outside: nd.outside,
-      material_id: (nd.material | (materials?.[nd.material]?.solid ? MATERIAL_SOLID : 0)) >>> 0,
+      material_id: (nd.material | (materials?.[nd.material]?.solid ? MATERIAL_SOLID | MATERIAL_PLAIN : 0)) >>> 0,
       env: nd.env,
     });
   });

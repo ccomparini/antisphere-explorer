@@ -567,3 +567,28 @@ test('packSurfaces: copies and complements of a surface share an id, other surfa
   assert.equal(byShape.size, 4, 'the sphere and the three slabs');
   assert.ok(built.nodes.length - 1 > byShape.size, 'and some of them copied');
 });
+
+test('a node\'s material id carries its material\'s trace flags over the index', async () => {
+  const { MATERIAL_SOLID, MATERIAL_PLAIN, MATERIAL_INDEX } = await import('./gen/layouts.js');
+  const built = compileScene({
+    materials: { stone: {}, air: { solid: false } },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 5 }, material: null,
+            inside: { sphere: { center: [0, 0, 0], radius: 2 }, material: 'air',
+                      inside: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'stone' } } },
+  });
+  const views = viewsOf(packNodes(built.nodes, built.materials));
+  const SOLID_PLAIN = (MATERIAL_SOLID | MATERIAL_PLAIN) >>> 0;   // >>> 0: as a u32, not JS's signed int
+  for (let i = 1; i < built.nodes.length; i++) {
+    const id = Node.read(views, i).material_id;
+    const { material } = built.nodes[i];
+    assert.equal(id & MATERIAL_INDEX, material, `node ${i}'s index`);
+    // A solid material is SOLID and PLAIN (optical, no refraction); a
+    // division or a non-solid material has no flags: no interaction.
+    assert.equal((id & ~MATERIAL_INDEX) >>> 0, built.materials[material].solid ? SOLID_PLAIN : 0, `node ${i}`);
+  }
+  // Without the table, the index alone (physics reads no flags).
+  for (let i = 1; i < built.nodes.length; i++) {
+    assert.equal(Node.read(viewsOf(packNodes(built.nodes)), i).material_id, built.nodes[i].material);
+  }
+});

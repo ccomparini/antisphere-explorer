@@ -57,8 +57,8 @@ struct Node {
   //
   // It is a material id: the low bits that index, the high bits trace
   // flags - what a ray does here, read without looking the material up
-  // (see trace()). MATERIAL_SOLID: the material is solid. Index with
-  // materialIndex().
+  // (see trace(), and the MATERIAL_ constants below for the layout). Index
+  // with materialIndex().
   material_id     : u32,
 
   // Where R is measured from (see above): the quadric's centre where it has
@@ -75,8 +75,29 @@ struct Node {
 };
 
 // A material id's trace flags (see Node.material_id), and its index.
-const MATERIAL_SOLID : u32 = 0x80000000u;
-const MATERIAL_INDEX : u32 = 0x7fffffffu;
+// A material id's trace flags: what a ray does in the region. All of them 0
+// means no interaction at all - a pure division, empty space - so nothing
+// is ever set just to say "passes".
+//
+//   bit 31      SOLID: there, physically - for the walk camera, physics,
+//               and castRays()
+//   bits 29-30  OPTICAL, a two-bit field: how it meets light
+//                 00  no interaction
+//                 01  PLAIN: interacts, no refraction (opaque solids;
+//                     tinted glass)
+//                 10  WATER: refracts, index 1.333
+//                 11  GLASS: refracts, index 1.5
+//               Whether a ray stops there or goes on is the material's
+//               shading's call; the field says how it bends if it goes on.
+//   bit 28      REFLECTIVE: a ray going on is reflected, not refracted
+//   bits 0-27   the material's index (materialIndex())
+const MATERIAL_SOLID      : u32 = 0x80000000u;
+const MATERIAL_OPTICAL    : u32 = 0x60000000u;
+const MATERIAL_PLAIN      : u32 = 0x20000000u;
+const MATERIAL_WATER      : u32 = 0x40000000u;
+const MATERIAL_GLASS      : u32 = 0x60000000u;
+const MATERIAL_REFLECTIVE : u32 = 0x10000000u;
+const MATERIAL_INDEX      : u32 = 0x0fffffffu;
 fn materialIndex(id : u32) -> u32 { return id & MATERIAL_INDEX; }
 
 // The implicit function at an arbitrary point. trace() no longer calls this:
