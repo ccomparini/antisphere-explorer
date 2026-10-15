@@ -25,6 +25,10 @@
         "reflective": true,
         "albedo": [ 0.9, 0.9, 0.9 ]
       },
+      "imperfect_mirror": {
+        "reflective": true,
+        "albedo": [ 0.4, 0.5, 0.6 ]
+      },
       "gold": {
         "reflective": true,
         "albedo": [ 1, 0.78, 0.36 ]
@@ -152,11 +156,12 @@
         }
       ]
     },
-    "root_object_0": {
+    "outer_world": {
       "material": "shell",
       "complement": true,
       "intersect": [
         {
+          "material": "shell",
           "cylinder": {
             "center": [ 0, 0, 0 ],
             "radius": 25
@@ -172,59 +177,76 @@
     }
   },
   "root": {
-    "material": "dark",
-    "cylinder": {
-      "center": [ 0, 0, 0 ],
-      "radius": 25,
-      "complement": true
-    },
-    "outside": {
-      "plane": {
+    "group": [
+      {
+        "use": "outer_world"
       },
-      "material": "floor",
-      "outside": {
+      {
+        "plane": {
+          
+        },
+        "material": "floor"
+      },
+      {
+        "_comment": "slanted mirrored ceiling",
         "plane": {
           "normal": [ 0, -0.35, -1 ],
-          "offset": -10
+          "offset": -4
         },
-        "material": "mirror",
-        "outside": {
-          "group": [
-            {
-              "use": "ring",
-              "translate": [ 4, -6, 3 ],
-              "rotate": {
-                "axis": [ -1, 1, 0 ],
-                "degrees": 23
-              }
-            },
-            {
-              "use": "dinosaur-egg",
-              "translate": [ 6, 2, 0.5 ],
-              "rotate": {
-                "axis": [ 0, 0, 1 ],
-                "degrees": 87
-              }
-            },
-            {
-              "use": "dinosaur-egg",
-              "translate": [ -6, -1.6, 0.5 ],
-              "rotate": {
-                "axis": [ 0, 0, 1 ],
-                "degrees": 12
-              }
-            },
-            {
-              "use": "dinosaur-egg",
-              "translate": [ 2.6, -1.6, 0.5 ],
-              "rotate": {
-                "axis": [ 0, 0, 1 ],
-                "degrees": -60
-              }
+        "material": "imperfect_mirror"
+      },
+      {
+        "group": [
+          {
+            "use": "ring",
+            "translate": [ 4, -6, 3 ],
+            "rotate": {
+              "axis": [ -1, 1, 0 ],
+              "degrees": 23
             }
-          ]
-        }
+          },
+          {
+            "use": "dinosaur-egg",
+            "translate": [ 6, 2, 0.5 ],
+            "rotate": {
+              "axis": [ 0, 0, 1 ],
+              "degrees": 87
+            }
+          },
+          {
+            "use": "dinosaur-egg",
+            "translate": [ -6, -6, 0.5 ],
+            "rotate": {
+              "axis": [ 0, 0, 1 ],
+              "degrees": 12
+            }
+          },
+          {
+            "use": "dinosaur-egg",
+            "translate": [ 4, -8.5, 0.5 ],
+            "rotate": {
+              "axis": [ 0, 0, 1 ],
+              "degrees": 12
+            }
+          },
+          {
+            "use": "dinosaur-egg",
+            "translate": [ -12, -5, 0.5 ],
+            "rotate": {
+              "axis": [ 0, 0, 1 ],
+              "degrees": 68
+            }
+          },
+          {
+            "use": "dinosaur-egg",
+            "translate": [ 2.6, 3.6, 0.5 ],
+            "rotate": {
+              "axis": [ 0, 0, 1 ],
+              "degrees": -60
+            }
+          }
+        ]
       }
-    }
+    ]
   }
 }
