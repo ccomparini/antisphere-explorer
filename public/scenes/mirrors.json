@@ -1,39 +1,229 @@
 {
-  "camera": { "position": [7.5, -9.5, 3.2], "direction": [-0.55, 0.8, -0.24], "distance": 12 },
-
-  "materials": {
-    "shell":  { "albedo": [0.28, 0.29, 0.33] },
-    "floor":  { "albedo": [0.36, 0.37, 0.40], "albedo2": [0.14, 0.15, 0.18],
-                "pattern": "checker", "scale": 1 },
-    "mirror": { "reflective": true, "albedo": [0.9, 0.9, 0.9] },
-    "gold":   { "reflective": true, "albedo": [1.0, 0.78, 0.36] },
-    "red":    { "kind": "glossy", "albedo": [0.70, 0.16, 0.12], "shininess": 60, "specular": 0.8 },
-    "green":  { "kind": "glossy", "albedo": [0.18, 0.55, 0.24], "shininess": 60, "specular": 0.8 },
-    "blue":   { "kind": "glossy", "albedo": [0.16, 0.26, 0.70], "shininess": 60, "specular": 0.8 },
-    "chalk":  { "kind": "unlit", "albedo": [0.85, 0.83, 0.78] }
+  "camera": {
+    "position": [ 7.5, -9.5, 3.2 ],
+    "direction": [ -0.55, 0.8, -0.24 ],
+    "distance": 12
   },
-
-  "lights": [
-    { "pos": [-4, -6, 7], "color": [60, 52, 44] },
-    { "pos": [6, -2, 4], "color": [14, 18, 30] }
+  "materials": [
+    "@lib/materials.json",
+    {
+      "dark": {
+        "albedo": [ 0.05, 0.05, 0.05 ]
+      },
+      "shell": {
+        "albedo": [ 0.28, 0.29, 0.33 ],
+        "albedo2": [ 0.14, 0.15, 0.165 ],
+        "pattern": "industrialcarpet"
+      },
+      "floor": {
+        "albedo": [ 0.36, 0.37, 0.4 ],
+        "albedo2": [ 0.14, 0.15, 0.18 ],
+        "pattern": "industrialcarpet",
+        "scale": 0.05
+      },
+      "mirror": {
+        "reflective": true,
+        "albedo": [ 0.9, 0.9, 0.9 ]
+      },
+      "gold": {
+        "reflective": true,
+        "albedo": [ 1, 0.78, 0.36 ]
+      },
+      "gold_noreflect": {
+        "reflective": false,
+        "albedo": [ 0.97, 0.75, 0.36 ],
+        "shininess": 190,
+        "specular": 0.6
+      },
+      "red": {
+        "kind": "glossy",
+        "albedo": [ 0.7, 0.16, 0.12 ],
+        "shininess": 60,
+        "specular": 0.8
+      },
+      "green": {
+        "kind": "glossy",
+        "albedo": [ 0.18, 0.55, 0.24 ],
+        "shininess": 60,
+        "specular": 0.8
+      },
+      "blue": {
+        "kind": "glossy",
+        "albedo": [ 0.16, 0.26, 0.7 ],
+        "shininess": 60,
+        "specular": 0.8
+      },
+      "chalk": {
+        "kind": "unlit",
+        "albedo": [ 0.85, 0.83, 0.78 ]
+      }
+    }
   ],
-
+  "lights": [
+    {
+      "pos": [ -4, -6, 7 ],
+      "color": [ 60, 52, 44 ]
+    },
+    {
+      "pos": [ 6, -2, 4 ],
+      "color": [ 14, 18, 30 ]
+    }
+  ],
+  "objects": {
+    "pillar_failing": {
+      "material": "blue",
+      "union": [
+        {
+          "cylinder": {
+            "radius": 0.7
+          }
+        },
+        {
+          "hyperboloid": {
+            "center": [ 0, 0, 8 ],
+            "radius": 0.7
+          }
+        }
+      ]
+    },
+    "pillar": {
+      "material": "blue",
+      "cylinder": {
+        "radius": 0.7
+      }
+    },
+    "dinosaur-egg": {
+      "spheroid": {
+        "radius": 0.7
+      },
+      "material": "green"
+    },
+    "ring": {
+      "_no_material_allowed_here_this_was_the_problem": "gold",
+      "difference": [
+        {
+          "material": "gold",
+          "spheroid": {
+            "axis": [ 0, 0, 1 ],
+            "radius": 1,
+            "height": 1
+          }
+        },
+        {
+          "cylinder": {
+            "radius": 0.8
+          },
+          "material": "gold_noreflect"
+        }
+      ]
+    },
+    "house_shape": {
+      "union": [
+        {
+          "slab": {
+            "axis": [ 1, 0, 0 ],
+            "thickness": 20
+          }
+        },
+        {
+          "slab": {
+            "axis": [ 0, 1, 0 ],
+            "thickness": 15
+          }
+        }
+      ]
+    },
+    "pedestal": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 1
+          },
+          "material": "stone"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 0.15 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 0.3
+          }
+        }
+      ]
+    },
+    "root_object_0": {
+      "material": "shell",
+      "complement": true,
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "radius": 25
+          }
+        },
+        {
+          "slab": {
+            "axis": [ 0, 0, 1 ],
+            "thickness": 23
+          }
+        }
+      ]
+    }
+  },
   "root": {
-    "sphere": { "center": [0, 0, 0], "radius": 25, "complement": true },
-    "material": "shell",
+    "material": "dark",
+    "cylinder": {
+      "center": [ 0, 0, 0 ],
+      "radius": 25,
+      "complement": true
+    },
     "outside": {
-      "plane": { "offset": -1 },
+      "plane": {
+      },
       "material": "floor",
       "outside": {
-        "plane": { "normal": [0, -1, 0], "offset": -5 },
+        "plane": {
+          "normal": [ 0, -0.35, -1 ],
+          "offset": -10
+        },
         "material": "mirror",
-        "outside": { "group": [
-          { "sphere": { "center": [0, 0, 0.5], "radius": 1.5 }, "material": "gold" },
-          { "sphere": { "center": [-2.8, -1.2, -0.3], "radius": 0.7 }, "material": "red" },
-          { "sphere": { "center": [2.6, -1.6, -0.3], "radius": 0.7 }, "material": "green" },
-          { "sphere": { "center": [-0.6, -3.4, -0.5], "radius": 0.5 }, "material": "blue" },
-          { "sphere": { "center": [2.0, 2.6, -0.4], "radius": 0.6 }, "material": "chalk" }
-        ] }
+        "outside": {
+          "group": [
+            {
+              "use": "ring",
+              "translate": [ 4, -6, 3 ],
+              "rotate": {
+                "axis": [ -1, 1, 0 ],
+                "degrees": 23
+              }
+            },
+            {
+              "use": "dinosaur-egg",
+              "translate": [ 6, 2, 0.5 ],
+              "rotate": {
+                "axis": [ 0, 0, 1 ],
+                "degrees": 87
+              }
+            },
+            {
+              "use": "dinosaur-egg",
+              "translate": [ -6, -1.6, 0.5 ],
+              "rotate": {
+                "axis": [ 0, 0, 1 ],
+                "degrees": 12
+              }
+            },
+            {
+              "use": "dinosaur-egg",
+              "translate": [ 2.6, -1.6, 0.5 ],
+              "rotate": {
+                "axis": [ 0, 0, 1 ],
+                "degrees": -60
+              }
+            }
+          ]
+        }
       }
     }
   }
