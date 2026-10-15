@@ -44,20 +44,28 @@ async function openContext() {
   Object.defineProperty(globalThis.navigator, 'gpu',
                         { value: webgpu.create([]), configurable: true });
 
+  // No GPU to be had is a reason to skip; anything after that - a shader
+  // that doesn't compile, a pipeline that doesn't build - is a failure of
+  // every test here, not a skip, so a broken shader can't pass for a
+  // missing GPU.
+  let adapter = null;
+  try { adapter = await navigator.gpu.requestAdapter(); }
+  catch (e) { return { skip: `no usable GPU: ${e.message}` }; }
+  if (!adapter) return { skip: 'no usable GPU: no adapter' };
   try {
     const ctx = await ASContext.create({
       load: (name) => readFile(new URL(name, here), 'utf8'),
     });
     return { ctx };
   } catch (e) {
-    return { skip: `no usable GPU: ${e.message}` };
+    return { broken: e };
   }
 }
 
-const { ctx, skip } = await openContext();
+const { ctx, skip, broken } = await openContext();
 after(() => ctx?.device.destroy());
 
-const gpuTest = (name, fn) => test(name, { skip }, fn);
+const gpuTest = (name, fn) => test(name, { skip }, broken ? () => { throw broken; } : fn);
 
 // -- helpers --------------------------------------------------------------------
 
