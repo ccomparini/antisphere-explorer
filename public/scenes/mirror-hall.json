@@ -514,7 +514,8 @@
             "bounds": {
               "center": [ 0, 0, 2.2 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "pillar",
@@ -522,7 +523,8 @@
             "bounds": {
               "center": [ 6.2099, 1.5483, 1.9 ],
               "radius": 2.3
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "cone",
@@ -530,7 +532,8 @@
             "bounds": {
               "center": [ 3.1028, 5.5976, 1.9 ],
               "radius": 2.3
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "dish",
@@ -538,7 +541,8 @@
             "bounds": {
               "center": [ -1.9777, 6.0868, 1.9 ],
               "radius": 2.3
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "horns",
@@ -546,7 +550,8 @@
             "bounds": {
               "center": [ -5.8004, 2.7048, 1.9 ],
               "radius": 2.3
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "egg",
@@ -554,7 +559,8 @@
             "bounds": {
               "center": [ -5.934, -2.3975, 1.9 ],
               "radius": 2.3
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "block",
@@ -562,7 +568,8 @@
             "bounds": {
               "center": [ -2.2936, -5.9749, 1.9 ],
               "radius": 2.3
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-red",
@@ -570,7 +577,8 @@
             "bounds": {
               "center": [ -6.25, 10.8253, 3.5 ],
               "radius": 3.6
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-amber",
@@ -578,7 +586,8 @@
             "bounds": {
               "center": [ -12.5, 0, 3.5 ],
               "radius": 3.6
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-teal",
@@ -586,7 +595,8 @@
             "bounds": {
               "center": [ -6.25, -10.8253, 3.5 ],
               "radius": 3.6
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-violet",
@@ -594,7 +604,8 @@
             "bounds": {
               "center": [ 6.25, -10.8253, 3.5 ],
               "radius": 3.6
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-gold",
@@ -602,7 +613,8 @@
             "bounds": {
               "center": [ 12.5, 0, 3.5 ],
               "radius": 3.6
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-jade",
@@ -610,7 +622,8 @@
             "bounds": {
               "center": [ 6.25, 10.8253, 3.5 ],
               "radius": 3.6
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-mirror",
@@ -618,7 +631,8 @@
             "bounds": {
               "center": [ 2.9048, 8.9399, 2.75 ],
               "radius": 2.9
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-mirror",
@@ -626,7 +640,8 @@
             "bounds": {
               "center": [ -9.1946, 1.9544, 2.75 ],
               "radius": 2.9
-            }
+            },
+            "wrap": "spheroid"
           }
         ]
       }

@@ -479,7 +479,8 @@
             "bounds": {
               "center": [ -1.2, 1.4, 1.7 ],
               "radius": 2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "water",
@@ -487,7 +488,8 @@
             "bounds": {
               "center": [ 1.6, 0.4, 1.7 ],
               "radius": 2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "octahedron",
@@ -495,7 +497,8 @@
             "bounds": {
               "center": [ -3.9, 0.2, 1.7 ],
               "radius": 2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "tank",
@@ -507,7 +510,8 @@
             "bounds": {
               "center": [ -4.3, -3.3, 1.7 ],
               "radius": 2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "horn",
@@ -515,7 +519,8 @@
             "bounds": {
               "center": [ 3.4, 3.2, 1.7 ],
               "radius": 2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "waist",
@@ -523,7 +528,8 @@
             "bounds": {
               "center": [ 0.6, 3.6, 1.7 ],
               "radius": 2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-red",
@@ -531,7 +537,8 @@
             "bounds": {
               "center": [ -9, 9.5, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-amber",
@@ -539,7 +546,8 @@
             "bounds": {
               "center": [ -4.6, 11, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-teal",
@@ -547,7 +555,8 @@
             "bounds": {
               "center": [ -2.5999999999999996, 9.5, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-violet",
@@ -555,7 +564,8 @@
             "bounds": {
               "center": [ 1.8000000000000014, 11, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-gold",
@@ -563,7 +573,8 @@
             "bounds": {
               "center": [ 3.8000000000000007, 9.5, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-jade",
@@ -571,7 +582,8 @@
             "bounds": {
               "center": [ 8.2, 11, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-jade",
@@ -579,7 +591,8 @@
             "bounds": {
               "center": [ -7.335, 2.44, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-gold",
@@ -587,7 +600,8 @@
             "bounds": {
               "center": [ -5.641, 3.804, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-violet",
@@ -595,7 +609,8 @@
             "bounds": {
               "center": [ -3.947, 5.168, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-teal",
@@ -603,7 +618,8 @@
             "bounds": {
               "center": [ -2.253, 6.532, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-amber",
@@ -611,7 +627,8 @@
             "bounds": {
               "center": [ -0.559, 7.896, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           },
           {
             "use": "column-red",
@@ -619,7 +636,8 @@
             "bounds": {
               "center": [ 1.135, 9.26, 3 ],
               "radius": 3.2
-            }
+            },
+            "wrap": "spheroid"
           }
         ]
       }
