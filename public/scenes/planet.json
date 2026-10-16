@@ -3,104 +3,151 @@
     "@lib/materials.json",
     {
       "shell": {
-        "albedo":  [0.35, 0.36, 0.40],
-        "albedo2": [0.25, 0.26, 0.30],
+        "albedo": [ 0.35, 0.36, 0.4 ],
+        "albedo2": [ 0.25, 0.26, 0.3 ],
         "pattern": "noise"
       },
       "floor": {
-        "albedo": [0.34, 0.36, 0.39],
-        "albedo2": [0.15, 0.16, 0.19],
+        "albedo": [ 0.34, 0.36, 0.39 ],
+        "albedo2": [ 0.15, 0.16, 0.19 ],
         "pattern": "noise",
-        "scale": 1.0
+        "scale": 1
       },
       "stone": {
-        "albedo": [0.58, 0.53, 0.46],
-        "albedo2": [0.44, 0.40, 0.36],
+        "albedo": [ 0.58, 0.53, 0.46 ],
+        "albedo2": [ 0.44, 0.4, 0.36 ],
         "pattern": "noise",
         "scale": 0.4167
       },
       "core": {
         "kind": "emissive",
-        "albedo": [0.74, 0.44, 0.16],
+        "albedo": [ 0.74, 0.44, 0.16 ],
         "emission": 0.55
       }
     }
   ],
-
   "lights": [
-    { "pos": [-8.2,  8.4, 8.0], "color": [44, 34, 20] }
+    {
+      "pos": [ -8.2, 8.4, 8 ],
+      "color": [ 44, 34, 20 ]
+    }
   ],
-
   "objects": {
     "house": {
-      "plane": { "normal": [0, 0, 1], "offset": 0.95 },
+      "plane": {
+        "normal": [ 0, 0, 1 ],
+        "offset": 0.95
+      },
       "material": "brass",
       "inside": {
-        "sphere": { "center": [-1.35, 0, 0.25], "radius": 1.15 },
+        "sphere": {
+          "center": [ -1.35, 0, 0.25 ],
+          "radius": 1.15
+        },
         "material": "brass",
         "inside": {
-          "plane": { "normal": [0, 0, 1], "offset": 0.95 },
+          "plane": {
+            "normal": [ 0, 0, 1 ],
+            "offset": 0.95
+          },
           "material": "brass",
           "inside": {
             "sphere": {
-              "center": [-0.75, 0.8, 0.2], "radius": 0.6,
+              "center": [ -0.75, 0.8, 0.2 ],
+              "radius": 0.6,
               "complement": true
             },
             "material": "brass"
           },
           "outside": {
-            "sphere": { "center": [-1.35, 0.0, 0.0], "radius": 1.0 },
+            "sphere": {
+              "center": [ -1.35, 0, 0 ],
+              "radius": 1
+            },
             "material": "core"
           }
         }
       },
       "outside": {
-        "sphere": { "center": [-1.35, 0, 0.80], "radius": 0.65 },
+        "sphere": {
+          "center": [ -1.35, 0, 0.8 ],
+          "radius": 0.65
+        },
         "material": "shell"
       }
     },
-
     "lens": {
-      "sphere": { "center": [0.95, 0, 0.15], "radius": 1.15 },
+      "sphere": {
+        "center": [ 0.95, 0, 0.15 ],
+        "radius": 1.15
+      },
       "material": "brass",
       "inside": {
-        "sphere": { "center": [1.85, 0, 0.15], "radius": 1.15 },
+        "sphere": {
+          "center": [ 1.85, 0, 0.15 ],
+          "radius": 1.15
+        },
         "material": "brass"
       }
     },
-
     "marbles": {
       "group": [
         {
-          "sphere": { "center": [-0.4, -2.6, -0.0], "radius": 0.38 },
+          "sphere": {
+            "center": [ -0.4, -2.6, 0 ],
+            "radius": 0.38
+          },
           "material": "core"
         },
         {
-          "sphere": { "center": [0.6, -2.9, -0.0], "radius": 0.38 },
+          "sphere": {
+            "center": [ 0.6, -2.9, 0 ],
+            "radius": 0.38
+          },
           "material": "brass"
         },
         {
-          "sphere": { "center": [1.55, -2.5, -0.0], "radius": 0.38 },
+          "sphere": {
+            "center": [ 1.55, -2.5, 0 ],
+            "radius": 0.38
+          },
           "material": "jade"
         },
         {
-          "sphere": { "center": [0.55, -1.75, 0.0], "radius": 0.38 },
+          "sphere": {
+            "center": [ 0.55, -1.75, 0 ],
+            "radius": 0.38
+          },
           "material": "chalk"
         }
       ]
     }
   },
-
   "root": {
-    "sphere": { "center": [0, 0, -500], "radius": 500 },
+    "sphere": {
+      "center": [ 0, 0, -500 ],
+      "radius": 500
+    },
     "material": "shell",
     "outside": {
       "group": [
-        { "use": "house", "scale": 2.3, "translate": [ -1.2, 0, 0 ] },
-        { "use": "house", "scale": 2.3, "translate": [ 2, -12, 0 ], "rotate": { "axis": [ 0, 0, 1], "degrees": 75 } },
+        {
+          "use": "house",
+          "scale": 2.3,
+          "translate": [ -1.2, 0, 0 ]
+        },
+        {
+          "use": "house",
+          "scale": 2.3,
+          "translate": [ 2, -12, 0 ],
+          "rotate": {
+            "axis": [ 0, 0, 1 ],
+            "degrees": 75
+          }
+        },
         "lens",
         "marbles"
-       ]
+      ]
     }
   }
 }
