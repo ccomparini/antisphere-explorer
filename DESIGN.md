@@ -166,6 +166,20 @@ coefficients in place, with no recompile.
   compile time into a copy of the env node's material; only what varies
   from point to point - a glow region's `fill`, its glow unshadowed - is
   added per hit, in the same walk as the lights.
+- **Cheap shadows** (Chris's idea), for very complex scenes or slow GPUs:
+  shadows that are less accurate but keep the cues they give. A trace flag,
+  `MATERIAL_CHEAP_SHADOW` (scene key `cheapShadow`), set on a node near an
+  object's root - most naturally its `"wrap"` node, which is otherwise
+  vacuum, so nothing looks different. Shadow rays get one more mask, as
+  `stop_flags` is one: entering a region with that bit is a hit at once,
+  without descending, so the object casts a shadow the shape of its
+  wrapper (a blob for the tori, holes not included). The rule that makes
+  it work: only a region the ray *enters* along its path counts, never one
+  it starts in - a point on the object starts its shadow ray inside its
+  own wrapper, so it still traverses the real geometry, and the object
+  shadows itself exactly; only other things get the cheap blob. Camera
+  rays pass 0. A third value of the camera's `shadows` (off, on, cheap)
+  could switch it as a quality setting, so one scene serves both.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.
