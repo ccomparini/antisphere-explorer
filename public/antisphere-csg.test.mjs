@@ -833,3 +833,114 @@ test('a light outside its own region warns', (t) => {
   buildEnvs(ball(0, 4, { lights: [lamp([0, 0, 1]), lamp([0, 0, 9])] }));
   assert.equal(warned.filter((w) => /outside its own region/.test(w)).length, 1, warned.join('\n'));
 });
+
+// -- wrap ------------------------------------------------------------------------
+
+/** Whether R is in a region the subtree at `index` claims: an absent inside, whatever fills it. */
+function claimedAt(built, index, R) {
+  for (let step = 0; step < 500; step++) {
+    const nd = built.nodes[index];
+    if (H(nd.prim, R) < 0) { if (!nd.inside) return true; index = nd.inside; }
+    else { if (!nd.outside) return false; index = nd.outside; }
+  }
+  throw new Error('traversal did not terminate');
+}
+
+const MATERIALS = { clay: { albedo: [0.7, 0.5, 0.4] } };
+const slabZ = (z0, z1) => ({ slab: { center: [0, 0, (z0 + z1) / 2], axis: [0, 0, 1], thickness: z1 - z0 } });
+const s3 = 1 / Math.sqrt(3);
+const WRAPPABLE = {
+  column: { intersect: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 0.5 }, material: 'clay' }, slabZ(0, 3)] },
+  'pedestal and cone': { union: [
+    { intersect: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 }, material: 'clay' }, slabZ(0, 0.3)] },
+    { intersect: [{ cone: { apex: [0, 0, 2.9], axis: [0, 0, 1], slope: 0.32 }, material: 'clay' }, slabZ(0.3, 2.9)] }] },
+  waist: { intersect: [{ hyperboloid: { center: [0, 0, 1.7], axis: [0, 0, 1], radius: 0.45, semiAxial: 0.9, sheets: 1 }, material: 'clay' }, slabZ(0.3, 3.1)] },
+  dish: { difference: [
+    { intersect: [{ paraboloid: { vertex: [0, 0, 1.5], axis: [0, 0, 1], focal: 0.22 }, material: 'clay' }, slabZ(1.5, 2.6)] },
+    { paraboloid: { vertex: [0, 0, 1.65], axis: [0, 0, 1], focal: 0.22 } }] },
+  box: { intersect: [
+    { slab: { center: [0, 0, 0], axis: [1, 0, 0], thickness: 2 }, material: 'clay' },
+    { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 1 }, material: 'clay' },
+    { ...slabZ(-0.5, 2.5), material: 'clay' }] },
+  octahedron: { intersect: [[s3, s3, s3], [s3, s3, -s3], [s3, -s3, s3], [-s3, s3, s3]].map((axis) =>
+    ({ slab: { center: [0, 0, 1], axis, thickness: 1.7 }, material: 'clay' })) },
+  'column, turned and moved': { intersect: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 0.5 }, material: 'clay' }, slabZ(0, 3)],
+    rotate: { axis: [1, 0, 0], degrees: 30 }, translate: [2, 1, -1] },
+};
+
+// A fixed sequence, so the points are the same every run.
+function* randoms(seed = 1) { let x = seed; for (;;) { x = (x * 1103515245 + 12345) % 2147483648; yield x / 2147483648; } }
+
+test('wrap: a spheroid holding every region the subtree claims, and not much more', () => {
+  const ratios = {};
+  for (const [name, shape] of Object.entries(WRAPPABLE)) {
+    const plain = compileScene({ materials: MATERIALS, lights: [], root: shape });
+    const built = compileScene({ materials: MATERIALS, lights: [], root: { ...shape, wrap: 'spheroid' } });
+    assert.equal(built.nodes.length, plain.nodes.length + 1, `${name}: one node more`);
+    const wrapper = built.nodes[1];
+    assert.ok(wrapper.prim.k_par > 0 && wrapper.prim.k_perp > 0 && wrapper.outside === 0, `${name}: a spheroid round it, outside empty`);
+    // Points over twice the wrapper's own extent each way round its centre,
+    // so a claimed point outside it would be found.
+    const p = wrapper.prim, pa = dot(p.linear, p.axis);
+    const centre = p.linear.map((v, i) => -(v / p.k_perp + (1 / p.k_par - 1 / p.k_perp) * pa * p.axis[i]));
+    const reach = 2 * Math.sqrt(-(dot(p.linear, centre) + p.constant) / Math.min(p.k_par, p.k_perp));
+    const rnd = randoms();
+    let claimed = 0, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let n = 0; n < 60000; n++) {
+      const R = centre.map((v) => v + (rnd.next().value * 2 - 1) * reach);
+      if (!claimedAt(plain, 1, R)) continue;
+      claimed++;
+      R.forEach((v, i) => { lo[i] = Math.min(lo[i], v); hi[i] = Math.max(hi[i], v); });
+      assert.ok(H(wrapper.prim, R) < 0, `${name}: [${R}] is claimed but outside the wrapper`);
+      assert.ok(claimedAt(built, 2, R), `${name}: and still claimed within it`);
+    }
+    assert.ok(claimed > 50, `${name}: enough points to mean something (${claimed})`);
+    // Its volume, against the box round what was claimed: a spheroid round a
+    // box has at least pi/2 its volume, and round a cylinder 3 sqrt(3)/4.
+    const { axis, k_par, k_perp, linear: c, constant: d } = wrapper.prim;
+    const ca = dot(c, axis);
+    const C = c.map((v, i) => -(v / k_perp + (1 / k_par - 1 / k_perp) * ca * axis[i]));
+    const E = -(dot(c, C) + d);
+    const volume = (4 / 3) * Math.PI * Math.sqrt(E / k_par) * (E / k_perp);
+    const box = hi.reduce((v, h, i) => v * (h - lo[i]), 1);
+    ratios[name] = +(volume / box).toFixed(2);
+    assert.ok(volume / box < 4, `${name}: snug enough - ${(volume / box).toFixed(2)} times the box round it`);
+  }
+});
+
+test('wrap: nothing is added where no bound can be proved, or where the root already is one', () => {
+  const warned = [];
+  const warn = console.warn;
+  console.warn = (msg) => warned.push(msg);
+  try {
+    const bare = compileScene({ materials: MATERIALS, lights: [], root: { cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 }, material: 'clay', wrap: 'spheroid' } });
+    assert.equal(bare.nodes.length, 2, 'a bare cylinder: no wrapper');
+    assert.match(warned.join('\n'), /root\.wrap: can't bound this subtree/);
+  } finally { console.warn = warn; }
+  const ball = { spheroid: { center: [0, 0, 1], axis: [0, 0, 1], height: 3, radius: 1 }, material: null, inside: WRAPPABLE.column };
+  const plain = compileScene({ materials: MATERIALS, lights: [], root: ball });
+  const built = compileScene({ materials: MATERIALS, lights: [], root: { ...ball, wrap: 'spheroid' } });
+  assert.equal(built.nodes.length, plain.nodes.length, 'a subtree already in a spheroid, its outside empty: no second one');
+  assert.throws(() => compileScene({ materials: MATERIALS, lights: [], root: { ...WRAPPABLE.column, wrap: 'box' } }),
+                /root\.wrap: "spheroid" or "slab", not "box"/);
+});
+
+test('wrap: a slab, along whichever of the subtree\'s axes, or x, y, z, is thinnest', () => {
+  const along = (shape) => compileScene({ materials: MATERIALS, lights: [], root: { ...shape, wrap: 'slab' } }).nodes[1].prim.axis;
+  // A box of slabs is in a slab already - its root's, its outside empty.
+  const plainBox = compileScene({ materials: MATERIALS, lights: [], root: WRAPPABLE.box });
+  assert.equal(compileScene({ materials: MATERIALS, lights: [], root: { ...WRAPPABLE.box, wrap: 'slab' } }).nodes.length,
+               plainBox.nodes.length, 'a box: already a slab');
+  // A column 1 across and 3 high: across it.
+  assert.ok(Math.abs(along(WRAPPABLE.column)[2]) < 1e-9, 'a column: across');
+  // A disc 2 across and 0.3 high: along z.
+  const disc = { intersect: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 }, material: 'clay' }, slabZ(0, 0.3)] };
+  assert.ok(Math.abs(Math.abs(along(disc)[2]) - 1) < 1e-9, 'a disc: z');
+  // And it holds what it wraps.
+  const built = compileScene({ materials: MATERIALS, lights: [], root: { ...WRAPPABLE['pedestal and cone'], wrap: 'slab' } });
+  const rnd = randoms(7);
+  for (let n = 0; n < 20000; n++) {
+    const R = [rnd.next().value * 8 - 4, rnd.next().value * 8 - 4, rnd.next().value * 8 - 4];
+    if (claimedAt(built, 2, R)) assert.ok(H(built.nodes[1].prim, R) < 0, `[${R}] outside its slab`);
+  }
+});

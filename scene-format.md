@@ -634,10 +634,42 @@ bound (if any) could otherwise be inferred from its own shape. It helps a
 `"group"` divide its members, and prove them apart, where what a member
 claims isn't already confined to one ball by its own shape — most commonly
 a `"union"` of several primitives, or a subtree whose root is one of the
-unbounded shapes.
+unbounded shapes. In a group, each member with a bound - declared, or
+worked out from its shape - goes inside a sphere of that bound, a node rays
+skip the member by; `"wrap"` fits a closer shape, and works anywhere.
 
 Bounds are in world space, so they describe the subtree *after* its own
 transforms have been applied.
+
+### `"wrap"`
+
+```
+"wrap": "spheroid"      or      "wrap": "slab"
+```
+
+Puts a node round the subtree - a bounding volume - so that a ray missing
+it skips everything inside: worth it for an object of several nodes that
+most rays pass by. A group already puts its bounded members in spheres
+(see `"bounds"`); a member wrapped in a spheroid gets that instead, which
+fits a column or a disc far more closely. The compiler works the shape out itself, in world space
+after the subtree's transforms:
+
+- `"spheroid"`: the least spheroid (or sphere) round everything the
+  subtree claims.
+- `"slab"`: the thinnest slab round it, along any of the subtree's own
+  axes or x, y or z - for something long and flat, or a row of things on a
+  floor.
+
+It can bound what the shapes themselves bound: every shape that closes
+round its axis (sphere, spheroid, cylinder, cone, paraboloid,
+hyperboloids) wherever a slab or an ellipsoid along that axis caps it, and
+any three slabs or planes in independent directions (a box, an
+octahedron). Where it can't prove a bound - a bare cylinder, say - it
+warns and adds nothing; nor does it add one where the subtree's root
+already is one (its outside empty, its inside a spheroid, or a slab). The
+wrapper is a division only, standing clear of what it holds, and takes the
+material of the node round it, so what inherits within inherits through
+it, and nothing looks any different.
 
 ## Ambient regions
 

@@ -42,9 +42,10 @@ import {
 import * as layouts from './gen/layouts.js';
 import { regionsDisjoint } from './overlap.js';
 import { readSTL } from './stl.js';
-import { meshToTree, boundsOf } from './mesh-import.js';
+import { meshToTree, boundsOf, boundingSpheroidOfPoints } from './mesh-import.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
 function unitVector(v, fallback = [0, 0, 1]) {
   const len = Math.hypot(v[0], v[1], v[2]);
@@ -364,6 +365,14 @@ const NO_MATERIAL = 0;
 // passes a concrete material - see node()'s own default parameter - so
 // only JSON-authored nodes ever start out holding this value.
 const INHERIT_MATERIAL = -1;
+
+// A division the compiler puts round a subtree - a group member's sphere, a
+// "wrap" - is vacuum itself, a pure division in empty space, never a face;
+// but it passes the material round it on to what it holds, so that what
+// inherits there inherits as it would without it. Resolved in bakeScopes()
+// to NO_MATERIAL for the node itself. (A material, not a flag of its own,
+// so that every copy of a node - grafting, transforms - keeps it.)
+const PASS_MATERIAL = -2;
 
 // Recognized only via the deprecated "paint" field (see
 // materialOf()), for scenes not yet migrated to naming a material
@@ -765,7 +774,8 @@ function bakeScopes(tree, table) {
     let byScope = memo.get(key);
     if (!byScope) { byScope = new Map(); memo.set(key, byScope); }
     if (byScope.has(t)) return byScope.get(t);
-    const named = t.material !== INHERIT_MATERIAL;
+    const passes = t.material === PASS_MATERIAL;
+    const named = t.material !== INHERIT_MATERIAL && !passes;
     const lit = t.lights?.length > 0;
     let hereMat = named ? t.material : matScope;
     if (lit && !named) hereMat = passThrough();
@@ -778,7 +788,7 @@ function bakeScopes(tree, table) {
       level = own.map((v, i) => v + m.params[0] * around[i]);
       hereMat = withLevel(hereMat, level);
     }
-    const out = node(t.prim, null, null, hereMat, envNode, t.prov, t.lights);
+    const out = node(t.prim, null, null, passes ? NO_MATERIAL : hereMat, envNode, t.prov, t.lights);
     byScope.set(t, out);
     if (startsEnv) {
       envIds.set(out, envIds.size + 1);
@@ -887,6 +897,184 @@ function ballJoin(A, B) {
   const R = 0.5 * (d + A.r + B.r);
   const t = (R - A.r) / d;
   return { c: A.c.map((v, i) => v + (B.c[i] - v) * t), r: R };
+}
+
+// ---------------------------------------------------------------------------
+// Extents, for "wrap"
+//
+// Points whose convex hull holds every region a subtree claims (each absent
+// inside, whatever fills it - as group counts claims), for a wrapper to be
+// fitted round: or null, where no bound can be proved. boundOf() above
+// knows balls only, from spheres and spheroids; a cylinder cut by a slab -
+// every pedestal and column - is beyond it. This reads more of the family:
+//
+// Every node is a quadric of revolution about an axis a. Measured along a
+// (s) and from it (rho), H = k_perp rho^2 + k_par s^2 + 2 (c.a) s + d', so
+// inside one with k_perp > 0 - sphere, spheroid, cylinder, cone,
+// paraboloid, hyperboloids - rho^2 < f(s), f quadratic: bounded wherever s
+// is. A slab, or an ellipsoid, bounds s along its axis; a plane, one side
+// of it. So on each path down to a claimed region, the constraints bound
+// it as a capped cylinder (an axis, an interval along it, a radius), or a
+// parallelepiped (three independent directions bounded), and the smaller
+// of the two is kept. A path neither bounds makes the whole subtree null.
+// ---------------------------------------------------------------------------
+
+const EXTENT_PATHS = 4096;
+const parallel = (a, b) => Math.abs(Math.abs(dot3(a, b)) - 1) < 1e-9;
+
+// What a node's inside says about where it is: [{ kind: 'axial', a, lo, hi }]
+// (lo or hi may be infinite) and, for k_perp > 0, a 'radial' bound: rho^2 <
+// f2 s^2 + f1 s + f0 about the axis line through `o`, s measured along a
+// from o.
+function insideConstraints(prim) {
+  const { axis: a, k_par, k_perp, linear: c, constant: d } = prim;
+  const ca = dot3(c, a);
+  const cPerp = c.map((v, i) => v - ca * a[i]);
+  const out = [];
+  if (k_perp === 0 && k_par === 0) {                  // a half-space: n.R < bound
+    const len = Math.hypot(...c);
+    if (len > 0) out.push({ kind: 'axial', a: c.map((v) => v / len), lo: -Infinity, hi: -d / (2 * len) });
+    return out;
+  }
+  if (k_perp === 0) {                                 // a slab, if c lies along a
+    if (Math.hypot(...cPerp) > 1e-12 * (Math.abs(ca) + 1) || k_par < 0) return out;
+    const disc = ca * ca - k_par * d;
+    if (disc <= 0) return [{ kind: 'empty' }];
+    const sq = Math.sqrt(disc);
+    out.push({ kind: 'axial', a, lo: (-ca - sq) / k_par, hi: (-ca + sq) / k_par });
+    return out;
+  }
+  if (k_perp < 0) return out;                         // inside runs off sideways
+  // About the axis line through o = -cPerp / k_perp (s measured from o, so
+  // c.a s needs o.a = 0, which it is).
+  const o = cPerp.map((v) => -v / k_perp);
+  const dPrime = d - dot3(cPerp, cPerp) / k_perp;
+  const f2 = -k_par / k_perp, f1 = -2 * ca / k_perp, f0 = -dPrime / k_perp;
+  out.push({ kind: 'radial', a, o, f2, f1, f0 });
+  if (f2 < 0) {                                       // an ellipsoid: f > 0 only between its roots
+    const disc = f1 * f1 - 4 * f2 * f0;
+    if (disc <= 0) return [{ kind: 'empty' }];
+    const sq = Math.sqrt(disc);
+    const r1 = (-f1 + sq) / (2 * f2), r2 = (-f1 - sq) / (2 * f2);
+    out.push({ kind: 'axial', a, lo: Math.min(r1, r2) + dot3(o, a), hi: Math.max(r1, r2) + dot3(o, a) });
+  }
+  return out;
+}
+
+const perpBasis = (a) => {
+  const t = Math.abs(a[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+  const u = cross3(a, t), ul = Math.hypot(...u);
+  const e1 = u.map((v) => v / ul);
+  return [e1, cross3(a, e1)];
+};
+
+// Hull points for one path's constraints, [] if it is empty, or null if
+// they bound nothing.
+function pathPoints(constraints) {
+  if (constraints.some((k) => k.kind === 'empty')) return [];
+  // Intervals by direction, each in the frame of the first of its kind.
+  const dirs = [];
+  for (const k of constraints) {
+    if (k.kind !== 'axial') continue;
+    const at = dirs.find((d) => parallel(d.a, k.a));
+    const flip = at && dot3(at.a, k.a) < 0;
+    const lo = flip ? -k.hi : k.lo, hi = flip ? -k.lo : k.hi;
+    if (at) { at.lo = Math.max(at.lo, lo); at.hi = Math.min(at.hi, hi); }
+    else dirs.push({ a: k.a, lo, hi });
+  }
+  if (dirs.some((d) => d.lo >= d.hi)) return [];
+  const finite = dirs.filter((d) => Number.isFinite(d.lo) && Number.isFinite(d.hi));
+  const candidates = [];
+
+  // Capped cylinders: each radial constraint's axis, bounded along it.
+  for (const k of constraints) {
+    if (k.kind !== 'radial') continue;
+    const along = finite.find((d) => parallel(d.a, k.a));
+    if (!along) continue;
+    const sign = dot3(along.a, k.a) < 0 ? -1 : 1;
+    const oa = dot3(k.o, k.a);
+    // s about o along k.a, from the interval about the origin along along.a.
+    const s0 = Math.min(sign * along.lo, sign * along.hi) - oa;
+    const s1 = Math.max(sign * along.lo, sign * along.hi) - oa;
+    let rho2 = Infinity;
+    // Every radial constraint coaxial with this one bounds rho too.
+    for (const q of constraints) {
+      if (q.kind !== 'radial' || !parallel(q.a, k.a)) continue;
+      const off = q.o.map((v, i) => v - k.o[i]);
+      const offPerp = off.map((v, i) => v - dot3(off, k.a) * k.a[i]);
+      if (Math.hypot(...offPerp) > 1e-9 * (1 + Math.hypot(...k.o))) continue;
+      const qs = (s) => { const t = dot3(q.a, k.a) < 0 ? -s : s; const u = t + dot3(k.o, q.a) - dot3(q.o, q.a); return (q.f2 * u + q.f1) * u + q.f0; };
+      let most = Math.max(qs(s0), qs(s1));
+      if (q.f2 < 0) {                                 // a maximum inside the interval
+        const v = -q.f1 / (2 * q.f2) - dot3(k.o, q.a) + dot3(q.o, q.a);
+        const vs = dot3(q.a, k.a) < 0 ? -v : v;
+        if (vs > s0 && vs < s1) most = Math.max(most, qs(vs));
+      }
+      rho2 = Math.min(rho2, most);
+    }
+    if (rho2 <= 0) return [];
+    const rho = Math.sqrt(rho2) / Math.cos(Math.PI / 16);   // a 16-gon round the circle
+    const [e1, e2] = perpBasis(k.a);
+    const pts = [];
+    for (const sv of [s0, s1]) {
+      for (let j = 0; j < 16; j++) {
+        const th = (2 * Math.PI * j) / 16, x = rho * Math.cos(th), y = rho * Math.sin(th);
+        pts.push(k.o.map((v, i) => v + sv * k.a[i] + x * e1[i] + y * e2[i]));
+      }
+    }
+    candidates.push(pts);
+  }
+
+  // Parallelepipeds: any three independent bounded directions.
+  for (let i = 0; i < finite.length; i++) {
+    for (let j = i + 1; j < finite.length; j++) {
+      for (let k = j + 1; k < finite.length; k++) {
+        const [A, B, C] = [finite[i], finite[j], finite[k]];
+        const det = dot3(A.a, cross3(B.a, C.a));
+        if (Math.abs(det) < 1e-6) continue;
+        const pts = [];
+        for (const x of [A.lo, A.hi]) for (const y of [B.lo, B.hi]) for (const z of [C.lo, C.hi]) {
+          // R with A.a.R = x, B.a.R = y, C.a.R = z.
+          const bc = cross3(B.a, C.a), ca = cross3(C.a, A.a), ab = cross3(A.a, B.a);
+          pts.push([0, 1, 2].map((m) => (x * bc[m] + y * ca[m] + z * ab[m]) / det));
+        }
+        candidates.push(pts);
+      }
+    }
+  }
+  if (!candidates.length) return null;
+  const boxVolume = (pts) => [0, 1, 2].reduce((v, m) => v * (Math.max(...pts.map((p) => p[m])) - Math.min(...pts.map((p) => p[m]))), 1);
+  return candidates.reduce((best, pts) => (boxVolume(pts) < boxVolume(best) ? pts : best));
+}
+
+// The hull points for everything a subtree claims, or null (see above).
+function extentPoints(t) {
+  const points = [];
+  let paths = 0, unbounded = false;
+  const walk = (nd, constraints) => {
+    if (unbounded) return;
+    const inside = [...constraints, ...insideConstraints(nd.prim)];
+    if (nd.inside) walk(nd.inside, inside);
+    else {
+      if (++paths > EXTENT_PATHS) { unbounded = true; return; }
+      const pts = pathPoints(inside);
+      if (pts === null) { unbounded = true; return; }
+      points.push(...pts);
+    }
+    if (nd.outside) walk(nd.outside, [...constraints, ...insideConstraints(complementSurface(nd.prim))]);
+  };
+  if (t) walk(t, []);
+  return unbounded ? null : points;
+}
+
+// Every axis in a subtree, for a wrapping slab to choose among.
+function axesOf(t, out = [], seen = new Set()) {
+  if (!t || seen.has(t)) return out;
+  seen.add(t);
+  if (!out.some((a) => parallel(a, t.prim.axis))) out.push(t.prim.axis);
+  axesOf(t.inside, out, seen);
+  axesOf(t.outside, out, seen);
+  return out;
 }
 
 // `table` (the compiled materials list, in scope from compileScene()) is
@@ -1963,7 +2151,7 @@ export function compileScene(rawSpec, options = {}) {
     for (const m of members) {
       m.shape = testShapeOf(m.tree);
       const b = m.shape.grown;
-      if (b && !(regionBall(m.tree.prim, true) && !m.tree.outside)) m.tree = node(sphere(b.c, b.r), m.tree, null);
+      if (b && !(regionBall(m.tree.prim, true) && !m.tree.outside)) m.tree = node(sphere(b.c, b.r), m.tree, null, PASS_MATERIAL);
     }
 
     // Fold `list` in, in order: each member grafted into the absent
@@ -2203,6 +2391,40 @@ export function compileScene(rawSpec, options = {}) {
         at(`${path}.translate`, 'needs a [x, y, z] offset');
       }
       out = translateTree(out, def.translate);
+    }
+
+    // "wrap": a bounding node round the subtree, worked out from its extent
+    // (extentPoints()), so a ray that misses it skips everything inside.
+    // Like a group member's sphere it is vacuum, passing the material round
+    // it on (PASS_MATERIAL), and it stands clear of what it holds. None is added where the root already is one - its outside
+    // empty and its inside the shape asked for - or where no bound can be
+    // proved.
+    if (def.wrap !== undefined) {
+      if (def.wrap !== 'spheroid' && def.wrap !== 'slab') at(`${path}.wrap`, `"spheroid" or "slab", not ${JSON.stringify(def.wrap)}`);
+      const already = out && !out.outside && (def.wrap === 'spheroid'
+        ? regionBall(out.prim, true) !== null
+        : out.prim.k_perp === 0 && out.prim.k_par > 0);
+      const points = already ? null : extentPoints(out);
+      if (!already && !points) {
+        warn(`${path}.wrap`, "can't bound this subtree, so it isn't wrapped");
+      } else if (!already && points.length) {
+        let shape;
+        if (def.wrap === 'spheroid') {
+          shape = { spheroid: boundingSpheroidOfPoints(points) };
+        } else {
+          // The thinnest slab along any of the subtree's own axes, or x, y, z.
+          let best = null;
+          for (const a of [...axesOf(out), [1, 0, 0], [0, 1, 0], [0, 0, 1]]) {
+            let lo = Infinity, hi = -Infinity;
+            for (const p of points) { const x = dot3(a, p); lo = Math.min(lo, x); hi = Math.max(hi, x); }
+            if (!best || hi - lo < best.hi - best.lo) best = { a, lo, hi };
+          }
+          const grow = (best.hi - best.lo) * 1e-4 + 1e-9;
+          shape = { slab: { center: best.a.map((v) => v * (best.lo + best.hi) / 2), axis: best.a,
+                            thickness: best.hi - best.lo + 2 * grow } };
+        }
+        out = node(primOf(shape, `${path}.wrap`), out, null, PASS_MATERIAL);
+      }
     }
 
     if (def.bounds) {

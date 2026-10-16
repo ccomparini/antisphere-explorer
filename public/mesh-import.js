@@ -106,7 +106,11 @@ function eigenvectors(m) {
  * that extent's, and it is grown until every vertex is inside.
  */
 export function boundingSpheroid(triangles) {
-  const points = triangles.flat();
+  return boundingSpheroidOfPoints(triangles.flat());
+}
+
+/** boundingSpheroid(), of points rather than triangles: the scene's "wrap" uses it too. */
+export function boundingSpheroidOfPoints(points) {
   const n = points.length;
   const mean = [0, 1, 2].map((i) => points.reduce((sum, p) => sum + p[i], 0) / n);
   const cov = [0, 1, 2].map((i) => [0, 1, 2].map((j) =>
@@ -147,7 +151,7 @@ export function boundingSpheroid(triangles) {
     grow *= 1 + 1e-4;
     keep(center, frame[0], 2 * half * grow, across * grow);
   }
-  const { lo, hi } = boundsOf(triangles);
+  const { lo, hi } = boundsOf([points]);
   const center = [0, 1, 2].map((i) => (lo[i] + hi[i]) / 2);
   const r = points.reduce((most, p) => Math.max(most, length(sub(p, center))), 0) * (1 + 1e-4);
   keep(center, [0, 0, 1], 2 * r, r);
