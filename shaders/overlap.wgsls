@@ -167,8 +167,12 @@ struct Certificate {
 // A congruence, applied to both regions alike, keeps any certificate a
 // certificate (T^T (Q_b + mu Q_a) T is PSD exactly when the pencil is).
 fn frameMatrix(c : vec3<f32>, L : f32) -> mat4x4<f32> {
-  return mat4x4<f32>(vec4<f32>(L, 0.0, 0.0, 0.0), vec4<f32>(0.0, L, 0.0, 0.0),
-                     vec4<f32>(0.0, 0.0, L, 0.0), vec4<f32>(c, 1.0));
+  return mat4x4<f32>(
+    vec4<f32>(L, 0.0, 0.0, 0.0),
+    vec4<f32>(0.0, L, 0.0, 0.0),
+    vec4<f32>(0.0, 0.0, L, 0.0),
+    vec4<f32>(c,           1.0)
+  );
 }
 
 // certify(), measured in the frame at centre c with unit length L, chosen
