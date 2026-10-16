@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene } from './antisphere-scene.js';
+import { compileScene, isSolid } from './antisphere-scene.js';
 import { meshToTree, treeStats, planeOfTriangle, boundsOf, boundingSpheroid } from './mesh-import.js';
 
 const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
@@ -55,7 +55,7 @@ function solidAt(built, R) {
     const H = p.k_perp * dot(R, R) + (p.k_par - p.k_perp) * along * along
             + 2 * dot(p.linear, R) + p.constant;
     if (H < 0) {
-      if (built.materials[nd.material].solid) { if (!found) found = index; } else found = 0;
+      if (isSolid(built.materials[nd.material])) { if (!found) found = index; } else found = 0;
       index = nd.inside;
     } else {
       found = 0;

@@ -1,0 +1,635 @@
+{
+  "_comment": "A mirror among the quadrics: a mirrored hyperboloid of one sheet, with the shapes of scene-gallery round the sides and back, and a ring of columns all round - those behind the camera seen only in the mirror. Two mirrored columns too: a mirror seen in a mirror, past the one bounce, is shaded as its own material.",
+  "camera": {
+    "position": [ 7.6, -8.8, 2.3 ],
+    "direction": [ -0.6534, 0.7566, -0.0258 ],
+    "distance": 11.63
+  },
+  "materials": {
+    "sky": {
+      "kind": "unlit",
+      "albedo": [ 0.32, 0.4, 0.55 ]
+    },
+    "floor": {
+      "albedo": [ 0.32, 0.33, 0.36 ],
+      "albedo2": [ 0.16, 0.17, 0.2 ],
+      "pattern": "checker",
+      "scale": 2
+    },
+    "stone": {
+      "albedo": [ 0.55, 0.52, 0.47 ]
+    },
+    "mirror": {
+      "reflective": true,
+      "albedo": [ 0.92, 0.94, 0.96 ],
+      "kind": "glossy",
+      "shininess": 200,
+      "specular": 1.2
+    },
+    "red": {
+      "kind": "glossy",
+      "albedo": [ 0.72, 0.14, 0.1 ],
+      "shininess": 60,
+      "specular": 0.9
+    },
+    "amber": {
+      "kind": "glossy",
+      "albedo": [ 0.85, 0.5, 0.12 ],
+      "shininess": 40,
+      "specular": 0.7
+    },
+    "teal": {
+      "kind": "glossy",
+      "albedo": [ 0.1, 0.55, 0.55 ],
+      "shininess": 80,
+      "specular": 1
+    },
+    "violet": {
+      "kind": "glossy",
+      "albedo": [ 0.45, 0.2, 0.7 ],
+      "shininess": 60,
+      "specular": 0.9
+    },
+    "gold": {
+      "kind": "glossy",
+      "albedo": [ 0.8, 0.62, 0.2 ],
+      "shininess": 120,
+      "specular": 1.3
+    },
+    "jade": {
+      "kind": "glossy",
+      "albedo": [ 0.2, 0.55, 0.36 ],
+      "shininess": 90,
+      "specular": 1.1
+    }
+  },
+  "lights": [
+    {
+      "pos": [ -6, -8, 10 ],
+      "color": [ 110, 100, 88 ]
+    },
+    {
+      "pos": [ 8, 4, 7 ],
+      "color": [ 24, 32, 52 ]
+    },
+    {
+      "pos": [ 0, 9, 3 ],
+      "color": [ 30, 20, 14 ]
+    }
+  ],
+  "objects": {
+    "_comment_pedestal": "A disc: an infinite cylinder cut by a slab.",
+    "pedestal": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 1.1
+          },
+          "material": "stone"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 0.15 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 0.3
+          }
+        }
+      ]
+    },
+    "_comment_mirror": "The centrepiece: a hyperboloid of one sheet, mirrored - a waist the ring is drawn round.",
+    "mirror": {
+      "union": [
+        {
+          "intersect": [
+            {
+              "cylinder": {
+                "center": [ 0, 0, 0 ],
+                "axis": [ 0, 0, 1 ],
+                "radius": 2
+              },
+              "material": "stone"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 0.15 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 0.3
+              }
+            }
+          ]
+        },
+        {
+          "intersect": [
+            {
+              "hyperboloid": {
+                "center": [ 0, 0, 2.3 ],
+                "axis": [ 0, 0, 1 ],
+                "radius": 1.5,
+                "semiAxial": 3.6,
+                "sheets": 1
+              },
+              "material": "mirror"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 2.35 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 4.1000000000000005
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "_comment_pillar": "A pillar: a cylinder cut by a slab, with a capital.",
+    "pillar": {
+      "union": [
+        "pedestal",
+        {
+          "intersect": [
+            {
+              "cylinder": {
+                "center": [ 0, 0, 0 ],
+                "axis": [ 0, 0, 1 ],
+                "radius": 0.42
+              },
+              "material": "red"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 1.8499999999999999 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 3.1
+              }
+            }
+          ]
+        },
+        {
+          "intersect": [
+            {
+              "cylinder": {
+                "center": [ 0, 0, 0 ],
+                "axis": [ 0, 0, 1 ],
+                "radius": 0.7
+              },
+              "material": "stone"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 3.55 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 0.30000000000000027
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "_comment_cone": "A cone: the lower nappe of a double cone, under its apex.",
+    "cone": {
+      "union": [
+        "pedestal",
+        {
+          "intersect": [
+            {
+              "cone": {
+                "apex": [ 0, 0, 2.9 ],
+                "axis": [ 0, 0, 1 ],
+                "slope": 0.32
+              },
+              "material": "amber"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 1.5999999999999999 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 2.6
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "_comment_dish": "A paraboloid dish on a stem: the inner paraboloid taken out of the outer.",
+    "dish": {
+      "union": [
+        "pedestal",
+        {
+          "intersect": [
+            {
+              "cylinder": {
+                "center": [ 0, 0, 0 ],
+                "axis": [ 0, 0, 1 ],
+                "radius": 0.12
+              },
+              "material": "stone"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 0.9500000000000001 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 1.3
+              }
+            }
+          ]
+        },
+        {
+          "difference": [
+            {
+              "intersect": [
+                {
+                  "paraboloid": {
+                    "vertex": [ 0, 0, 1.5 ],
+                    "axis": [ 0, 0, 1 ],
+                    "focal": 0.22
+                  },
+                  "material": "teal"
+                },
+                {
+                  "slab": {
+                    "center": [ 0, 0, 2.05 ],
+                    "axis": [ 0, 0, 1 ],
+                    "thickness": 1.1
+                  }
+                }
+              ]
+            },
+            {
+              "paraboloid": {
+                "vertex": [ 0, 0, 1.65 ],
+                "axis": [ 0, 0, 1 ],
+                "focal": 0.22
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "_comment_horns": "A hyperboloid of two sheets: tips facing each other across a gap.",
+    "horns": {
+      "union": [
+        "pedestal",
+        {
+          "intersect": [
+            {
+              "hyperboloid": {
+                "center": [ 0, 0, 1.75 ],
+                "axis": [ 0, 0, 1 ],
+                "radius": 0.3,
+                "semiAxial": 0.45,
+                "sheets": 2
+              },
+              "material": "violet"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 1.65 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 2.7
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "_comment_egg": "A spheroid, tall, on the pedestal.",
+    "egg": {
+      "union": [
+        "pedestal",
+        {
+          "spheroid": {
+            "center": [ 0, 0, 1.45 ],
+            "axis": [ 0, 0, 1 ],
+            "height": 2.3,
+            "radius": 0.72
+          },
+          "material": "gold"
+        }
+      ]
+    },
+    "_comment_block": "A cube - three slabs met - drilled through by a cylinder on a slant.",
+    "block": {
+      "union": [
+        "pedestal",
+        {
+          "difference": [
+            {
+              "intersect": [
+                {
+                  "slab": {
+                    "center": [ 0, 0, 1.15 ],
+                    "axis": [ 1, 0, 0 ],
+                    "thickness": 1.3
+                  },
+                  "material": "jade"
+                },
+                {
+                  "slab": {
+                    "center": [ 0, 0, 1.15 ],
+                    "axis": [ 0, 1, 0 ],
+                    "thickness": 1.3
+                  }
+                },
+                {
+                  "slab": {
+                    "center": [ 0, 0, 1.15 ],
+                    "axis": [ 0, 0, 1 ],
+                    "thickness": 1.3
+                  }
+                }
+              ]
+            },
+            {
+              "cylinder": {
+                "center": [ 0, 0, 1.15 ],
+                "axis": [ 0.6, 0, 0.8 ],
+                "radius": 0.38
+              }
+            }
+          ],
+          "rotate": {
+            "axis": [ 0, 0, 1 ],
+            "degrees": 30,
+            "pivot": [ 0, 0, 0 ]
+          }
+        }
+      ]
+    },
+    "column-red": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.55
+          },
+          "material": "red"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3.5 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 7
+          }
+        }
+      ]
+    },
+    "column-amber": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.55
+          },
+          "material": "amber"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3.5 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 7
+          }
+        }
+      ]
+    },
+    "column-teal": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.55
+          },
+          "material": "teal"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3.5 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 7
+          }
+        }
+      ]
+    },
+    "column-violet": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.55
+          },
+          "material": "violet"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3.5 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 7
+          }
+        }
+      ]
+    },
+    "column-gold": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.55
+          },
+          "material": "gold"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3.5 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 7
+          }
+        }
+      ]
+    },
+    "column-jade": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.55
+          },
+          "material": "jade"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3.5 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 7
+          }
+        }
+      ]
+    },
+    "_comment_columns": "An outer ring of tall columns, one of each colour, for the mirror to bend.",
+    "_comment_column-mirror": "Two mirrored columns, between the exhibits and the outer ring: each sees the centrepiece, and the centrepiece them.",
+    "column-mirror": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.5
+          },
+          "material": "mirror"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 2.75 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 5.5
+          }
+        }
+      ]
+    }
+  },
+  "root": {
+    "sphere": {
+      "center": [ 0, 0, 0 ],
+      "radius": 60,
+      "complement": true
+    },
+    "material": "sky",
+    "outside": {
+      "plane": {
+        "normal": [ 0, 0, 1 ],
+        "offset": 0
+      },
+      "material": "floor",
+      "outside": {
+        "group": [
+          {
+            "use": "mirror",
+            "translate": [ 0, 0, 0 ],
+            "bounds": {
+              "center": [ 0, 0, 2.2 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "pillar",
+            "translate": [ 6.2099, 1.5483, 0 ],
+            "bounds": {
+              "center": [ 6.2099, 1.5483, 1.9 ],
+              "radius": 2.3
+            }
+          },
+          {
+            "use": "cone",
+            "translate": [ 3.1028, 5.5976, 0 ],
+            "bounds": {
+              "center": [ 3.1028, 5.5976, 1.9 ],
+              "radius": 2.3
+            }
+          },
+          {
+            "use": "dish",
+            "translate": [ -1.9777, 6.0868, 0 ],
+            "bounds": {
+              "center": [ -1.9777, 6.0868, 1.9 ],
+              "radius": 2.3
+            }
+          },
+          {
+            "use": "horns",
+            "translate": [ -5.8004, 2.7048, 0 ],
+            "bounds": {
+              "center": [ -5.8004, 2.7048, 1.9 ],
+              "radius": 2.3
+            }
+          },
+          {
+            "use": "egg",
+            "translate": [ -5.934, -2.3975, 0 ],
+            "bounds": {
+              "center": [ -5.934, -2.3975, 1.9 ],
+              "radius": 2.3
+            }
+          },
+          {
+            "use": "block",
+            "translate": [ -2.2936, -5.9749, 0 ],
+            "bounds": {
+              "center": [ -2.2936, -5.9749, 1.9 ],
+              "radius": 2.3
+            }
+          },
+          {
+            "use": "column-red",
+            "translate": [ -6.25, 10.8253, 0 ],
+            "bounds": {
+              "center": [ -6.25, 10.8253, 3.5 ],
+              "radius": 3.6
+            }
+          },
+          {
+            "use": "column-amber",
+            "translate": [ -12.5, 0, 0 ],
+            "bounds": {
+              "center": [ -12.5, 0, 3.5 ],
+              "radius": 3.6
+            }
+          },
+          {
+            "use": "column-teal",
+            "translate": [ -6.25, -10.8253, 0 ],
+            "bounds": {
+              "center": [ -6.25, -10.8253, 3.5 ],
+              "radius": 3.6
+            }
+          },
+          {
+            "use": "column-violet",
+            "translate": [ 6.25, -10.8253, 0 ],
+            "bounds": {
+              "center": [ 6.25, -10.8253, 3.5 ],
+              "radius": 3.6
+            }
+          },
+          {
+            "use": "column-gold",
+            "translate": [ 12.5, 0, 0 ],
+            "bounds": {
+              "center": [ 12.5, 0, 3.5 ],
+              "radius": 3.6
+            }
+          },
+          {
+            "use": "column-jade",
+            "translate": [ 6.25, 10.8253, 0 ],
+            "bounds": {
+              "center": [ 6.25, 10.8253, 3.5 ],
+              "radius": 3.6
+            }
+          },
+          {
+            "use": "column-mirror",
+            "translate": [ 2.9048, 8.9399, 0 ],
+            "bounds": {
+              "center": [ 2.9048, 8.9399, 2.75 ],
+              "radius": 2.9
+            }
+          },
+          {
+            "use": "column-mirror",
+            "translate": [ -9.1946, 1.9544, 0 ],
+            "bounds": {
+              "center": [ -9.1946, 1.9544, 2.75 ],
+              "radius": 2.9
+            }
+          }
+        ]
+      }
+    }
+  }
+}

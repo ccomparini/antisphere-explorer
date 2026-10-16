@@ -59,8 +59,8 @@ struct Node {
   //
   // It is a material id: the low bits that index, the high bits trace
   // flags - what a ray does here, read without looking the material up
-  // (see trace()). MATERIAL_SOLID: the material is solid. Index with
-  // materialIndex().
+  // (see trace(), and the MATERIAL_ constants below for the layout). Index
+  // with materialIndex().
   material_id     : u32,
 
   // Where R is measured from (see above): the quadric's centre where it has
@@ -76,9 +76,33 @@ struct Node {
   env             : u32,
 };
 
-// A material id's trace flags (see Node.material_id), and its index.
-const MATERIAL_SOLID : u32 = 0x80000000u;
-const MATERIAL_INDEX : u32 = 0x7fffffffu;
+// A material id's trace flags: what a ray does in the region, each bit one
+// thing. All of them 0 means no interaction at all - a pure division, empty
+// space - so nothing is ever set just to say "passes". Every flag that is a
+// single bit is also a scene key, set in a material (scene-format.md), and
+// no combination is refused: an odd one may render oddly, or be wanted.
+//
+//   bit 31     SOLID: there, physically - for the walk camera, physics,
+//              and castRays()
+//   bit 30     OPTICAL: interacts with light - camera and shadow rays stop
+//              there. The bits below say whether a camera ray goes on, and
+//              how (main()).
+//   bits 28-29 IOR: glass - a camera ray refracts in, and out where the
+//              material ends, the hit showing what it sees, times its
+//              albedo. IOR_GLASS 1.5, IOR_WATER 1.333, both 2.42
+//              (diamond's: iorOf()); none, no refraction - opaque
+//   bit 27     REFLECTIVE: a mirror - a camera ray goes on reflected, and
+//              the hit shows what it sees, times its albedo (main())
+//              Past MAX_BOUNCES, a mirror or glass is its own material,
+//              shaded
+//   bits 0-26  the material's index (materialIndex())
+const MATERIAL_SOLID      : u32 = 0x80000000u;
+const MATERIAL_OPTICAL    : u32 = 0x40000000u;
+const MATERIAL_IOR        : u32 = 0x30000000u;
+const MATERIAL_IOR_GLASS  : u32 = 0x20000000u;
+const MATERIAL_IOR_WATER  : u32 = 0x10000000u;
+const MATERIAL_REFLECTIVE : u32 = 0x08000000u;
+const MATERIAL_INDEX      : u32 = 0x07ffffffu;
 fn materialIndex(id : u32) -> u32 { return id & MATERIAL_INDEX; }
 
 // The implicit function at an arbitrary point. trace() no longer calls this:
@@ -1533,4 +1557,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":109},{"path":"shaders/overlap.wgsls","offset":111,"lines":253},{"path":"shaders/collision.wgsls","offset":364,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":915,"lines":620}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":133},{"path":"shaders/overlap.wgsls","offset":135,"lines":253},{"path":"shaders/collision.wgsls","offset":388,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":939,"lines":620}]

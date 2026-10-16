@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { writeSTL } from '../public/stl.js';
-import { compileScene } from '../public/antisphere-scene.js';
+import { compileScene, isSolid } from '../public/antisphere-scene.js';
 
 const script = fileURLToPath(new URL('./import-model.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'import-model-'));
@@ -97,7 +97,7 @@ function albedoAt(got, R) {
   while (index) {
     const nd = built.nodes[index];
     if (H(nd.prim, R) < 0) {
-      if (built.materials[nd.material].solid) { if (!found) found = index; } else found = 0;
+      if (isSolid(built.materials[nd.material])) { if (!found) found = index; } else found = 0;
       if (!nd.inside) break;
       index = nd.inside;
     } else {

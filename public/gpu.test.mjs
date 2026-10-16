@@ -1178,3 +1178,182 @@ gpuTest('loadScene by URL: a scene referencing what sits beside it, an STL on it
     server.close();
   }
 });
+
+// -- reflection, as rendered -----------------------------------------------------------
+
+gpuTest('a mirror shows what its reflected ray sees, times its albedo; past MAX_BOUNCES, its own material', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  const { MAX_BOUNCES } = await import('./gen/layouts.js');
+  // Looking along +Y, orthographic, at a wall filling y > 0; behind the
+  // camera (eye plane y = -10), unseen by the camera's own rays, a wall
+  // filling y < -20. Unlit, so the colours are exact.
+  const spec = (front, back) => ({
+    materials: {
+      front: { kind: 'unlit', albedo: [0.5, 0.5, 0.5], ...front },
+      back:  { kind: 'unlit', albedo: [1, 0, 0], ...back },
+    },
+    lights: [],
+    root: { plane: { normal: [0, -1, 0], offset: 0 }, material: 'front',
+            outside: { plane: { normal: [0, 1, 0], offset: -20 }, material: 'back' } },
+  });
+  const camera = () => new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic', orthoHeight: 4 });
+  const centre = async (s) => (await renderPixels(s, camera())).at(80, 40);
+  const half = Math.round(255 * 0.5 ** (1 / 2.2));    // 0.5, after gamma
+  const near = (got, want, what) => assert.ok(got.every((v, i) => Math.abs(v - want[i]) <= 1), `${what}: ${got}, not ${want}`);
+
+  near(await centre(spec({}, {})), [half, half, half], 'not reflective: its own colour');
+  near(await centre(spec({ reflective: true }, {})), [half, 0, 0], 'a mirror: the red wall behind the camera, at half');
+  near(await centre(spec({ reflective: true, albedo: [1, 1, 0] }, {})), [255, 0, 0], 'a yellow mirror passes the red');
+  // Two mirrors facing: the ray bounces between them, front, back, front
+  // ..., and the mirror it reaches with no bounce left is shaded as its own
+  // material, tinted by every mirror before it.
+  const albedo = [[0.5, 0.5, 0.5], [1, 0, 0]];         // front, back
+  const last = albedo[MAX_BOUNCES % 2];
+  const tint = [0, 1, 2].map((c) => last[c] * Array.from({ length: MAX_BOUNCES }, (_, k) => albedo[k % 2][c]).reduce((a, b) => a * b, 1));
+  near(await centre(spec({ reflective: true }, { reflective: true })), tint.map((v) => Math.round(255 * v ** (1 / 2.2))),
+       `a mirror seen in a mirror, past MAX_BOUNCES (${MAX_BOUNCES})`);
+});
+
+gpuTest('glass refracts: through a tilted slab the world shifts as Snell\'s law says; face on, coloured by its depth', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A wall filling y > 10, red where x < 0 and blue where x > 0; between it
+  // and the camera (looking along +Y, orthographic, 10 pixels a unit) a
+  // slab of glass 2 thick through the origin, its axis `axis`, cut to a
+  // ball of radius 5 - each face of it a node carrying the glass.
+  const spec = (axis, glass) => ({
+    materials: {
+      red:   { kind: 'unlit', albedo: [1, 0, 0] },
+      blue:  { kind: 'unlit', albedo: [0, 0, 1] },
+      glass: { iorGlass: true, albedo: [1, 1, 1], ...glass },
+    },
+    lights: [],
+    // The glass first, and beyond it a pure division at x = 0 - parallel to
+    // every ray, so on no face - with each half of the wall a node of its
+    // own colour, the faces the rays meet.
+    root: { slab: { center: [0, 0, 0], axis, thickness: 2 }, material: 'glass',
+            inside: { sphere: { center: [0, 0, 0], radius: 5 }, material: 'glass' },
+            outside: { plane: { normal: [-1, 0, 0], offset: 0 }, material: null,
+                       inside: { plane: { normal: [0, -1, 0], offset: -10 }, material: 'blue' },
+                       outside: { plane: { normal: [0, -1, 0], offset: -10 }, material: 'red' } } },
+  });
+  const camera = () => new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic', orthoHeight: 4 });
+  const near = (got, want, what) => assert.ok(got.every((v, i) => Math.abs(v - want[i]) <= 1), `${what}: ${got}, not ${want}`);
+
+  // Face on, no bend: the wall as it is, coloured by the 2 units of glass
+  // between - albedo^(2 * opacity).
+  const gamma = (v) => Math.round(255 * v ** (1 / 2.2));
+  const faceOn = await renderPixels(spec([0, 1, 0], { albedo: [0.5, 1, 1] }), camera());
+  near(faceOn.at(40, 40), [gamma(0.25), 0, 0], 'red through 2 units of glass that halve red each');
+  near(faceOn.at(120, 40), [0, 0, 255], 'blue through it');
+  near((await renderPixels(spec([0, 1, 0], { albedo: [0.5, 1, 1], opacity: 0.5 }), camera())).at(40, 40),
+       [gamma(0.5), 0, 0], 'at opacity 0.5, as if 1 unit');
+  near((await renderPixels(spec([0, 1, 0], { albedo: [0.5, 1, 1], opacity: 0 }), camera())).at(40, 40),
+       [255, 0, 0], 'at opacity 0, clear');
+
+  // At 45 degrees, a ray along +Y comes out parallel to how it went in,
+  // shifted sideways: where, by Snell's law, worked out here.
+  const n = [Math.SQRT1_2, Math.SQRT1_2, 0];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const refract = (d, nf, eta) => {          // GLSL's refract(), nf facing the ray
+    const c = -dot(d, nf), k = 1 - eta * eta * (1 - c * c);
+    return d.map((v, i) => eta * v + (eta * c - Math.sqrt(k)) * nf[i]);
+  };
+  const wallX = (x0) => {
+    let p = [x0, -10, 0], d = [0, 1, 0];
+    const to = (plane) => { const t = (plane - dot(n, p)) / dot(n, d); p = p.map((v, i) => v + t * d[i]); };
+    to(-1); d = refract(d, n.map((v) => -v), 1 / 1.5);
+    to(1);  d = refract(d, n.map((v) => -v), 1.5);
+    return p[0] + (10 - p[1]) * d[0] / d[1];
+  };
+  const shift = wallX(0) - 0;
+  assert.ok(Math.abs(shift) > 0.5, `a shift worth seeing: ${shift}`);
+  const tilted = await renderPixels(spec(n, {}), camera());
+  // Searched over the flat middle of the slab: towards the ball's rim, rays
+  // meet its curve as well.
+  const boundary = [...Array(50).keys()].map((k) => 50 + k).find((col) => tilted.at(col, 40)[2] > 128);   // first blue column
+  const expected = 80 + -shift * 10;          // the column whose ray lands on x = 0
+  assert.ok(Math.abs(boundary - expected) <= 1, `red meets blue at column ${boundary}, Snell says ${expected.toFixed(2)}`);
+  near(tilted.at(boundary - 5, 40), [255, 0, 0], 'red, through the glass');
+});
+
+gpuTest('glass meeting water: a ray bends at each face by the ratio of the two indices, and is coloured by each', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // As above - a wall, red where x < 0, blue where x > 0, behind a slab -
+  // but the slab is two, face to face: glass from -1 to 0 along `axis`,
+  // water from 0 to 1, each bounded by a ball of radius 5, each face a
+  // node carrying its own material.
+  const half = (centre, material, axis) => ({
+    slab: { center: axis.map((v) => v * centre), axis, thickness: 1 }, material,
+    inside: { sphere: { center: [0, 0, 0], radius: 5 }, material },
+  });
+  const spec = (axis) => ({
+    materials: {
+      red:   { kind: 'unlit', albedo: [1, 0, 0] },
+      blue:  { kind: 'unlit', albedo: [0, 0, 1] },
+      glass: { iorGlass: true, albedo: [0.5, 1, 1] },
+      water: { iorWater: true, albedo: [0.5, 1, 1] },
+    },
+    lights: [],
+    root: { ...half(-0.5, 'glass', axis),
+            outside: { ...half(0.5, 'water', axis),
+                       outside: { plane: { normal: [-1, 0, 0], offset: 0 }, material: null,
+                                  inside: { plane: { normal: [0, -1, 0], offset: -10 }, material: 'blue' },
+                                  outside: { plane: { normal: [0, -1, 0], offset: -10 }, material: 'red' } } } },
+  });
+  const camera = () => new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic', orthoHeight: 4 });
+  const gamma = (v) => Math.round(255 * v ** (1 / 2.2));
+  const near = (got, want, what) => assert.ok(got.every((v, i) => Math.abs(v - want[i]) <= 1), `${what}: ${got}, not ${want}`);
+
+  // Face on: a unit of each, each halving red.
+  const faceOn = await renderPixels(spec([0, 1, 0]), camera());
+  near(faceOn.at(40, 40), [gamma(0.25), 0, 0], 'red through a unit of glass and a unit of water');
+  near(faceOn.at(120, 40), [0, 0, 255], 'blue through them');
+
+  // At 45 degrees: air to glass, glass to water (1.5 / 1.333), water to air.
+  // (Through parallel faces Snell's law composes, so a film of air between
+  // would bend it the same; what meeting water changes is the critical
+  // angle - 62.7 degrees against water, 41.8 against air - and that each is
+  // coloured by its own depth.)
+  const n = [Math.SQRT1_2, Math.SQRT1_2, 0];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const refract = (d, nf, eta) => {
+    const c = -dot(d, nf), k = 1 - eta * eta * (1 - c * c);
+    return d.map((v, i) => eta * v + (eta * c - Math.sqrt(k)) * nf[i]);
+  };
+  const back = n.map((v) => -v);
+  let p = [0, -10, 0], d = [0, 1, 0];
+  const to = (plane) => { const t = (plane - dot(n, p)) / dot(n, d); p = p.map((v, i) => v + t * d[i]); };
+  to(-1); d = refract(d, back, 1 / 1.5);
+  to(0);  d = refract(d, back, 1.5 / 1.333);
+  to(1);  d = refract(d, back, 1.333);
+  const shift = p[0] + (10 - p[1]) * d[0] / d[1];
+  const tilted = await renderPixels(spec(n), camera());
+  const boundary = [...Array(50).keys()].map((k) => 50 + k).find((col) => tilted.at(col, 40)[2] > 128);
+  const expected = 80 - shift * 10;
+  assert.ok(Math.abs(boundary - expected) <= 1, `red meets blue at column ${boundary}, Snell says ${expected.toFixed(2)}`);
+});
+
+gpuTest('through a glass box with a box-shaped hole, only its walls colour the light', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A glass box 3 across, its inside taken out (walls 0.5), before a red
+  // wall, seen face on. The hole is three complemented slabs, so the camera
+  // ray reaches the front wall through one's outside and trace() reports
+  // another slab at the same distance: the surface it goes on from must be
+  // the one it is on (surfaceAt()), or the hole is lost and the light is
+  // coloured by glass all the way across.
+  const box = (w, material) => ({ intersect: [
+    { slab: { center: [0, 0, 0], axis: [1, 0, 0], thickness: w }, ...material },
+    { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: w }, ...material },
+    { slab: { center: [0, 0, 0], axis: [0, 0, 1], thickness: w }, ...material }] });
+  const spec = {
+    materials: { red: { kind: 'unlit', albedo: [1, 0, 0] }, glass: { iorGlass: true, albedo: [0.5, 1, 1] } },
+    lights: [],
+    root: { plane: { normal: [0, 1, 0], offset: 10 }, material: null,
+            inside: { difference: [box(3, { material: 'glass' }), box(2, {})] },
+            outside: { plane: { normal: [0, -1, 0], offset: -10 }, material: 'red' } },
+  };
+  const camera = new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic', orthoHeight: 4 });
+  const got = (await renderPixels(spec, camera)).at(80, 40);
+  const want = Math.round(255 * 0.5 ** (1 / 2.2));      // two walls of 0.5: one unit of glass
+  assert.ok(Math.abs(got[0] - want) <= 1 && got[1] === 0 && got[2] === 0, `red through the walls only: ${got}, not ${want}`);
+});

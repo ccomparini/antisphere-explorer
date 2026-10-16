@@ -37,8 +37,9 @@
 import {
   Light, Material, Node,
   KIND_LAMBERT, KIND_GLOSSY, KIND_EMISSIVE, KIND_UNLIT, KIND_AMBIENT, KIND_GLOW_REGION,
-  PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, MATERIAL_SOLID,
+  PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, MATERIAL_SOLID, MATERIAL_OPTICAL,
 } from './gen/layouts.js';
+import * as layouts from './gen/layouts.js';
 import { regionsDisjoint } from './overlap.js';
 import { readSTL } from './stl.js';
 import { meshToTree, boundsOf } from './mesh-import.js';
@@ -404,6 +405,21 @@ const KINDS = {
 // starts an env (bakeScopes()).
 const isRegionKind = (kind) => kind === KIND_AMBIENT || kind === KIND_GLOW_REGION;
 
+/**
+ * The trace flags a material can set, by the key a scene sets it with:
+ * every MATERIAL_ constant in shaders/node.wgsls that is a single bit,
+ * named without MATERIAL_ and camelCased - SOLID is "solid", IOR_GLASS
+ * "iorGlass". A mask (INDEX, IOR) is more than one bit, so never a key; a
+ * new flag is a key as soon as the shaders are built.
+ */
+export const MATERIAL_FLAG_KEYS = Object.freeze(Object.fromEntries(
+  Object.entries(layouts)
+    .filter(([name, v]) => name.startsWith('MATERIAL_') && Number.isInteger(v) && v !== 0 && (v & (v - 1)) === 0)
+    .map(([name, v]) => [name.slice('MATERIAL_'.length).toLowerCase().replace(/_(.)/g, (_, c) => c.toUpperCase()), v >>> 0])));
+
+/** Whether a compiled material is there physically (MATERIAL_SOLID). */
+export const isSolid = (m) => (m.flags & MATERIAL_SOLID) !== 0;
+
 // The ambient level outside every env: ambient() in the raycast shader
 // uses the same, and an outermost lit region with no level of its own
 // keeps it (bakeScopes()).
@@ -738,7 +754,7 @@ function bakeScopes(tree, table) {
   let passing = 0;
   const passThrough = () => {
     if (!passing) {
-      table.push({ ...table[0], albedo: [0, 0, 0], kind: KIND_AMBIENT, params: [1, 0], solid: false });
+      table.push({ ...table[0], albedo: [0, 0, 0], kind: KIND_AMBIENT, params: [1, 0], flags: 0 });
       passing = table.length - 1;
     }
     return passing;
@@ -893,7 +909,7 @@ function boundOf(t, declared, memo, table) {
       // that's what inheritance overwhelmingly resolves to, and erring
       // toward "solid" only ever widens a bound, never narrows one enough
       // to clip real geometry.
-      const solid = t.material === INHERIT_MATERIAL ? true : table[t.material].solid;
+      const solid = t.material === INHERIT_MATERIAL ? true : isSolid(table[t.material]);
       return solid ? (regionBall(t.prim, true) || UNBOUNDED) : NO_SOLID;
     }
     const ball = regionBall(t.prim, insideSide);
@@ -1345,14 +1361,13 @@ export function compileScene(rawSpec, options = {}) {
   }
   const warn = (path, msg) => { console.warn(`warning: ${path}: ${msg}`); };
 
-  // Material 0 is vacuum: never shaded, and not solid.
-  //  trace() reads materials[material].solid
-  // directly wherever a node's own default (unspecified) "inside" is what
-  // decides solid-or-not (see flatten()'s doc comment), so an author-set
-  // solid: false (water/glass, or a purely spatial-subdivision material)
-  // is exactly what keeps that region from registering as a hit.
+  // Material 0 is vacuum: never shaded, and no trace flags - nothing there.
+  // A material's flags (MATERIAL_FLAG_KEYS) go into the material id of
+  // every node it fills (packNodes()), which is what trace() reads: an
+  // author-set "solid": false, or "optical": false, is exactly what keeps
+  // a ray of that sort from stopping in the region.
   const table = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0],
-                   pattern: 0, scale: 1, kind: 0, params: [0, 0], solid: false }];
+                   pattern: 0, scale: 1, kind: 0, params: [0, 0], flags: 0 }];
   const matIndex = new Map();
   for (const [name, def] of Object.entries(spec.materials || {})) {
     if (LEGACY_PAINT_WORDS.includes(name)) at(`materials.${name}`, 'name is reserved');
@@ -1367,21 +1382,33 @@ export function compileScene(rawSpec, options = {}) {
     if (!(typeof scale === 'number' && scale > 0 && Number.isFinite(scale))) {
       at(`materials.${name}.scale`, `must be a positive number, got ${JSON.stringify(def.scale)}`);
     }
+    const opacity = def.opacity ?? 1;
+    if (!(typeof opacity === 'number' && opacity >= 0 && Number.isFinite(opacity))) {
+      at(`materials.${name}.opacity`, `must be a number, 0 or more, got ${JSON.stringify(def.opacity)}`);
+    }
     for (const field of ['transmit', 'fill']) {
       if (def[field] !== undefined && !(typeof def[field] === 'number' && Number.isFinite(def[field]))) {
         at(`materials.${name}.${field}`, `must be a number, got ${JSON.stringify(def[field])}`);
       }
     }
+    // Solid and seen, unless an ambient (a region's surroundings, not a
+    // substance) or the keys say otherwise; each key sets or clears its own
+    // bit, and no combination is refused.
+    let flags = isRegionKind(kind.id) ? 0 : MATERIAL_SOLID | MATERIAL_OPTICAL;
+    for (const [key, bit] of Object.entries(MATERIAL_FLAG_KEYS)) {
+      if (def[key] === undefined) continue;
+      if (typeof def[key] !== 'boolean') at(`materials.${name}.${key}`, `must be true or false, got ${JSON.stringify(def[key])}`);
+      flags = def[key] ? flags | bit : flags & ~bit;
+    }
     table.push({
       albedo:  def.albedo  ?? [0.7, 0.7, 0.7],
       albedo2: def.albedo2 ?? [0.3, 0.3, 0.3],
       scale,
+      opacity,
       kind:    kind.id,
       params:  kind.params(def),
       pattern,
-      // e.g. water, glass, or a spatial-subdivision-only material; an
-      // ambient is a region's surroundings, not a substance
-      solid:   def.solid ?? !isRegionKind(kind.id),
+      flags:   flags >>> 0,
     });
     matIndex.set(name, table.length - 1);
   }
@@ -1672,7 +1699,7 @@ export function compileScene(rawSpec, options = {}) {
 
   // boundOf() asks which regions are solid; here every absent inside is a
   // claim, whatever fills it.
-  const claimTable = new Proxy({}, { get: () => ({ solid: true }) });
+  const claimTable = new Proxy({}, { get: () => ({ flags: MATERIAL_SOLID }) });
   const claimMemo = new Map();
 
   // A member's claimed regions, as the paths down to them - [{ prim, sign }]
@@ -2226,8 +2253,8 @@ export function compileScene(rawSpec, options = {}) {
 }
 
 // A material as the GPU stores it: Material in shaders/antisphere-raycast.wgsls,
-// written through the Material class generated from it. solid crosses as
-// u32, since bool can't be shared with the GPU.
+// written through the Material class generated from it. Its trace flags
+// go to the GPU in its nodes' material ids (packNodes()), not here.
 export function packMaterials(list) {
   const views = Material.allocate(list.length);
   list.forEach((m, j) => {
@@ -2238,7 +2265,7 @@ export function packMaterials(list) {
       albedo: m.albedo,
       scale: m.scale,
       albedo2: m.albedo2,
-      solid: m.solid ? 1 : 0,
+      opacity: m.opacity ?? 1,
       ambient: m.ambient ?? [0, 0, 0],
     });
   });
@@ -2347,12 +2374,11 @@ export function packSurfaces(list) {
 //
 // inside/outside are 0 or a real index (see flatten()'s doc comment for
 // what 0 means on each side).
-// MATERIAL_SOLID (from shaders/node.wgsls, by way of layouts.js) is a
-// material id's trace flag: the high bits of Node.material_id, over the
-// material's index.
+// The MATERIAL_ trace flags (from shaders/node.wgsls, by way of
+// layouts.js) are a material id's high bits, over the material's index.
 /**
  * The nodes as the GPU takes them. With `materials` (the compiled table),
- * each node's material id carries its material's trace flags - solid -
+ * each node's material id carries its material's trace flags (its `flags`),
  * which trace() reads; without, just the index (physics, which reads none).
  */
 export function packNodes(list, materials = null) {
@@ -2371,7 +2397,7 @@ export function packNodes(list, materials = null) {
       anchor: a,
       inside: nd.inside,
       outside: nd.outside,
-      material_id: (nd.material | (materials?.[nd.material]?.solid ? MATERIAL_SOLID : 0)) >>> 0,
+      material_id: (nd.material | (materials?.[nd.material]?.flags ?? 0)) >>> 0,
       env: nd.env,
     });
   });

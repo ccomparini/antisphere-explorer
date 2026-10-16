@@ -20,7 +20,9 @@
 #import "random.wgsls"
 
 // Ordered so the two scalars and the vec2 fill the 16 bytes ahead of the
-// first vec3, which has to start on a 16-byte boundary anyway: 48 bytes.
+// first vec3, which has to start on a 16-byte boundary anyway: 64 bytes,
+// with 4 free after albedo2. What a ray does in a material - its trace
+// flags - is not here but in each node's material id (Node.material_id).
 struct Material {
   kind    : u32,       // selects the shading function
   pattern : u32,       // albedo modulation, independent of kind
@@ -28,7 +30,9 @@ struct Material {
   albedo  : vec3<f32>,
   scale   : f32,       // pattern tile size: larger is bigger tiles
   albedo2 : vec3<f32>,
-  solid   : u32,       // 0 or 1; used to determine if it stops rays
+  // Glass and water (MATERIAL_IOR): how fast light through it takes on its
+  // albedo - after d units, albedo^(d * opacity). 1 by default.
+  opacity : f32,
   // An env node's material: the env's ambient level - its own and what it
   // lets in of the level around it (transmit, params.x), baked by
   // bakeScopes() in antisphere-scene.js, one copy of the material for each
@@ -40,13 +44,13 @@ const KIND_LAMBERT  : u32 = 0u;
 const KIND_GLOSSY   : u32 = 1u;
 const KIND_EMISSIVE : u32 = 2u;
 const KIND_UNLIT    : u32 = 3u;
-// An ambient material never shades, and is not solid. A node naming one
+// An ambient material never shades, and has no trace flags by default. A node naming one
 // starts an env: every node beneath it has it as its env (see Node.env and
 // bakeScopes() in antisphere-scene.js), and its albedo is the ambient
 // level there.
 const KIND_AMBIENT  : u32 = 4u;
 // A glow region: like an ambient material, a region rather than a
-// substance - not solid by default, and a node naming one starts an env -
+// substance - no trace flags by default, and a node naming one starts an env -
 // but lit from within instead of at a level: its albedo is the light at
 // its node's centre, falling to nothing at the node's surface (addGlow()).
 // Worked out from the node's own coefficients at every hit, so changing
@@ -202,8 +206,22 @@ var<storage, read> surfaces : array<u32>;
 // sees only what that env holds.
 //
 // `stop_flags` says what this ray stops at: a region whose material id has
-// any of these trace flags (see Node.material_id) - MATERIAL_SOLID, today,
-// for every ray.
+// any of these trace flags (see Node.material_id): MATERIAL_OPTICAL for a
+// ray that is light (camera rays, shadow rays), MATERIAL_SOLID for one that
+// wants what is physically there (castRays()).
+//
+// `extend` is for a ray inside a medium (glass, water): it wants where the
+// medium ends, not where it starts. The run found goes on over every piece
+// after it of the same material id, and ends where a piece of anything
+// else - empty space too - begins: found.t1 is that point, where the
+// material changes. Only what fills space counts, as it is in the end: a
+// node's own material, where its inside says more, decides nothing. And
+// what follows, the piece that ended the run, comes back in found.t0, as a
+// node bitcast: its region's node, or 0 for empty space (node 0's material
+// id is 0, so it reads as air). The caller wants no t0 of a run it starts
+// on the surface of. (Which surface it leaves by is not found.node's: see
+// surfaceAt().) Every other ray passes false, and sees found exactly as
+// before.
 fn trace(
   O : vec3<f32>,
   D : vec3<f32>,
@@ -211,7 +229,8 @@ fn trace(
   tMax : f32,
   fromSurface: u32,
   start: u32,
-  stop_flags: u32
+  stop_flags: u32,
+  extend: bool
 ) -> Seg {
   // found.node == 0 means "no hit (yet)" - node 0 is reserved (see Node's
   // doc comment) so no real crossing can ever claim it. Segments pop in
@@ -221,6 +240,7 @@ fn trace(
   // pop turns up non-solid again, that run is done and nothing nearer is
   // left to find.
   var found : Seg = Seg(0u, -1.0, tMax);
+  var foundId = 0u;   // extend: the material id of the run found
 
   // The root is held in a variable rather than seeded onto the stack, which
   // is what lets a length check at the top of the loop go. The push below is
@@ -235,31 +255,61 @@ fn trace(
   loop {
 
     var descent_node = seg.node;
+    var extending = false;   // extend: this piece goes on the run found
     if ((descent_node & DEFAULT_INSIDE_BIT) != 0u) {
       // Deferred default inside (see Seg's doc comment): resolve straight
       // from the tagged node's own material, no geometry test needed -
       // there's nothing left to split, this *is* the answer already.
       let seg_nn = seg.node & ~DEFAULT_INSIDE_BIT;
       let seg_node = nodes[seg_nn];
-      if ((seg_node.material_id & stop_flags) != 0u) {
-        if (found.node == 0u) { found = Seg(seg_nn, seg.t0, seg.t1); }
+      if (extend && seg_node.inside != 0u) {
+        // Extending, only what fills space decides: a node whose inside
+        // says more (a pedestal's stone, with the glass on it below) is
+        // passed through, neither starting a run nor ending one.
+      } else if ((seg_node.material_id & stop_flags) != 0u) {
+        if (found.node == 0u) {
+          found = Seg(seg_nn, seg.t0, seg.t1);
+          foundId = seg_node.material_id;
+          extending = extend;
+        } else if (extend) {
+          // The same material goes on the run; anything else ends it here.
+          if (seg_node.material_id != foundId) {
+            found.t1 = seg.t0;
+            found.t0 = bitcast<f32>(seg_nn);
+            return found;
+          }
+          found.t1 = seg.t1;
+          extending = true;
+        }
         //else { found.t1 = seg.t1; }  // cmc I think the hit is just the hit at this point - we're only looking for hollows
       } else {
-        // non-solid inside, so clear the hit:
+        // non-solid inside, so clear the hit (or, extending, end the run):
+        if (extend && found.node != 0u) {
+          found.t1 = seg.t0;
+          found.t0 = bitcast<f32>(seg_nn);
+          return found;
+        }
         found.node = 0u;
       }
 
       descent_node = seg_node.inside;
-    } else {
+    } else if (!extend) {
       // we went outside.  outside is never solid,
-      // so clear the hit:
+      // so clear the hit (extending, what is out there decides, below):
       found.node = 0u;
     }
 
     if (descent_node == 0u) {
       // Nothing further to test down this branch. If a solid run was open,
-      // it ended here and is the nearest one there is.
-      if (found.node != 0u) { return found; }
+      // it ended here and is the nearest one there is - or, extending, it
+      // ends here unless this piece went on it.
+      if (found.node != 0u && !extending) {
+        if (extend) {
+          found.t1 = seg.t0;
+          found.t0 = bitcast<f32>(0u);   // empty space follows
+        }
+        return found;
+      }
     } else {
       let nd = nodes[descent_node];
       visits = visits + 1u;
@@ -370,6 +420,7 @@ fn trace(
     }
   }
 
+  if (extend) { found.t0 = bitcast<f32>(0u); }   // nothing follows: as empty space
   return found;
 }
 
@@ -404,7 +455,7 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT, MATERIAL_SOLID);
+  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT, MATERIAL_SOLID, false);
 }
 
 // Surface parameterization from the node's own numbers. A plane gets a
@@ -605,7 +656,7 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
     // a room's lamp is shadowed by the room alone (and its rays take the
     // room's subtree, not the scene's). Env 0's lights see everything.
     let start = select(ROOT, lt.env | DEFAULT_INSIDE_BIT, lt.env != 0u);
-    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start, MATERIAL_SOLID);
+    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start, MATERIAL_OPTICAL, false);
     if (blocker.node != 0u) {
       // the ray hit something between us and the light,
       // so we're in shadow:
@@ -653,39 +704,104 @@ fn directLighting(hit : Hit, shininess : f32) -> Direct {
   return out;
 }
 
-fn shadeLambert(hit : Hit) -> vec3<f32> {
-  let m = surfaceMaterial(hit);
-  let d = directLighting(hit, 0.0);
-  return albedoAt(hit, m) * (surfaceAmbient(hit) + d.diffuse);
-}
-
-// params.x shininess, params.y specular strength
-fn shadeGlossy(hit : Hit) -> vec3<f32> {
-  let m = surfaceMaterial(hit);
-  let d = directLighting(hit, max(m.params.x, 1.0));
-  return albedoAt(hit, m) * (surfaceAmbient(hit) + d.diffuse) + d.specular * m.params.y;
-}
-
-// params.x emission strength, added on top of ordinary diffuse response
-fn shadeEmissive(hit : Hit) -> vec3<f32> {
-  let m = surfaceMaterial(hit);
-  let d = directLighting(hit, 0.0);
+// The light a hit gives off, by its material's kind, from the direct light
+// on it (d: directLighting(), or none for an unlit one).
+//   lambert   albedo x (ambient + diffuse)
+//   glossy    the same, plus specular x params.y (params.x the shininess)
+//   emissive  the same as lambert, plus albedo x params.x (its emission)
+//   unlit     albedo
+fn shadeWith(hit : Hit, m : Material, d : Direct) -> vec3<f32> {
   let alb = albedoAt(hit, m);
-  return alb * (surfaceAmbient(hit) + d.diffuse) + alb * m.params.x;
-}
-
-fn shadeUnlit(hit : Hit) -> vec3<f32> {
-  return albedoAt(hit, surfaceMaterial(hit));
-}
-
-fn shade(hit : Hit) -> vec3<f32> {
-  switch (surfaceMaterial(hit).kind) {
-    case KIND_GLOSSY:   { return shadeGlossy(hit); }
-    case KIND_EMISSIVE: { return shadeEmissive(hit); }
-    case KIND_UNLIT:    { return shadeUnlit(hit); }
-    default:            { return shadeLambert(hit); }
+  switch (m.kind) {
+    case KIND_UNLIT:    { return alb; }
+    case KIND_GLOSSY:   { return alb * (surfaceAmbient(hit) + d.diffuse) + d.specular * m.params.y; }
+    case KIND_EMISSIVE: { return alb * (surfaceAmbient(hit) + d.diffuse) + alb * m.params.x; }
+    default:            { return alb * (surfaceAmbient(hit) + d.diffuse); }
   }
 }
+
+// The shininess directLighting() takes for a material: a glossy one's
+// (params.x), and 0 - no specular term at all - for any other.
+fn shininessOf(m : Material) -> f32 {
+  return select(0.0, max(m.params.x, 1.0), m.kind == KIND_GLOSSY);
+}
+
+// A hit, shaded: one directLighting() for every kind but unlit, which
+// needs none (so casts no shadow rays).
+fn shade(hit : Hit) -> vec3<f32> {
+  let m = surfaceMaterial(hit);
+  var d = Direct(vec3<f32>(0.0), vec3<f32>(0.0));
+  if (m.kind != KIND_UNLIT) { d = directLighting(hit, shininessOf(m)); }
+  return shadeWith(hit, m, d);
+}
+
+// A glossy mirror's or glass's highlight: the specular term of every light
+// that reaches the hit (its env chain's, as directLighting() walks them),
+// with no shadow rays - a light behind something still shows in it. Only
+// loads and arithmetic, so it costs no trace(); a glow region's light is
+// left out.
+fn highlight(hit : Hit, shininess : f32) -> vec3<f32> {
+  var out = vec3<f32>(0.0);
+  let n = arrayLength(&lights);
+  var env = nodes[hit.node].env;
+  loop {
+    for (var i = firstLightOf(env); i < n && lights[i].env == env; i = i + 1u) {
+      let lt = lights[i];
+      let d = lt.pos - hit.position * lt.pos_w;
+      let d2 = dot(d, d);
+      let L = d / sqrt(max(d2, 1e-8));
+      if (dot(hit.normal, L) <= 0.0) { continue; }
+      let H = normalize(L + hit.toViewer);
+      out = out + lt.color / (1.0 + d2 * lt.pos_w) * pow(max(dot(hit.normal, H), 0.0), shininess);
+    }
+    if (env == 0u) { break; }
+    env = nodes[env].env;
+  }
+  return out;
+}
+
+// The node whose surface P is on: walking down from the root as P lies -
+// inside or outside each node by the sign of H(P) - the node on the way
+// that P is nearest to (|H| / |grad H|). Exactly one node on that path has P
+// on its surface, if P is on any; the walk visits the nodes over P only, a
+// handful, and runs only where a ray leaves glass. (The last node a ray in
+// glass was inside is not it: a slab of glass bounded by a sphere within
+// it is left by the slab's faces, from the sphere's inside.)
+fn surfaceAt(P : vec3<f32>) -> u32 {
+  var node = ROOT;
+  var best = ROOT;
+  var bestDistance = 1e30;
+  for (var depth = 0; depth < 64; depth = depth + 1) {
+    let nd = nodes[node];
+    let h = fAt(nd, P);
+    let distance = abs(h) / max(length(gradAt(nd, P)), 1e-20);
+    if (distance < bestDistance) { best = node; bestDistance = distance; }
+    let next = select(nd.outside, nd.inside, h < 0.0);
+    if (next == 0u) { break; }
+    node = next;
+  }
+  return best;
+}
+
+// How many times a camera ray may go on from a hit (main()) - through a
+// piece of glass is two, in and out. A mirror or glass reached past that
+// is shaded by its own material, as if neither; a ray still inside glass
+// when they run out is black.
+const MAX_BOUNCES : u32 = 12u;
+
+// A material id's IOR code: its two IOR bits, 0 to 3 - 0 none (air, or
+// opaque), 1 IOR_WATER (1.333), 2 IOR_GLASS (1.5), 3 both (2.42, diamond).
+fn iorCode(id : u32) -> u32 { return (id & MATERIAL_IOR) >> 28u; }
+
+// The ratio of indices a ray bends by, going from one medium to another:
+// IOR_RATIO[here * 4 + next] is n(here) / n(next), refract()'s eta, by IOR
+// code. Four indices, so worked out here rather than per ray.
+const IOR_RATIO = array<f32, 16>(
+  1.0,         1.0 / 1.333,   1.0 / 1.5,   1.0 / 2.42,
+  1.333,       1.0,           1.333 / 1.5, 1.333 / 2.42,
+  1.5,         1.5 / 1.333,   1.0,         1.5 / 2.42,
+  2.42,        2.42 / 1.333,  2.42 / 1.5,  1.0,
+);
 
 // Perceptually ordered ramp for the cost views: dark blue through cyan,
 // green, yellow, red, to white for anything off the top of the scale.
@@ -734,31 +850,127 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   // Each stage's output has to stay live or the compiler will delete
   // the work being measured, so every level writes something derived
   // from what it computed.
+  //
+  // The camera ray, and each ray it goes on as, in one loop - one trace()
+  // call site, however many bounces. The loop only traces and bends: a
+  // mirror (MATERIAL_REFLECTIVE) or glass (any MATERIAL_IOR bit) has no
+  // light of its own, only a tint - its albedo - on what the ray going on
+  // sees, so the one hit shaded is the last, after the loop. (Shading
+  // inside it - and its shadow rays' trace() - cost 12-32% on scenes with
+  // no mirror at all, on Intel.) A continuation starts exactly on the
+  // surface it leaves, as a shadow ray does (fromSurface): it never meets
+  // that surface where it starts, and which side it is on goes by its
+  // direction. The debug views show the first hit.
+  //
+  // A ray refracted into glass is inMedium: its trace extends (see
+  // trace()), so what it finds is where the glass ends, found.t1, left by
+  // found.node's surface. There it refracts out, or, past the critical
+  // angle, reflects and stays in.
   var found = Seg(0u, -1.0, 0.0);
-  if (cam.ablate >= ABLATE_TRACE) {
-    found = trace(origin, dir, 1e-3, FAR, 0u, ROOT, MATERIAL_SOLID);
-  }
-
   var col = vec3<f32>(0.0);
   var N = vec3<f32>(0.0);
-  if (cam.ablate < ABLATE_TRACE) {
-    col = abs(dir) * 0.25;
-  } else if (cam.ablate < ABLATE_SHADE) {
-    col = select(vec3<f32>(0.0), vec3<f32>(fract(found.t0 * 0.05)), found.node != 0u);
-  } else if (found.node != 0) {
-    // the ray entered found.node - render according to the node's material
-    // (see shade())
-    let nd = nodes[found.node];
-    var hit : Hit;
-    hit.node = found.node;
-    hit.position = origin + found.t0 * dir;
+  var weight = vec3<f32>(1.0);
+  var tMin = 1e-3;
+  var fromSurface = 0u;
+  var hit : Hit;
+  var shadeHit = false;
+  var hit0 : Hit;       // the first surface, if a glossy mirror or glass:
+  var glint = false;    // its highlight is added after the loop
+  var inMedium = false;
+  // inMedium: the medium's IOR code, and how it colours what passes through
+  // it (Material.opacity).
+  var medium = 0u;
+  var mediumAlbedo = vec3<f32>(1.0);
+  var mediumOpacity = 0.0;
+  let ratios = IOR_RATIO;
+  for (var bounce = 0u; bounce <= MAX_BOUNCES; bounce = bounce + 1u) {
+    if (cam.ablate < ABLATE_TRACE) {
+      col = abs(dir) * 0.25;
+      break;
+    }
+    let seg = trace(origin, dir, tMin, FAR, fromSurface, ROOT, MATERIAL_OPTICAL, inMedium);
+    if (bounce == 0u) { found = seg; }
+    if (cam.ablate < ABLATE_SHADE) {
+      col = select(vec3<f32>(0.0), vec3<f32>(fract(seg.t0 * 0.05)), seg.node != 0u);
+      break;
+    }
+    if (seg.node == 0u) { break; }   // a miss: nothing more (black, for now)
+
+    // In glass, where it ends. And there, or wherever the ray goes on - a
+    // mirror, glass - the surface it is on is surfaceAt()'s, not trace()'s
+    // node: that is the region's, which can be another surface at the
+    // same distance (a box-shaped hole's slab, through whose outside the
+    // ray came), and a continuation starting from the wrong surface
+    // (fromSurface) moves that one's roots, not its own.
+    hit.position = origin + select(seg.t0, seg.t1, inMedium) * dir;
+    hit.node = seg.node;
+    if (inMedium || (nodes[seg.node].material_id & (MATERIAL_REFLECTIVE | MATERIAL_IOR)) != 0u) {
+      hit.node = surfaceAt(hit.position);
+    }
+    let nd = nodes[hit.node];
     hit.normal = normalize(gradAt(nd, hit.position));
     if (dot(hit.normal, dir) > 0.0) { hit.normal = -hit.normal; }   // face the ray
     hit.toViewer = -dir;
     hit.surfaceCoords = frame(nd, hit.position) / materials[materialIndex(nd.material_id)].scale;
-    N = hit.normal;
-    col = shade(hit);
+    if (bounce == 0u) { N = hit.normal; }
+
+    if (inMedium) {
+      // Through the glass, coloured by how far (seg.t1: it started on a
+      // surface), to where it ends: what follows is in seg.t0 (trace()).
+      // Out into the air or into another medium - glass into water - or,
+      // past the critical angle (refract() gives zero), reflected back in.
+      weight = weight * pow(mediumAlbedo, vec3<f32>(seg.t1 * mediumOpacity));
+      let nextId = nodes[bitcast<u32>(seg.t0)].material_id;
+      let next = iorCode(nextId);
+      let out = refract(dir, hit.normal, ratios[medium * 4u + next]);
+      if (dot(out, out) == 0.0) {
+        dir = reflect(dir, hit.normal);
+      } else {
+        dir = out;
+        inMedium = next != 0u;
+        if (inMedium) {
+          let m = materials[materialIndex(nextId)];
+          medium = next;
+          mediumAlbedo = m.albedo;
+          mediumOpacity = m.opacity;
+        }
+      }
+    } else {
+      // Neither mirror nor glass, or one with no bounce left: shaded (after
+      // the loop) as what it is - a mirror or glass seen past MAX_BOUNCES
+      // shows its own material, lit, rather than a black hole in the picture.
+      let id = nd.material_id;
+      if ((id & (MATERIAL_REFLECTIVE | MATERIAL_IOR)) == 0u || bounce == MAX_BOUNCES) { shadeHit = true; break; }
+
+      // A mirror, reflected, its albedo the tint on what that ray sees;
+      // glass, refracted in, colouring it as it goes through (above). Seen
+      // directly and glossy, it keeps its highlight too (after the loop).
+      let m = surfaceMaterial(hit);
+      if (bounce == 0u && m.kind == KIND_GLOSSY) { hit0 = hit; glint = true; }
+      if ((id & MATERIAL_REFLECTIVE) != 0u) {
+        weight = weight * albedoAt(hit, m);
+        dir = reflect(dir, hit.normal);
+      } else {
+        medium = iorCode(id);
+        mediumAlbedo = m.albedo;
+        mediumOpacity = m.opacity;
+        dir = refract(dir, hit.normal, ratios[medium]);   // from air (row 0), never past the critical angle
+        inMedium = true;
+      }
+    }
+    origin = hit.position;
+    fromSurface = surfaces[hit.node];
+    tMin = 0.0;
   }
+  // After the loop and outside it: the first surface's highlight, if it was
+  // a glossy mirror or glass (nothing is in front of it, so its weight is
+  // 1) - with no shadow rays, so no trace() (highlight()) - and the last
+  // hit, shaded as what it is.
+  if (glint) {
+    let m = surfaceMaterial(hit0);
+    col = col + highlight(hit0, shininessOf(m)) * m.params.y;
+  }
+  if (shadeHit) { col = col + weight * shade(hit); }
 
   var outCol = pow(col, vec3<f32>(1.0 / 2.2));
   switch (cam.debug) {

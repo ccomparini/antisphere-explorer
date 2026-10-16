@@ -127,7 +127,17 @@ coefficients in place, with no recompile.
   transparency can instead resume the same trace past the hit, from the
   segments on its stack. Several continuations from one hit are a bounded
   per-pixel queue of weighted rays, run in a loop as trace()'s own stack
-  is. The stop mask above says which materials end each.
+  is. The stop mask above says which materials end each. Built so far,
+  for camera rays: mirrors (`reflective`) and glass (`iorGlass`,
+  `iorWater`) - main()'s loop round its one trace() call site,
+  MAX_BOUNCES deep, which only traces and bends, shading the last hit
+  after it. A ray in glass traces in trace()'s extend mode, whose t1 is
+  where the material ends; the surface it leaves by is found by walking
+  down to that point (surfaceAt()), since the last node it was inside need
+  not be the face (a slab bounded by a sphere inside it). What follows the
+  glass comes back from trace() too, so glass into water bends by the
+  ratio of their indices (IOR_RATIO, by the two IOR codes) and goes on
+  inside; each medium colours the ray by the distance through it.
 - **Lights scoped by env.** An env node is a scope, and its lights belong
   to it: a hit is lit only by the lights of its env and those enclosing it,
   each shadow ray traced from that env node rather than the root (a node's

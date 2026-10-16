@@ -6,7 +6,7 @@
 // overlap.js. Two solids touch where a path of one and a path of the other
 // share a point; pathContact() in the shader finds it.
 
-import { compileScene, packNodes } from '../antisphere-scene.js';
+import { compileScene, packNodes, isSolid } from '../antisphere-scene.js';
 import { interiorPaths } from '../overlap.js';
 import { BINDINGS, Body, BodyContact, Node, Particle, Path, PathPair, Region, SimParams, Solid, viewsOf } from '../gen/layouts.js';
 import { bindGroup } from '../bind-group.js';
@@ -22,7 +22,7 @@ export function compileSolid(geometry, materials, place = null, objects = {}) {
     ? { materials, lights: [], objects: { ...objects, 'physics:solid': geometry }, root: { use: 'physics:solid', ...place } }
     : { materials, lights: [], objects, root: geometry };
   const built = compileScene(spec);
-  const solid = (i) => !!built.materials[built.nodes[i].material].solid;
+  const solid = (i) => isSolid(built.materials[built.nodes[i].material]);
   return { nodes: built.nodes, paths: interiorPaths(built.nodes, 1, solid) };
 }
 

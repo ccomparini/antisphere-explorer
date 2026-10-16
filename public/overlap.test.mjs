@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene } from './antisphere-scene.js';
+import { compileScene, isSolid } from './antisphere-scene.js';
 import { regionsOverlap, regionsDisjoint, separation, matrixOf,
          smallestEigen, smallestEigenvalue, interiorPaths, subtreesApart } from './overlap.js';
 
@@ -184,7 +184,7 @@ test('the certificate is never wrong about an overlap', () => {
 
 function sceneOf(root) {
   const built = compileScene({ materials: { clay: {} }, lights: [], root });
-  const solid = (i) => !!built.materials[built.nodes[i].material].solid;
+  const solid = (i) => isSolid(built.materials[built.nodes[i].material]);
   return { built, solid, prims: (i) => built.nodes[i].prim };
 }
 

@@ -1,0 +1,628 @@
+{
+  "_comment": "Glass and water in shapes other than balls - a lens, a column of water, a crystal octahedron, a cone, a waist and a glass tank of water - in front of coloured columns on a checkered floor, each bending what is behind it and colouring it by how much of it the light went through.",
+  "camera": {
+    "position": [ 6.8, -7.6, 2.6 ],
+    "direction": [ -0.62, 0.77, -0.13 ],
+    "distance": 10
+  },
+  "materials": {
+    "sky": {
+      "kind": "unlit",
+      "albedo": [ 0.32, 0.4, 0.55 ]
+    },
+    "floor": {
+      "albedo": [ 0.32, 0.33, 0.36 ],
+      "albedo2": [ 0.16, 0.17, 0.2 ],
+      "pattern": "checker",
+      "scale": 2
+    },
+    "stone": {
+      "albedo": [ 0.55, 0.52, 0.47 ]
+    },
+    "glass": {
+      "iorGlass": true,
+      "albedo": [ 0.82, 0.94, 0.9 ],
+      "kind": "glossy",
+      "shininess": 120,
+      "specular": 1
+    },
+    "darker-glass": {
+      "iorGlass": true,
+      "albedo": [ 0.82, 0.94, 0.9 ],
+      "opacity": 0.5,
+      "kind": "glossy",
+      "shininess": 120,
+      "specular": 1
+    },
+    "water": {
+      "iorWater": true,
+      "albedo": [ 0.62, 0.82, 0.92 ],
+      "solid": false,
+      "kind": "glossy",
+      "shininess": 80,
+      "specular": 0.7
+    },
+    "crystal": {
+      "iorGlass": true,
+      "albedo": [ 0.86, 0.9, 1 ],
+      "kind": "glossy",
+      "shininess": 160,
+      "specular": 1.2
+    },
+    "red": {
+      "kind": "glossy",
+      "albedo": [ 0.72, 0.14, 0.1 ],
+      "shininess": 60,
+      "specular": 0.9
+    },
+    "amber": {
+      "kind": "glossy",
+      "albedo": [ 0.85, 0.5, 0.12 ],
+      "shininess": 40,
+      "specular": 0.7
+    },
+    "teal": {
+      "kind": "glossy",
+      "albedo": [ 0.1, 0.55, 0.55 ],
+      "shininess": 80,
+      "specular": 1
+    },
+    "violet": {
+      "kind": "glossy",
+      "albedo": [ 0.45, 0.2, 0.7 ],
+      "shininess": 60,
+      "specular": 0.9
+    },
+    "gold": {
+      "kind": "glossy",
+      "albedo": [ 0.8, 0.62, 0.2 ],
+      "shininess": 120,
+      "specular": 1.3,
+      "reflective": true
+    },
+    "jade": {
+      "kind": "glossy",
+      "albedo": [ 0.2, 0.55, 0.36 ],
+      "shininess": 90,
+      "specular": 1.1
+    }
+  },
+  "lights": [
+    {
+      "pos": [ 6, -8, 10 ],
+      "color": [ 110, 100, 88 ]
+    },
+    {
+      "pos": [ -8, -2, 7 ],
+      "color": [ 24, 32, 52 ]
+    }
+  ],
+  "objects": {
+    "_comment_pedestal": "A disc: an infinite cylinder cut by a slab.",
+    "pedestal": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 1
+          },
+          "material": "stone"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 0.15 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 0.3
+          }
+        }
+      ]
+    },
+    "_comment_lens": "A lens: a spheroid flattened along its axis, standing on edge, facing the camera's way.",
+    "lens": {
+      "union": [
+        "pedestal",
+        {
+          "spheroid": {
+            "center": [ 0, 0, 1.6 ],
+            "axis": [ 0.62, -0.78, 0 ],
+            "height": 0.7,
+            "radius": 1.25
+          },
+          "material": "glass"
+        }
+      ]
+    },
+    "_comment_water": "A column of water: a cylinder cut by a slab.",
+    "water": {
+      "union": [
+        "pedestal",
+        {
+          "intersect": [
+            {
+              "cylinder": {
+                "center": [ 0, 0, 0 ],
+                "axis": [ 0, 0, 1 ],
+                "radius": 0.7
+              },
+              "material": "water"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 1.75 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 2.9000000000000004
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "_comment_octahedron": "An octahedron of crystal: four slabs met, each face a node carrying it.",
+    "octahedron": {
+      "union": [
+        "pedestal",
+        {
+          "intersect": [
+            {
+              "slab": {
+                "center": [ 0, 0, 1.45 ],
+                "axis": [ 0.5773502691896258, 0.5773502691896258, 0.5773502691896258 ],
+                "thickness": 1.7
+              },
+              "material": "crystal"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 1.45 ],
+                "axis": [ 0.5773502691896258, 0.5773502691896258, -0.5773502691896258 ],
+                "thickness": 1.7
+              },
+              "material": "crystal"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 1.45 ],
+                "axis": [ 0.5773502691896258, -0.5773502691896258, 0.5773502691896258 ],
+                "thickness": 1.7
+              },
+              "material": "crystal"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 1.45 ],
+                "axis": [ -0.5773502691896258, 0.5773502691896258, 0.5773502691896258 ],
+                "thickness": 1.7
+              },
+              "material": "crystal"
+            }
+          ]
+        }
+      ]
+    },
+    "_comment_horn": "A glass cone, point up: the lower nappe under its apex.",
+    "horn": {
+      "union": [
+        "pedestal",
+        {
+          "intersect": [
+            {
+              "cone": {
+                "apex": [ 0, 0, 3 ],
+                "axis": [ 0, 0, 1 ],
+                "slope": 0.3
+              },
+              "material": "glass"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 1.65 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 2.7
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "_comment_waist": "A glass hyperboloid of one sheet: a waist, flaring both ways.",
+    "waist": {
+      "union": [
+        "pedestal",
+        {
+          "intersect": [
+            {
+              "hyperboloid": {
+                "center": [ 0, 0, 1.7 ],
+                "axis": [ 0, 0, 1 ],
+                "radius": 0.45,
+                "semiAxial": 0.9,
+                "sheets": 1
+              },
+              "material": "glass"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 1.7 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 2.8000000000000003
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "_comment_tank": "A glass tank of water, open at the top. The glass is a box with its inside taken out (a hole, spelled as DESIGN.md says: the cavity complemented, carrying the glass), and the water is unioned in, grafted into the cavity. The water's box reaches to the middle of the glass walls, so its sides lie inside the glass, where no ray crosses them, and no face is two nodes: its one face of its own is the waterline. Air to water, water to glass, glass to air.",
+    "tank": {
+      "union": [
+        {
+          "difference": [
+            {
+              "intersect": [
+                {
+                  "slab": {
+                    "center": [ 0, 0, 0 ],
+                    "axis": [ 1, 0, 0 ],
+                    "thickness": 1.5
+                  },
+                  "material": "darker-glass"
+                },
+                {
+                  "slab": {
+                    "center": [ 0, 0, 0 ],
+                    "axis": [ 0, 1, 0 ],
+                    "thickness": 1.5
+                  },
+                  "material": "darker-glass"
+                },
+                {
+                  "slab": {
+                    "center": [ 0, 0, 0.95 ],
+                    "axis": [ 0, 0, 1 ],
+                    "thickness": 1.9
+                  },
+                  "material": "darker-glass"
+                }
+              ]
+            },
+            {
+              "intersect": [
+                {
+                  "slab": {
+                    "center": [ 0, 0, 0 ],
+                    "axis": [ 1, 0, 0 ],
+                    "thickness": 1.26
+                  }
+                },
+                {
+                  "slab": {
+                    "center": [ 0, 0, 0 ],
+                    "axis": [ 0, 1, 0 ],
+                    "thickness": 1.26
+                  }
+                },
+                {
+                  "slab": {
+                    "center": [ 0, 0, 1.26 ],
+                    "axis": [ 0, 0, 1 ],
+                    "thickness": 2.28
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "intersect": [
+            {
+              "slab": {
+                "center": [ 0, 0, 0 ],
+                "axis": [ 1, 0, 0 ],
+                "thickness": 1.38
+              },
+              "material": "water"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 0 ],
+                "axis": [ 0, 1, 0 ],
+                "thickness": 1.38
+              },
+              "material": "water"
+            },
+            {
+              "slab": {
+                "center": [ 0, 0, 0.8300000000000001 ],
+                "axis": [ 0, 0, 1 ],
+                "thickness": 1.54
+              },
+              "material": "water"
+            }
+          ]
+        }
+      ]
+    },
+    "column-red": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.5
+          },
+          "material": "red"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 6
+          }
+        }
+      ]
+    },
+    "column-amber": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.5
+          },
+          "material": "amber"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 6
+          }
+        }
+      ]
+    },
+    "column-teal": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.5
+          },
+          "material": "teal"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 6
+          }
+        }
+      ]
+    },
+    "column-violet": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.5
+          },
+          "material": "violet"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 6
+          }
+        }
+      ]
+    },
+    "column-gold": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.5
+          },
+          "material": "gold"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 6
+          }
+        }
+      ]
+    },
+    "column-jade": {
+      "intersect": [
+        {
+          "cylinder": {
+            "center": [ 0, 0, 0 ],
+            "axis": [ 0, 0, 1 ],
+            "radius": 0.5
+          },
+          "material": "jade"
+        },
+        {
+          "slab": {
+            "center": [ 0, 0, 3 ],
+            "axis": [ 0, 0, 1 ],
+            "thickness": 6
+          }
+        }
+      ]
+    },
+    "_comment_columns": "Two rows of coloured columns behind the glass, for it to bend."
+  },
+  "root": {
+    "sphere": {
+      "center": [ 0, 0, 0 ],
+      "radius": 60,
+      "complement": true
+    },
+    "material": "sky",
+    "outside": {
+      "plane": {
+        "normal": [ 0, 0, 1 ],
+        "offset": 0
+      },
+      "material": "floor",
+      "outside": {
+        "group": [
+          {
+            "use": "lens",
+            "translate": [ -1.2, 1.4, 0 ],
+            "bounds": {
+              "center": [ -1.2, 1.4, 1.7 ],
+              "radius": 2
+            }
+          },
+          {
+            "use": "water",
+            "translate": [ 1.6, 0.4, 0 ],
+            "bounds": {
+              "center": [ 1.6, 0.4, 1.7 ],
+              "radius": 2
+            }
+          },
+          {
+            "use": "octahedron",
+            "translate": [ -3.9, 0.2, 0 ],
+            "bounds": {
+              "center": [ -3.9, 0.2, 1.7 ],
+              "radius": 2
+            }
+          },
+          {
+            "use": "tank",
+            "translate": [ -4.3, -3.3, 0 ],
+            "rotate": {
+              "axis": [ 0, 0, 1 ],
+              "degrees": 54
+            },
+            "bounds": {
+              "center": [ -4.3, -3.3, 1.7 ],
+              "radius": 2
+            }
+          },
+          {
+            "use": "horn",
+            "translate": [ 3.4, 3.2, 0 ],
+            "bounds": {
+              "center": [ 3.4, 3.2, 1.7 ],
+              "radius": 2
+            }
+          },
+          {
+            "use": "waist",
+            "translate": [ 0.6, 3.6, 0 ],
+            "bounds": {
+              "center": [ 0.6, 3.6, 1.7 ],
+              "radius": 2
+            }
+          },
+          {
+            "use": "column-red",
+            "translate": [ -9, 9.5, 0 ],
+            "bounds": {
+              "center": [ -9, 9.5, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-amber",
+            "translate": [ -4.6, 11, 0 ],
+            "bounds": {
+              "center": [ -4.6, 11, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-teal",
+            "translate": [ -2.5999999999999996, 9.5, 0 ],
+            "bounds": {
+              "center": [ -2.5999999999999996, 9.5, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-violet",
+            "translate": [ 1.8000000000000014, 11, 0 ],
+            "bounds": {
+              "center": [ 1.8000000000000014, 11, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-gold",
+            "translate": [ 3.8000000000000007, 9.5, 0 ],
+            "bounds": {
+              "center": [ 3.8000000000000007, 9.5, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-jade",
+            "translate": [ 8.2, 11, 0 ],
+            "bounds": {
+              "center": [ 8.2, 11, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-jade",
+            "translate": [ -7.335, 2.44, 0 ],
+            "bounds": {
+              "center": [ -7.335, 2.44, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-gold",
+            "translate": [ -5.641, 3.804, 0 ],
+            "bounds": {
+              "center": [ -5.641, 3.804, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-violet",
+            "translate": [ -3.947, 5.168, 0 ],
+            "bounds": {
+              "center": [ -3.947, 5.168, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-teal",
+            "translate": [ -2.253, 6.532, 0 ],
+            "bounds": {
+              "center": [ -2.253, 6.532, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-amber",
+            "translate": [ -0.559, 7.896, 0 ],
+            "bounds": {
+              "center": [ -0.559, 7.896, 3 ],
+              "radius": 3.2
+            }
+          },
+          {
+            "use": "column-red",
+            "translate": [ 1.135, 9.26, 0 ],
+            "bounds": {
+              "center": [ 1.135, 9.26, 3 ],
+              "radius": 3.2
+            }
+          }
+        ]
+      }
+    }
+  }
+}

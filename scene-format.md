@@ -93,7 +93,51 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 | `albedo2`  | `[r, g, b]`                                    | `[0.3, 0.3, 0.3]`| secondary color, used by the `"checker"` pattern |
 | `pattern`  | `"flat"` \| `"checker"`                        | `"flat"`         | how `albedo`/`albedo2` are combined across the surface |
 | `scale`    | number                                          | `1`              | checker pattern tile size: larger is bigger tiles |
-| `solid`    | boolean                                         | `true`           | whether this material counts as solid geometry (`false` for e.g. water, glass, or a material only ever used on a purely spatial-subdivision node) |
+| `solid`    | boolean                                         | `true`           | there physically: the walk camera, physics and picking stop at it |
+| `optical`  | boolean                                         | `true`           | meets light: camera and shadow rays stop at it (`false`: invisible, and casts no shadow) |
+| `iorGlass` | boolean                                         | `false`          | glass, index 1.5: no shading of its own; it shows what a camera ray refracted through it sees, coloured by how far the ray went through it: its `albedo` is the colour of light after one unit of it |
+| `iorWater` | boolean                                         | `false`          | the same, index 1.333 (both `iorGlass` and `iorWater`: 2.42, diamond) |
+| `opacity`  | number ≥ 0                                      | `1`              | glass and water: how fast light through it takes on its `albedo` - after `d` units, `albedo`^(`d` × `opacity`). `0` is clear; see below for values |
+| `reflective` | boolean                                       | `false`          | a mirror: no shading of its own; it shows what a camera ray reflected from it sees, times its `albedo` |
+
+The boolean fields are the material's **trace flags**: every single-bit
+`MATERIAL_` constant in `shaders/node.wgsls`, named without `MATERIAL_` and
+camelCased, so a flag added there is a field here at once. Each sets or
+clears its own bit and no combination is refused: `"solid": false` alone is
+seen but walked through, `"optical": false` alone is there but unseen, and
+an odd combination may render oddly, or be just what is wanted. A material
+with neither `solid` nor `optical` has no interaction at all, like vacuum.
+`"ambient"` and `"glowRegion"` materials default to no flags.
+
+How much glass colours what is seen through it goes by how much of it the
+light crosses, not by its surface: a pane of 0.1 units at albedo `0.8`
+keeps `0.8^0.1`, about 98%, of the light, which is clear to the eye. It is
+an exponential in the distance, as it has to be - two panes of one unit do
+what one of two does - so `opacity` multiplies the distance, and thin glass
+needs a large one. Suggested values, with an albedo a little off white
+(`[0.82, 0.94, 0.9]`, say):
+
+| glass | `opacity` |
+|---|---|
+| clear | `0` |
+| a block or a solid piece, a unit or so through | `1` |
+| a pane or a tank's wall, a tenth of a unit | `5` to `20` |
+| water a unit or two deep, tinted (`[0.62, 0.82, 0.92]`) | `1` |
+
+Below 1 it is lighter than the albedo says, not darker. A stronger tint at
+`opacity` 1 is a more saturated albedo instead.
+
+A camera ray goes on from a mirror or through glass up to twelve times (the
+shader's `MAX_BOUNCES`; in and out of glass is two). A mirror or glass it
+reaches with none left is shaded as its own material - its `albedo`, by its
+`kind`. A ray still inside glass when they run out, after reflecting inside
+it past the critical angle, is black. Where glass meets water (or any two
+media), the ray bends by the ratio of their indices and goes on in the
+other, coloured by it in turn; where it meets something opaque, it is left
+as if into air, and meets that thing's surface just beyond. Glass so far
+only refracts: no reflection off its surface, and its shadow is as dark as
+an opaque thing's. Glass spells its faces as a solid does (DESIGN.md): each
+face a node carrying the glass, entered on its inside.
 
 `kind`-specific extra fields:
 
@@ -101,13 +145,13 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 - `"emissive"`: `emission` (default `1`)
 - `"lambert"`, `"unlit"`: no extra fields
 - `"ambient"`: `transmit` (default `0`). An ambient material never shades a
-  surface, and is not solid unless `solid` says so. A node naming one starts
+  surface, and has no trace flags unless its fields set them. A node naming one starts
   an ambient region: its `albedo` is the ambient light level for everything
   in the node's `inside` subtree, plus `transmit` times the level around it
   (see "Ambient regions" below).
 - `"glowRegion"`: `transmit` (default `1`), `fill` (default `0`). A region
   like an ambient one - never
-  shades, not solid unless `solid` says so, and a node naming one starts a
+  shades, has no trace flags unless its fields set them, and a node naming one starts a
   region - but lit from within rather than at a level: its `albedo` is the
   light at the node's centre, falling off as a light's does and fading to
   nothing at the node's surface (see "Glow regions" below).
@@ -326,8 +370,9 @@ region.
 What fills an undivided region is decided by materials, not by the shape:
 the node's own `"material"` applies to its `"inside"`, so an undivided
 inside is a region of that material, while an undivided outside is left to
-whatever encloses it. A material with `"solid": false` — vacuum among them —
-is a region a ray passes through.
+whatever encloses it. A material with neither `"solid"` nor `"optical"` —
+vacuum among them — is a region every ray passes through; one without
+`"optical"`, a region light passes through.
 
 A bare primitive with neither field is therefore just the shape, made of
 whatever material the node names (or inherits), and with `"complement":
@@ -480,7 +525,7 @@ Selecting a cut face in the editor picks the object that did the cutting,
 which is usually what you want to drag.
 
 One thing a cutter's material can't do is make the region it carves
-invisible: a material with `"solid": false` there stops the whole region
+invisible: a material with `"optical": false` there stops the whole region
 registering as a hit, rather than revealing what was cut.
 
 Nesting is how anything more complicated is said:
