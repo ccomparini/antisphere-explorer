@@ -2011,7 +2011,20 @@ export function compileScene(rawSpec, options = {}) {
 
   // The longest chain of members a fold may make before they are divided
   // (see divide in buildGroup).
-  const MAX_CHAIN = 4;
+  //
+  // An experiment (group-divide branch): MAX_CHAIN in the environment
+  // overrides it, for node scripts and bench-compare (whose child
+  // processes inherit it); a browser has no process, so 4 there. Frame ms,
+  // Intel iGPU, 1920x1080, at 2 / 4 / 8:
+  //   glass-hall     105.98 / 105.99 /  84.67  (618, 618, 357 nodes)
+  //   mirror-hall     65.48 /  65.06 /  62.18
+  //   scene-ambient   48.64 /  45.76 /  50.43
+  //   scene          130.94 / 123.40 / 137.04
+  // No one value is best: 8 makes glass-hall 20% faster (fewer copies,
+  // 92 -> 74 visits/px) and scene and scene-ambient about 10% slower. So
+  // it may want to be tunable - per scene, or per group - or decided per
+  // group by cost (whether a divider saves more visits than it adds).
+  const MAX_CHAIN = Number(globalThis.process?.env?.MAX_CHAIN ?? 4);
 
   const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
