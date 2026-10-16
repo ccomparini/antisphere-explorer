@@ -1,0 +1,269 @@
+{
+  "_comment": "Things dropped (\"drop\": true) rather than placed: each starts somewhere above where it ends up and falls along gravity until it touches something - a table onto the floor, then a block onto the table, a ball onto the block, a cone and an egg beside them, and a ball onto the floor - settled in the order they're written.",
+  "camera": {
+    "position": [ 7.5, -6.5, 4.2 ],
+    "direction": [ -0.7, 0.6, -0.39 ],
+    "distance": 10
+  },
+  "materials": {
+    "sky": {
+      "kind": "unlit",
+      "albedo": [ 0.32, 0.4, 0.55 ]
+    },
+    "floor": {
+      "albedo": [ 0.32, 0.33, 0.36 ],
+      "albedo2": [ 0.16, 0.17, 0.2 ],
+      "pattern": "checker",
+      "scale": 1
+    },
+    "wood": {
+      "albedo": [ 0.55, 0.38, 0.22 ]
+    },
+    "red": {
+      "kind": "glossy",
+      "albedo": [ 0.72, 0.14, 0.1 ],
+      "shininess": 60,
+      "specular": 0.9
+    },
+    "teal": {
+      "kind": "glossy",
+      "albedo": [ 0.1, 0.55, 0.55 ],
+      "shininess": 80,
+      "specular": 1
+    },
+    "gold": {
+      "kind": "glossy",
+      "albedo": [ 0.8, 0.62, 0.2 ],
+      "shininess": 120,
+      "specular": 1.3
+    },
+    "violet": {
+      "kind": "glossy",
+      "albedo": [ 0.45, 0.2, 0.7 ],
+      "shininess": 60,
+      "specular": 0.9
+    },
+    "jade": {
+      "kind": "glossy",
+      "albedo": [ 0.2, 0.55, 0.36 ],
+      "shininess": 90,
+      "specular": 1.1
+    }
+  },
+  "lights": [
+    {
+      "pos": [ 5, -6, 9 ],
+      "color": [ 100, 92, 80 ]
+    },
+    {
+      "pos": [ -6, 3, 6 ],
+      "color": [ 22, 28, 44 ]
+    }
+  ],
+  "root": {
+    "sphere": {
+      "center": [ 0, 0, 0 ],
+      "radius": 60,
+      "complement": true
+    },
+    "material": "sky",
+    "outside": {
+      "plane": {
+        "normal": [ 0, 0, 1 ],
+        "offset": 0
+      },
+      "material": "floor",
+      "outside": {
+        "group": [
+          {
+            "union": [
+              {
+                "intersect": [
+                  {
+                    "slab": {
+                      "center": [ 0, 0, 0 ],
+                      "axis": [ 1, 0, 0 ],
+                      "thickness": 3.2
+                    },
+                    "material": "wood"
+                  },
+                  {
+                    "slab": {
+                      "center": [ 0, 0, 0 ],
+                      "axis": [ 0, 1, 0 ],
+                      "thickness": 2
+                    },
+                    "material": "wood"
+                  },
+                  {
+                    "slab": {
+                      "center": [ 0, 0, 1.6 ],
+                      "axis": [ 0, 0, 1 ],
+                      "thickness": 0.2
+                    },
+                    "material": "wood"
+                  }
+                ]
+              },
+              {
+                "intersect": [
+                  {
+                    "cylinder": {
+                      "center": [ -1.4, -0.8, 0 ],
+                      "axis": [ 0, 0, 1 ],
+                      "radius": 0.12
+                    },
+                    "material": "wood"
+                  },
+                  {
+                    "slab": {
+                      "center": [ 0, 0, 0.75 ],
+                      "axis": [ 0, 0, 1 ],
+                      "thickness": 1.5
+                    }
+                  }
+                ]
+              },
+              {
+                "intersect": [
+                  {
+                    "cylinder": {
+                      "center": [ 1.4, -0.8, 0 ],
+                      "axis": [ 0, 0, 1 ],
+                      "radius": 0.12
+                    },
+                    "material": "wood"
+                  },
+                  {
+                    "slab": {
+                      "center": [ 0, 0, 0.75 ],
+                      "axis": [ 0, 0, 1 ],
+                      "thickness": 1.5
+                    }
+                  }
+                ]
+              },
+              {
+                "intersect": [
+                  {
+                    "cylinder": {
+                      "center": [ -1.4, 0.8, 0 ],
+                      "axis": [ 0, 0, 1 ],
+                      "radius": 0.12
+                    },
+                    "material": "wood"
+                  },
+                  {
+                    "slab": {
+                      "center": [ 0, 0, 0.75 ],
+                      "axis": [ 0, 0, 1 ],
+                      "thickness": 1.5
+                    }
+                  }
+                ]
+              },
+              {
+                "intersect": [
+                  {
+                    "cylinder": {
+                      "center": [ 1.4, 0.8, 0 ],
+                      "axis": [ 0, 0, 1 ],
+                      "radius": 0.12
+                    },
+                    "material": "wood"
+                  },
+                  {
+                    "slab": {
+                      "center": [ 0, 0, 0.75 ],
+                      "axis": [ 0, 0, 1 ],
+                      "thickness": 1.5
+                    }
+                  }
+                ]
+              }
+            ],
+            "translate": [ 0, 0, 1.5 ],
+            "drop": true
+          },
+          {
+            "intersect": [
+              {
+                "slab": {
+                  "center": [ -0.6, 0, 0 ],
+                  "axis": [ 1, 0, 0 ],
+                  "thickness": 0.8
+                },
+                "material": "teal"
+              },
+              {
+                "slab": {
+                  "center": [ 0, 0.1, 0 ],
+                  "axis": [ 0, 1, 0 ],
+                  "thickness": 0.8
+                },
+                "material": "teal"
+              },
+              {
+                "slab": {
+                  "center": [ 0, 0, 0.4 ],
+                  "axis": [ 0, 0, 1 ],
+                  "thickness": 0.8
+                },
+                "material": "teal"
+              }
+            ],
+            "translate": [ 0, 0, 5 ],
+            "drop": true
+          },
+          {
+            "sphere": {
+              "center": [ -0.6, 0.1, 7 ],
+              "radius": 0.35
+            },
+            "material": "red",
+            "drop": true
+          },
+          {
+            "intersect": [
+              {
+                "cone": {
+                  "apex": [ 0.9, -0.2, 1 ],
+                  "axis": [ 0, 0, 1 ],
+                  "slope": 0.35
+                },
+                "material": "gold"
+              },
+              {
+                "slab": {
+                  "center": [ 0, 0, 0.5 ],
+                  "axis": [ 0, 0, 1 ],
+                  "thickness": 1
+                }
+              }
+            ],
+            "translate": [ 0, 0, 4 ],
+            "drop": true
+          },
+          {
+            "spheroid": {
+              "center": [ 0.5, 0.55, 6 ],
+              "axis": [ 0, 0, 1 ],
+              "height": 0.9,
+              "radius": 0.3
+            },
+            "material": "violet",
+            "drop": true
+          },
+          {
+            "sphere": {
+              "center": [ 2.6, 1.8, 4 ],
+              "radius": 0.5
+            },
+            "material": "jade",
+            "drop": true
+          }
+        ]
+      }
+    }
+  }
+}

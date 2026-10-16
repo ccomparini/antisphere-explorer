@@ -283,8 +283,9 @@ Anywhere a subtree is expected, one of the following is valid:
 - an object with exactly one primitive (below), plus optional
   `"inside"`/`"outside"`/material fields — an ordinary CSG node.
 
-Any subtree object may also carry `"translate"`, `"rotate"`, `"scale"`
-and/or `"bounds"` (below), regardless of which of the forms above it uses.
+Any subtree object may also carry `"translate"`, `"rotate"`, `"scale"`,
+`"drop"`, `"wrap"` and/or `"bounds"` (below), regardless of which of the
+forms above it uses.
 
 ### Primitives
 
@@ -694,6 +695,44 @@ already is one (its outside empty, its inside a spheroid, or a slab). The
 wrapper is a division only, standing clear of what it holds, and takes the
 material of the node round it, so what inherits within inherits through
 it, and nothing looks any different.
+
+### `"drop"`
+
+```
+"drop": true
+```
+
+Moves the subtree along the scene's gravity until it first touches
+something solid: an object dropped onto a floor stands on it, one dropped
+onto a box rests on its top. Place it roughly - anywhere above where it
+should land, with `"translate"` - and let it fall. Down is the scene's
+`"gravity"`: along its `down` (-z by default), or, for a planet, towards its
+`center` from the object's.
+
+- **Order.** Drops are settled in the order they appear in the file, each
+  onto the scene with the drops before it settled and those after it left
+  out: drop a box, then a ball over it, and the ball lands on the box.
+- **What it lands on.** Solid materials only: a drop falls through water
+  that isn't `"solid"`.
+- **How far.** At most 10 units, falling or rising: it is for placing
+  things, not for throwing them down a well.
+- **Starting inside something,** it rises against gravity until it is
+  clear - unless it can't within those 10 units (an infinite column, say),
+  when it stays where it is, with a warning.
+- **Nothing within 10 units below it:** it stays where it is, with a
+  warning.
+- **Where it applies:** where the object is placed - a node, a group's
+  member, a `"use"` - not in an `objects` definition (whose uses could
+  each land somewhere else), and not within something itself dropped. Its
+  `"wrap"` and `"bounds"` go with it.
+
+It comes to rest touching, not overlapping - the certificates `"group"`
+and physics use (`public/overlap.js`), in which touching is apart. They
+are exact where they prove two things apart; where only two constraints of
+a shape together keep it clear of another (a box's corner beside a ball)
+they may stop it a little short of contact, never inside. A feature thinner
+than 1/64 of the dropped object's size, met within a single smallest step,
+can be passed through.
 
 ## Ambient regions
 
