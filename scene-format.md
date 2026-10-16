@@ -641,6 +641,30 @@ skip the member by; `"wrap"` fits a closer shape, and works anywhere.
 Bounds are in world space, so they describe the subtree *after* its own
 transforms have been applied.
 
+**A declared bound changes how a group divides its members, and so how
+fast rays get through it - not only whether they are proved apart.**
+
+- **With `"bounds"`,** a group tests that member by its ball alone. Where
+  the balls of two members overlap, it can't prove them apart, so it
+  grafts each into the other's sphere: copies, a bigger tree, but one
+  partitioned more finely, so a ray tests fewer members on its way.
+- **Without `"bounds"`,** it proves members apart from their actual
+  shapes, path by path. Members proved disjoint are folded together into
+  a leaner tree, but a ray may walk past more of them in turn.
+
+Neither is always faster. Measured on the Intel iGPU at 1920x1080, with
+every exhibit also wrapped (`"wrap"` below):
+
+| scene | with `"bounds"` | without |
+|---|---|---|
+| glass-hall | 618 nodes, 106.0 ms, 92 visits/px | 207 nodes, 116.0 ms, 107 visits/px |
+| mirror-hall | 121 nodes, 65.1 ms | 112 nodes, 67.6 ms |
+| scene-gallery | 91 nodes, 51.0 ms | 91 nodes, 50.0 ms |
+
+Fewer nodes is not fewer visits. A generous `"bounds"` is a tuning lever
+for a group as much as a hint: measure with and without (bench-compare,
+in the README), and keep whichever is faster.
+
 ### `"wrap"`
 
 ```
