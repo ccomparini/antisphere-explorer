@@ -25,6 +25,10 @@
     "maxDistance": 23
   },
   "objects": {
+    "ring": {
+      "use": "@parts/gold-ring.json",
+      "scale": 0.1
+    },
     "cheese": {
       "use": "@parts/cheese.json#/objects/cheese-wedge",
       "material": "@parts/cheese.json#/materials/blue-cheese"
@@ -102,6 +106,7 @@
           "material": "jade"
         },
         {
+          "_comment": "cheese ball",
           "sphere": {
             "center": [ 0.55, -1.75, 0.38 ],
             "radius": 0.38
@@ -127,6 +132,10 @@
           {
             "use": "bitten",
             "translate": [ 0, 0, 1 ]
+          },
+          {
+            "use": "ring",
+            "translate": [ 1.6, -0.2, 0 ]
           },
           {
             "use": "cheese",

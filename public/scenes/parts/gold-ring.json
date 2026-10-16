@@ -1,0 +1,18 @@
+{
+  "_comment": "A simple gold ring.  The material \"gold\" is defined elsewhere",
+  "difference": [
+    {
+      "material": "gold-3",
+      "spheroid": {
+        "axis": [ 0, 0, 1 ],
+        "radius": 1,
+        "height": 1
+      }
+    },
+    {
+      "cylinder": {
+        "radius": 0.8
+      }
+    }
+  ]
+}
