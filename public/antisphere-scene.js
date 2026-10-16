@@ -40,7 +40,7 @@ import {
   PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, MATERIAL_SOLID, MATERIAL_OPTICAL,
 } from './gen/layouts.js';
 import * as layouts from './gen/layouts.js';
-import { regionsDisjoint } from './overlap.js';
+import { regionsDisjoint, interiorPaths } from './overlap.js';
 import { readSTL } from './stl.js';
 import { meshToTree, boundsOf, boundingSpheroidOfPoints } from './mesh-import.js';
 
@@ -1077,6 +1077,265 @@ function axesOf(t, out = [], seen = new Set()) {
   return out;
 }
 
+// Whether a ball ({ c, r }) is clear of a region, where that is exact and
+// cheap: a half-space (a plane) or a sphere's inside or outside. Touching
+// counts as clear, as it does for regionsDisjoint. Undefined for any
+// other quadric, for the certificate to decide. (group's, and drop's.)
+function ballClear(prim, sign, ball) {
+  const { k_par: kp, k_perp: k, linear: c, constant: d } = prim;
+  if (kp !== k) return undefined;
+  const p = ball.c, r = ball.r;
+  if (k === 0) {
+    // H = 2 c.x + d: over the ball, sign H is least at its centre less r |2c|.
+    const h = 2 * (c[0] * p[0] + c[1] * p[1] + c[2] * p[2]) + d;
+    return sign * h >= 2 * Math.hypot(c[0], c[1], c[2]) * r;
+  }
+  // H = k |x|^2 + 2 c.x + d: a sphere about q = -c / k, of radius R.
+  const q = c.map((v) => -v / k);
+  const R2 = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] - d / k;
+  if (!(R2 > 0)) return undefined;
+  const R = Math.sqrt(R2), apart = dist3(p, q);
+  return sign * k > 0 ? apart >= R + r          // its inside: the two balls apart
+                      : apart + r <= R;         // its outside: the ball within it
+}
+
+// ---------------------------------------------------------------------------
+// Drops: "drop": true
+//
+// An object dropped is moved along the scene's gravity until it first
+// touches something solid: the furthest it can go and still be apart, by
+// the certificates of overlap.js - exact where they prove two things
+// apart, and touching counts as apart (DESIGN.md), so it comes to rest on
+// what it lands on. They are conservative the other way: where only two
+// constraints of a path together keep it clear (a box's corner by a ball)
+// they may say "may overlap" early, so an object can stop a little short,
+// never inside anything.
+//
+// It falls in steps that can't pass anything: a ball round each of the
+// object's paths, swept over the step, proved apart from everything, or
+// the step halved; down to 1/64 of the object's size, where the object
+// itself is tested at the step's end, and once it may overlap, bisected
+// back to where it is apart. (A feature thinner than that 1/64, met only
+// within one smallest step, can be passed.)
+// ---------------------------------------------------------------------------
+
+// How far an object may fall, or rise out of what it starts in: placing
+// is for a few units, and the worst case - falling beside a wall, where
+// only the smallest steps prove anything - takes time with the distance
+// (about 250 ms for 10 units on this machine).
+const DROP_MAX = 10;
+const DROP_STEPS = 20000;        // smallest steps before giving up
+
+const ballOfPoints = (pts) => {
+  const lo = [0, 1, 2].map((m) => Math.min(...pts.map((p) => p[m])));
+  const hi = [0, 1, 2].map((m) => Math.max(...pts.map((p) => p[m])));
+  const c = lo.map((v, m) => (v + hi[m]) / 2);
+  return { c, r: Math.max(...pts.map((p) => dist3(p, c))) };
+};
+
+// A compiled scene's solid paths: [{ cons: [{ prim, sign }], ball, pts }],
+// ball and pts null where a path is unbounded; null if there are too many.
+// A bounded path's ball is offered to the certificates as one constraint
+// more (apartAt(), sweptApart()): it holds the path, so whatever it is
+// proved apart from the path is too, and it is what proves a box of slabs
+// clear of a sky shell, which no one of its slabs - each unbounded - can.
+function solidPaths(built) {
+  const solid = (i) => isSolid(built.materials[built.nodes[i].material]);
+  const paths = interiorPaths(built.nodes, 1, solid, EXTENT_PATHS);
+  if (paths.length >= EXTENT_PATHS) return null;
+  const out = [];
+  for (const path of paths) {
+    const cons = path.map(({ node: i, sign }) => ({ prim: built.nodes[i].prim, sign }));
+    const pts = pathPoints(cons.flatMap(({ prim, sign }) => insideConstraints(sign > 0 ? prim : complementSurface(prim))));
+    if (pts && !pts.length) continue;          // empty
+    const ball = pts ? ballOfPoints(pts) : null;
+    const knock = ball ? [{ prim: sphere(ball.c, ball.r * (1 + 1e-6)), sign: 1 }, ...cons] : cons;
+    out.push({ cons, pts, ball, knock });
+  }
+  return out;
+}
+
+// Whether points' hull is clear of a region, where that is exact and cheap
+// from the points alone: a half-space, either side of a plane, or a slab's
+// inside, all of them beyond one face (both convex, so the hull is clear
+// if its corners are). Undefined otherwise. Touching counts as clear.
+function hullClear(prim, sign, pts) {
+  const { axis: a, k_par: kp, k_perp: k, linear: c, constant: d } = prim;
+  if (k === 0 && kp === 0) {
+    return pts.every((p) => sign * (2 * dot3(c, p) + d) >= 0) || undefined;
+  }
+  if (k === 0 && kp > 0 && sign > 0) {
+    const ca = dot3(c, a);
+    if (Math.hypot(c[0] - ca * a[0], c[1] - ca * a[1], c[2] - ca * a[2]) > 1e-12 * (Math.abs(ca) + 1)) return undefined;
+    const q = Math.sqrt(Math.max(0, ca * ca - kp * d));
+    const lo = (-ca - q) / kp, hi = (-ca + q) / kp;
+    const s = pts.map((p) => dot3(a, p));
+    return s.every((x) => x >= hi) || s.every((x) => x <= lo) || undefined;
+  }
+  return undefined;
+}
+
+// Whether the object's paths, moved by v, are proved apart from the world's.
+function apartAt(objPaths, worldPaths, v) {
+  for (const o of objPaths) {
+    const c = o.ball.c.map((x, i) => x + v[i]);
+    const moved = o.cons.map(({ prim, sign }) => ({ prim: translatePrim(prim, v), sign }));
+    const ball = { c, r: o.ball.r * (1 + 1e-6) }, ballPrim = sphere(ball.c, ball.r);
+    // Measured about the object's own ball, as group does (see
+    // regionsDisjoint): far from the origin, a ball inside a pipe otherwise
+    // reads as touching it, and so as apart.
+    const frame = { c, L: o.ball.r };
+    for (const w of worldPaths) {
+      if (w.ball && dist3(c, w.ball.c) >= o.ball.r + w.ball.r) continue;
+      // The ball first - ballClear() answers most pairs exactly, and at once
+      // - then the path's own constraints.
+      const byBall = (b) => { const q = ballClear(b.prim, b.sign, ball); return q !== undefined ? q : regionsDisjoint(ballPrim, 1, b.prim, b.sign, frame); };
+      // Then the path's hull corners against the world's planes and slabs.
+      const pts = o.pts.map((p) => p.map((x, i) => x + v[i]));
+      if (w.knock.some((b) => hullClear(b.prim, b.sign, pts))) continue;
+      if (w.pts && moved.some((a) => hullClear(a.prim, a.sign, w.pts))) continue;
+      if (w.knock.some(byBall)) continue;
+      if (!moved.some((a) => w.knock.some((b) => regionsDisjoint(a.prim, a.sign, b.prim, b.sign, frame)))) return false;
+    }
+  }
+  return true;
+}
+
+// Whether every object path's ball, swept along g from t to t + d, is
+// proved apart from the world: then nothing is met in between.
+function sweptApart(objPaths, worldPaths, g, t, d) {
+  for (const o of objPaths) {
+    const c = o.ball.c.map((x, i) => x + (t + d / 2) * g[i]);
+    const r = o.ball.r + d / 2 + 1e-9;
+    const ball = sphere(c, r), frame = { c, L: r };
+    for (const w of worldPaths) {
+      if (w.ball && dist3(c, w.ball.c) >= r + w.ball.r) continue;
+      if (!w.knock.some((b) => { const q = ballClear(b.prim, b.sign, { c, r }); return q !== undefined ? q : regionsDisjoint(ball, 1, b.prim, b.sign, frame); })) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * How far to move a dropped object: { offset } or { warn }. `world` and
+ * `object` are compiled scenes - the world without this drop or any after
+ * it, the object alone where its own transforms put it - and `gravity` is
+ * parseGravity()'s.
+ */
+function resolveDrop(world, object, gravity) {
+  const objPaths = solidPaths(object), worldPaths = solidPaths(world);
+  if (!objPaths || !worldPaths) return { warn: 'too many regions to drop' };
+  if (!objPaths.length) return { warn: 'nothing solid to drop' };
+  if (objPaths.some((o) => !o.ball)) return { warn: "unbounded, so it can't be dropped" };
+  const whole = ballOfPoints(objPaths.flatMap((o) => o.pts));
+  let g = gravity.kind === 'central' ? gravity.center.map((v, i) => v - whole.c[i]) : gravity.down;
+  const glen = Math.hypot(...g);
+  if (!(glen > 0)) return { warn: 'at the centre of gravity, so it has nowhere to fall' };
+  g = g.map((v) => v / glen);
+  const fine = (2 * whole.r) / 64;
+  const at = (t) => apartAt(objPaths, worldPaths, g.map((v) => v * t));
+  // Between a t that is apart and one that may overlap, the furthest apart.
+  const bisect = (apart, over) => {
+    for (let i = 0; i < 60 && Math.abs(over - apart) > 1e-7 * (1 + Math.abs(apart)); i++) {
+      const mid = (apart + over) / 2;
+      if (at(mid)) apart = mid; else over = mid;
+    }
+    return apart;
+  };
+  if (!at(0)) {
+    // Starting inside: up, against gravity, until apart - if ever.
+    let t = 0, steps = 0;
+    while (!at(t - fine)) {
+      t -= fine;
+      if (-t > DROP_MAX || ++steps > DROP_STEPS) return { warn: `starts inside something it can't rise out of within ${DROP_MAX} units` };
+    }
+    return { offset: g.map((v) => v * bisect(t - fine, t)) };
+  }
+  let t = 0, steps = 0;
+  for (;;) {
+    let d = DROP_MAX - t;
+    while (d > fine && !sweptApart(objPaths, worldPaths, g, t, d)) d /= 2;
+    if (d > fine) {
+      t += d;
+      if (t >= DROP_MAX) return { warn: `nothing within ${DROP_MAX} units below it` };
+      continue;
+    }
+    if (t + fine > DROP_MAX || ++steps > DROP_STEPS) return { warn: `nothing within ${DROP_MAX} units below it` };
+    if (at(t + fine)) { t += fine; continue; }
+    return { offset: g.map((v) => v * bisect(t, t + fine)) };
+  }
+}
+
+// The drops in a scene's root, in document order: [{ keys, def }], keys
+// the path to each from the spec ('root', then 'inside', 'group', 3, ...).
+function dropSites(spec, at) {
+  const sites = [];
+  const walk = (def, keys, within) => {
+    if (!def || typeof def !== 'object') return;
+    if (Array.isArray(def)) { def.forEach((d, i) => walk(d, [...keys, i], within)); return; }
+    if (def.drop !== undefined) {
+      const where = keys.join('.');
+      if (def.drop !== true && def.drop !== false) at(`${where}.drop`, `true, for now (parameters may come later), not ${JSON.stringify(def.drop)}`);
+      if (def.drop === true) {
+        if (within) at(`${where}.drop`, `a drop within a dropped object (${within}): drop the object as a whole`);
+        sites.push({ keys });
+        within = where;
+      }
+    }
+    for (const key of ['inside', 'outside', 'group', 'union', 'intersect', 'difference']) {
+      if (def[key] !== undefined) walk(def[key], [...keys, key], within);
+    }
+  };
+  walk(spec.root, ['root'], null);
+  for (const [name, def] of Object.entries(spec.objects ?? {})) {
+    const found = [];
+    const look = (d) => { if (d && typeof d === 'object') { if (!Array.isArray(d) && d.drop) found.push(1); Object.values(d).forEach(look); } };
+    look(def);
+    if (found.length) at(`objects.${name}`, 'drop where the object is placed (its use), not in its definition');
+  }
+  return sites;
+}
+
+const getAt = (obj, keys) => keys.reduce((o, k) => o?.[k], obj);
+
+/**
+ * A scene with its drops worked out: each "drop": true replaced by the
+ * offset it falls by, added to its translate (and to its bounds' centre,
+ * which is in world space). In document order, each onto the scene with
+ * the drops before it settled and those after left out. `compile` is
+ * compileScene, quiet.
+ */
+function resolveDrops(spec, compile, at, warn) {
+  const work = structuredClone(spec);
+  const sites = dropSites(work, at);
+  const gravity = parseGravity(work.gravity, at);
+  for (let k = 0; k < sites.length; k++) {
+    const site = sites[k];
+    const where = site.keys.join('.');
+    const def = getAt(work, site.keys);
+    let result;
+    if (site.keys.length === 1) {
+      result = { warn: 'nothing below it (it is the whole scene)' };
+    } else {
+      // The world: this drop and every later one taken out, last first so
+      // the earlier ones' keys stay good.
+      const worldSpec = structuredClone(work);
+      for (let j = sites.length - 1; j >= k; j--) {
+        const keys = sites[j].keys, parent = getAt(worldSpec, keys.slice(0, -1)), last = keys[keys.length - 1];
+        if (Array.isArray(parent)) parent.splice(last, 1); else parent[last] = null;
+      }
+      const objectDef = structuredClone(def);
+      delete objectDef.drop;
+      result = resolveDrop(compile(worldSpec), compile({ ...work, root: objectDef }), gravity);
+    }
+    delete def.drop;
+    if (result.warn) { warn(`${where}.drop`, result.warn); continue; }
+    def.translate = (def.translate ?? [0, 0, 0]).map((v, i) => v + result.offset[i]);
+    if (def.bounds?.center) def.bounds.center = def.bounds.center.map((v, i) => v + result.offset[i]);
+  }
+  return work;
+}
+
 // `table` (the compiled materials list, in scope from compileScene()) is
 // what lets this tell a genuinely empty default "inside" (a node whose own
 // material happens to be non-solid) apart from an ordinary solid one.
@@ -1547,7 +1806,14 @@ export function compileScene(rawSpec, options = {}) {
     at([...missing][0], `not loaded${missing.size > 1 ? ` (nor ${missing.size - 1} more)` : ''}: ` +
                         'fetch what a scene references first - see loadReferences() - and pass it in options.files');
   }
-  const warn = (path, msg) => { console.warn(`warning: ${path}: ${msg}`); };
+  // Drops are worked out first, on a copy (resolveDrops()), and the scene
+  // they give compiled as any other: it has none left, and no references.
+  const quietly = (path, msg) => { if (!options.quiet) console.warn(`warning: ${path}: ${msg}`); };
+  if (dropSites(spec, at).length) {
+    const resolved = resolveDrops(spec, (s) => compileScene(s, { quiet: true }), at, quietly);
+    return compileScene(resolved, { ...options, files: {}, path: options.path });
+  }
+  const warn = quietly;
 
   // Material 0 is vacuum: never shaded, and no trace flags - nothing there.
   // A material's flags (MATERIAL_FLAG_KEYS) go into the material id of
@@ -1929,23 +2195,6 @@ export function compileScene(rawSpec, options = {}) {
   // cheap: a half-space (a plane) or a sphere's inside or outside. Touching
   // counts as clear, as it does for regionsDisjoint. Undefined for any
   // other quadric, for the certificate to decide.
-  function ballClear(prim, sign, ball) {
-    const { k_par: kp, k_perp: k, linear: c, constant: d } = prim;
-    if (kp !== k) return undefined;
-    const p = ball.c, r = ball.r;
-    if (k === 0) {
-      // H = 2 c.x + d: over the ball, sign H is least at its centre less r |2c|.
-      const h = 2 * (c[0] * p[0] + c[1] * p[1] + c[2] * p[2]) + d;
-      return sign * h >= 2 * Math.hypot(c[0], c[1], c[2]) * r;
-    }
-    // H = k |x|^2 + 2 c.x + d: a sphere about q = -c / k, of radius R.
-    const q = c.map((v) => -v / k);
-    const R2 = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] - d / k;
-    if (!(R2 > 0)) return undefined;
-    const R = Math.sqrt(R2), apart = dist3(p, q);
-    return sign * k > 0 ? apart >= R + r          // its inside: the two balls apart
-                        : apart + r <= R;         // its outside: the ball within it
-  }
 
   // Whether B is proved clear of a region once it is also inside `region`
   // ({ prim, sign }): the paths of B still alive are those no region so
