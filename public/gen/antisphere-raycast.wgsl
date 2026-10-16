@@ -376,17 +376,21 @@ const DEGENERATE : f32 = 1e-12;
 // ray that is light (camera rays, shadow rays), MATERIAL_SOLID for one that
 // wants what is physically there (castRays()).
 //
-// `extend` is for a ray inside a medium (glass, water): it wants where the
-// medium ends, not where it starts. The run found goes on over every piece
-// after it of the same material id, and ends where a piece of anything
-// else - empty space too - begins: found.t1 is that point, where the
-// material changes. Only what fills space counts, as it is in the end: a
+// `extend_flags` is for a ray inside a medium (glass, water): it wants
+// where the medium ends, not where it starts. 0 is no extending; otherwise
+// the run found goes on over every piece after it whose material id has
+// the same bits under extend_flags as the run's own, and ends where a piece
+// of anything else - a different id there, a region the ray doesn't stop
+// at, empty space - begins: found.t1 is that point, where the material
+// changes. Like stop_flags, it names bits and knows nothing of what they
+// mean: all of them (EXTEND_SAME_MATERIAL) for the same material, or
+// MATERIAL_IOR for the same medium. Only what fills space counts, as it is in the end: a
 // node's own material, where its inside says more, decides nothing. And
 // what follows, the piece that ended the run, comes back in found.t0, as a
 // node bitcast: its region's node, or 0 for empty space (node 0's material
 // id is 0, so it reads as air). The caller wants no t0 of a run it starts
 // on the surface of. (Which surface it leaves by is not found.node's: see
-// surfaceAt().) Every other ray passes false, and sees found exactly as
+// surfaceAt().) Every other ray passes 0, and sees found exactly as
 // before.
 fn trace(
   O : vec3<f32>,
@@ -396,8 +400,9 @@ fn trace(
   fromSurface: u32,
   start: u32,
   stop_flags: u32,
-  extend: bool
+  extend_flags: u32
 ) -> Seg {
+  let extend = extend_flags != 0u;
   // found.node == 0 means "no hit (yet)" - node 0 is reserved (see Node's
   // doc comment) so no real crossing can ever claim it. Segments pop in
   // non-decreasing t (see the loop below), so the first transition into
@@ -439,7 +444,7 @@ fn trace(
           extending = extend;
         } else if (extend) {
           // The same material goes on the run; anything else ends it here.
-          if (seg_node.material_id != foundId) {
+          if (((seg_node.material_id ^ foundId) & extend_flags) != 0u) {
             found.t1 = seg.t0;
             found.t0 = bitcast<f32>(seg_nn);
             return found;
@@ -621,7 +626,7 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT, MATERIAL_SOLID, false);
+  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT, MATERIAL_SOLID, 0u);
 }
 
 // Surface parameterization from the node's own numbers. A plane gets a
@@ -822,7 +827,7 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
     // a room's lamp is shadowed by the room alone (and its rays take the
     // room's subtree, not the scene's). Env 0's lights see everything.
     let start = select(ROOT, lt.env | DEFAULT_INSIDE_BIT, lt.env != 0u);
-    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start, MATERIAL_OPTICAL, false);
+    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start, MATERIAL_OPTICAL, 0u);
     if (blocker.node != 0u) {
       // the ray hit something between us and the light,
       // so we're in shadow:
@@ -949,6 +954,11 @@ fn surfaceAt(P : vec3<f32>) -> u32 {
   return best;
 }
 
+// trace()'s extend_flags for a ray in glass: every bit of the material id,
+// so the run is one material - glass meeting other glass ends it, and the
+// ray goes on coloured by the next (main()).
+const EXTEND_SAME_MATERIAL : u32 = 0xffffffffu;
+
 // How many times a camera ray may go on from a hit (main()) - through a
 // piece of glass is two, in and out. A mirror or glass reached past that
 // is shaded by its own material, as if neither; a ray still inside glass
@@ -1054,7 +1064,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       col = abs(dir) * 0.25;
       break;
     }
-    let seg = trace(origin, dir, tMin, FAR, fromSurface, ROOT, MATERIAL_OPTICAL, inMedium);
+    let seg = trace(origin, dir, tMin, FAR, fromSurface, ROOT, MATERIAL_OPTICAL, select(0u, EXTEND_SAME_MATERIAL, inMedium));
     if (bounce == 0u) { found = seg; }
     if (cam.ablate < ABLATE_SHADE) {
       col = select(vec3<f32>(0.0), vec3<f32>(fract(seg.t0 * 0.05)), seg.node != 0u);
@@ -1164,4 +1174,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":133},{"path":"shaders/random.wgsls","offset":135,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":166,"lines":1000}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":133},{"path":"shaders/random.wgsls","offset":135,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":166,"lines":1010}]

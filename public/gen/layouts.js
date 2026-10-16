@@ -1042,6 +1042,7 @@ export const DEFAULT_INSIDE_BIT = 0x80000000;
 export const ROOT = 1;
 export const TRACE_STACK_SIZE = 32;
 export const DEGENERATE = 1e-12;
+export const EXTEND_SAME_MATERIAL = 0xffffffff;
 export const MAX_BOUNCES = 12;
 export const JACOBI_SWEEPS = 5;
 export const OVERLAP_STEPS = 24;
