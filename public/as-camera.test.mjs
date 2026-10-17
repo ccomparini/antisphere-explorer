@@ -122,3 +122,27 @@ test('a camera block can give where it is and what it looks at: the direction an
   // And toSpec() writes it as position, direction and distance, as ever.
   assert.deepEqual(Object.keys(camera.toSpec()).sort(), ['direction', 'distance', 'position']);
 });
+
+test('orbit mode dollies between a near and a far limit: given, or a sixteenth and four times the starting distance', () => {
+  const camera = new ASCamera();
+  camera.setFromSpec({ position: [0, -12, 0], target: [0, 0, 0] });
+  assert.equal(camera.minDistance, 12 / 16);
+  assert.equal(camera.maxDistance, 48);
+  for (let i = 0; i < 100; i++) camera.dolly(1.5);
+  assert.equal(camera.distance, 48, 'no further than four times');
+  for (let i = 0; i < 100; i++) camera.dolly(0.5);
+  assert.equal(camera.distance, 0.75, 'no nearer than a sixteenth');
+  assert.ok(!('minDistance' in camera.toSpec()) && !('maxDistance' in camera.toSpec()), 'defaults are not written');
+
+  const given = new ASCamera();
+  given.setFromSpec({ position: [0, -12, 0], target: [0, 0, 0], minDistance: 2, maxDistance: 100 });
+  for (let i = 0; i < 100; i++) given.dolly(1.5);
+  assert.equal(given.distance, 100);
+  const spec = given.toSpec();
+  assert.equal(spec.minDistance, 2);
+  assert.equal(spec.maxDistance, 100);
+  const again = new ASCamera();
+  again.setFromSpec(JSON.parse(JSON.stringify(spec)));
+  assert.equal(again.minDistance, 2, 'and they round-trip');
+  assert.equal(again.maxDistance, 100);
+});

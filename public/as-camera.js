@@ -43,8 +43,11 @@ export class ASCamera {
     this.distance = opts.distance ?? 6.4;
     if (opts.position) this.position = opts.position.slice();
     else this.aim({ focus: opts.focus ?? [0, 0, 0.15] });
-    this.minDistance = opts.minDistance ?? 0.05;
-    this.maxDistance = opts.maxDistance ?? 200;
+    // How near and far orbit mode may dolly (dolly()): given, or from the
+    // starting distance - a sixteenth of it in, four times it out - so a
+    // scene's own scale sets them (setFromSpec() works them out again from
+    // its camera's distance).
+    this.setDistanceLimits(opts);
 
     this.fovY = opts.fovY ?? 0.9;      // radians
 
@@ -57,6 +60,18 @@ export class ASCamera {
     // the focus the same size across a switch.
     this.orthoHeight = opts.orthoHeight ?? null;
     this.fallVelocity = 0;             // walk mode only
+  }
+
+  /**
+   * Orbit mode's nearest and furthest: { minDistance, maxDistance } as
+   * given, each otherwise from the distance now - a sixteenth and four
+   * times it. Which were given is kept, for toSpec() to write those only.
+   */
+  setDistanceLimits({ minDistance, maxDistance } = {}) {
+    this.minGiven = minDistance !== undefined;
+    this.maxGiven = maxDistance !== undefined;
+    this.minDistance = minDistance ?? this.distance / 16;
+    this.maxDistance = maxDistance ?? this.distance * 4;
   }
 
   /** The point orbit mode turns about: `distance` along the direction. */
@@ -150,7 +165,9 @@ export class ASCamera {
    * target } - where it is and what it looks at, from which the direction
    * and distance follow (and win over any given). Older files said
    * { target, yaw, pitch, distance } - what it looked at, and from where
-   * round it - which is read too.
+   * round it - which is read too. minDistance and maxDistance bound how
+   * near and far orbit mode dollies; by default a sixteenth and four times
+   * the distance it starts at.
    */
   setFromSpec(spec) {
     if (!spec) return;
@@ -173,6 +190,7 @@ export class ASCamera {
         direction: yawPitchDirection(spec.yaw ?? Math.atan2(-x, -y), spec.pitch ?? Math.asin(clamp(-z, -1, 1))),
       });
     }
+    this.setDistanceLimits(spec);
     if (spec.mode) this.setMode(spec.mode);
     if (spec.projection) this.projection = spec.projection;
     if (spec.orthoHeight !== undefined) this.orthoHeight = spec.orthoHeight;
@@ -188,6 +206,8 @@ export class ASCamera {
     // Only when it isn't the default, so an ordinary scene file stays plain.
     if (this.projection !== 'perspective') spec.projection = this.projection;
     if (this.orthoHeight !== null) spec.orthoHeight = this.orthoHeight;
+    if (this.minGiven) spec.minDistance = this.minDistance;
+    if (this.maxGiven) spec.maxDistance = this.maxDistance;
     return spec;
   }
 }
