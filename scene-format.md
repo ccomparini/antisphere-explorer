@@ -43,11 +43,23 @@ Top level:
 | `position`  | `[x, y, z]` | where the camera is                                   |
 | `direction` | `[x, y, z]` | which way it looks; needn't be unit length            |
 | `distance`  | number      | how far along `direction` the point it orbits is      |
+| `target`    | `[x, y, z]` | instead of `direction` and `distance`: the point it looks at |
+
+With `position` and `target`, the camera looks from one at the other, and
+orbits the target:
+
+```
+"camera": { "position": [6, -8, 4], "target": [0, 0, 1] }
+```
+
+The direction and distance follow from them, and win over any given as
+well. The camera writes itself back as `position`, `direction` and
+`distance`.
 
 The view's right is kept level (square to +Z), so the horizon stays level.
-Older files gave `target`, `yaw`, `pitch` and `distance` - the point looked
-at, and from where round it: yaw turning about +Z from looking along -Y,
-pitch tilting down. Those are still read.
+Older files gave `target`, `yaw`, `pitch` and `distance` without a
+`position` - the point looked at, and from where round it: yaw turning
+about +Z from looking along -Y, pitch tilting down. Those are still read.
 
 ## `gravity`
 

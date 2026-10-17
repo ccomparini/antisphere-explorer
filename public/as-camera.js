@@ -146,9 +146,11 @@ export class ASCamera {
 
   /**
    * Adopt a viewpoint from a scene file's optional `camera` block:
-   * { position, direction, distance }, as toSpec() writes. Older files
-   * said { target, yaw, pitch, distance } - what it looked at, and from
-   * where round it - which is read too.
+   * { position, direction, distance }, as toSpec() writes, or { position,
+   * target } - where it is and what it looks at, from which the direction
+   * and distance follow (and win over any given). Older files said
+   * { target, yaw, pitch, distance } - what it looked at, and from where
+   * round it - which is read too.
    */
   setFromSpec(spec) {
     if (!spec) return;
@@ -156,6 +158,14 @@ export class ASCamera {
     if (spec.direction) this.direction = unit(spec.direction);
     if (spec.position) {
       this.position = spec.position.slice();
+      if (spec.target) {
+        const d = spec.target.map((v, i) => v - spec.position[i]);
+        const len = Math.hypot(d[0], d[1], d[2]);
+        if (len > 0) {                          // looking at itself says nothing
+          this.direction = d.map((v) => v / len);
+          this.distance = len;
+        }
+      }
     } else if (spec.target || spec.yaw !== undefined || spec.pitch !== undefined) {
       const [x, y, z] = this.direction;
       this.aim({

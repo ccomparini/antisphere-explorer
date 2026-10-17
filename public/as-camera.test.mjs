@@ -108,3 +108,17 @@ test('panning slides square to the view: direction kept, focus carried along', (
   close(camera.focus(), focus.map((f, i) => f + camera.position[i] - [0, 0, 5][i]), 'focus moved with it');
   assert.equal(camera.distance, 6.4, 'distance, and so the orthographic framing, unchanged');
 });
+
+test('a camera block can give where it is and what it looks at: the direction and distance follow', () => {
+  const camera = new ASCamera();
+  camera.setFromSpec({ position: [6, -8, 4], target: [0, 0, 1] });
+  const len = Math.hypot(6, 8, 3);
+  [-6, 8, -3].forEach((v, i) => assert.ok(Math.abs(camera.direction[i] - v / len) < 1e-12, `direction ${i}`));
+  assert.ok(Math.abs(camera.distance - len) < 1e-12, 'distance');
+  camera.focus().forEach((v, i) => assert.ok(Math.abs(v - [0, 0, 1][i]) < 1e-12, `it orbits the target: ${i}`));
+  // Given as well, direction and distance give way to the target.
+  camera.setFromSpec({ position: [6, -8, 4], target: [0, 0, 1], direction: [1, 0, 0], distance: 2 });
+  assert.ok(Math.abs(camera.distance - len) < 1e-12, 'the target wins');
+  // And toSpec() writes it as position, direction and distance, as ever.
+  assert.deepEqual(Object.keys(camera.toSpec()).sort(), ['direction', 'distance', 'position']);
+});
