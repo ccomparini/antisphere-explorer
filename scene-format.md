@@ -44,8 +44,8 @@ Top level:
 | `direction` | `[x, y, z]` | which way it looks; needn't be unit length            |
 | `distance`  | number      | how far along `direction` the point it orbits is      |
 | `target`    | `[x, y, z]` | instead of `direction` and `distance`: the point it looks at |
-| `minDistance` | number    | the nearest orbit mode dollies in to its focus; by default a sixteenth of the starting distance |
-| `maxDistance` | number    | the furthest it dollies out; by default four times the starting distance |
+| `minDistance` | number    | the nearest orbit mode dollies in to its focus; by default 1/128 of the starting distance |
+| `maxDistance` | number    | the furthest it dollies out; by default 31.25 times the starting distance |
 
 With `position` and `target`, the camera looks from one at the other, and
 orbits the target:
