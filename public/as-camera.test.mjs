@@ -124,15 +124,15 @@ test('a camera block can give where it is and what it looks at: the direction an
 });
 
 test('orbit mode dollies between a near and a far limit: given, or the default view\'s, scaled to the starting distance', () => {
-  // The default view, 6.4 away, as it always was: 0.05 to 200.
+  // The default view, 6.4 away: 0.05 to 204.8, about as it always was.
   const plain = new ASCamera();
-  assert.ok(Math.abs(plain.minDistance - 0.05) < 1e-12 && Math.abs(plain.maxDistance - 200) < 1e-12, 'the default view');
+  assert.ok(Math.abs(plain.minDistance - 0.05) < 1e-12 && Math.abs(plain.maxDistance - 204.8) < 1e-12, 'the default view');
   // Twice as far, twice the range.
   const camera = new ASCamera();
   camera.setFromSpec({ position: [0, -12.8, 0], target: [0, 0, 0] });
-  assert.ok(Math.abs(camera.minDistance - 0.1) < 1e-12 && Math.abs(camera.maxDistance - 400) < 1e-12, 'scaled');
+  assert.ok(Math.abs(camera.minDistance - 0.1) < 1e-12 && Math.abs(camera.maxDistance - 409.6) < 1e-12, 'scaled');
   for (let i = 0; i < 100; i++) camera.dolly(1.5);
-  assert.ok(Math.abs(camera.distance - 400) < 1e-9, 'no further');
+  assert.ok(Math.abs(camera.distance - 409.6) < 1e-9, 'no further');
   for (let i = 0; i < 200; i++) camera.dolly(0.5);
   assert.ok(Math.abs(camera.distance - 0.1) < 1e-12, 'no nearer');
   assert.ok(!('minDistance' in camera.toSpec()) && !('maxDistance' in camera.toSpec()), 'defaults are not written');

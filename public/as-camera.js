@@ -43,10 +43,11 @@ export class ASCamera {
     this.distance = opts.distance ?? 6.4;
     if (opts.position) this.position = opts.position.slice();
     else this.aim({ focus: opts.focus ?? [0, 0, 0.15] });
-    // How near and far orbit mode may dolly (dolly()): given, or in the
-    // proportions the default view always had - 0.05 in and 200 out from
-    // its 6.4 - scaled to the starting distance, so a scene's own scale sets
-    // them (setFromSpec() works them out again from its camera's distance).
+    // How near and far orbit mode may dolly (dolly()): given, or 1/128 in
+    // and 32 times out from the starting distance - about what the default
+    // view always had (0.05 to 200 from its 6.4) - so a scene's own scale
+    // sets them (setFromSpec() works them out again from its camera's
+    // distance).
     this.setDistanceLimits(opts);
 
     this.fovY = opts.fovY ?? 0.9;      // radians
@@ -64,8 +65,7 @@ export class ASCamera {
 
   /**
    * Orbit mode's nearest and furthest: { minDistance, maxDistance } as
-   * given, each otherwise from the distance now, in the default view's
-   * proportions (NEAREST, FURTHEST). Which were given is kept, for
+   * given, each otherwise from the distance now (NEAREST, FURTHEST). Which were given is kept, for
    * toSpec() to write those only.
    */
   setDistanceLimits({ minDistance, maxDistance } = {}) {
@@ -167,7 +167,7 @@ export class ASCamera {
    * and distance follow (and win over any given). Older files said
    * { target, yaw, pitch, distance } - what it looked at, and from where
    * round it - which is read too. minDistance and maxDistance bound how
-   * near and far orbit mode dollies; by default 1/128 and 31.25 times the
+   * near and far orbit mode dollies; by default 1/128 and 32 times the
    * distance it starts at (NEAREST, FURTHEST).
    */
   setFromSpec(spec) {
@@ -230,10 +230,11 @@ function withFrame(eye, forward) {
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-// Orbit mode's default nearest and furthest, as fractions of the starting
-// distance: the 0.05 and 200 the default view (6.4 away) always had.
-const NEAREST = 0.05 / 6.4;     // 1/128
-const FURTHEST = 200 / 6.4;     // 31.25
+// Orbit mode's default nearest and furthest, as multiples of the starting
+// distance: about the 0.05 and 200 the default view (6.4 away) always had,
+// rounded to powers of two.
+const NEAREST = 1 / 128;
+const FURTHEST = 32;
 
 // ---------------------------------------------------------------------------
 // Controls
