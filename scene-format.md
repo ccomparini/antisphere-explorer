@@ -216,7 +216,7 @@ Where a reference may go:
 | `materials`, `objects` | a map, a reference to one, or an array of those, merged in order — a later entry of the same name wins |
 | each material, each object, `camera`, `gravity`, `spawn` | the object, or a reference |
 | `lights` (the scene's, or a node's) | an array, or a reference to one; an item may be a light, a reference to one, or a reference to an array, spliced in |
-| a subtree — `root`, `inside`, `outside`, a member of `group`/`union`/`intersect`/`difference`, `use` | a subtree, or a reference (an `.stl` gives the mesh's tree) |
+| a subtree — `root`, `inside`, `outside`, a member of `group`/`union`/`intersection`/`difference`, `use` | a subtree, or a reference (an `.stl` gives the mesh's tree) |
 | `material` on a node | a name, or a reference to a material |
 
 **What a reference brings is the scene's.** It is copied in where it is
@@ -493,11 +493,11 @@ worked out from the whole subtree, so an unbounded shape carved down by
 something bounded is bounded: a cone with a sphere in its `"inside"` is the
 part of the cone within that sphere, and the sphere's ball bounds it.
 
-### `"union"`, `"intersect"`, `"difference"`
+### `"union"`, `"intersection"`, `"difference"`
 
 ```
 { "union":      [ <subtree-or-name>, ... ] }
-{ "intersect":  [ <subtree-or-name>, ... ] }
+{ "intersection": [ <subtree-or-name>, ... ] }
 { "difference": [ <subtree-or-name>, ... ] }
 ```
 
@@ -508,7 +508,8 @@ no `"inside"`/`"outside"` of its own. One operand means just that operand.
 - `"union"` — solid wherever any operand is solid. A `"group"` of the same
   operands is the same, arranged for speed; use `"union"` for the parts of
   one object, which overlap on purpose.
-- `"intersect"` — solid only where every operand is.
+- `"intersection"` — solid only where every operand is. (`"intersect"`,
+  its old name, is still read, with a warning.)
 - `"difference"` — the first operand, minus every operand after it.
 
 Every operand keeps its own materials, and one that names none inherits
@@ -557,7 +558,7 @@ it is everything around the two cups.
 Unless specified within the primitive (eg "sphere": { ... "complement":true}
 it applies to the **whole subtree**.
 A node with children is complemented along with its children, and
-so is a `"use"`, `"group"`, `"union"`, `"intersect"` or `"difference"` — so
+so is a `"use"`, `"group"`, `"union"`, `"intersection"` or `"difference"` — so
 `{ "union": ["hull", "fin"], "complement": true }` is everything those two
 don't occupy. (On a node with no children the two readings coincide, which is
 the usual case.)

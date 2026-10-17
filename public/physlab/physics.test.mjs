@@ -137,7 +137,7 @@ gpuTest('no contact is made up where every pair of regions meets but not all of 
   // A column x, y in (0, 1): every point has x + y < 2. Each of its slabs
   // alone meets the half-space x + y > 3, so no single pair proves them
   // apart - but there is no point in all three.
-  const column = solid({ intersect: [
+  const column = solid({ intersection: [
     { slab: { center: [0.5, 0, 0], axis: [1, 0, 0], thickness: 1 }, material: 'm' },
     { slab: { center: [0, 0.5, 0], axis: [0, 1, 0], thickness: 1 }, material: 'm' },
   ] });
@@ -155,7 +155,7 @@ gpuTest('a tilted rod whose lower end dips into the ground has its contact at th
   // anywhere down there, well past the rod's end; it has to be brought back.
   const axis = unit([1, 0, -0.2]);
   const at = (s) => [s * axis[0], 0, 1 + s * axis[2]];
-  const rod = solid({ intersect: [
+  const rod = solid({ intersection: [
     { cylinder: { center: [0, 0, 1], axis, radius: 0.5 }, material: 'm' },
     { slab: { center: at(4.5), axis, thickness: 2 }, material: 'm' },          // s in (3.5, 5.5)
   ] });
@@ -289,7 +289,7 @@ gpuTest('a dropped sphere comes to rest on the ground', async () => {
 
 gpuTest('a rod dropped at an angle turns as it lands, and ends lying flat', async () => {
   const r = 0.25, L = 4;
-  const rod = { intersect: [
+  const rod = { intersection: [
     { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: r }, material: 'm' },
     { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: L }, material: 'm' },
   ] };
@@ -310,11 +310,11 @@ gpuTest('a rod dropped at an angle turns as it lands, and ends lying flat', asyn
 // to lose the rocking's energy.
 for (const tilt of [0, 0.05]) gpuTest(`a rocket set down ${tilt ? 'tilted 3 degrees' : 'upright'} stands on its base`, async () => {
   const rocket = { union: [
-    { intersect: [
+    { intersection: [
       { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 1 }, material: 'm' },
       { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 8 }, material: 'm' },
     ] },
-    { intersect: [
+    { intersection: [
       { cone: { apex: [0, 6, 0], axis: [0, 1, 0], slope: 0.5 }, material: 'm' },
       { slab: { center: [0, 5, 0], axis: [0, 1, 0], thickness: 2 }, material: 'm' },
     ] },
@@ -378,7 +378,7 @@ gpuTest('a head-on collision conserves momentum and never passes through', async
 // and with a load off-centre that is a balancing act, not a stack.)
 gpuTest('a sphere dropped onto a puck on flat ground settles on top of it', async () => {
   const R = 1, h = 0.5, r = 0.3;
-  const puckGeometry = { intersect: [
+  const puckGeometry = { intersection: [
     { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: R }, material: 'm' },
     { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: h }, material: 'm' },
   ] };
@@ -434,7 +434,7 @@ gpuTest('PhysicsWorld drops world objects onto a static one and follows them bac
   }));
   const rod = world.add(new WorldObject('rod', {
     position: [6, 0, 506], orientation: fromAxisAngle([1, 0, 0], 1.2),
-    geometry: { intersect: [
+    geometry: { intersection: [
       { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.3 }, material: 'm' },
       { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
     ] },
@@ -481,7 +481,7 @@ gpuTest('PhysicsWorld.reshape: a crater carved under a ball grows in place, and 
 
   // The planet intersected with a complemented sphere centred on the ground
   // under the ball: a crater.
-  const crater = (radius) => ({ intersect: [rock,
+  const crater = (radius) => ({ intersection: [rock,
     { sphere: { center: [0, 0, 500], radius }, complement: true, material: 'm' }] });
   planet.setGeometry(crater(0.05));
   physics.reshape(planet);
@@ -534,7 +534,7 @@ gpuTest('PhysicsWorld.add fires a body in mid-run, and what was moving keeps mov
 
   const capsule = world.add(new WorldObject('capsule', {
     position: [0, 20, 520],                         // lying along +Y, the way it goes
-    geometry: { intersect: [
+    geometry: { intersection: [
       { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.5 }, material: 'm' },
       { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 2 }, material: 'm' },
     ] },
@@ -585,7 +585,7 @@ gpuTest('a group of the world is the broad phase: far pairs untested, and everyt
   }));
   const rod = (name, at) => world.add(new WorldObject(name, {
     position: at,                                   // along Y: lying down
-    geometry: { intersect: [
+    geometry: { intersection: [
       { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.3 }, material: 'm' },
       { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
     ] },
@@ -714,7 +714,7 @@ gpuTest('a rod dropped at a steep angle lies flat, or stands if its foot holds i
   // pivoted on that rim the other way and fell, which this test took for
   // right.)
   const flat = compileSolid({ plane: { normal: [0, 0, 1], offset: 0 }, material: 'm' }, MATERIALS);
-  const rod = { intersect: [
+  const rod = { intersection: [
     { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.3 }, material: 'm' },
     { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
   ] };
@@ -770,21 +770,21 @@ async function restlessness(s, settle) {
   return { fastest, drift };
 }
 
-const ROD = { intersect: [
+const ROD = { intersection: [
   { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.25 }, material: 'm' },
   { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
 ] };
 const ROCKET = { union: [
-  { intersect: [
+  { intersection: [
     { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 1 }, material: 'm' },
     { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 8 }, material: 'm' },
   ] },
-  { intersect: [
+  { intersection: [
     { cone: { apex: [0, 6, 0], axis: [0, 1, 0], slope: 0.5 }, material: 'm' },
     { slab: { center: [0, 5, 0], axis: [0, 1, 0], thickness: 2 }, material: 'm' },
   ] },
 ] };
-const PUCK = { intersect: [
+const PUCK = { intersection: [
   { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 1 }, material: 'm' },
   { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 0.5 }, material: 'm' },
 ] };
@@ -808,7 +808,7 @@ const resting = {
   // plane of the other two, where their gradients vanish, which once made
   // a contact 2000 km deep.
   'a sphere on a box made of slabs': () => {
-    const box = { intersect: [
+    const box = { intersection: [
       { slab: { center: [0, 0, -1], axis: [1, 0, 0], thickness: 4 }, material: 'm' },
       { slab: { center: [0, 0, -1], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
       { slab: { center: [0, 0, -1], axis: [0, 0, 1], thickness: 2 }, material: 'm' },
@@ -846,8 +846,8 @@ gpuTest('a rod sunk into a crater wall is found there, at about its depth', asyn
   // in and thrown out at 100 m/s.
   const R = 3;
   const planet = { sphere: { center: [0, 0, -500], radius: 500 }, material: 'm' };
-  const crater = solid({ intersect: [planet, { sphere: { center: [0, 0, 0], radius: R }, complement: true }] });
-  const rod = { intersect: [
+  const crater = solid({ intersection: [planet, { sphere: { center: [0, 0, 0], radius: R }, complement: true }] });
+  const rod = { intersection: [
     { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.25 }, material: 'm' },
     { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 4 }, material: 'm' },
   ] };

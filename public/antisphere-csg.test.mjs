@@ -121,8 +121,8 @@ test('union is A or B', () => {
   agrees(build({ union: [A, B] }), (R) => inA(R) || inB(R), 'union');
 });
 
-test('intersect is A and B', () => {
-  agrees(build({ intersect: [A, B] }), (R) => inA(R) && inB(R), 'intersect');
+test('intersection is A and B', () => {
+  agrees(build({ intersection: [A, B] }), (R) => inA(R) && inB(R), 'intersection');
 });
 
 test('difference is A and not B', () => {
@@ -136,14 +136,14 @@ test('more than two operands fold left', () => {
   const inC = (R) => R[0] ** 2 + (R[1] - 0.75) ** 2 + R[2] ** 2 < 1;
   const clear = clearOf(surfA, surfB, ballAt([0, 0.75, 0], 1));
   agrees(build({ union: [A, B, C] }), (R) => inA(R) || inB(R) || inC(R), 'union of three', clear);
-  agrees(build({ intersect: [A, B, C] }), (R) => inA(R) && inB(R) && inC(R),
-         'intersect of three', clear);
+  agrees(build({ intersection: [A, B, C] }), (R) => inA(R) && inB(R) && inC(R),
+         'intersection of three', clear);
   agrees(build({ difference: [A, B, C] }), (R) => inA(R) && !inB(R) && !inC(R),
          'difference of three', clear);
 });
 
 test('one operand is just that operand', () => {
-  for (const op of ['union', 'intersect', 'difference']) {
+  for (const op of ['union', 'intersection', 'difference']) {
     agrees(build({ [op]: [A] }), inA, op);
   }
 });
@@ -198,11 +198,11 @@ test('operators nest, in either direction', () => {
   agrees(build({ difference: [{ union: [A, B] }, C] }),
          (R) => (inA(R) || inB(R)) && !inC(R), 'union then difference', clear);
   // A minus (B and C)
-  agrees(build({ difference: [A, { intersect: [B, C] }] }),
+  agrees(build({ difference: [A, { intersection: [B, C] }] }),
          (R) => inA(R) && !(inB(R) && inC(R)), 'difference of an intersection', clear);
   // (A minus B) and C
-  agrees(build({ intersect: [{ difference: [A, B] }, C] }),
-         (R) => inA(R) && !inB(R) && inC(R), 'difference then intersect', clear);
+  agrees(build({ intersection: [{ difference: [A, B] }, C] }),
+         (R) => inA(R) && !inB(R) && inC(R), 'difference then intersection', clear);
   // A minus (B minus C): the part of B outside C is what gets removed.
   agrees(build({ difference: [A, { difference: [B, C] }] }),
          (R) => inA(R) && !(inB(R) && !inC(R)), 'difference of a difference', clear);
@@ -274,7 +274,7 @@ test('a member of material null claims its region like any other: the group is t
   // business. A cube with no material and one of clay make the same
   // group, and a ball inside the cube is in the region it claims either
   // way.
-  const cube = (material) => ({ intersect: [0, 1, 2].map((k) => ({
+  const cube = (material) => ({ intersection: [0, 1, 2].map((k) => ({
     slab: { center: [0, 0, 0], axis: [0, 1, 2].map((j) => (j === k ? 1 : 0)), thickness: 2 }, material })) });
   const inCube = { sphere: { center: [0.2, 0, 0], radius: 0.3 }, material: 'sky' };
   const beside = { sphere: { center: [3, 0, 0], radius: 0.5 }, material: 'sky' };
@@ -302,7 +302,7 @@ test('a member reaching a shared subtree two ways goes where each way says', () 
   // reused for: keyed by node alone, the second way in (x < 0 is tried
   // first) would take the first's answer and lose the ball at (5, -5, 5).
   const half = (normal) => ({ plane: { normal, offset: 0 }, material: 'clay' });
-  const quadrant = { intersect: [half([1, 0, 0]), half([0, 1, 0])] };
+  const quadrant = { intersection: [half([1, 0, 0]), half([0, 1, 0])] };
   const below = half([0, 0, 1]);
   const twoBalls = { union: [
     { sphere: { center: [-5, 5, -5], radius: 0.5 }, material: 'sky' },
@@ -325,7 +325,7 @@ test('a member beyond one face of an octahedron hangs off that face alone', () =
   // Beyond the (+1, +1, +1) face, the first, and clear of every other's
   // outside... except none: a point beyond one face is inside the rest.
   const c = [1.6, 1.6, 1.6];
-  const built = build({ group: [{ intersect: faces }, { sphere: { center: c, radius: 0.5 }, material: 'clay' }] });
+  const built = build({ group: [{ intersection: faces }, { sphere: { center: c, radius: 0.5 }, material: 'clay' }] });
   const slots = slotsOf(built, c);
   assert.equal(slots.length, 1, `grafted at ${JSON.stringify(slots)}`);
   const face = built.nodes[slots[0][0]].prim.linear;
@@ -352,7 +352,7 @@ test('a group of many members, overlapping, is their union, and reports every pa
       const n = Math.hypot(...axis), u = axis.map((v) => v / n);
       const rr = 0.2 + rnd() * 0.3, half = 0.5 + rnd();
       const reach = Math.hypot(rr, half);
-      members.push({ intersect: [
+      members.push({ intersection: [
         { cylinder: { center: c, axis: u, radius: rr }, material: 'sky' },
         { slab: { center: c, axis: u, thickness: 2 * half }, material: 'sky' },
       ], bounds: { center: c, radius: reach } });
@@ -411,7 +411,7 @@ test('a group of capsules, octahedra and spheres is their union, however their t
       const r = 0.2 + rnd() * 0.3, half = 0.4 + rnd() * 0.8;
       const end = (sgn) => c.map((v, k) => v + sgn * half * u[k]);
       members.push({ union: [
-        { intersect: [
+        { intersection: [
           { cylinder: { center: c, axis: u, radius: r }, material: 'clay' },
           { slab: { center: c, axis: u, thickness: 2 * half }, material: 'clay' },
         ] },
@@ -430,7 +430,7 @@ test('a group of capsules, octahedra and spheres is their union, however their t
       }
       const degrees = rnd() * 90;
       const axis = [rnd(), rnd(), rnd()];
-      members.push({ intersect: faces, rotate: { axis, degrees }, translate: c });
+      members.push({ intersection: faces, rotate: { axis, degrees }, translate: c });
       const n = Math.hypot(...axis), u = axis.map((v) => v / n), th = -degrees * Math.PI / 180;
       inside.push((R) => {                  // turned back, then |x| + |y| + |z| < a
         const d = R.map((v, k) => v - c[k]);
@@ -479,7 +479,7 @@ test('what survives a difference keeps its own material', () => {
 });
 
 test("an intersection keeps both operands' materials where they are named", () => {
-  const built = build({ intersect: [A, B] });
+  const built = build({ intersection: [A, B] });
   const sky = built.materials.findIndex((m) => m.albedo[2] === 0.2);
   const clay = built.materials.findIndex((m) => m.albedo[0] === 0.7);
 
@@ -515,7 +515,7 @@ test('a cut face belongs to the object that cut it', () => {
 // -- refusals ------------------------------------------------------------------------
 
 test('the operators are checked like union is', () => {
-  for (const op of ['intersect', 'difference']) {
+  for (const op of ['intersection', 'difference']) {
     assert.throws(() => build({ [op]: [] }), /at least one operand/, op);
     assert.throws(() => build({ [op]: A }), /takes an array/, op);
     assert.throws(() => build({ [op]: [A], inside: { sphere: { center: [0, 0, 0], radius: 1 } } }),
@@ -549,7 +549,7 @@ test('complement of a bare primitive is what it always was', () => {
 test('complement applies to any subtree form, not just primitives', () => {
   const both = (R) => inA(R) || inB(R);
   agrees(build({ union: [A, B], complement: true }), (R) => !both(R), 'a complemented union');
-  agrees(build({ intersect: [A, B], complement: true }), (R) => !(inA(R) && inB(R)),
+  agrees(build({ intersection: [A, B], complement: true }), (R) => !(inA(R) && inB(R)),
          'a complemented intersection');
   agrees(build({ difference: [A, B], complement: true }), (R) => !(inA(R) && !inB(R)),
          'a complemented difference');
@@ -850,21 +850,21 @@ const MATERIALS = { clay: { albedo: [0.7, 0.5, 0.4] } };
 const slabZ = (z0, z1) => ({ slab: { center: [0, 0, (z0 + z1) / 2], axis: [0, 0, 1], thickness: z1 - z0 } });
 const s3 = 1 / Math.sqrt(3);
 const WRAPPABLE = {
-  column: { intersect: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 0.5 }, material: 'clay' }, slabZ(0, 3)] },
+  column: { intersection: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 0.5 }, material: 'clay' }, slabZ(0, 3)] },
   'pedestal and cone': { union: [
-    { intersect: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 }, material: 'clay' }, slabZ(0, 0.3)] },
-    { intersect: [{ cone: { apex: [0, 0, 2.9], axis: [0, 0, 1], slope: 0.32 }, material: 'clay' }, slabZ(0.3, 2.9)] }] },
-  waist: { intersect: [{ hyperboloid: { center: [0, 0, 1.7], axis: [0, 0, 1], radius: 0.45, semiAxial: 0.9, sheets: 1 }, material: 'clay' }, slabZ(0.3, 3.1)] },
+    { intersection: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 }, material: 'clay' }, slabZ(0, 0.3)] },
+    { intersection: [{ cone: { apex: [0, 0, 2.9], axis: [0, 0, 1], slope: 0.32 }, material: 'clay' }, slabZ(0.3, 2.9)] }] },
+  waist: { intersection: [{ hyperboloid: { center: [0, 0, 1.7], axis: [0, 0, 1], radius: 0.45, semiAxial: 0.9, sheets: 1 }, material: 'clay' }, slabZ(0.3, 3.1)] },
   dish: { difference: [
-    { intersect: [{ paraboloid: { vertex: [0, 0, 1.5], axis: [0, 0, 1], focal: 0.22 }, material: 'clay' }, slabZ(1.5, 2.6)] },
+    { intersection: [{ paraboloid: { vertex: [0, 0, 1.5], axis: [0, 0, 1], focal: 0.22 }, material: 'clay' }, slabZ(1.5, 2.6)] },
     { paraboloid: { vertex: [0, 0, 1.65], axis: [0, 0, 1], focal: 0.22 } }] },
-  box: { intersect: [
+  box: { intersection: [
     { slab: { center: [0, 0, 0], axis: [1, 0, 0], thickness: 2 }, material: 'clay' },
     { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 1 }, material: 'clay' },
     { ...slabZ(-0.5, 2.5), material: 'clay' }] },
-  octahedron: { intersect: [[s3, s3, s3], [s3, s3, -s3], [s3, -s3, s3], [-s3, s3, s3]].map((axis) =>
+  octahedron: { intersection: [[s3, s3, s3], [s3, s3, -s3], [s3, -s3, s3], [-s3, s3, s3]].map((axis) =>
     ({ slab: { center: [0, 0, 1], axis, thickness: 1.7 }, material: 'clay' })) },
-  'column, turned and moved': { intersect: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 0.5 }, material: 'clay' }, slabZ(0, 3)],
+  'column, turned and moved': { intersection: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 0.5 }, material: 'clay' }, slabZ(0, 3)],
     rotate: { axis: [1, 0, 0], degrees: 30 }, translate: [2, 1, -1] },
 };
 
@@ -934,7 +934,7 @@ test('wrap: a slab, along whichever of the subtree\'s axes, or x, y, z, is thinn
   // A column 1 across and 3 high: across it.
   assert.ok(Math.abs(along(WRAPPABLE.column)[2]) < 1e-9, 'a column: across');
   // A disc 2 across and 0.3 high: along z.
-  const disc = { intersect: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 }, material: 'clay' }, slabZ(0, 0.3)] };
+  const disc = { intersection: [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 }, material: 'clay' }, slabZ(0, 0.3)] };
   assert.ok(Math.abs(Math.abs(along(disc)[2]) - 1) < 1e-9, 'a disc: z');
   // And it holds what it wraps.
   const built = compileScene({ materials: MATERIALS, lights: [], root: { ...WRAPPABLE['pedestal and cone'], wrap: 'slab' } });
@@ -943,4 +943,22 @@ test('wrap: a slab, along whichever of the subtree\'s axes, or x, y, z, is thinn
     const R = [rnd.next().value * 8 - 4, rnd.next().value * 8 - 4, rnd.next().value * 8 - 4];
     if (claimedAt(built, 2, R)) assert.ok(H(built.nodes[1].prim, R) < 0, `[${R}] outside its slab`);
   }
+});
+
+test('"intersect", the old name for "intersection", is still read, with a warning', () => {
+  const ops = (key) => ({ [key]: [
+    { sphere: { center: [0, 0, 0], radius: 2 }, material: 'clay' },
+    { slab: { center: [0, 0, 0], axis: [0, 0, 1], thickness: 1 } }] });
+  const warned = [], warn = console.warn;
+  console.warn = (msg) => warned.push(msg);
+  let old, now;
+  try {
+    old = compileScene({ materials: MATERIALS, lights: [], root: ops('intersect') });
+    now = compileScene({ materials: MATERIALS, lights: [], root: ops('intersection') });
+  } finally { console.warn = warn; }
+  assert.deepEqual(old.nodes.map((n) => n.prim), now.nodes.map((n) => n.prim), 'the same tree');
+  assert.match(warned.join('\n'), /root\.intersect: "intersect" is now "intersection"/);
+  assert.equal(warned.length, 1, 'and only the old name warns');
+  assert.throws(() => compileScene({ materials: MATERIALS, lights: [], root: { ...ops('intersect'), ...ops('intersection') } }),
+                /has both "intersection" and "intersect"/);
 });

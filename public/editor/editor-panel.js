@@ -93,7 +93,7 @@ function turnsInvisibly(def, axis, depth = 0) {
   if (def.use !== undefined) return false;                  // cannot see inside
   if (depth > 0 && (def.rotate !== undefined || def.scale !== undefined
                     || def.translate !== undefined)) return false;
-  for (const op of ['group', 'union', 'intersect', 'difference']) {
+  for (const op of ['group', 'union', 'intersection', 'intersect', 'difference']) {
     if (Array.isArray(def[op])) {
       return def[op].every((member) => turnsInvisibly(member, axis, depth + 1));
     }
@@ -134,7 +134,7 @@ function describe(def) {
   const tail = extras.length ? ` · ${extras.join(' · ')}` : '';
 
   if (def.use) return { label: `use ${def.use}${tail}`, kids: [] };
-  for (const op of ['group', 'union', 'intersect', 'difference']) {
+  for (const op of ['group', 'union', 'intersection', 'intersect', 'difference']) {
     if (Array.isArray(def[op])) {
       return {
         label: `${op} (${def[op].length})${tail}`,

@@ -1282,7 +1282,7 @@ function dropSites(spec, at) {
         within = where;
       }
     }
-    for (const key of ['inside', 'outside', 'group', 'union', 'intersect', 'difference']) {
+    for (const key of ['inside', 'outside', 'group', 'union', 'intersection', 'intersect', 'difference']) {
       if (def[key] !== undefined) walk(def[key], [...keys, key], within);
     }
   };
@@ -1497,7 +1497,8 @@ function pointerInto(doc, pointer, reference) {
 }
 
 /** Every array of subtrees a node can carry. */
-const SUBTREE_ARRAYS = ['group', 'union', 'intersect', 'difference'];
+// ("intersect" is the old name for "intersection", still read.)
+const SUBTREE_ARRAYS = ['group', 'union', 'intersection', 'intersect', 'difference'];
 
 /**
  * A spec with its references replaced by what they name, from `files`
@@ -2544,17 +2545,26 @@ export function compileScene(rawSpec, options = {}) {
   // take the index for its memo.)
   const COMBINERS = {
     union: (a, b) => union(a, b),
-    intersect: (a, b) => intersect(a, b),
+    intersection: (a, b) => intersect(a, b),
+    intersect: (a, b) => intersect(a, b),      // the old name, still read (buildCombination())
     difference: (a, b) => difference(a, b),
   };
 
   const COMBINER_HELP = {
     union: 'keep everything inside both regions',
+    intersection: 'keep only what\'s interior to both regions',
     intersect: 'keep only what\'s interior to both regions',
     difference: 'the first operand, minus every operand after it',
   };
 
   function buildCombination(def, path, where) {
+    // "intersect" was the name before "intersection" (a noun, as union and
+    // difference are): still read, under its own name - the editor finds
+    // nodes by the keys in the file - with a warning.
+    if (def.intersect !== undefined) {
+      if (def.intersection !== undefined) at(path, 'has both "intersection" and "intersect" (its old name): one only');
+      warn(`${path}.intersect`, '"intersect" is now "intersection"');
+    }
     const op = Object.keys(COMBINERS).find((name) => def[name] !== undefined);
     const operands = def[op];
     if (!Array.isArray(operands)) {

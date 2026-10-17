@@ -100,7 +100,7 @@
   "objects": {
     "_comment_pedestal": "A disc: an infinite cylinder cut by a slab.",
     "pedestal": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -138,7 +138,7 @@
       "union": [
         "pedestal",
         {
-          "intersect": [
+          "intersection": [
             {
               "cylinder": {
                 "center": [ 0, 0, 0 ],
@@ -163,7 +163,7 @@
       "union": [
         "pedestal",
         {
-          "intersect": [
+          "intersection": [
             {
               "slab": {
                 "center": [ 0, 0, 1.45 ],
@@ -205,7 +205,7 @@
       "union": [
         "pedestal",
         {
-          "intersect": [
+          "intersection": [
             {
               "cone": {
                 "apex": [ 0, 0, 3 ],
@@ -230,7 +230,7 @@
       "union": [
         "pedestal",
         {
-          "intersect": [
+          "intersection": [
             {
               "hyperboloid": {
                 "center": [ 0, 0, 1.7 ],
@@ -258,7 +258,7 @@
         {
           "difference": [
             {
-              "intersect": [
+              "intersection": [
                 {
                   "slab": {
                     "center": [ 0, 0, 0 ],
@@ -286,7 +286,7 @@
               ]
             },
             {
-              "intersect": [
+              "intersection": [
                 {
                   "slab": {
                     "center": [ 0, 0, 0 ],
@@ -313,7 +313,7 @@
           ]
         },
         {
-          "intersect": [
+          "intersection": [
             {
               "slab": {
                 "center": [ 0, 0, 0 ],
@@ -343,7 +343,7 @@
       ]
     },
     "column-red": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -362,7 +362,7 @@
       ]
     },
     "column-amber": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -381,7 +381,7 @@
       ]
     },
     "column-teal": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -400,7 +400,7 @@
       ]
     },
     "column-violet": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -419,7 +419,7 @@
       ]
     },
     "column-gold": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -438,7 +438,7 @@
       ]
     },
     "column-jade": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],

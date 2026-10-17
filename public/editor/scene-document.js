@@ -45,7 +45,8 @@ export const ROOT = '@root';
 // it from the walk, and so from renaming, deleting, placement-taking and
 // selection: an object referenced only from a difference would look
 // unreferenced.
-const AGGREGATES = ['group', 'union', 'intersect', 'difference'];
+// ("intersect": the old name for "intersection", still read.)
+const AGGREGATES = ['group', 'union', 'intersection', 'intersect', 'difference'];
 const SIDES = ['inside', 'outside'];
 const ZERO = [0, 0, 0];
 const MAX_CHAIN = 64;          // guard against pathological instancing chains
@@ -820,7 +821,7 @@ export class SceneDocument {
   }
 
   /**
-   * Combine objects into a new one: 'union', 'intersect' or 'difference'.
+   * Combine objects into a new one: 'union', 'intersection' or 'difference'.
    * For a difference the first operand is the one kept and the rest are cut
    * away from it, so the order they were selected in is the order that runs.
    *
@@ -831,7 +832,7 @@ export class SceneDocument {
    * otherwise it would appear twice over.
    */
   combine(operation, keys, { name } = {}) {
-    if (!['union', 'intersect', 'difference'].includes(operation)) {
+    if (!['union', 'intersection', 'difference'].includes(operation)) {
       throw new Error(`no such operation: ${operation}`);
     }
     const combined = name ?? this.uniqueName(operation === 'difference' ? 'cut' : operation);

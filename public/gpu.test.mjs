@@ -197,7 +197,7 @@ const inUnit = ball([0, 0, 0], 1), inCore = ball([0, 0, 0], 0.5);
 
 const OPERATORS = [
   ['union', { union: [A, B] }, (R) => inA(R) || inB(R)],
-  ['intersect', { intersect: [A, B] }, (R) => inA(R) && inB(R)],
+  ['intersection', { intersection: [A, B] }, (R) => inA(R) && inB(R)],
   ['difference', { difference: [A, B] }, (R) => inA(R) && !inB(R)],
   ['reversed difference', { difference: [B, A] }, (R) => inB(R) && !inA(R)],
   ['hollow shell',
@@ -275,7 +275,7 @@ gpuTest('a ray leaving a surface (fromNode) never hits it there, and still hits 
   // light, so some rays from it are blocked and the rest must go clear.
   const targets = [
     { center: [0, 0, 0], shape: { sphere: { center: [0, 0, 0], radius: 1 } } },
-    { center: [0, 4, 0], shape: { intersect: [
+    { center: [0, 4, 0], shape: { intersection: [
       { slab: { center: [0, 4, 0], axis: [1, 0, 0], thickness: 2 } },
       { slab: { center: [0, 4, 0], axis: [0, 1, 0], thickness: 2 } },
       { slab: { center: [0, 4, 0], axis: [0, 0, 1], thickness: 2 } },
@@ -340,7 +340,7 @@ gpuTest('a ray leaving a crater floor is still blocked by the same sphere\'s far
   // same surface further on still counts. A crater: the ground less a ball
   // of radius 3 at the origin. From its floor, toward a light low over the
   // far rim, the ray must hit the far wall - the same sphere it left.
-  const sc = scene({ intersect: [
+  const sc = scene({ intersection: [
     { plane: { normal: [0, 0, 1], offset: 0 }, material: 'clay' },
     { sphere: { center: [0, 0, 0], radius: 3 }, complement: true, material: 'clay' },
   ] });
@@ -1341,7 +1341,7 @@ gpuTest('through a glass box with a box-shaped hole, only its walls colour the l
   // another slab at the same distance: the surface it goes on from must be
   // the one it is on (surfaceAt()), or the hole is lost and the light is
   // coloured by glass all the way across.
-  const box = (w, material) => ({ intersect: [
+  const box = (w, material) => ({ intersection: [
     { slab: { center: [0, 0, 0], axis: [1, 0, 0], thickness: w }, ...material },
     { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: w }, ...material },
     { slab: { center: [0, 0, 0], axis: [0, 0, 1], thickness: w }, ...material }] });

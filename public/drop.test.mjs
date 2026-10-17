@@ -18,9 +18,9 @@ const scene = (root, extra = {}) => ({ materials: MATERIALS, lights: [], root, .
 const floor = (outside) => ({ plane: { normal: [0, 0, 1], offset: 0 }, material: 'stone', outside });
 const ball = (center, radius = 0.5, extra = {}) => ({ sphere: { center, radius }, material: 'stone', ...extra });
 const slabZ = (z0, z1) => ({ slab: { center: [0, 0, (z0 + z1) / 2], axis: [0, 0, 1], thickness: z1 - z0 } });
-const column = (extra = {}) => ({ intersect: [
+const column = (extra = {}) => ({ intersection: [
   { cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 0.5 }, material: 'stone' }, slabZ(0, 3)], ...extra });
-const box = (extra = {}) => ({ intersect: [
+const box = (extra = {}) => ({ intersection: [
   { slab: { center: [0, 0, 0], axis: [1, 0, 0], thickness: 2 }, material: 'stone' },
   { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 2 }, material: 'stone' },
   { ...slabZ(0, 1), material: 'stone' }], ...extra });

@@ -16,7 +16,7 @@ export function octahedron(a, material) {
       faces.push({ plane: { normal: [sx * s, sy * s, sz * s], offset: a * s }, material });
     }
   }
-  return { intersect: faces };
+  return { intersection: faces };
 }
 
 /**

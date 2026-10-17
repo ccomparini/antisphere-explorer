@@ -21,7 +21,7 @@ function validate(spec) {
       if (!(def.use in objects)) throw new Error(`${where}: unknown object "${def.use}"`);
       return;
     }
-    for (const op of ['group', 'union', 'intersect', 'difference']) {
+    for (const op of ['group', 'union', 'intersection', 'difference']) {
       if (def[op] !== undefined) {
         if (!def[op].length) throw new Error(`${where}: ${op} needs at least one operand`);
         def[op].forEach((m, i) => check(m, `${where}.${op}[${i}]`));
@@ -513,12 +513,12 @@ test('difference keeps the first operand and cuts away the rest', () => {
 
 test('a part of a combination is still a part', () => {
   const { doc } = make();
-  doc.combine('intersect', ['bead-1', 'lamp']);
+  doc.combine('intersection', ['bead-1', 'lamp']);
   // Editing a part edits the combination, because it is the same object.
   doc.select('lamp');
   doc.editNode('lamp', '', (node) => { node.sphere.radius = 0.5; });
   assert.equal(doc.spec.objects.lamp.sphere.radius, 0.5);
-  assert.deepEqual(doc.spec.objects.intersect.intersect, ['bead-1', 'lamp']);
+  assert.deepEqual(doc.spec.objects.intersection.intersection, ['bead-1', 'lamp']);
 });
 
 test('combinations nest', () => {

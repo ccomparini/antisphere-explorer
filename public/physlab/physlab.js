@@ -73,7 +73,7 @@ const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
 // 0.6 m in radius. All coaxial, as a two-particle body needs.
 const CAPSULE = {
   union: [
-    { intersect: [
+    { intersection: [
       { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 0.6 }, material: 'capsule' },
       { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 3 }, material: 'capsule' },
     ] },
@@ -86,11 +86,11 @@ const CAPSULE_BODY = { mass: 150, centre: 0, inertia: 4.2 * 4.2 / 12 + 0.6 * 0.6
 
 const ROCKET = {
   union: [
-    { intersect: [
+    { intersection: [
       { cylinder: { center: [0, 0, 0], axis: [0, 1, 0], radius: 1 }, material: 'hull' },
       { slab: { center: [0, 0, 0], axis: [0, 1, 0], thickness: 8 }, material: 'hull' },
     ] },
-    { intersect: [
+    { intersection: [
       { cone: { apex: [0, 6, 0], axis: [0, 1, 0], slope: 0.5 }, material: 'nose' },
       { slab: { center: [0, 5, 0], axis: [0, 1, 0], thickness: 2 }, material: 'nose' },
     ] },
@@ -294,7 +294,7 @@ async function main() {
   const carve = (object) => {
     const { base, holes } = carved.get(object);
     object.setGeometry({
-      intersect: [
+      intersection: [
         base,
         ...holes.map(({ center, radius }) => ({
           sphere: { center, radius },

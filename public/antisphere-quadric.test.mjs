@@ -542,13 +542,13 @@ test('packSurfaces: copies and complements of a surface share an id, other surfa
   // ball's outside, so the tree copies nodes; and a hole cut from the box
   // with the ball's own sphere, complemented.
   const ball = { sphere: { center: [0, 0, 0], radius: 1 } };
-  const box = { intersect: [
+  const box = { intersection: [
     { slab: { center: [3, 0, 0], axis: [1, 0, 0], thickness: 2 } },
     { slab: { center: [3, 0, 0], axis: [0, 1, 0], thickness: 2 } },
     { slab: { center: [3, 0, 0], axis: [0, 0, 1], thickness: 2 } },
   ] };
   const built = compileScene({ materials: {}, lights: [], root: { union: [
-    ball, { intersect: [box, { ...ball, complement: true }] },
+    ball, { intersection: [box, { ...ball, complement: true }] },
   ] } });
   const ids = packSurfaces(built.nodes);
   assert.equal(ids[0], 0, 'node 0 has none');

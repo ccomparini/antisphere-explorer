@@ -222,7 +222,7 @@ test('subtrees far apart are proved apart; overlapping ones are not', () => {
                'overlapping');
 
   // A cutter that misses is still proved apart from what it would have cut.
-  const shell = object({ intersect: [
+  const shell = object({ intersection: [
     { sphere: { center: [0,0,0], radius: 1 }, material: 'clay' },
     { sphere: { center: [0,0,0], radius: 0.7 }, complement: true, material: 'clay' },
   ] });

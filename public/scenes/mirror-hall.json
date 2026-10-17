@@ -80,7 +80,7 @@
   "objects": {
     "_comment_pedestal": "A disc: an infinite cylinder cut by a slab.",
     "pedestal": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -102,7 +102,7 @@
     "mirror": {
       "union": [
         {
-          "intersect": [
+          "intersection": [
             {
               "cylinder": {
                 "center": [ 0, 0, 0 ],
@@ -121,7 +121,7 @@
           ]
         },
         {
-          "intersect": [
+          "intersection": [
             {
               "hyperboloid": {
                 "center": [ 0, 0, 2.3 ],
@@ -148,7 +148,7 @@
       "union": [
         "pedestal",
         {
-          "intersect": [
+          "intersection": [
             {
               "cylinder": {
                 "center": [ 0, 0, 0 ],
@@ -167,7 +167,7 @@
           ]
         },
         {
-          "intersect": [
+          "intersection": [
             {
               "cylinder": {
                 "center": [ 0, 0, 0 ],
@@ -192,7 +192,7 @@
       "union": [
         "pedestal",
         {
-          "intersect": [
+          "intersection": [
             {
               "cone": {
                 "apex": [ 0, 0, 2.9 ],
@@ -217,7 +217,7 @@
       "union": [
         "pedestal",
         {
-          "intersect": [
+          "intersection": [
             {
               "cylinder": {
                 "center": [ 0, 0, 0 ],
@@ -238,7 +238,7 @@
         {
           "difference": [
             {
-              "intersect": [
+              "intersection": [
                 {
                   "paraboloid": {
                     "vertex": [ 0, 0, 1.5 ],
@@ -272,7 +272,7 @@
       "union": [
         "pedestal",
         {
-          "intersect": [
+          "intersection": [
             {
               "hyperboloid": {
                 "center": [ 0, 0, 1.75 ],
@@ -316,7 +316,7 @@
         {
           "difference": [
             {
-              "intersect": [
+              "intersection": [
                 {
                   "slab": {
                     "center": [ 0, 0, 1.15 ],
@@ -358,7 +358,7 @@
       ]
     },
     "column-red": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -377,7 +377,7 @@
       ]
     },
     "column-amber": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -396,7 +396,7 @@
       ]
     },
     "column-teal": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -415,7 +415,7 @@
       ]
     },
     "column-violet": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -434,7 +434,7 @@
       ]
     },
     "column-gold": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -453,7 +453,7 @@
       ]
     },
     "column-jade": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],
@@ -474,7 +474,7 @@
     "_comment_columns": "An outer ring of tall columns, one of each colour, for the mirror to bend.",
     "_comment_column-mirror": "Two mirrored columns, between the exhibits and the outer ring: each sees the centrepiece, and the centrepiece them.",
     "column-mirror": {
-      "intersect": [
+      "intersection": [
         {
           "cylinder": {
             "center": [ 0, 0, 0 ],

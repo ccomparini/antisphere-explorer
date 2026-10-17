@@ -8,7 +8,7 @@
   "gravity": { "down": [0, 0, -1], "strength": 9.81 },
   "spawn": { "at": [0, 0, 0], "facing": [1, 0, 0] },
   "root": {
-    "intersect": [
+    "intersection": [
       { "slab": { "center": [0, 0, -10], "axis": [1, 0, 0], "thickness": 400 }, "material": "rock" },
       { "slab": { "center": [0, 0, -10], "axis": [0, 1, 0], "thickness": 400 }, "material": "rock" },
       { "slab": { "center": [0, 0, -10], "axis": [0, 0, 1], "thickness": 20 }, "material": "rock" }

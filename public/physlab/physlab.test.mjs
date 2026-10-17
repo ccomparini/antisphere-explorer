@@ -105,7 +105,7 @@ test('setGeometry gives an object new geometry, and the scene follows it', () =>
   const o = world.add(new WorldObject('o', { geometry: ball }));
   world.sceneSpec();
   assert.equal(world.geometryMoved(), false);
-  const holed = { intersect: [ball, { sphere: { center: [1, 0, 0], radius: 0.5 }, complement: true }] };
+  const holed = { intersection: [ball, { sphere: { center: [1, 0, 0], radius: 0.5 }, complement: true }] };
   o.setGeometry(holed);
   assert.equal(world.geometryMoved(), true, 'a change of shape alone counts');
   assert.equal(world.sceneSpec().objects.o, holed);

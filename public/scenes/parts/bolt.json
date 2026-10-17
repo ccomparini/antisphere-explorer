@@ -7,14 +7,14 @@
 
   "objects": {
     "head": {
-      "intersect": [
+      "intersection": [
         { "cylinder": { "center": [0, 0, 0], "axis": [0, 0, 1], "radius": 0.45 },
           "material": "steel" },
         { "slab": { "center": [0, 0, 0.1], "axis": [0, 0, 1], "thickness": 0.2 } }
       ]
     },
     "shaft": {
-      "intersect": [
+      "intersection": [
         { "cylinder": { "center": [0, 0, 0], "axis": [0, 0, 1], "radius": 0.16 },
           "material": "steel" },
         { "slab": { "center": [0, 0, -0.5], "axis": [0, 0, 1], "thickness": 1.2 } }
