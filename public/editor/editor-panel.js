@@ -23,6 +23,7 @@ import { DEBUG_VIEWS } from '../as-renderer.js';
 import { CAMERA_MODES } from '../as-camera.js';
 import { ROOT, joinPath } from './scene-document.js';
 import { SHAPES } from './editor-commands.js';
+import { eulerRows, axisAngleOf } from '../antisphere-scene.js';
 
 /**
  * True for controls that consume ordinary keystrokes. The editor's shortcuts
@@ -124,8 +125,10 @@ function describe(def) {
   const extras = [];
   if (def.translate) extras.push(`+${v3(def.translate)}`);
   if (def.rotate) {
-    const turn = def.rotate.degrees ?? ((def.rotate.radians ?? 0) * 180 / Math.PI);
-    extras.push(`↻${+(+turn).toFixed(1)}°`);
+    const turn = def.rotate.degrees ?? (Array.isArray(def.rotate.radians)
+      ? def.rotate.radians.map((v) => v * 180 / Math.PI)
+      : (def.rotate.radians ?? 0) * 180 / Math.PI);
+    extras.push(Array.isArray(turn) ? `↻[${turn.map((v) => +(+v).toFixed(1)).join(', ')}]°` : `↻${+(+turn).toFixed(1)}°`);
   }
   if (def.scale !== undefined) {
     extras.push(`×${+(+(def.scale.factor ?? def.scale)).toFixed(3)}`);
@@ -335,8 +338,16 @@ export function createPanel(root, ctx) {
   // A rotation is an axis and an angle together, so both fields write the
   // whole thing. Zero degrees leaves nothing behind, which keeps a spec that
   // was only nudged as clean as one that was never touched.
+  // Euler angles ({ degrees: [x, y, z] }) are shown as the axis and angle of
+  // the same turn, which is what these fields hold; editing either writes
+  // that turn as an axis and an angle.
   const rotationOf = (holder) => {
     const spin = isObject(holder) && isObject(holder.rotate) ? holder.rotate : null;
+    const euler = spin && (Array.isArray(spin.degrees) ? spin.degrees.map((v) => v * Math.PI / 180) : Array.isArray(spin.radians) ? spin.radians : null);
+    if (euler) {
+      const { axis, radians } = axisAngleOf(eulerRows(euler));
+      return { axis, degrees: radians * 180 / Math.PI };
+    }
     const degrees = spin
       ? (typeof spin.degrees === 'number' ? spin.degrees : (spin.radians ?? 0) * 180 / Math.PI)
       : 0;

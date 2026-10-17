@@ -630,6 +630,35 @@ function rotationRows(axis, radians) {
   ];
 }
 
+/**
+ * The rotation of Euler angles [x, y, z] (radians), as rows: about the
+ * world's x axis by x, then y by y, then z by z - R = Rz Ry Rx, Blender's
+ * "XYZ Euler" (and ROS's roll, pitch, yaw). With z up the last is the
+ * heading: tipped first, then turned to face.
+ */
+export function eulerRows([x, y, z]) {
+  const mul = (A, B) => A.map((row) => [0, 1, 2].map((j) => row[0] * B[0][j] + row[1] * B[1][j] + row[2] * B[2][j]));
+  return mul(rotationRows([0, 0, 1], z), mul(rotationRows([0, 1, 0], y), rotationRows([1, 0, 0], x)));
+}
+
+/**
+ * A rotation's axis and angle (radians, 0 to pi), from its rows: the
+ * editor shows a turn given as Euler angles that way. The identity gives
+ * angle 0 and an axis of [0, 0, 1].
+ */
+export function axisAngleOf(R) {
+  const angle = Math.acos(Math.max(-1, Math.min(1, (R[0][0] + R[1][1] + R[2][2] - 1) / 2)));
+  if (angle < 1e-9) return { axis: [0, 0, 1], radians: 0 };
+  if (Math.PI - angle < 1e-6) {
+    // A half turn: R = 2 a a^T - I, so a's largest part is on the largest diagonal.
+    const d = [R[0][0], R[1][1], R[2][2]], i = d.indexOf(Math.max(...d));
+    const a = [0, 1, 2].map((j) => (j === i ? Math.sqrt((R[i][i] + 1) / 2) : (R[i][j] + R[j][i]) / 4 / Math.sqrt((R[i][i] + 1) / 2)));
+    return { axis: a, radians: angle };
+  }
+  const s = 2 * Math.sin(angle);
+  return { axis: [(R[2][1] - R[1][2]) / s, (R[0][2] - R[2][0]) / s, (R[1][0] - R[0][1]) / s], radians: angle };
+}
+
 // Rigid translation of a whole subtree: every node's own primitive moves,
 // recursively, since each one's numbers are in the same global frame (see
 // translatePrim). This is what "translate" (see tree()) rides on to place
@@ -1929,8 +1958,18 @@ export function compileScene(rawSpec, options = {}) {
 
   // "rotate": { "axis": [x, y, z], "degrees": 90 }, or "radians", and an
   // optional pivot to turn about something other than the origin.
+  // { axis, degrees | radians }, an angle about an axis; or { degrees |
+  // radians: [x, y, z] }, Euler angles (eulerRows()), with no axis.
   function rotateSpec(def, path) {
-    if (!def || !Array.isArray(def.axis)) at(path, 'needs an axis: { axis: [x, y, z], degrees }');
+    if (def && (Array.isArray(def.degrees) || Array.isArray(def.radians))) {
+      if (def.axis !== undefined) at(path, 'Euler angles, [x, y, z], need no axis: give one or the other');
+      if (def.degrees !== undefined && def.radians !== undefined) at(path, 'needs exactly one of degrees or radians');
+      const unit = def.degrees !== undefined ? 'degrees' : 'radians';
+      const angles = def[unit];
+      if (angles.length !== 3 || !angles.every(Number.isFinite)) at(`${path}.${unit}`, `Euler angles are [x, y, z], three numbers, not ${JSON.stringify(angles)}`);
+      return { rows: eulerRows(angles.map((v) => (unit === 'degrees' ? v * Math.PI / 180 : v))), pivot: pivotOf(def, path) };
+    }
+    if (!def || !Array.isArray(def.axis)) at(path, 'needs an axis: { axis: [x, y, z], degrees }, or Euler angles: { degrees: [x, y, z] }');
     if (!(Math.hypot(...def.axis) > 1e-12)) at(`${path}.axis`, 'has no direction');
     const hasDegrees = typeof def.degrees === 'number';
     const hasRadians = typeof def.radians === 'number';

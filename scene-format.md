@@ -594,6 +594,7 @@ Rigidly translates the subtree by the given world-space offset.
 ```
 "rotate": { "axis": [x, y, z], "degrees": 90 }
 "rotate": { "axis": [0, 0, 1], "radians": 1.5708, "pivot": [x, y, z] }
+"rotate": { "degrees": [x, y, z] }
 ```
 
 Turns the subtree about `axis` — which need not be unit length, but must
@@ -601,6 +602,13 @@ have a direction — by exactly one of `degrees` or `radians`. Rotation is
 right-handed: `+90°` about `[0, 0, 1]` takes `+x` to `+y`. `pivot` is the
 point turned about, defaulting to the origin; give it the object's own
 centre to turn something where it stands.
+
+Or Euler angles, with no `axis`: `degrees` (or `radians`) as `[x, y, z]`
+turns about the world's x axis by x, then about its y by y, then about its
+z by z - Blender's "XYZ Euler", so the rotation Blender shows for an object
+can be copied as it is. With z up, the last angle is the heading: an object
+is tipped first, then turned to face. (The editor shows such a turn as the
+axis and angle it amounts to, and writes it that way if edited.)
 
 ### `"scale"`
 

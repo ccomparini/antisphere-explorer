@@ -645,3 +645,31 @@ test('a material\'s opacity: 1 by default, 0 or more, and packed for the GPU', (
                   /materials\.x\.opacity: must be a number, 0 or more/);
   }
 });
+
+test('rotate by Euler angles: [x, y, z] about the world axes, x first, then y, then z', () => {
+  const pts = [[0, 0, 0], [1, 2, 3], [-4, 0, 2], [0.5, -1, 0], [2, 2, -2]];
+  const same = (a, b, what) => pts.forEach((R) => near(H(a, R), H(b, R), 1e-6, `${what} at ${R}`));
+  const shape = { spheroid: { center: [2, 1, 0], axis: [0, 0, 1], height: 4, radius: 1 } };
+  // One angle alone is a turn about that axis.
+  same(packed(shape, { rotate: { degrees: [90, 0, 0] } }), packed(shape, { rotate: { axis: [1, 0, 0], degrees: 90 } }), 'x');
+  same(packed(shape, { rotate: { degrees: [0, 90, 0] } }), packed(shape, { rotate: { axis: [0, 1, 0], degrees: 90 } }), 'y');
+  same(packed(shape, { rotate: { degrees: [0, 0, 90] } }), packed(shape, { rotate: { axis: [0, 0, 1], degrees: 90 } }), 'z');
+  // In order: x then z takes a ball at +y to +z (about x, +y goes to +z,
+  // which a turn about z leaves alone); the other way it would end at -x.
+  const ball = { sphere: { center: [0, 1, 0], radius: 0.25 } };
+  const turned = packed(ball, { rotate: { degrees: [90, 0, 90] } });
+  assert.ok(H(turned, [0, 0, 1]) < 0, 'at +z');
+  assert.ok(H(turned, [-1, 0, 0]) > 0, 'not at -x');
+  // Radians, the same; and a pivot turns it where it stands.
+  same(packed(shape, { rotate: { radians: [0.3, -0.7, 1.1] } }),
+       packed(shape, { rotate: { degrees: [0.3, -0.7, 1.1].map((v) => v * 180 / Math.PI) } }), 'radians');
+  const pivoted = packed(ball, { rotate: { degrees: [0, 0, 90], pivot: [0, 1, 0] } });
+  assert.ok(H(pivoted, [0, 1, 0]) < 0, 'about its own centre, it stays put');
+});
+
+test('Euler angles need no axis, and three numbers', () => {
+  const ball = { sphere: { center: [0, 1, 0], radius: 0.25 } };
+  assert.throws(() => packed(ball, { rotate: { axis: [0, 0, 1], degrees: [0, 0, 90] } }), /need no axis/);
+  assert.throws(() => packed(ball, { rotate: { degrees: [0, 90] } }), /three numbers/);
+  assert.throws(() => packed(ball, { rotate: { degrees: [0, 0, 90], radians: [0, 0, 1] } }), /exactly one of degrees or radians/);
+});
