@@ -180,6 +180,14 @@ coefficients in place, with no recompile.
   shadows itself exactly; only other things get the cheap blob. Camera
   rays pass 0. A third value of the camera's `shadows` (off, on, cheap)
   could switch it as a quality setting, so one scene serves both.
+- **Only the materials a scene uses** (to revisit). Scenes start their
+  materials with `"@lib/materials.json"`, and compileScene() packs every
+  material it is given, so each scene carries the whole library's entries
+  (about 80) in its table, most of them unused. No cost measured so far
+  (scene.json and glass-hall render as fast as before), but packing only
+  what some node names - or not reading what nothing needs - would keep the
+  table to the scene. A library scoped to what its scenes need stays the
+  author's responsibility either way.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.
