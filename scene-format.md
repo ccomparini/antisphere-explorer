@@ -299,7 +299,7 @@ Anywhere a subtree is expected, one of the following is valid:
 
 Any subtree object may also carry `"translate"`, `"rotate"`, `"scale"`,
 `"drop"`, `"wrap"` and/or `"bounds"` (below), regardless of which of the
-forms above it uses.
+forms above it uses; a node with a shape, `"tangentTo"` too.
 
 ### Primitives
 
@@ -746,7 +746,8 @@ should land, with `"translate"` - and let it fall. Down is the scene's
   warning.
 - **Where it applies:** where the object is placed - a node, a group's
   member, a `"use"` - not in an `objects` definition (whose uses could
-  each land somewhere else), and not within something itself dropped. Its
+  each land somewhere else), not within something itself dropped, and not
+  (yet) within a subtree that is itself translated, rotated or scaled. Its
   `"wrap"` and `"bounds"` go with it.
 
 It comes to rest touching, not overlapping - the certificates `"group"`
@@ -756,6 +757,47 @@ a shape together keep it clear of another (a box's corner beside a ball)
 they may stop it a little short of contact, never inside. A feature thinner
 than 1/64 of the dropped object's size, met within a single smallest step,
 can be passed through.
+
+### `"tangentTo"`
+
+```
+"tangentTo": "tube"
+"tangentTo": { "to": "ball", "facing": "touching", "along": [0, 0, 1] }
+"tangentTo": { "to": { "sphere": { "center": [0, 0, 0], "radius": 1 } } }
+```
+
+Slides a node with a shape along an axis until, where its surface meets
+another's, their normals agree: a flare running smoothly out of a tube, a
+ball seated in a cone, a plane laid against a curve. The slide is added to
+its `"translate"`, and its children move with it.
+
+- **`to`**: the name of an object in `objects` whose root is a single
+  shape (its surface, where its own transforms put it), or a shape written
+  in place.
+- **`facing`**: `"flush"` (the default) - the two outward normals the same
+  way, so the surfaces run on into each other without a crease, as a tube
+  into a flare - or `"touching"` - opposite, one resting against the other,
+  as a ball on a floor.
+- **`along`**: the axis to slide along. By default the moved shape's own
+  axis, if it has one (anything but a sphere; a plane's is its normal);
+  else the target's; else, for two spheres, the line between their
+  centres.
+
+It finds the slide by least squares over a point on both surfaces, and is
+exact where an exact fit exists, taking the one nearest where the shape
+was put (it stays put if it is already flush). Where none exists it takes
+the slide that brings the normals nearest, with a warning saying how far
+apart they are left. Where sliding changes nothing - a cylinder along its
+own axis, two planes, or a flare and a tube on one axis, which meet at the
+same angle wherever the flare is - or the two never meet, it stays put and
+warns. Matching a flare's waist to a tube is a matter of size, not place:
+scale it until its waist radius is the tube's, and it is flush anywhere
+along it.
+
+Like `"drop"`, it goes where the object is placed, not in an `objects`
+definition, and not (yet) within a subtree that is itself moved. A scene's
+`"tangentTo"`s are worked out before its drops, so something placed flush
+can then fall.
 
 ## Ambient regions
 

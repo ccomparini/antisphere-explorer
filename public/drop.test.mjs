@@ -123,7 +123,7 @@ test('what drop can\'t be, it says; and the scene given is left as it was', () =
   assert.throws(() => compileScene({ ...scene(floor({ group: ['b'] })), objects: { b: ball([0, 0, 3], 0.5, { drop: true }) } }),
                 /objects\.b: drop where the object is placed/);
   assert.throws(() => compileScene(scene(floor({ group: [{ ...box({ drop: true }), outside: ball([0, 0, 3], 0.5, { drop: true }) }] }))),
-                /a drop within a dropped object/);
+                /within another \(root\.outside\.group\.0\): place the outer one as a whole/);
   const spec = scene(floor({ group: [ball([0, 0, 3], 0.5, { drop: true })] }));
   const before = JSON.stringify(spec);
   compileScene(spec);

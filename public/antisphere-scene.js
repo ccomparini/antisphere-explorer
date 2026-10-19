@@ -41,6 +41,7 @@ import {
 } from './gen/layouts.js';
 import * as layouts from './gen/layouts.js';
 import { regionsDisjoint, interiorPaths } from './overlap.js';
+import { tangentSlide } from './tangent.js';
 import { readSTL } from './stl.js';
 import { meshToTree, boundsOf, boundingSpheroidOfPoints } from './mesh-import.js';
 
@@ -1295,34 +1296,112 @@ function resolveDrop(world, object, gravity) {
   }
 }
 
-// The drops in a scene's root, in document order: [{ keys, def }], keys
-// the path to each from the spec ('root', then 'inside', 'group', 3, ...).
-function dropSites(spec, at) {
+// The places in a scene's root that ask to be placed by `key` ("drop",
+// "tangentTo"), in document order: [{ keys }], keys the path to each from
+// the spec ('root', then 'inside', 'group', 3, ...). `check(value, where)`
+// says whether one is asked for (false: no), or refuses it. Not within
+// another of the same, not in an objects definition (whose uses could each
+// land elsewhere), and not within a subtree that is itself translated,
+// rotated or scaled - the placing is worked out in world space, from the
+// placed object alone.
+function placementSites(spec, key, check, at) {
   const sites = [];
-  const walk = (def, keys, within) => {
+  const walk = (def, keys, within, moved) => {
     if (!def || typeof def !== 'object') return;
-    if (Array.isArray(def)) { def.forEach((d, i) => walk(d, [...keys, i], within)); return; }
-    if (def.drop !== undefined) {
+    if (Array.isArray(def)) { def.forEach((d, i) => walk(d, [...keys, i], within, moved)); return; }
+    if (def[key] !== undefined) {
       const where = keys.join('.');
-      if (def.drop !== true && def.drop !== false) at(`${where}.drop`, `true, for now (parameters may come later), not ${JSON.stringify(def.drop)}`);
-      if (def.drop === true) {
-        if (within) at(`${where}.drop`, `a drop within a dropped object (${within}): drop the object as a whole`);
+      if (check(def[key], `${where}.${key}`)) {
+        if (within) at(`${where}.${key}`, `within another (${within}): place the outer one as a whole`);
+        if (moved) at(`${where}.${key}`, `within a subtree that is itself moved (${moved}): not yet - move this one instead`);
         sites.push({ keys });
         within = where;
       }
     }
-    for (const key of ['inside', 'outside', 'group', 'union', 'intersection', 'intersect', 'difference']) {
-      if (def[key] !== undefined) walk(def[key], [...keys, key], within);
+    const here = keys.join('.');
+    const movedBelow = moved ?? (def.translate !== undefined || def.rotate !== undefined || def.scale !== undefined ? here : null);
+    for (const k of ['inside', 'outside', 'group', 'union', 'intersection', 'intersect', 'difference']) {
+      if (def[k] !== undefined) walk(def[k], [...keys, k], within, movedBelow);
     }
   };
-  walk(spec.root, ['root'], null);
+  walk(spec.root, ['root'], null, null);
   for (const [name, def] of Object.entries(spec.objects ?? {})) {
-    const found = [];
-    const look = (d) => { if (d && typeof d === 'object') { if (!Array.isArray(d) && d.drop) found.push(1); Object.values(d).forEach(look); } };
+    let found = false;
+    const look = (d) => { if (d && typeof d === 'object') { if (!Array.isArray(d) && d[key]) found = true; Object.values(d).forEach(look); } };
     look(def);
-    if (found.length) at(`objects.${name}`, 'drop where the object is placed (its use), not in its definition');
+    if (found) at(`objects.${name}`, `${key} where the object is placed (its use), not in its definition`);
   }
   return sites;
+}
+
+const dropSites = (spec, at) => placementSites(spec, 'drop', (v, where) => {
+  if (v !== true && v !== false) at(where, `true, for now (parameters may come later), not ${JSON.stringify(v)}`);
+  return v === true;
+}, at);
+
+const COMBINATION_KEYS = ['use', 'group', 'union', 'intersection', 'intersect', 'difference'];
+
+const tangentSites = (spec, at) => placementSites(spec, 'tangentTo', (v, where) => {
+  if (typeof v !== 'string' && !(v && typeof v === 'object' && !Array.isArray(v))) {
+    at(where, `an object's name, or { "to", "along", "facing" }, not ${JSON.stringify(v)}`);
+  }
+  return true;
+}, at);
+
+/**
+ * A scene with its tangentTo placements worked out (tangent.js): each node
+ * asking for one slid along its axis - given, or its own, the target's, or
+ * the line between them - until its surface sits flush against (or, facing
+ * "touching", against) the target's, or as near as it can come; the slide
+ * added to its translate. In document order. `compile` is compileScene,
+ * quiet.
+ */
+function resolveTangents(spec, compile, at, warn) {
+  const work = structuredClone(spec);
+  for (const site of tangentSites(work, at)) {
+    const where = `${site.keys.join('.')}.tangentTo`;
+    const def = getAt(work, site.keys);
+    const ask = typeof def.tangentTo === 'string' ? { to: def.tangentTo } : def.tangentTo;
+    if (COMBINATION_KEYS.some((k) => def[k] !== undefined)) at(where, 'goes on a node with a shape of its own (a single primitive)');
+    const facing = ask.facing ?? 'flush';
+    if (facing !== 'flush' && facing !== 'touching') at(`${where}.facing`, `"flush" or "touching", not ${JSON.stringify(ask.facing)}`);
+    let targetDef;
+    if (typeof ask.to === 'string') {
+      targetDef = work.objects?.[ask.to];
+      if (!targetDef) at(`${where}.to`, `no object "${ask.to}"`);
+      targetDef = { use: ask.to };
+      if (COMBINATION_KEYS.some((k) => work.objects[ask.to][k] !== undefined)) at(`${where}.to`, `"${ask.to}" isn't a single primitive`);
+    } else if (ask.to && typeof ask.to === 'object' && !Array.isArray(ask.to)) {
+      if (COMBINATION_KEYS.some((k) => ask.to[k] !== undefined)) at(`${where}.to`, 'is to be a single primitive');
+      targetDef = ask.to;
+    } else {
+      at(`${where}.to`, 'names an object, or gives a primitive');
+    }
+    // Each alone, where its own transforms put it: node 1's surface.
+    const moving = structuredClone(def);
+    for (const k of ['tangentTo', 'drop', 'wrap', 'bounds']) delete moving[k];
+    const B = compile({ ...work, root: moving }).nodes[1].prim;
+    const A = compile({ ...work, root: targetDef }).nodes[1].prim;
+    // Along: given; the moved shape's own axis, if it has one (anything but
+    // a sphere: a plane's is its normal); the target's; or between them.
+    const isotropic = (q) => q.k_par === q.k_perp && q.k_par !== 0;
+    let along = ask.along;
+    if (along !== undefined && !(Array.isArray(along) && along.length === 3 && along.every(Number.isFinite) && Math.hypot(...along) > 0)) {
+      at(`${where}.along`, `a direction [x, y, z], not ${JSON.stringify(along)}`);
+    }
+    const aA = anchorOf(A), aB = anchorOf(B);
+    along ??= !isotropic(B) ? B.axis : !isotropic(A) ? A.axis : aA.map((v, i) => v - aB[i]);
+    const l = Math.hypot(...along);
+    if (!(l > 0)) { warn(where, 'no direction to slide in (two spheres with one centre)'); delete def.tangentTo; continue; }
+    const u = along.map((v) => v / l);
+    const result = tangentSlide(A, B, u, { facing, anchors: [aA, aB] });
+    delete def.tangentTo;
+    if (result.warn) { warn(where, result.warn); continue; }
+    if (!result.exact) warn(where, `best effort: the normals are left ${(result.angle * 180 / Math.PI).toFixed(2)} degrees apart`);
+    def.translate = (def.translate ?? [0, 0, 0]).map((v, i) => v + u[i] * result.t);
+    if (def.bounds?.center) def.bounds.center = def.bounds.center.map((v, i) => v + u[i] * result.t);
+  }
+  return work;
 }
 
 const getAt = (obj, keys) => keys.reduce((o, k) => o?.[k], obj);
@@ -1839,8 +1918,10 @@ export function compileScene(rawSpec, options = {}) {
   // Drops are worked out first, on a copy (resolveDrops()), and the scene
   // they give compiled as any other: it has none left, and no references.
   const quietly = (path, msg) => { if (!options.quiet) console.warn(`warning: ${path}: ${msg}`); };
-  if (dropSites(spec, at).length) {
-    const resolved = resolveDrops(spec, (s) => compileScene(s, { quiet: true }), at, quietly);
+  if (tangentSites(spec, at).length || dropSites(spec, at).length) {
+    // tangentTo first, then drops: what is placed flush can then fall.
+    const compile = (s) => compileScene(s, { quiet: true });
+    const resolved = resolveDrops(resolveTangents(spec, compile, at, quietly), compile, at, quietly);
     return compileScene(resolved, { ...options, files: {}, path: options.path });
   }
   const warn = quietly;
