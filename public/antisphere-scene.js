@@ -1667,10 +1667,13 @@ function resolvePath(from, path) {
   const out = [];
   for (const part of parts) {
     if (part === '.' || part === '') continue;
-    if (part === '..') out.pop();
+    // A ".." with nothing of ours left to climb out of stays: a page one
+    // directory down reads "../scenes/planet.json", whose library is
+    // "../scenes/lib/materials.json", not "scenes/lib/...".
+    if (part === '..' && out.length && out[out.length - 1] !== '..') out.pop();
     else out.push(part);
   }
-  return (path.startsWith('/') ? '/' : '') + out.join('/');
+  return (from.startsWith('/') ? '/' : '') + out.join('/');
 }
 
 /** What a JSON pointer (RFC 6901, as a URL fragment: percent-encoded) picks out of `doc`. */

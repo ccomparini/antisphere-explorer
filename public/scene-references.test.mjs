@@ -225,3 +225,15 @@ test('a referenced object\'s lights come with it, moved where it is placed', () 
   assert.deepEqual(built.lights.map((lt) => lt.pos), [[3, 0, 0.5]]);
   assert.ok(built.lights[0].env > 0, 'in the lamp\'s own env');
 });
+
+test('references resolve against a scene read from above its own directory, or from the root', async () => {
+  // A page one directory down (the editor, physlab) reads ../scenes/x.json.
+  const asked = [];
+  const readText = async (path) => { asked.push(path); return path.endsWith('materials.json') ? '{ "clay": {} }' : '{}'; };
+  const spec = { materials: ['@lib/materials.json'], lights: [], root: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'clay', inside: { use: '@../shared/thing.json' } } };
+  await loadReferences(spec, { from: '../scenes/planet.json', readText, readBytes: async () => new Uint8Array() });
+  assert.deepEqual(asked.sort(), ['../scenes/lib/materials.json', '../shared/thing.json'].sort());
+  asked.length = 0;
+  await loadReferences(spec, { from: '/site/scenes/planet.json', readText, readBytes: async () => new Uint8Array() });
+  assert.deepEqual(asked.sort(), ['/site/scenes/lib/materials.json', '/site/shared/thing.json'].sort());
+});
