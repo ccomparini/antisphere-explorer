@@ -27,7 +27,9 @@
 //
 // An option not given is absent from `values` unless it has a `default`.
 
-import { parseArgs } from 'node:util';
+import * as path         from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs }     from 'node:util';
 
 export function parseOptions(argv, options, { positionals = false } = {}) {
   const config = {};
@@ -90,3 +92,22 @@ function reword(e, options) {
     default: return e.message;
   }
 }
+
+/**
+ *  Returns an attempt at a recreation of the command line as
+ *  an array.
+ *
+ *  The 0th element will the node runtime release name,
+ *  the 1st should be the name of this script with a relative path,
+ *  and the rest will be the arguments as seen in argv[2...]
+ */
+export function commandLine() {
+  const thisScriptName = path.relative(process.cwd(), fileURLToPath(import.meta.url));
+  return [
+    process.release.name, // "node", probably
+    thisScriptName,
+    ...process.argv.slice(2)
+  ]
+}
+
+
