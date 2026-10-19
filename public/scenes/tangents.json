@@ -4,45 +4,7 @@
     "position": [ 6.5, -7, 4.2 ],
     "target": [ 0, 0, 1 ]
   },
-  "materials": [
-    "@lib/materials.json",
-    {
-      "sky": {
-        "kind": "unlit",
-        "albedo": [ 0.32, 0.4, 0.55 ]
-      },
-      "floor": {
-        "albedo": [ 0.32, 0.33, 0.36 ],
-        "albedo2": [ 0.16, 0.17, 0.2 ],
-        "pattern": "checker",
-        "scale": 1
-      },
-      "brass": {
-        "kind": "glossy",
-        "albedo": [ 0.8, 0.62, 0.2 ],
-        "shininess": 120,
-        "specular": 1.3
-      },
-      "wood": {
-        "albedo": [ 0.55, 0.38, 0.22 ]
-      },
-      "red": {
-        "kind": "glossy",
-        "albedo": [ 0.72, 0.14, 0.1 ],
-        "shininess": 60,
-        "specular": 0.9
-      },
-      "teal": {
-        "kind": "glossy",
-        "albedo": [ 0.1, 0.55, 0.55 ],
-        "shininess": 80,
-        "specular": 1
-      },
-      "stone": {
-        "albedo": [ 0.6, 0.58, 0.55 ]
-      }
-    }
-  ],
+  "materials": "@lib/materials.json",
   "lights": [
     {
       "pos": [ 5, -6, 9 ],
@@ -60,7 +22,7 @@
         "axis": [ 0, 0, 1 ],
         "radius": 0.3
       },
-      "material": "brass"
+      "material": "brass-6"
     },
     "cup": {
       "cone": {
@@ -75,7 +37,7 @@
         "center": [ -2.6, 0.6, 0 ],
         "radius": 1.3
       },
-      "material": "stone"
+      "material": "stone-9"
     },
     "tube2": {
       "cylinder": {
@@ -83,7 +45,7 @@
         "axis": [ 0, 0, 1 ],
         "radius": 0.25
       },
-      "material": "brass"
+      "material": "brass-6"
     }
   },
   "root": {
@@ -92,13 +54,13 @@
       "radius": 60,
       "complement": true
     },
-    "material": "sky",
+    "material": "sky-2",
     "outside": {
       "plane": {
         "normal": [ 0, 0, 1 ],
         "offset": 0
       },
-      "material": "floor",
+      "material": "floor-4",
       "outside": {
         "group": [
           {
@@ -125,7 +87,7 @@
                   "semiAxial": 0.35,
                   "sheets": 1
                 },
-                "material": "brass",
+                "material": "brass-6",
                 "tangentTo": "tube"
               },
               {
@@ -161,7 +123,7 @@
                   "semiAxial": 0.4,
                   "sheets": 1
                 },
-                "material": "brass",
+                "material": "brass-6",
                 "tangentTo": {
                   "to": "tube2",
                   "by": "scale"

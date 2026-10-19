@@ -3,9 +3,7 @@
   "materials": [
     "@lib/materials.json",
     {
-      "candlelight": { "kind": "glowRegion", "albedo": [1.2, 0.85, 0.45], "fill": 0.08 },
-      "floor": { "albedo": [0.35, 0.33, 0.30], "albedo2": [0.22, 0.21, 0.20], "pattern": "checker", "scale": 0.25 },
-      "stone": { "albedo": [0.6, 0.58, 0.54] }
+      "candlelight": { "kind": "glowRegion", "albedo": [1.2, 0.85, 0.45], "fill": 0.08 }
     }
   ],
   "lights": [],
@@ -40,12 +38,12 @@
     },
     "room": {
       "union": [
-        { "plane": { "normal": [0, 0, 1], "offset": 0 }, "material": "floor" },
-        { "slab": { "center": [0, 1.2, 0], "axis": [0, 1, 0], "thickness": 0.2 }, "material": "stone",
-          "inside": { "plane": { "normal": [0, 0, 1], "offset": 2.5 }, "material": "stone" } },
-        { "slab": { "center": [0.7, -0.2, 0], "axis": [1, 0, 0], "thickness": 0.3 }, "material": "stone",
-          "inside": { "slab": { "center": [0, -0.2, 0], "axis": [0, 1, 0], "thickness": 0.3 }, "material": "stone",
-            "inside": { "plane": { "normal": [0, 0, 1], "offset": 0.45 }, "material": "stone" } } }
+        { "plane": { "normal": [0, 0, 1], "offset": 0 }, "material": "floor-8" },
+        { "slab": { "center": [0, 1.2, 0], "axis": [0, 1, 0], "thickness": 0.2 }, "material": "stone-2",
+          "inside": { "plane": { "normal": [0, 0, 1], "offset": 2.5 }, "material": "stone-2" } },
+        { "slab": { "center": [0.7, -0.2, 0], "axis": [1, 0, 0], "thickness": 0.3 }, "material": "stone-2",
+          "inside": { "slab": { "center": [0, -0.2, 0], "axis": [0, 1, 0], "thickness": 0.3 }, "material": "stone-2",
+            "inside": { "plane": { "normal": [0, 0, 1], "offset": 0.45 }, "material": "stone-2" } } }
       ]
     }
   },

@@ -5,54 +5,7 @@
     "direction": [ -0.7, 0.6, -0.39 ],
     "distance": 10
   },
-  "materials": [
-    "@lib/materials.json",
-    {
-      "sky": {
-        "kind": "unlit",
-        "albedo": [ 0.32, 0.4, 0.55 ]
-      },
-      "floor": {
-        "albedo": [ 0.32, 0.33, 0.36 ],
-        "albedo2": [ 0.16, 0.17, 0.2 ],
-        "pattern": "checker",
-        "scale": 1
-      },
-      "wood": {
-        "albedo": [ 0.55, 0.38, 0.22 ]
-      },
-      "red": {
-        "kind": "glossy",
-        "albedo": [ 0.72, 0.14, 0.1 ],
-        "shininess": 60,
-        "specular": 0.9
-      },
-      "teal": {
-        "kind": "glossy",
-        "albedo": [ 0.1, 0.55, 0.55 ],
-        "shininess": 80,
-        "specular": 1
-      },
-      "gold": {
-        "kind": "glossy",
-        "albedo": [ 0.8, 0.62, 0.2 ],
-        "shininess": 120,
-        "specular": 1.3
-      },
-      "violet": {
-        "kind": "glossy",
-        "albedo": [ 0.45, 0.2, 0.7 ],
-        "shininess": 60,
-        "specular": 0.9
-      },
-      "jade": {
-        "kind": "glossy",
-        "albedo": [ 0.2, 0.55, 0.36 ],
-        "shininess": 90,
-        "specular": 1.1
-      }
-    }
-  ],
+  "materials": "@lib/materials.json",
   "lights": [
     {
       "pos": [ 5, -6, 9 ],
@@ -69,13 +22,13 @@
       "radius": 60,
       "complement": true
     },
-    "material": "sky",
+    "material": "sky-2",
     "outside": {
       "plane": {
         "normal": [ 0, 0, 1 ],
         "offset": 0
       },
-      "material": "floor",
+      "material": "floor-4",
       "outside": {
         "group": [
           {
@@ -234,7 +187,7 @@
                   "axis": [ 0, 0, 1 ],
                   "slope": 0.35
                 },
-                "material": "gold"
+                "material": "gold-2"
               },
               {
                 "slab": {
@@ -262,7 +215,7 @@
               "center": [ 2.6, 1.8, 4 ],
               "radius": 0.5
             },
-            "material": "jade",
+            "material": "jade-2",
             "drop": true
           }
         ]

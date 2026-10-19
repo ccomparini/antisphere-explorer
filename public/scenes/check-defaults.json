@@ -14,19 +14,7 @@
 
   "camera": { "position": [21.4081101, 12.2801136, 9.57873058], "direction": [-0.823388848, -0.472312062, -0.314566561], "distance": 26 },
 
-  "materials": [
-    "@lib/materials.json",
-    {
-      "floor":   { "albedo": [0.30, 0.31, 0.34], "albedo2": [0.17, 0.18, 0.21],
-                   "pattern": "checker", "scale": 2 },
-      "stone":   { "albedo": [0.42, 0.40, 0.38] },
-      "moss":    { "albedo": [0.35, 0.52, 0.32] },
-      "brass":   { "kind": "glossy", "albedo": [0.72, 0.58, 0.25],
-                   "shininess": 28, "specular": 0.6 },
-      "ember":   { "kind": "emissive", "albedo": [0.95, 0.55, 0.25], "emission": 2.5 },
-      "warmair": { "kind": "ambient", "albedo": [0.32, 0.20, 0.12] }
-    }
-  ],
+  "materials": "@lib/materials.json",
 
   "lights": [
     { "pos": [14, -18, 22], "color": [900, 850, 760] },
@@ -39,7 +27,7 @@
     "pedestal": {
       "intersection": [
         { "cylinder": { },
-          "material": "stone" },
+          "material": "stone-3" },
         { "slab": { "center": [0, 0, 0.15], "thickness": 0.3 } }
       ]
     },
@@ -91,7 +79,7 @@
         "pedestal",
         { "intersection": [
             { "slab": { "axis": [1, 0, 0], "thickness": 0.22 },
-              "material": "brass" },
+              "material": "brass-2" },
             { "sphere": { "center": [0, 0, 1.2], "radius": 0.9 } }
           ] }
       ]
@@ -132,7 +120,7 @@
         { "intersection": [
             { "hyperboloid": { "center": [0, 0, 1.2],
                                "radius": 0.34, "semiAxial": 0.8 },
-              "material": "brass" },
+              "material": "brass-2" },
             { "slab": { "center": [0, 0, 1.2], "thickness": 1.8 } }
           ] }
       ]
@@ -191,7 +179,7 @@
       "union": [
         "pedestal",
         { "intersection": [
-            { "sphere": { "center": [0, 0, 1.25], "radius": 0.9 }, "material": "brass" },
+            { "sphere": { "center": [0, 0, 1.25], "radius": 0.9 }, "material": "brass-2" },
             { "sphere": { "center": [0, 0, 1.25], "radius": 0.66 }, "complement": true },
             { "slab": { "center": [0, 0, 1.25], "axis": [0.4, -1, 0.35], "thickness": 0.9 },
               "complement": true }
@@ -227,7 +215,7 @@
 
     "inside": {
       "plane": { "normal": [0, 0, 1], "offset": 0 },
-      "material": "floor",
+      "material": "floor-3",
 
       "outside": {
         "union": [

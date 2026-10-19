@@ -1,22 +1,6 @@
 {
   "_comment": "Tori from parts/torus.stl, a mesh converted to planes as it loads, by reference: every use of it shares one set of nodes. A mesh names no material, so each sits inside a ball naming the one it is made of, whose material its nodes inherit.",
-  "materials": [
-    "@lib/materials.json",
-    {
-      "floor": {
-        "albedo": [ 0.3, 0.31, 0.34 ],
-        "albedo2": [ 0.18, 0.19, 0.21 ],
-        "pattern": "checker",
-        "scale": 2
-      },
-      "teal": {
-        "albedo": [ 0.15, 0.55, 0.55 ],
-        "kind": "glossy",
-        "shininess": 60,
-        "specular": 0.5
-      }
-    }
-  ],
+  "materials": "@lib/materials.json",
   "lights": [
     {
       "pos": [ 4, -6, 7 ],
@@ -64,7 +48,7 @@
         "center": [ 0.3, 1.6, 0.15 ],
         "radius": 0.75
       },
-      "material": "teal",
+      "material": "teal-2",
       "inside": {
         "use": "@parts/torus.stl",
         "scale": 0.5,
@@ -82,7 +66,7 @@
         "normal": [ 0, 0, 1 ],
         "offset": 0
       },
-      "material": "floor",
+      "material": "floor-2",
       "outside": {
         "union": [
           "flat",

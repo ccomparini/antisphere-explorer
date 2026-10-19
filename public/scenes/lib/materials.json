@@ -1,5 +1,62 @@
 {
    "_comment" : "Common materials, for scenes to reference rather than redefine: \"materials\": [\"@lib/materials.json\", { ...the scene's own... }], or one at a time, \"@lib/materials.json#/brass\". Keys starting _, like this one, are notes: never materials, and not brought over.",
+   "air_cool" : {
+      "kind" : "ambient",
+      "albedo" : [
+         0.18,
+         0.28,
+         0.52
+      ]
+   },
+   "air_dim" : {
+      "kind" : "ambient",
+      "albedo" : [
+         0.14,
+         0.14,
+         0.15
+      ]
+   },
+   "air_green" : {
+      "kind" : "ambient",
+      "albedo" : [
+         0.1,
+         0.44,
+         0.2
+      ]
+   },
+   "air_smoke" : {
+      "kind" : "ambient",
+      "albedo" : [
+         0.38,
+         0.38,
+         0.4
+      ]
+   },
+   "air_warm" : {
+      "kind" : "ambient",
+      "albedo" : [
+         0.6,
+         0.4,
+         0.22
+      ]
+   },
+   "alabaster" : {
+      "albedo" : [
+         0.98,
+         0.9,
+         0.87
+      ]
+   },
+   "amber" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.85,
+         0.5,
+         0.12
+      ],
+      "shininess" : 40,
+      "specular" : 0.7
+   },
    "brass" : {
       "albedo" : [
          0.72,
@@ -10,6 +67,56 @@
       "shininess" : 95,
       "specular" : 1.1
    },
+   "brass-2" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.72,
+         0.58,
+         0.25
+      ],
+      "shininess" : 28,
+      "specular" : 0.6
+   },
+   "brass-3" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.64,
+         0.55,
+         0.21
+      ],
+      "shininess" : 90,
+      "specular" : 1.1
+   },
+   "brass-4" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.66,
+         0.58,
+         0.22
+      ],
+      "shininess" : 70,
+      "specular" : 1.1
+   },
+   "brass-5" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.64,
+         0.55,
+         0.21
+      ],
+      "shininess" : 70,
+      "specular" : 1.1
+   },
+   "brass-6" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.8,
+         0.62,
+         0.2
+      ],
+      "shininess" : 120,
+      "specular" : 1.3
+   },
    "chalk" : {
       "albedo" : [
          0.78,
@@ -18,12 +125,55 @@
       ],
       "kind" : "unlit"
    },
+   "chalk-2" : {
+      "kind" : "unlit",
+      "albedo" : [
+         0.85,
+         0.83,
+         0.78
+      ]
+   },
+   "chalk-3" : {
+      "kind" : "unlit",
+      "albedo" : [
+         0.8,
+         0.78,
+         0.72
+      ]
+   },
    "clay" : {
       "albedo" : [
          0.72,
          0.45,
          0.32
       ]
+   },
+   "core" : {
+      "kind" : "emissive",
+      "albedo" : [
+         0.85,
+         0.42,
+         0.14
+      ],
+      "emission" : 0.7
+   },
+   "core-2" : {
+      "kind" : "emissive",
+      "albedo" : [
+         0.74,
+         0.44,
+         0.16
+      ],
+      "emission" : 0.55
+   },
+   "ember" : {
+      "kind" : "emissive",
+      "albedo" : [
+         0.95,
+         0.55,
+         0.25
+      ],
+      "emission" : 2.5
    },
    "flame" : {
       "albedo" : [
@@ -48,6 +198,174 @@
       "pattern" : "checker",
       "scale" : 1
    },
+   "floor-2" : {
+      "albedo" : [
+         0.3,
+         0.31,
+         0.34
+      ],
+      "albedo2" : [
+         0.18,
+         0.19,
+         0.21
+      ],
+      "pattern" : "checker",
+      "scale" : 2
+   },
+   "floor-3" : {
+      "albedo" : [
+         0.3,
+         0.31,
+         0.34
+      ],
+      "albedo2" : [
+         0.17,
+         0.18,
+         0.21
+      ],
+      "pattern" : "checker",
+      "scale" : 2
+   },
+   "floor-4" : {
+      "albedo" : [
+         0.32,
+         0.33,
+         0.36
+      ],
+      "albedo2" : [
+         0.16,
+         0.17,
+         0.2
+      ],
+      "pattern" : "checker",
+      "scale" : 1
+   },
+   "floor-5" : {
+      "albedo" : [
+         0.32,
+         0.33,
+         0.36
+      ],
+      "albedo2" : [
+         0.16,
+         0.17,
+         0.2
+      ],
+      "pattern" : "checker",
+      "scale" : 2
+   },
+   "floor-6" : {
+      "albedo" : [
+         0.33,
+         0.35,
+         0.38
+      ],
+      "albedo2" : [
+         0.14,
+         0.15,
+         0.18
+      ],
+      "pattern" : "checker",
+      "scale" : 1
+   },
+   "floor-7" : {
+      "albedo" : [
+         0.35,
+         0.33,
+         0.3
+      ],
+      "albedo2" : [
+         0.22,
+         0.21,
+         0.2
+      ],
+      "pattern" : "checker",
+      "scale" : 1
+   },
+   "floor-8" : {
+      "albedo" : [
+         0.35,
+         0.33,
+         0.3
+      ],
+      "albedo2" : [
+         0.22,
+         0.21,
+         0.2
+      ],
+      "pattern" : "checker",
+      "scale" : 0.25
+   },
+   "floor-9" : {
+      "albedo" : [
+         0.36,
+         0.37,
+         0.4
+      ],
+      "albedo2" : [
+         0.14,
+         0.15,
+         0.18
+      ],
+      "pattern" : "checker",
+      "scale" : 1
+   },
+   "floor-10" : {
+      "albedo" : [
+         0.3,
+         0.31,
+         0.33
+      ]
+   },
+   "floor-11" : {
+      "albedo" : [
+         0.34,
+         0.36,
+         0.39
+      ],
+      "albedo2" : [
+         0.15,
+         0.16,
+         0.19
+      ],
+      "pattern" : "noise",
+      "scale" : 1
+   },
+   "floor-12" : {
+      "albedo" : [
+         0.34,
+         0.36,
+         0.39
+      ],
+      "albedo2" : [
+         0.15,
+         0.16,
+         0.19
+      ],
+      "pattern" : "checker",
+      "scale" : 1
+   },
+   "floor-13" : {
+      "albedo" : [
+         0.33,
+         0.35,
+         0.38
+      ],
+      "albedo2" : [
+         0.14,
+         0.15,
+         0.18
+      ],
+      "pattern" : "industrialcarpet",
+      "scale" : 0.05
+   },
+   "floor-14" : {
+      "albedo" : [
+         0.5,
+         0.5,
+         0.5
+      ]
+   },
    "gold" : {
       "albedo" : [
          0.72,
@@ -57,6 +375,38 @@
       "kind" : "glossy",
       "shininess" : 40,
       "specular" : 0.4
+   },
+   "gold-2" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.8,
+         0.62,
+         0.2
+      ],
+      "shininess" : 120,
+      "specular" : 1.3
+   },
+   "gold-3" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.8,
+         0.62,
+         0.2
+      ],
+      "shininess" : 120,
+      "specular" : 1.3,
+      "reflective" : true
+   },
+   "gold-4" : {
+      "kind" : "glossy",
+      "shininess" : 130,
+      "specular" : 1.4,
+      "reflective" : true,
+      "albedo" : [
+         1,
+         0.78,
+         0.36
+      ]
    },
    "jade" : {
       "kind": "glossy",
@@ -75,6 +425,65 @@
       "shininess": 160,
       "specular": 1.6
    },
+   "jade-2" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.2,
+         0.55,
+         0.36
+      ],
+      "shininess" : 90,
+      "specular" : 1.1
+   },
+   "jade-3" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.2,
+         0.5,
+         0.39
+      ],
+      "shininess" : 160,
+      "specular" : 1.6
+   },
+   "jade-4" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.22,
+         0.52,
+         0.4
+      ],
+      "shininess" : 160,
+      "specular" : 1.6
+   },
+   "mirror" : {
+      "reflective" : true,
+      "albedo" : [
+         0.92,
+         0.94,
+         0.96
+      ],
+      "kind" : "glossy",
+      "shininess" : 200,
+      "specular" : 1.2
+   },
+   "mirror-2" : {
+      "kind" : "glossy",
+      "shininess" : 130,
+      "specular" : 1.4,
+      "reflective" : true,
+      "albedo" : [
+         0.9,
+         0.9,
+         0.9
+      ]
+   },
+   "moss" : {
+      "albedo" : [
+         0.35,
+         0.52,
+         0.32
+      ]
+   },
    "night" : {
       "albedo" : [
          0.03,
@@ -83,6 +492,80 @@
       ],
       "kind" : "ambient"
    },
+   "red" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.72,
+         0.14,
+         0.1
+      ],
+      "shininess" : 60,
+      "specular" : 0.9
+   },
+   "red-2" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.7,
+         0.16,
+         0.12
+      ],
+      "shininess" : 60,
+      "specular" : 0.8
+   },
+   "rock" : {
+      "albedo" : [
+         0.46,
+         0.43,
+         0.39
+      ],
+      "albedo2" : [
+         0.31,
+         0.29,
+         0.27
+      ],
+      "pattern" : "noise"
+   },
+   "rose" : {
+      "albedo" : [
+         0.62,
+         0.34,
+         0.36
+      ]
+   },
+   "shell" : {
+      "albedo" : [
+         0.26,
+         0.27,
+         0.32
+      ]
+   },
+   "shell-2" : {
+      "albedo" : [
+         0.28,
+         0.29,
+         0.33
+      ]
+   },
+   "shell-3" : {
+      "albedo" : [
+         0.35,
+         0.36,
+         0.4
+      ],
+      "albedo2" : [
+         0.25,
+         0.26,
+         0.3
+      ],
+      "pattern" : "noise"
+   },
+   "shell-4" : {
+      "albedo" : [
+         0.3,
+         0.31,
+         0.35
+      ]
+   },
    "sky" : {
       "albedo" : [
          0.07,
@@ -90,6 +573,48 @@
          0.14
       ],
       "kind" : "unlit"
+   },
+   "sky-2" : {
+      "kind" : "unlit",
+      "albedo" : [
+         0.32,
+         0.4,
+         0.55
+      ]
+   },
+   "sky-3" : {
+      "kind" : "unlit",
+      "albedo" : [
+         0.43,
+         0.66,
+         0.98
+      ]
+   },
+   "slate" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.28,
+         0.31,
+         0.36
+      ],
+      "shininess" : 24,
+      "specular" : 0.5
+   },
+   "slate-2" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.25,
+         0.28,
+         0.33
+      ],
+      "albedo2" : [
+         0.31,
+         0.34,
+         0.39
+      ],
+      "pattern" : "noise",
+      "shininess" : 24,
+      "specular" : 0.5
    },
    "steel" : {
       "albedo" : [
@@ -108,6 +633,127 @@
          0.52
       ]
    },
+   "stone-2" : {
+      "albedo" : [
+         0.6,
+         0.58,
+         0.54
+      ]
+   },
+   "stone-3" : {
+      "albedo" : [
+         0.42,
+         0.4,
+         0.38
+      ]
+   },
+   "stone-4" : {
+      "albedo" : [
+         0.55,
+         0.52,
+         0.47
+      ]
+   },
+   "stone-5" : {
+      "albedo" : [
+         0.55,
+         0.51,
+         0.45
+      ],
+      "albedo2" : [
+         0.42,
+         0.39,
+         0.35
+      ],
+      "pattern" : "checker",
+      "scale" : 0.3846
+   },
+   "stone-6" : {
+      "albedo" : [
+         0.58,
+         0.53,
+         0.46
+      ],
+      "albedo2" : [
+         0.44,
+         0.4,
+         0.36
+      ],
+      "pattern" : "noise",
+      "scale" : 0.4167
+   },
+   "stone-7" : {
+      "albedo" : [
+         0.58,
+         0.53,
+         0.46
+      ],
+      "albedo2" : [
+         0.44,
+         0.4,
+         0.36
+      ],
+      "pattern" : "checker",
+      "scale" : 0.4167
+   },
+   "stone-8" : {
+      "albedo" : [
+         0.55,
+         0.51,
+         0.45
+      ],
+      "albedo2" : [
+         0.42,
+         0.39,
+         0.35
+      ],
+      "pattern" : "noise"
+   },
+   "stone-9" : {
+      "albedo" : [
+         0.6,
+         0.58,
+         0.55
+      ]
+   },
+   "teal" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.1,
+         0.55,
+         0.55
+      ],
+      "shininess" : 80,
+      "specular" : 1
+   },
+   "teal-2" : {
+      "albedo" : [
+         0.15,
+         0.55,
+         0.55
+      ],
+      "kind" : "glossy",
+      "shininess" : 60,
+      "specular" : 0.5
+   },
+   "violet" : {
+      "kind" : "glossy",
+      "albedo" : [
+         0.45,
+         0.2,
+         0.7
+      ],
+      "shininess" : 60,
+      "specular" : 0.9
+   },
+   "warmair" : {
+      "kind" : "ambient",
+      "albedo" : [
+         0.32,
+         0.2,
+         0.12
+      ]
+   },
    "wax" : {
       "albedo" : [
          0.92,
@@ -120,6 +766,13 @@
          0.08,
          0.07,
          0.06
+      ]
+   },
+   "wood" : {
+      "albedo" : [
+         0.55,
+         0.38,
+         0.22
       ]
    }
 }

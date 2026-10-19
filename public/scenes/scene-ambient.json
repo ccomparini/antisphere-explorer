@@ -1,134 +1,6 @@
 {
   "camera": { "position": [6.14786373, 11.9410651, 6.50564798], "direction": [-0.361639043, -0.855356772, -0.370920469], "distance": 17 },
-  "materials": [
-    "@lib/materials.json",
-    {
-      "shell": {
-        "albedo": [
-          0.26,
-          0.27,
-          0.32
-        ]
-      },
-      "floor": {
-        "albedo": [
-          0.33,
-          0.35,
-          0.38
-        ],
-        "albedo2": [
-          0.14,
-          0.15,
-          0.18
-        ],
-        "pattern": "checker",
-        "scale": 1
-      },
-      "stone": {
-        "albedo": [
-          0.55,
-          0.51,
-          0.45
-        ],
-        "albedo2": [
-          0.42,
-          0.39,
-          0.35
-        ],
-        "pattern": "checker",
-        "scale": 0.3846
-      },
-      "core": {
-        "kind": "emissive",
-        "albedo": [
-          0.85,
-          0.42,
-          0.14
-        ],
-        "emission": 0.7
-      },
-      "brass": {
-        "kind": "glossy",
-        "albedo": [
-          0.64,
-          0.55,
-          0.21
-        ],
-        "shininess": 90,
-        "specular": 1.1
-      },
-      "jade": {
-        "kind": "glossy",
-        "albedo": [
-          0.2,
-          0.5,
-          0.39
-        ],
-        "shininess": 160,
-        "specular": 1.6
-      },
-      "slate": {
-        "kind": "glossy",
-        "albedo": [
-          0.28,
-          0.31,
-          0.36
-        ],
-        "shininess": 24,
-        "specular": 0.5
-      },
-      "alabaster": {
-        "albedo": [0.98, 0.90, 0.87]
-      },
-      "rose": {
-        "albedo": [
-          0.62,
-          0.34,
-          0.36
-        ]
-      },
-      "air_warm": {
-        "kind": "ambient",
-        "albedo": [
-          0.6,
-          0.4,
-          0.22
-        ]
-      },
-      "air_cool": {
-        "kind": "ambient",
-        "albedo": [
-          0.18,
-          0.28,
-          0.52
-        ]
-      },
-      "air_smoke": {
-        "kind": "ambient",
-        "albedo": [
-          0.38,
-          0.38,
-          0.40
-        ]
-      },
-      "air_green": {
-        "kind": "ambient",
-        "albedo": [
-          0.1,
-          0.44,
-          0.20
-        ]
-      },
-      "air_dim": {
-        "kind": "ambient",
-        "albedo": [
-          0.14,
-          0.14,
-          0.15
-        ]
-      }
-    }
-  ],
+  "materials": "@lib/materials.json",
   "lights": [
   ],
   "objects": {
@@ -137,13 +9,13 @@
         "center": [ 0.0, 0.0, 0.0 ],
         "radius": 0.56
       },
-      "material": "jade",
+      "material": "jade-3",
       "inside": {
         "plane": {
           "normal": [ 0, 0, 1 ],
           "offset": 0.3472
         },
-        "material": "brass",
+        "material": "brass-3",
         "inside": {
           "sphere": {
             "center": [ -0.476, 0.0, 0.168],
@@ -165,7 +37,7 @@
             ],
             "radius": 0.72
           },
-          "material": "brass"
+          "material": "brass-3"
         },
         {
           "sphere": {
@@ -176,7 +48,7 @@
             ],
             "radius": 0.63
           },
-          "material": "stone"
+          "material": "stone-5"
         },
         {
           "sphere": {
@@ -187,7 +59,7 @@
             ],
             "radius": 0.54
           },
-          "material": "brass"
+          "material": "brass-3"
         },
         {
           "sphere": {
@@ -198,7 +70,7 @@
             ],
             "radius": 0.45
           },
-          "material": "stone"
+          "material": "stone-5"
         },
         {
           "sphere": {
@@ -230,7 +102,7 @@
         ],
         "radius": 1.5
       },
-      "material": "jade",
+      "material": "jade-3",
       "inside": {
         "sphere": {
           "center": [
@@ -469,7 +341,7 @@
         ],
         "offset": -1.0
       },
-      "material": "floor",
+      "material": "floor-6",
       "outside": {
         "use": "contents"
       }

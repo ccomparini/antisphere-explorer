@@ -1,10 +1,5 @@
 {
-  "materials": [
-    "@lib/materials.json",
-    {
-      "rock": { "albedo": [0.46, 0.43, 0.39], "albedo2": [0.31, 0.29, 0.27], "pattern": "noise" }
-    }
-  ],
+  "materials": "@lib/materials.json",
   "lights": [
     { "pos": [3000, -4000, 5000], "color": [3.6e7, 3.3e7, 2.9e7] }
   ],
