@@ -2055,6 +2055,7 @@ export function compileScene(rawSpec, options = {}) {
       flags = def[key] ? flags | bit : flags & ~bit;
     }
     table.push({
+      name,                                      // for display (what a ray hit); not packed
       albedo:  def.albedo  ?? [0.7, 0.7, 0.7],
       albedo2: def.albedo2 ?? [0.3, 0.3, 0.3],
       scale,

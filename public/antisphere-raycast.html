@@ -31,6 +31,21 @@
   #lad-bar { display: flex; height: 10px; margin: 6px 0; border-radius: 3px; overflow: hidden; background: #161b22; }
   #lad-bar span { display: block; height: 100%; }
   #prof .r i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+  #probe {
+    position: fixed; left: 14px; top: 12px;
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #7f8a99; letter-spacing: 0.02em; pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,.8);
+  }
+  #probe b { color: #cbd5e1; font-weight: 500; }
+  #crosshair {
+    position: fixed; left: 50%; top: 50%; width: 9px; height: 9px;
+    margin: -5px 0 0 -5px; pointer-events: none;
+    background:
+      linear-gradient(rgba(255,255,255,.7), rgba(255,255,255,.7)) center / 1px 100% no-repeat,
+      linear-gradient(rgba(255,255,255,.7), rgba(255,255,255,.7)) center / 100% 1px no-repeat;
+    mix-blend-mode: difference;
+  }
   #err {
     position: fixed; inset: 0; display: none; place-content: center;
     padding: 2rem; text-align: center; white-space: pre-wrap; max-width: 46rem;
@@ -41,7 +56,9 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><b id="stat">starting…</b><br>orbit: drag to look · wheel to zoom<br>free/walk: mouse looks, click to grab it · &uarr;&darr; move<br>M camera mode · C reset camera · S shadows<br>R reload · W watch · P profiler · A ablation (⇧ forces full)<br>D debug view · B blit/direct · [ ] render scale<br><span id="note"></span></div>
+<div id="probe">object <b id="probe-object">-</b><br>material <b id="probe-material">-</b></div>
+<div id="crosshair"></div>
+<div id="hud"><b id="stat">starting…</b><br>orbit: drag to look · wheel to zoom<br>free/walk: mouse looks, click to grab it · &uarr;&darr; move<br>M camera mode · C reset camera · S shadows · I what's at the centre<br>R reload · W watch · P profiler · A ablation (⇧ forces full)<br>D debug view · B blit/direct · [ ] render scale<br><span id="note"></span></div>
 <div id="prof">
   <div class="r"><span>frame</span><b id="p-frame">-</b></div>
   <div class="r"><span>cpu encode</span><b id="p-cpu">-</b></div>
@@ -184,6 +201,10 @@ async function main() {
         profiling = !profiling;
         el('prof').style.display = profiling ? 'block' : 'none';
         break;
+      case 'i':
+        probing = !probing;
+        el('probe').hidden = el('crosshair').hidden = !probing;
+        break;
       case 'a':
         if (!ts) note('ablation needs timestamp-query', true);
         else if (ladder) { ladder = null; el('p-lad').textContent = 'cancelled'; }
@@ -200,6 +221,32 @@ async function main() {
   // text can be compared for the watch poll. A failed rebuild is reported and
   // the previous pipelines keep rendering.
   // -----------------------------------------------------------------------
+
+  // -----------------------------------------------------------------------
+  // What's at the centre
+  //
+  // Each frame a ray down the middle of the view (the crosshair) asks what it
+  // hits: the object the node came from, and the node's material. The answer
+  // is a frame or two behind, and one ray is in flight at a time. Off during
+  // an ablation run, so it measures the renderer alone.
+  // -----------------------------------------------------------------------
+
+  let probing = true, probeInFlight = false;
+  function probeCentre() {
+    if (!probing || probeInFlight || ladder) return;
+    probeInFlight = true;
+    const { eye, forward } = camera.basis();
+    scene.pick(eye, forward).then((hit) => {
+      const prov = hit && scene.provenance?.[hit.node];
+      const where = !hit ? 'nothing'
+        : !prov ? `node ${hit.node} (the compiler's)`
+        : prov.owner === '@root' ? `root${prov.path ? ` / ${prov.path}` : ''}`
+        : `${prov.owner}${prov.path ? ` / ${prov.path}` : ''}`;
+      const material = hit ? scene.materials[scene.nodes[hit.node]?.material] : null;
+      el('probe-object').textContent = where;
+      el('probe-material').textContent = !hit ? '-' : material?.name ?? '(none)';
+    }, () => {}).finally(() => { probeInFlight = false; });
+  }
 
   let liveScene = await loadText(scenePath);
   let reloading = false;
@@ -467,6 +514,7 @@ async function main() {
     if (timing) readTimestamps(rungSampled);
 
     advanceLadder();
+    probeCentre();
     if (profiling) updatePanel(frameMs, cpuMs);
 
     frames++;
