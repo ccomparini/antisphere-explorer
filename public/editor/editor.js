@@ -84,7 +84,7 @@ async function main() {
   fileName ??= 'untitled.json';
 
   const scene = await gpu.createScene(spec, { files, path });
-  const doc = new SceneDocument(scene, spec, { fileName });
+  const doc = new SceneDocument(scene, spec, { fileName, references: { files, path } });
 
   // -- views -----------------------------------------------------------------
 

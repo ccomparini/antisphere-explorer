@@ -196,6 +196,63 @@ test('listeners hear edits and errors', () => {
   assert.deepEqual(heard, ['lights', 'error', 'selection', 'undo']);
 });
 
+// -- materials from a library ------------------------------------------------------
+
+const LIBRARY = {
+  files: { 'scenes/lib/materials.json': { _comment: 'a note', brass: { albedo: [0.7, 0.6, 0.2] }, clay: { albedo: [0, 0, 1] } } },
+  path: 'scenes/s.json',
+};
+function withLibrary(materials) {
+  const spec = { ...baseSpec(), materials };
+  const scene = fakeScene();
+  scene.update(structuredClone(spec));
+  return { doc: new SceneDocument(scene, spec, { references: LIBRARY }), scene };
+}
+
+test('the materials are the library\'s and the scene\'s own, merged, the own winning', () => {
+  const { doc } = withLibrary(['@lib/materials.json', { clay: { albedo: [0.7, 0.5, 0.4] } }]);
+  assert.deepEqual(Object.keys(doc.materials).sort(), ['brass', 'clay']);
+  assert.deepEqual(doc.materials.clay.albedo, [0.7, 0.5, 0.4]);
+  assert.equal(doc.isOwnMaterial('clay'), true);
+  assert.equal(doc.isOwnMaterial('brass'), false);
+});
+
+test('a library material, edited, is copied into the scene\'s own map; the library stays referenced', () => {
+  const { doc, scene } = withLibrary(['@lib/materials.json', { clay: {} }]);
+  doc.setMaterial('brass', { specular: 2 });
+  assert.deepEqual(scene.spec.materials, ['@lib/materials.json', { clay: {}, brass: { albedo: [0.7, 0.6, 0.2], specular: 2 } }]);
+  assert.equal(doc.isOwnMaterial('brass'), true);
+  assert.deepEqual(LIBRARY.files['scenes/lib/materials.json'].brass, { albedo: [0.7, 0.6, 0.2] });
+  doc.undo();
+  assert.equal(doc.isOwnMaterial('brass'), false);
+  assert.match(doc.setMaterial('nothing', {}).error, /no material "nothing"/);
+});
+
+test('a scene with only a reference gains its own map after it', () => {
+  const { doc, scene } = withLibrary('@lib/materials.json');
+  doc.setMaterial('clay', { albedo: [1, 0, 0] });
+  assert.deepEqual(scene.spec.materials, ['@lib/materials.json', { clay: { albedo: [1, 0, 0] } }]);
+  const listed = withLibrary(['@lib/materials.json']);
+  listed.doc.setMaterial('brass', { albedo: [0, 0, 0] });
+  assert.deepEqual(listed.scene.spec.materials, ['@lib/materials.json', { brass: { albedo: [0, 0, 0] } }]);
+});
+
+test('an added material takes a name no material has, the library\'s included', () => {
+  const { doc, scene } = withLibrary(['@lib/materials.json']);
+  assert.equal(doc.addMaterial('brass', { albedo: [1, 1, 1] }), 'brass-2');
+  assert.deepEqual(scene.spec.materials, ['@lib/materials.json', { 'brass-2': { albedo: [1, 1, 1] } }]);
+  const plain = make();
+  assert.equal(plain.doc.addMaterial('wax', {}), 'wax');
+  assert.deepEqual(Object.keys(plain.scene.spec.materials), ['clay', 'wax']);
+});
+
+test('load takes the new scene\'s references', () => {
+  const { doc } = make();
+  assert.equal(doc.materials.brass, undefined);
+  doc.load({ ...baseSpec(), materials: ['@lib/materials.json'] }, 'lib.json', LIBRARY);
+  assert.deepEqual(doc.materials.brass.albedo, [0.7, 0.6, 0.2]);
+});
+
 // -- selection and lookup ----------------------------------------------------------
 
 test('a node inside an instance resolves in its prototype', () => {

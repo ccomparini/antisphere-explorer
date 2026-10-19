@@ -29,6 +29,12 @@
 // Editing inside an instance edits its prototype, so every instance changes.
 // makeUnique() gives one instance a private copy of its definition first.
 //
+// Materials. A scene's materials may be a map, or a list of maps and
+// references to them, merged in order ("materials": ["@lib/materials.json",
+// { ... }]). `materials` is the merged view, what the compiler sees; the
+// scene's own map is the last map in the list, and is what gets edited. A
+// library material, edited, is copied into it first, as an override.
+//
 // Undo is by snapshot: the spec is tens of kilobytes, so a clone per step is
 // cheap, and restoring a snapshot is correct by construction. Rapid edits
 // that share a coalesce key merge into one step, so a slider drag is one
@@ -38,6 +44,8 @@
 // result is compiled, and if either throws the spec is restored and the error
 // reported. The document therefore always describes what the scene is
 // actually rendering.
+
+import { expandReferences } from '../antisphere-scene.js';
 
 export const ROOT = '@root';
 
@@ -164,6 +172,7 @@ export class SceneDocument {
   #coalesceMs;
   #historyLimit;
   #now;
+  #references;
 
   /**
    * @param {object} scene  anything with update(spec) and setLights(lights);
@@ -175,6 +184,8 @@ export class SceneDocument {
    * @param {number} [opts.coalesceMs]    how recent an edit must be to merge
    * @param {number} [opts.historyLimit]  undo steps kept
    * @param {() => number} [opts.now]     clock, injectable for tests
+   * @param {object} [opts.references]    { files, path }: what the spec
+   *                                      references, and where it is
    */
   constructor(scene, spec, opts = {}) {
     this.#scene = scene;
@@ -183,6 +194,7 @@ export class SceneDocument {
     this.#coalesceMs = opts.coalesceMs ?? 1000;
     this.#historyLimit = opts.historyLimit ?? 200;
     this.#now = opts.now ?? (() => Date.now());
+    this.#references = opts.references ?? {};
     this.#reset(clone(spec));
   }
 
@@ -364,6 +376,7 @@ export class SceneDocument {
       return { ok: false, error };
     }
     if (fileName) this.fileName = fileName;
+    this.#references = references;
     this.#reset(clone(spec));
     this.#emit({ kind: 'load' });
     return { ok: true };
@@ -950,12 +963,68 @@ export class SceneDocument {
     }, { kind: 'lights' });
   }
 
-  /** Change a material. Consecutive edits to the same material coalesce by default. */
+  /** Every material the scene can use, by name: its own and its libraries', merged. */
+  get materials() { return mergedMaterials(this.#spec, this.#references); }
+
+  /** Whether a material is defined in the scene's own map, rather than only in a library. */
+  isOwnMaterial(name) {
+    return Object.hasOwn(ownMaterials(this.#spec, false) ?? {}, name);
+  }
+
+  /**
+   * Change a material. One from a library is copied into the scene's own
+   * map first, and the copy changed. Consecutive edits to the same material
+   * coalesce by default.
+   */
   setMaterial(name, patch, { coalesce } = {}) {
     return this.edit(`Edit material ${name}`, (spec) => {
-      const material = spec.materials?.[name];
-      if (!material) throw new Error(`no material "${name}"`);
+      const own = ownMaterials(spec, true);
+      if (!Object.hasOwn(own, name)) {
+        const merged = mergedMaterials(spec, this.#references)[name];
+        if (!merged) throw new Error(`no material "${name}"`);
+        own[name] = clone(merged);
+      }
+      const material = own[name];
       for (const [k, v] of Object.entries(patch)) material[k] = Array.isArray(v) ? v.slice() : v;
     }, { kind: 'materials', coalesce: coalesce === undefined ? `material:${name}` : coalesce });
   }
+
+  /** Add a material to the scene's own map, under a name no material has yet. Returns the name. */
+  addMaterial(base, def) {
+    const taken = this.materials;
+    let name = base;
+    for (let i = 2; Object.hasOwn(taken, name); i++) name = `${base}-${i}`;
+    this.edit('Add material', (spec) => { ownMaterials(spec, true)[name] = clone(def); }, { kind: 'materials' });
+    return name;
+  }
+}
+
+// -- materials -------------------------------------------------------------------
+
+const isMap = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+// The scene's own map of materials: the spec's map, or the last map in its
+// list. With `create`, one is made if there isn't one (after any
+// references, so it overrides them).
+function ownMaterials(spec, create) {
+  const m = spec.materials;
+  if (isMap(m)) return m;
+  if (Array.isArray(m)) {
+    const last = m.at(-1);
+    if (isMap(last)) return last;
+    if (!create) return null;
+    m.push({});
+    return m.at(-1);
+  }
+  if (!create) return null;
+  spec.materials = m === undefined ? {} : [m, {}];   // a lone reference keeps its place
+  return ownMaterials(spec, false);
+}
+
+// The materials as the compiler sees them; a reference whose file wasn't
+// read contributes nothing. Notes (keys starting _) are left out.
+function mergedMaterials(spec, { files = {}, path = '' } = {}) {
+  if (spec.materials === undefined) return {};
+  const { spec: out } = expandReferences({ materials: spec.materials }, files, { from: path });
+  return isMap(out.materials) ? out.materials : {};
 }

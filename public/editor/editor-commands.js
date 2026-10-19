@@ -115,8 +115,9 @@ export const SHAPES = {
 
 // A material that makes a new object visible: something shaded, preferring a
 // plain one over a patterned floor.
-export function pickMaterial(spec) {
-  const entries = Object.entries(spec.materials ?? {});
+// `materials`: the scene's, merged (SceneDocument's `materials`).
+export function pickMaterial(materials) {
+  const entries = Object.entries(materials);
   const shaded = ([, m]) => ['lambert', 'glossy'].includes(m.kind ?? 'lambert');
   const plain = entries.find((e) => shaded(e) && e[1].pattern !== 'checker');
   return (plain ?? entries.find(shaded))?.[0] ?? null;
@@ -167,14 +168,7 @@ export function createCommands({ doc, getActive, note, ask = globalThis.prompt, 
   const placement = () => getActive?.()?.camera?.focus() ?? [0, 0, 0.5];
 
   function ensureMaterial() {
-    const existing = pickMaterial(doc.spec);
-    if (existing) return existing;
-    let name = 'clay';
-    for (let i = 2; doc.spec.materials?.[name]; i++) name = `clay-${i}`;
-    doc.edit('Add material', (spec) => {
-      (spec.materials ??= {})[name] = { albedo: [0.72, 0.55, 0.45] };
-    }, { kind: 'materials' });
-    return name;
+    return pickMaterial(doc.materials) ?? doc.addMaterial('clay', { albedo: [0.72, 0.55, 0.45] });
   }
 
   function create(shape) {

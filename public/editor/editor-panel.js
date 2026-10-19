@@ -517,7 +517,7 @@ export function createPanel(root, ctx) {
     },
 
     // Material options: inherit (no material key), vacuum (null), or a name.
-    get materialNames() { return Object.keys(doc.spec.materials ?? {}); },
+    get materialNames() { return Object.keys(doc.materials); },
     get material() {
       const m = current()?.node?.material;
       return m === null ? '(vacuum)' : m ?? '';
@@ -611,8 +611,10 @@ export function createPanel(root, ctx) {
 
   // Absent fields read as the compiler's defaults, so a control never shows
   // "undefined", and are only written into the spec once actually edited.
+  // A library material shows as such until edited, when it becomes the
+  // scene's own copy.
   function materialView(name) {
-    const def = () => doc.spec.materials[name];
+    const def = () => doc.materials[name] ?? {};
     const kind = def().kind ?? 'lambert';
     const colour = (key, fallback) => ({
       enumerable: true,
@@ -626,6 +628,7 @@ export function createPanel(root, ctx) {
     });
     return Object.defineProperties({
       name, kind,
+      source: doc.isOwnMaterial(name) ? '' : 'library',
       albedoLabel: kind === 'ambient' ? 'level' : kind === 'glowRegion' ? 'glow' : 'albedo',
       isChecker: def().pattern === 'checker',
       isGlossy: kind === 'glossy',
@@ -642,7 +645,7 @@ export function createPanel(root, ctx) {
 
   const materialsModel = { materials: [] };
   const rebuildMaterials = () => {
-    materialsModel.materials = Object.keys(doc.spec.materials ?? {}).map(materialView);
+    materialsModel.materials = Object.keys(doc.materials).map(materialView);
   };
 
   // -- structure -----------------------------------------------------------------
