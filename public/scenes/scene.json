@@ -1,108 +1,86 @@
 {
   "camera": { "position": [6.14786373, 11.9410651, 6.50564798], "direction": [-0.361639043, -0.855356772, -0.370920469], "distance": 17 },
-  "materials": {
-    "shell": {
-      "albedo": [
-        0.26,
-        0.27,
-        0.32
-      ]
-    },
-    "floor": {
-      "albedo": [
-        0.33,
-        0.35,
-        0.38
-      ],
-      "albedo2": [
-        0.14,
-        0.15,
-        0.18
-      ],
-      "pattern": "industrialcarpet",
-      "scale": 0.05
-    },
-    "stone": {
-      "albedo": [
-        0.55,
-        0.51,
-        0.45
-      ],
-      "albedo2": [
-        0.42,
-        0.39,
-        0.35
-      ],
-      "pattern": "noise"
-    },
-    "core": {
-      "kind": "emissive",
-      "albedo": [
-        0.85,
-        0.42,
-        0.14
-      ],
-      "emission": 0.7
-    },
-    "brass": {
-      "kind": "glossy",
-      "albedo": [
-        0.64,
-        0.55,
-        0.21
-      ],
-      "shininess": 70,
-      "specular": 1.1
-    },
-    "jade": {
-      "kind": "glossy",
-      "albedo": [
-        0.2,
-        0.5,
-        0.39
-      ],
-      "albedo2": [
-        0.5,
-        0.5,
-        0.5
-      ],
-      "pattern": "noise",
-      "scale": 0.2,
-      "shininess": 160,
-      "specular": 1.6
-    },
-    "slate": {
-      "kind": "glossy",
-      "albedo": [
-        0.25,
-        0.28,
-        0.33
-      ],
-      "albedo2": [
-        0.31,
-        0.34,
-        0.39
-      ],
-      "pattern": "noise",
-      "shininess": 24,
-      "specular": 0.5
-    },
-    "chalk": {
-      "kind": "unlit",
-      "albedo": [
-        0.78,
-        0.76,
-        0.7
-      ]
-    },
-    "rose": {
-      "albedo": [
-        0.62,
-        0.34,
-        0.36
-      ]
+  "materials": [
+    "@lib/materials.json",
+    {
+      "shell": {
+        "albedo": [
+          0.26,
+          0.27,
+          0.32
+        ]
+      },
+      "floor": {
+        "albedo": [
+          0.33,
+          0.35,
+          0.38
+        ],
+        "albedo2": [
+          0.14,
+          0.15,
+          0.18
+        ],
+        "pattern": "industrialcarpet",
+        "scale": 0.05
+      },
+      "stone": {
+        "albedo": [
+          0.55,
+          0.51,
+          0.45
+        ],
+        "albedo2": [
+          0.42,
+          0.39,
+          0.35
+        ],
+        "pattern": "noise"
+      },
+      "core": {
+        "kind": "emissive",
+        "albedo": [
+          0.85,
+          0.42,
+          0.14
+        ],
+        "emission": 0.7
+      },
+      "brass": {
+        "kind": "glossy",
+        "albedo": [
+          0.64,
+          0.55,
+          0.21
+        ],
+        "shininess": 70,
+        "specular": 1.1
+      },
+      "slate": {
+        "kind": "glossy",
+        "albedo": [
+          0.25,
+          0.28,
+          0.33
+        ],
+        "albedo2": [
+          0.31,
+          0.34,
+          0.39
+        ],
+        "pattern": "noise",
+        "shininess": 24,
+        "specular": 0.5
+      },
+      "rose": {
+        "albedo": [
+          0.62,
+          0.34,
+          0.36
+        ]
+      }
     }
-  },
+  ],
   "lights": [
     {
       "pos": [

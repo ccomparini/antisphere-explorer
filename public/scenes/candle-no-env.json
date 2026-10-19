@@ -1,58 +1,30 @@
 {
-  "materials": {
-    "wax": {
-      "albedo": [
-        0.92,
-        0.88,
-        0.78
-      ]
-    },
-    "wick": {
-      "albedo": [
-        0.08,
-        0.07,
-        0.06
-      ]
-    },
-    "flame": {
-      "kind": "emissive",
-      "albedo": [
-        1.0,
-        0.75,
-        0.3
-      ],
-      "emission": 1.5
-    },
-    "floor": {
-      "albedo": [
-        0.35,
-        0.33,
-        0.3
-      ],
-      "albedo2": [
-        0.22,
-        0.21,
-        0.2
-      ],
-      "pattern": "checker",
-      "scale": 1
-    },
-    "stone": {
-      "albedo": [
-        0.6,
-        0.58,
-        0.54
-      ]
-    },
-    "night": {
-      "kind": "ambient",
-      "albedo": [
-        0.03,
-        0.03,
-        0.04
-      ]
+  "materials": [
+    "@lib/materials.json",
+    {
+      "floor": {
+        "albedo": [
+          0.35,
+          0.33,
+          0.3
+        ],
+        "albedo2": [
+          0.22,
+          0.21,
+          0.2
+        ],
+        "pattern": "checker",
+        "scale": 1
+      },
+      "stone": {
+        "albedo": [
+          0.6,
+          0.58,
+          0.54
+        ]
+      }
     }
-  },
+  ],
   "lights": [
     {
       "pos": [

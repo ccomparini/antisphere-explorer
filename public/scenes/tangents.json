@@ -4,42 +4,45 @@
     "position": [ 6.5, -7, 4.2 ],
     "target": [ 0, 0, 1 ]
   },
-  "materials": {
-    "sky": {
-      "kind": "unlit",
-      "albedo": [ 0.32, 0.4, 0.55 ]
-    },
-    "floor": {
-      "albedo": [ 0.32, 0.33, 0.36 ],
-      "albedo2": [ 0.16, 0.17, 0.2 ],
-      "pattern": "checker",
-      "scale": 1
-    },
-    "brass": {
-      "kind": "glossy",
-      "albedo": [ 0.8, 0.62, 0.2 ],
-      "shininess": 120,
-      "specular": 1.3
-    },
-    "wood": {
-      "albedo": [ 0.55, 0.38, 0.22 ]
-    },
-    "red": {
-      "kind": "glossy",
-      "albedo": [ 0.72, 0.14, 0.1 ],
-      "shininess": 60,
-      "specular": 0.9
-    },
-    "teal": {
-      "kind": "glossy",
-      "albedo": [ 0.1, 0.55, 0.55 ],
-      "shininess": 80,
-      "specular": 1
-    },
-    "stone": {
-      "albedo": [ 0.6, 0.58, 0.55 ]
+  "materials": [
+    "@lib/materials.json",
+    {
+      "sky": {
+        "kind": "unlit",
+        "albedo": [ 0.32, 0.4, 0.55 ]
+      },
+      "floor": {
+        "albedo": [ 0.32, 0.33, 0.36 ],
+        "albedo2": [ 0.16, 0.17, 0.2 ],
+        "pattern": "checker",
+        "scale": 1
+      },
+      "brass": {
+        "kind": "glossy",
+        "albedo": [ 0.8, 0.62, 0.2 ],
+        "shininess": 120,
+        "specular": 1.3
+      },
+      "wood": {
+        "albedo": [ 0.55, 0.38, 0.22 ]
+      },
+      "red": {
+        "kind": "glossy",
+        "albedo": [ 0.72, 0.14, 0.1 ],
+        "shininess": 60,
+        "specular": 0.9
+      },
+      "teal": {
+        "kind": "glossy",
+        "albedo": [ 0.1, 0.55, 0.55 ],
+        "shininess": 80,
+        "specular": 1
+      },
+      "stone": {
+        "albedo": [ 0.6, 0.58, 0.55 ]
+      }
     }
-  },
+  ],
   "lights": [
     {
       "pos": [ 5, -6, 9 ],

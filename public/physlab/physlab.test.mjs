@@ -331,7 +331,8 @@ test('physlab\'s scenes parse, each spawn on its ground', () => {
   const flat = read('physlab-flat.json');
   assert.equal(parseGravity(flat.gravity).kind, 'uniform');
   assert.deepEqual(parseSpawn(flat.spawn).at, [0, 0, 0]);
-  const compiled = compileScene(flat);
+  const compiled = compileScene(flat, { files: { 'scenes/lib/materials.json': read('lib/materials.json') },
+                                       path: 'scenes/physlab-flat.json' });
   assert.ok(compiled.nodes.length > 1, 'the flat ground compiles');
 });
 

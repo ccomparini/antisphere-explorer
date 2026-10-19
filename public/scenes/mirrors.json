@@ -1,17 +1,20 @@
 {
   "camera": { "position": [7.5, -9.5, 3.2], "direction": [-0.55, 0.8, -0.24], "distance": 12 },
 
-  "materials": {
-    "shell":  { "albedo": [0.28, 0.29, 0.33] },
-    "floor":  { "albedo": [0.36, 0.37, 0.40], "albedo2": [0.14, 0.15, 0.18],
-                "pattern": "checker", "scale": 1 },
-    "mirror": { "kind": "glossy", "shininess": 130, "specular": 1.4, "reflective": true, "albedo": [0.9, 0.9, 0.9] },
-    "gold":   { "kind": "glossy", "shininess": 130, "specular": 1.4, "reflective": true, "albedo": [1.0, 0.78, 0.36] },
-    "red":    { "kind": "glossy", "albedo": [0.70, 0.16, 0.12], "shininess": 60, "specular": 0.8 },
-    "green":  { "kind": "glossy", "albedo": [0.18, 0.55, 0.24], "shininess": 60, "specular": 0.8 },
-    "blue":   { "kind": "glossy", "albedo": [0.16, 0.26, 0.70], "shininess": 60, "specular": 0.8 },
-    "chalk":  { "kind": "unlit", "albedo": [0.85, 0.83, 0.78] }
-  },
+  "materials": [
+    "@lib/materials.json",
+    {
+      "shell":  { "albedo": [0.28, 0.29, 0.33] },
+      "floor":  { "albedo": [0.36, 0.37, 0.40], "albedo2": [0.14, 0.15, 0.18],
+                  "pattern": "checker", "scale": 1 },
+      "mirror": { "kind": "glossy", "shininess": 130, "specular": 1.4, "reflective": true, "albedo": [0.9, 0.9, 0.9] },
+      "gold":   { "kind": "glossy", "shininess": 130, "specular": 1.4, "reflective": true, "albedo": [1.0, 0.78, 0.36] },
+      "red":    { "kind": "glossy", "albedo": [0.70, 0.16, 0.12], "shininess": 60, "specular": 0.8 },
+      "green":  { "kind": "glossy", "albedo": [0.18, 0.55, 0.24], "shininess": 60, "specular": 0.8 },
+      "blue":   { "kind": "glossy", "albedo": [0.16, 0.26, 0.70], "shininess": 60, "specular": 0.8 },
+      "chalk":  { "kind": "unlit", "albedo": [0.85, 0.83, 0.78] }
+    }
+  ],
 
   "lights": [
     { "pos": [-4, -6, 7], "color": [60, 52, 44] },
