@@ -782,6 +782,11 @@ its `"translate"`, and its children move with it.
   axis, if it has one (anything but a sphere; a plane's is its normal);
   else the target's; else, for two spheres, the line between their
   centres.
+- **`by`**: `"slide"` (the default) or `"scale"`: grow or shrink the shape
+  about a point instead of moving it - the factor folded into its own
+  `"scale"` (and its `"translate"`, so its other transforms hold).
+- **`pivot`**: for `"scale"`, the point it grows or shrinks about; by
+  default the shape's centre.
 
 It finds the slide by least squares over a point on both surfaces, and is
 exact where an exact fit exists, taking the one nearest where the shape
@@ -791,8 +796,16 @@ apart they are left. Where sliding changes nothing - a cylinder along its
 own axis, two planes, or a flare and a tube on one axis, which meet at the
 same angle wherever the flare is - or the two never meet, it stays put and
 warns. Matching a flare's waist to a tube is a matter of size, not place:
-scale it until its waist radius is the tube's, and it is flush anywhere
-along it.
+
+```
+"tangentTo": { "to": "tube", "by": "scale" }
+```
+
+on a flare of waist 0.4 beside a tube of 0.3 shrinks it about its own
+centre by 0.75, to a waist of 0.3, and it runs smoothly out of the tube.
+Some shapes don't change under scaling about some points - a cone about its
+apex, a plane about a point on it - and say so. A factor beyond 1/100 to
+100 is refused, with a warning.
 
 Like `"drop"`, it goes where the object is placed, not in an `objects`
 definition, and not (yet) within a subtree that is itself moved. A scene's

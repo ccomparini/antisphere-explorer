@@ -117,3 +117,71 @@ test('what tangentTo can\'t be, it says; and the scene given is left as it was',
   compileScene(spec);
   assert.equal(JSON.stringify(spec), before);
 });
+
+// -- by scale --------------------------------------------------------------------
+
+import { quadricAt } from './quadric.js';
+
+test('the trumpet by scaling: a flare shrinks round its waist to the tube\'s radius', () => {
+  const flare = { hyperboloid: { center: [0, 0, 2.2], axis: [0, 0, 1], radius: 0.4, semiAxial: 0.35, sheets: 1 }, material: 'stone',
+                  tangentTo: { to: 'tube', by: 'scale' } };
+  const tube = { cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 0.3 }, material: 'stone' };
+  const { result, warned } = quietly(() => compileScene(scene({ group: ['tube', flare] }, { tube })));
+  assert.equal(warned.length, 0, `flush, no warning: ${warned}`);
+  const h = result.nodes.find((n) => n?.prim && n.prim.k_par < 0 && n.prim.k_perp > 0).prim;
+  const centre = -h.linear[2] / h.k_par;
+  near(centre, 2.2, 'its centre unmoved');
+  // At the centre's height, H = k_perp rho^2 + (what is left): rho where it vanishes.
+  const rest = quadricAt(h, [0, 0, centre]);
+  near(Math.sqrt(-rest / h.k_perp), 0.3, 'its waist the tube\'s radius');
+});
+
+test('a ball scaled about a point above it until it touches the floor', () => {
+  // About [0, 0, 4], a ball of 1 at height 3 scaled by l has its centre at
+  // 4 - l and radius l: touching the floor at l = 2.
+  const built = compileScene(scene({ group: ['floor', ball([0, 0, 3], 1, { tangentTo: { to: 'floor', facing: 'touching', by: 'scale', pivot: [0, 0, 4] } })] }, OBJECTS));
+  const c = centreOf(built, 2);
+  near(c[2], 2, 'its centre, a radius of 2 above the floor');
+});
+
+test('scaling folds into a node\'s own scale, rotate and translate: the same shape, scaled about the pivot', () => {
+  const p = [0.3, -0.2, 5];
+  for (const rotate of [{ axis: [1, 1, 0], degrees: 35, pivot: [1, 0, 0] }, { degrees: [20, -40, 70], pivot: [0, 2, 1] }]) {
+    const own = { spheroid: { center: [0, 0, 1], axis: [0, 0, 1], height: 3, radius: 1 }, material: 'stone',
+                  scale: { factor: 1.3, pivot: [0.5, 0, 0] }, rotate, translate: [0.2, 0.4, 3] };
+    const before = compileScene(scene({ group: [own] })).nodes.find((n) => n?.prim?.k_par > 0).prim;
+    const { result } = quietly(() => compileScene(scene({ group: ['floor', { ...own, tangentTo: { to: 'floor', facing: 'touching', by: 'scale', pivot: p } }] }, OBJECTS)));
+    const after = result.nodes.find((n) => n?.prim?.k_par > 0 && n.prim.k_perp > 0 && n.prim.k_par !== n.prim.k_perp).prim;
+    // Whatever the factor found, `after` must be `before` scaled by it about
+    // p: H_after(x) a constant positive multiple of H_before(p + (x - p) / l).
+    // l is read off the curvatures, which the compiler's scalePrim() divides
+    // by the factor; then every point is checked against it.
+    const l = before.k_perp / after.k_perp;
+    assert.ok(Math.abs(before.k_par / after.k_par - l) < 1e-9 * l, 'both curvatures by the same factor');
+    let ratio = null;
+    for (const x of [[0, 0, 0], [1, 2, 3], [-2, 1, 4], [0.5, -1, 6], [3, 3, 3]]) {
+      const y = x.map((v, i) => p[i] + (v - p[i]) / l);
+      const r = quadricAt(after, x) / quadricAt(before, y);
+      ratio ??= r;
+      assert.ok(r > 0 && Math.abs(r - ratio) < 1e-6 * Math.abs(ratio), `the same shape scaled about p (${JSON.stringify(rotate)}): ${r} vs ${ratio}`);
+    }
+  }
+});
+
+test('scaling that changes nothing, or would need too much, stays put and says so', () => {
+  const cone = { cone: { apex: [0, 0, 0], axis: [0, 0, 1], slope: 1 }, material: 'stone', tangentTo: { to: 'big', by: 'scale', pivot: [0, 0, 0] } };
+  const { result, warned } = quietly(() => compileScene(scene({ group: [cone] }, OBJECTS)));
+  assert.match(warned.join('\n'), /scaling about this point changes nothing/);
+  const plain = compileScene(scene({ group: [{ ...cone, tangentTo: undefined }] }, OBJECTS));
+  assert.deepEqual(result.nodes.map((n) => n.prim), plain.nodes.map((n) => n.prim), 'unmoved');
+  // A speck far above the floor, scaled about a point beside it: it would
+  // have to grow by thousands to reach.
+  const far = quietly(() => compileScene(scene({ group: ['floor', ball([0, 0, 500], 0.01, { tangentTo: { to: 'floor', facing: 'touching', by: 'scale', pivot: [0, 0, 500] } })] }, OBJECTS)));
+  assert.match(far.warned.join('\n'), /would need scaling by|never meet/);
+});
+
+test('what scaling can\'t take, it says', () => {
+  assert.throws(() => compileScene(scene({ group: ['floor', ball([0, 0, 3], 1, { tangentTo: { to: 'floor', by: 'scale', along: [0, 0, 1] } })] }, OBJECTS)), /along: is for sliding/);
+  assert.throws(() => compileScene(scene({ group: ['floor', ball([0, 0, 3], 1, { tangentTo: { to: 'floor', pivot: [0, 0, 0] } })] }, OBJECTS)), /pivot: is for scaling/);
+  assert.throws(() => compileScene(scene({ group: ['floor', ball([0, 0, 3], 1, { tangentTo: { to: 'floor', by: 'stretch' } })] }, OBJECTS)), /"slide" or "scale"/);
+});

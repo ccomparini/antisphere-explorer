@@ -41,7 +41,7 @@ import {
 } from './gen/layouts.js';
 import * as layouts from './gen/layouts.js';
 import { regionsDisjoint, interiorPaths } from './overlap.js';
-import { tangentSlide } from './tangent.js';
+import { tangentSlide, tangentScale } from './tangent.js';
 import { quadricAt } from './quadric.js';
 import { readSTL } from './stl.js';
 import { meshToTree, boundsOf, boundingSpheroidOfPoints } from './mesh-import.js';
@@ -659,6 +659,50 @@ export function axisAngleOf(R) {
   }
   const s = 2 * Math.sin(angle);
   return { axis: [(R[2][1] - R[1][2]) / s, (R[0][2] - R[2][0]) / s, (R[1][0] - R[0][1]) / s], radians: angle };
+}
+
+// A transform's pivot, scale and rotation as a scene gives them, read with
+// `at` for complaints: compileScene()'s, and resolveTangents()', which
+// folds a scale into a node's own transforms.
+function pivotSpec(def, path, at) {
+  if (def.pivot === undefined) return [0, 0, 0];
+  if (!Array.isArray(def.pivot) || def.pivot.length !== 3) {
+    at(`${path}.pivot`, 'needs a [x, y, z] point');
+  }
+  return def.pivot;
+}
+
+// "scale": 2, or { "factor": 2, "pivot": [x, y, z] }. Uniform only: a
+// subtree's primitives can point any way they like, and scaling one axis
+// differently would leave most of them outside the family of revolution
+// quadrics a node can hold.
+function scaleSpecOf(def, path, at) {
+  const spec = typeof def === 'number' ? { factor: def } : def;
+  const factor = spec?.factor;
+  if (!(factor > 0)) at(path, 'needs a positive factor, as a number or { factor, pivot }');
+  return { factor, pivot: pivotSpec(spec, path, at) };
+}
+
+// "rotate": { axis, degrees | radians }, an angle about an axis; or
+// { degrees | radians: [x, y, z] }, Euler angles (eulerRows()), with no
+// axis; and an optional pivot to turn about something other than the
+// origin.
+function rotateSpecOf(def, path, at) {
+  if (def && (Array.isArray(def.degrees) || Array.isArray(def.radians))) {
+    if (def.axis !== undefined) at(path, 'Euler angles, [x, y, z], need no axis: give one or the other');
+    if (def.degrees !== undefined && def.radians !== undefined) at(path, 'needs exactly one of degrees or radians');
+    const unit = def.degrees !== undefined ? 'degrees' : 'radians';
+    const angles = def[unit];
+    if (angles.length !== 3 || !angles.every(Number.isFinite)) at(`${path}.${unit}`, `Euler angles are [x, y, z], three numbers, not ${JSON.stringify(angles)}`);
+    return { rows: eulerRows(angles.map((v) => (unit === 'degrees' ? v * Math.PI / 180 : v))), pivot: pivotSpec(def, path, at) };
+  }
+  if (!def || !Array.isArray(def.axis)) at(path, 'needs an axis: { axis: [x, y, z], degrees }, or Euler angles: { degrees: [x, y, z] }');
+  if (!(Math.hypot(...def.axis) > 1e-12)) at(`${path}.axis`, 'has no direction');
+  const hasDegrees = typeof def.degrees === 'number';
+  const hasRadians = typeof def.radians === 'number';
+  if (hasDegrees === hasRadians) at(path, 'needs exactly one of degrees or radians');
+  const radians = hasDegrees ? def.degrees * Math.PI / 180 : def.radians;
+  return { rows: rotationRows(def.axis, radians), pivot: pivotSpec(def, path, at) };
 }
 
 // Rigid translation of a whole subtree: every node's own primitive moves,
@@ -1350,6 +1394,31 @@ const tangentSites = (spec, at) => placementSites(spec, 'tangentTo', (v, where) 
 }, at);
 
 /**
+ * Fold a world-space scale by lambda about p - applied after the node's own
+ * scale, rotate and translate - into those, in place. A uniform scale
+ * commutes with a rotation, so with the node's scale s about q, rotation R
+ * about r and translation T, its points D(x) = R(q + s (x - q) - r) + r + T
+ * go to p + lambda (D(x) - p), which is the same rotation with scale
+ * lambda s about q and translation
+ *   T' = lambda T + (1 - lambda) (p - r - R (q - r)).
+ * Its bounds, in world space, are scaled about p too.
+ */
+function foldScale(def, lambda, p, where, at) {
+  const { factor: s, pivot: q } = def.scale !== undefined ? scaleSpecOf(def.scale, `${where}.scale`, at) : { factor: 1, pivot: [0, 0, 0] };
+  const { rows: R, pivot: r } = def.rotate !== undefined ? rotateSpecOf(def.rotate, `${where}.rotate`, at)
+    : { rows: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], pivot: [0, 0, 0] };
+  const T = def.translate ?? [0, 0, 0];
+  const qr = q.map((v, i) => v - r[i]);
+  const Rqr = R.map((row) => dot3(row, qr));
+  def.translate = T.map((v, i) => lambda * v + (1 - lambda) * (p[i] - r[i] - Rqr[i]));
+  def.scale = typeof def.scale === 'object' && def.scale !== null ? { ...def.scale, factor: lambda * s } : lambda * s;
+  if (def.bounds?.center) {
+    def.bounds.center = def.bounds.center.map((v, i) => p[i] + lambda * (v - p[i]));
+    if (def.bounds.radius !== undefined) def.bounds.radius *= lambda;
+  }
+}
+
+/**
  * A scene with its tangentTo placements worked out (tangent.js): each node
  * asking for one slid along its axis - given, or its own, the target's, or
  * the line between them - until its surface sits flush against (or, facing
@@ -1366,6 +1435,10 @@ function resolveTangents(spec, compile, at, warn) {
     if (COMBINATION_KEYS.some((k) => def[k] !== undefined)) at(where, 'goes on a node with a shape of its own (a single primitive)');
     const facing = ask.facing ?? 'flush';
     if (facing !== 'flush' && facing !== 'touching') at(`${where}.facing`, `"flush" or "touching", not ${JSON.stringify(ask.facing)}`);
+    const by = ask.by ?? 'slide';
+    if (by !== 'slide' && by !== 'scale') at(`${where}.by`, `"slide" or "scale", not ${JSON.stringify(ask.by)}`);
+    if (by === 'scale' && ask.along !== undefined) at(`${where}.along`, 'is for sliding: scaling takes a pivot');
+    if (by === 'slide' && ask.pivot !== undefined) at(`${where}.pivot`, 'is for scaling: sliding takes an axis, along');
     let targetDef;
     if (typeof ask.to === 'string') {
       targetDef = work.objects?.[ask.to];
@@ -1383,6 +1456,19 @@ function resolveTangents(spec, compile, at, warn) {
     for (const k of ['tangentTo', 'drop', 'wrap', 'bounds']) delete moving[k];
     const B = compile({ ...work, root: moving }).nodes[1].prim;
     const A = compile({ ...work, root: targetDef }).nodes[1].prim;
+    const aA = anchorOf(A), aB = anchorOf(B);
+    if (by === 'scale') {
+      // About a pivot: given, or the moved shape's centre (its anchor) - a
+      // flare grows or shrinks round its own waist.
+      const p = ask.pivot ?? aB;
+      if (!(Array.isArray(p) && p.length === 3 && p.every(Number.isFinite))) at(`${where}.pivot`, `a point [x, y, z], not ${JSON.stringify(ask.pivot)}`);
+      const result = tangentScale(A, B, p, { facing, anchors: [aA, aB] });
+      delete def.tangentTo;
+      if (result.warn) { warn(where, result.warn); continue; }
+      if (!result.exact) warn(where, `best effort: the normals are left ${(result.angle * 180 / Math.PI).toFixed(2)} degrees apart`);
+      foldScale(def, result.factor, p, where, at);
+      continue;
+    }
     // Along: given; the moved shape's own axis, if it has one (anything but
     // a sphere: a plane's is its normal); the target's; or between them.
     const isotropic = (q) => q.k_par === q.k_perp && q.k_par !== 0;
@@ -1390,7 +1476,6 @@ function resolveTangents(spec, compile, at, warn) {
     if (along !== undefined && !(Array.isArray(along) && along.length === 3 && along.every(Number.isFinite) && Math.hypot(...along) > 0)) {
       at(`${where}.along`, `a direction [x, y, z], not ${JSON.stringify(along)}`);
     }
-    const aA = anchorOf(A), aB = anchorOf(B);
     along ??= !isotropic(B) ? B.axis : !isotropic(A) ? A.axis : aA.map((v, i) => v - aB[i]);
     const l = Math.hypot(...along);
     if (!(l > 0)) { warn(where, 'no direction to slide in (two spheres with one centre)'); delete def.tangentTo; continue; }
@@ -2019,46 +2104,14 @@ export function compileScene(rawSpec, options = {}) {
     return substrate(def.paint, `${path}.paint`);
   }
 
-  function pivotOf(def, path) {
-    if (def.pivot === undefined) return [0, 0, 0];
-    if (!Array.isArray(def.pivot) || def.pivot.length !== 3) {
-      at(`${path}.pivot`, 'needs a [x, y, z] point');
-    }
-    return def.pivot;
-  }
+  const pivotOf = (def, path) => pivotSpec(def, path, at);
 
   // "scale": 2, or { "factor": 2, "pivot": [x, y, z] }. Uniform only: a
   // subtree's primitives can point any way they like, and scaling one axis
   // differently would leave most of them outside the family of revolution
   // quadrics a node can hold.
-  function scaleSpec(def, path) {
-    const spec = typeof def === 'number' ? { factor: def } : def;
-    const factor = spec?.factor;
-    if (!(factor > 0)) at(path, 'needs a positive factor, as a number or { factor, pivot }');
-    return { factor, pivot: pivotOf(spec, path) };
-  }
-
-  // "rotate": { "axis": [x, y, z], "degrees": 90 }, or "radians", and an
-  // optional pivot to turn about something other than the origin.
-  // { axis, degrees | radians }, an angle about an axis; or { degrees |
-  // radians: [x, y, z] }, Euler angles (eulerRows()), with no axis.
-  function rotateSpec(def, path) {
-    if (def && (Array.isArray(def.degrees) || Array.isArray(def.radians))) {
-      if (def.axis !== undefined) at(path, 'Euler angles, [x, y, z], need no axis: give one or the other');
-      if (def.degrees !== undefined && def.radians !== undefined) at(path, 'needs exactly one of degrees or radians');
-      const unit = def.degrees !== undefined ? 'degrees' : 'radians';
-      const angles = def[unit];
-      if (angles.length !== 3 || !angles.every(Number.isFinite)) at(`${path}.${unit}`, `Euler angles are [x, y, z], three numbers, not ${JSON.stringify(angles)}`);
-      return { rows: eulerRows(angles.map((v) => (unit === 'degrees' ? v * Math.PI / 180 : v))), pivot: pivotOf(def, path) };
-    }
-    if (!def || !Array.isArray(def.axis)) at(path, 'needs an axis: { axis: [x, y, z], degrees }, or Euler angles: { degrees: [x, y, z] }');
-    if (!(Math.hypot(...def.axis) > 1e-12)) at(`${path}.axis`, 'has no direction');
-    const hasDegrees = typeof def.degrees === 'number';
-    const hasRadians = typeof def.radians === 'number';
-    if (hasDegrees === hasRadians) at(path, 'needs exactly one of degrees or radians');
-    const radians = hasDegrees ? def.degrees * Math.PI / 180 : def.radians;
-    return { rows: rotationRows(def.axis, radians), pivot: pivotOf(def, path) };
-  }
+  const scaleSpec = (def, path) => scaleSpecOf(def, path, at);
+  const rotateSpec = (def, path) => rotateSpecOf(def, path, at);
 
   // Every shape a node can be. Each is stated the way an author thinks of
   // it - a centre, an axis, some lengths - and turned into the nine numbers
