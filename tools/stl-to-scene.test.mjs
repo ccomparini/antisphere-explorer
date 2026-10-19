@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeSTL } from '../public/stl.js';
 import { compileScene, isSolid } from '../public/antisphere-scene.js';
+import { quadricAt as H } from '../public/quadric.js';
 
 const script = fileURLToPath(new URL('./stl-to-scene.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'stl-'));
@@ -45,10 +46,6 @@ test('--fit scales it, and it stands on the floor', () => {
   const built = compileScene(scene);
 
   const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
-  const H = (p, R) => {
-    const t = dot(p.axis, R);
-    return p.k_perp * dot(R, R) + (p.k_par - p.k_perp) * t * t + 2 * dot(p.linear, R) + p.constant;
-  };
   const materialAt = (R) => {
     let i = 1, f = 0;
     for (let s = 0; s < 5000 && i !== 0; s++) {

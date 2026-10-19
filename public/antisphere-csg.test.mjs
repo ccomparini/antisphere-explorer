@@ -11,14 +11,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene, isSolid } from './antisphere-scene.js';
+import { quadricAt as H } from './quadric.js';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
-function H(prim, R) {
-  const along = dot(prim.axis, R);
-  return prim.k_perp * dot(R, R) + (prim.k_par - prim.k_perp) * along * along
-       + 2 * dot(prim.linear, R) + prim.constant;
-}
 
 /**
  * Where a point lands: { solid, material, node }, by trace()'s own rules.

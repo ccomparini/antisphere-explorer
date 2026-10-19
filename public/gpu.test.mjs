@@ -27,6 +27,7 @@ import { buildAll } from '../tools/shader-build/index.js';
 import { build } from '../tools/shader-build/preprocess.js';
 import { assignBindings } from '../tools/shader-build/bindings.js';
 import { bindGroup } from './bind-group.js';
+import { quadricAt, gradientAt } from './quadric.js';
 
 // -- a device, or a reason there isn't one ------------------------------------
 
@@ -792,8 +793,7 @@ gpuTest('trace() reports the face a ray struck in a maze: every hit\'s node pass
     root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { use: 'maze' } },
   });
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  const H = (p, R) => { const al = dot(p.axis, R); return p.k_perp * dot(R, R) + (p.k_par - p.k_perp) * al * al + 2 * dot(p.linear, R) + p.constant; };
-  const grad = (p, R) => { const al = dot(p.axis, R); return R.map((v, i) => 2 * (p.k_perp * v + (p.k_par - p.k_perp) * al * p.axis[i] + p.linear[i])); };
+  const H = quadricAt, grad = gradientAt;
   // Rays from all round and above, at points in the maze: tops, faces,
   // jambs and radial walls all get struck.
   let seed = 7;

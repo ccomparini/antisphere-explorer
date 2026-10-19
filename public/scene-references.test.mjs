@@ -7,12 +7,9 @@ import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { compileScene, expandReferences, loadReferences, isReference, isSolid } from './antisphere-scene.js';
 import { writeSTL } from './stl.js';
+import { quadricAt as H } from './quadric.js';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const H = (prim, R) => {
-  const along = dot(prim.axis, R);
-  return prim.k_perp * dot(R, R) + (prim.k_par - prim.k_perp) * along * along + 2 * dot(prim.linear, R) + prim.constant;
-};
 /** What fills point R, by trace()'s rules: the material's albedo, or null where nothing solid does. */
 function albedoAt(built, R) {
   let index = 1, found = 0;

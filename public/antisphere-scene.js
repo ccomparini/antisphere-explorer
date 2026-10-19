@@ -42,6 +42,7 @@ import {
 import * as layouts from './gen/layouts.js';
 import { regionsDisjoint, interiorPaths } from './overlap.js';
 import { tangentSlide } from './tangent.js';
+import { quadricAt } from './quadric.js';
 import { readSTL } from './stl.js';
 import { meshToTree, boundsOf, boundingSpheroidOfPoints } from './mesh-import.js';
 
@@ -2930,12 +2931,6 @@ export function anchorOf({ axis: n, k_par, k_perp, linear: c, constant }) {
   return Math.hypot(...a) <= 2 * size ? [0, 0, 0] : a;
 }
 
-// H at a point, from a prim: x.K.x + 2 c.x + d.
-function quadricAt({ axis: n, k_par, k_perp, linear: c, constant }, x) {
-  const ax = n[0] * x[0] + n[1] * x[1] + n[2] * x[2];
-  return k_perp * (x[0] * x[0] + x[1] * x[1] + x[2] * x[2]) + (k_par - k_perp) * ax * ax +
-         2 * (c[0] * x[0] + c[1] * x[1] + c[2] * x[2]) + constant;
-}
 
 // Which nodes are the same surface, as a u32 per node: the same id for
 // every copy of one - grafting and dividers copy nodes, sharing their prim -

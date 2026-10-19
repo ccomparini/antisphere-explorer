@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { circularMaze, seeded } from './maze.js';
 import { compileScene, isSolid } from './antisphere-scene.js';
+import { quadricAt as H } from './quadric.js';
 
 const OPTIONS = { seed: 3, rings: 5, hallWidth: 1.2, wallHeight: 2.5, wallThickness: 0.2, innerRadius: 1.5 };
 
@@ -43,10 +44,6 @@ test('each ring has as many cells as the one inside it, or twice as many', () =>
 // -- the walls, where the graph says ------------------------------------------------
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const H = (p, R) => {
-  const along = dot(p.axis, R);
-  return p.k_perp * dot(R, R) + (p.k_par - p.k_perp) * along * along + 2 * dot(p.linear, R) + p.constant;
-};
 function solidAt(built, R) {
   let index = 1, found = 0;
   for (let step = 0; step < 20000 && index !== 0; step++) {

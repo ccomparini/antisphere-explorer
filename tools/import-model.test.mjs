@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { writeSTL } from '../public/stl.js';
 import { compileScene, isSolid } from '../public/antisphere-scene.js';
+import { quadricAt as H } from '../public/quadric.js';
 
 const script = fileURLToPath(new URL('./import-model.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'import-model-'));
@@ -74,10 +75,6 @@ function tar(files) {
 const file = (name, content) => { const path = join(scratch, name); writeFileSync(path, content); return path; };
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const H = (prim, R) => {
-  const along = dot(prim.axis, R);
-  return prim.k_perp * dot(R, R) + (prim.k_par - prim.k_perp) * along * along + 2 * dot(prim.linear, R) + prim.constant;
-};
 const CLAY = [0.7, 0.5, 0.4], BRASS = [0.7, 0.6, 0.2];
 
 /**

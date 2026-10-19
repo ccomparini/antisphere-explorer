@@ -20,19 +20,11 @@
 // wins.
 // ---------------------------------------------------------------------------
 
+import { quadricAt, gradientAt } from './quadric.js';
+
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const len = (a) => Math.hypot(a[0], a[1], a[2]);
-
-export function quadricAt(q, R) {
-  const along = dot(q.axis, R);
-  return q.k_perp * dot(R, R) + (q.k_par - q.k_perp) * along * along + 2 * dot(q.linear, R) + q.constant;
-}
-
-export function gradientAt(q, R) {
-  const along = dot(q.axis, R);
-  return [0, 1, 2].map((i) => 2 * q.k_perp * R[i] + 2 * (q.k_par - q.k_perp) * along * q.axis[i] + 2 * q.linear[i]);
-}
 
 // The residual: distances from both surfaces, weighted so heavily that
 // meeting comes first - with no exact fit, the least mismatch is wanted

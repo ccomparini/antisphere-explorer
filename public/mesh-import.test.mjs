@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene, isSolid } from './antisphere-scene.js';
 import { meshToTree, treeStats, planeOfTriangle, boundsOf, boundingSpheroid } from './mesh-import.js';
+import { quadricAt } from './quadric.js';
 
 const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
 const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
@@ -52,8 +53,7 @@ function solidAt(built, R) {
     const nd = built.nodes[index];
     const p = nd.prim;
     const along = dot(p.axis, R);
-    const H = p.k_perp * dot(R, R) + (p.k_par - p.k_perp) * along * along
-            + 2 * dot(p.linear, R) + p.constant;
+    const H = quadricAt(p, R);
     if (H < 0) {
       if (isSolid(built.materials[nd.material])) { if (!found) found = index; } else found = 0;
       index = nd.inside;

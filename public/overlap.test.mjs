@@ -6,16 +6,13 @@ import assert from 'node:assert/strict';
 import { compileScene, isSolid } from './antisphere-scene.js';
 import { regionsOverlap, regionsDisjoint, separation, matrixOf,
          smallestEigen, smallestEigenvalue, interiorPaths, subtreesApart } from './overlap.js';
+import { quadricAt as H } from './quadric.js';
 
 const primOf = (shape) =>
   compileScene({ materials: {}, lights: [], root: shape }).nodes[1].prim;
 
 const ball = (x, r) => ({ sphere: { center: [x, 0, 0], radius: r } });
 const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
-const H = (p, R) => {
-  const a = dot(p.axis, R);
-  return p.k_perp * dot(R, R) + (p.k_par - p.k_perp) * a * a + 2 * dot(p.linear, R) + p.constant;
-};
 
 // -- the eigenvalue routine the certificate rests on -------------------------------
 
