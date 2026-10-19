@@ -352,9 +352,12 @@ export class SceneDocument {
   // -- file --------------------------------------------------------------------
 
   /** Replace the whole document, as for New or Open. History starts over. */
-  load(spec, fileName) {
+  // `references` ({ files, path }, from ASContext.readScene()): what the
+  // spec references, and where it is - kept by the scene for every compile
+  // after, so a scene using a library opens and edits like any other.
+  load(spec, fileName, references = {}) {
     try {
-      this.#scene.update(clone(spec));
+      this.#scene.update(clone(spec), references);
     } catch (e) {
       const error = e.message ?? String(e);
       this.#emit({ kind: 'error', label: 'load', error });

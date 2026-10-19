@@ -127,14 +127,34 @@ export class ASContext {
    * scene.json.gz, model.stl.gz.
    */
   async loadScene(url) {
+    const { spec, files, path } = await this.readScene(url);
+    return this.createScene(spec, { files, path });
+  }
+
+  /**
+   * A scene file as everything that loads one takes it - the viewer
+   * (loadScene()), the editor, physlab: { spec, files, path }, the spec as
+   * written (references and all), what it references (loadReferences()),
+   * and where it is, for those to resolve against. Gzipped or an STL on its
+   * own as loadScene() says.
+   */
+  async readScene(url) {
     const bytes = async () => (isGzip(url) ? gunzip(await loadBytes(url)) : loadBytes(url));
     if (isSTL(url)) {
       const { spec, files } = sceneForMesh(url, new Uint8Array(await bytes()));
-      return this.createScene(spec, { files });
+      return { spec, files, path: undefined };
     }
     const spec = JSON.parse(isGzip(url) ? new TextDecoder().decode(await bytes()) : await loadText(url));
-    const files = await loadReferences(spec, { from: url, readText: loadText, readBytes: loadBytes });
-    return this.createScene(spec, { files, path: url });
+    return this.withReferences(spec, url);
+  }
+
+  /**
+   * A spec that came from somewhere else - a file opened from disk - with
+   * what it references loaded as if it were at `from`: { spec, files, path }.
+   */
+  async withReferences(spec, from) {
+    const files = await loadReferences(spec, { from, readText: loadText, readBytes: loadBytes });
+    return { spec, files, path: from };
   }
 
   createRenderer(canvas, opts) {
@@ -211,6 +231,7 @@ export class ASScene {
    */
   update(spec, options = {}) {
     if (options.files) this.files = options.files;
+    if (options.path !== undefined) this.path = options.path;
     const built = compileScene(spec, { files: this.files, path: this.path });
     const { device } = this.context;
 

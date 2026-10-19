@@ -58,11 +58,6 @@ function note(text, bad) {
   noteTimer = setTimeout(() => { el('note').textContent = ''; }, bad ? 6000 : 1600);
 }
 
-async function fetchScene(name) {
-  const res = await fetch(SCENE_DIR + name, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`${name}: ${res.status} ${res.statusText}`);
-  return res.json();
-}
 
 // Shortcuts and arrow-key flying are global listeners, so they stand down
 // while the user is typing into the panel. Only text entry counts: a slider
@@ -79,11 +74,16 @@ async function main() {
     blitUrl:    '../gen/blit.wgsl',
   });
 
+  // A scene file and what it references, read as the viewer reads one
+  // (ASContext.readScene()); a new one resolves its references, if it gains
+  // any, against the scenes folder.
   let fileName = new URLSearchParams(location.search).get('scene');
-  const spec = fileName ? await fetchScene(fileName) : structuredClone(NEW_SCENE);
+  const { spec, files, path } = fileName
+    ? await gpu.readScene(SCENE_DIR + fileName)
+    : { spec: structuredClone(NEW_SCENE), files: {}, path: SCENE_DIR + 'untitled.json' };
   fileName ??= 'untitled.json';
 
-  const scene = await gpu.createScene(spec);
+  const scene = await gpu.createScene(spec, { files, path });
   const doc = new SceneDocument(scene, spec, { fileName });
 
   // -- views -----------------------------------------------------------------
@@ -218,8 +218,8 @@ async function main() {
 
   // Replace the whole document. A spec that doesn't compile is refused, and
   // the current scene stays as it was.
-  function loadSpec(next, name) {
-    const result = doc.load(next, name);
+  function loadSpec(next, name, references) {
+    const result = doc.load(next, name, references);
     if (!result.ok) { note(`load: ${result.error}`, true); return; }
     frameViews();
     panel.refreshCamera();
@@ -230,7 +230,8 @@ async function main() {
     try {
       const shaders = await gpu.reloadShaders({ force: true });
       if (shaders.error) { note(`reload: ${shaders.error}`, true); return; }
-      const result = doc.load(await fetchScene(doc.fileName), doc.fileName);
+      const read = await gpu.readScene(SCENE_DIR + doc.fileName);
+      const result = doc.load(read.spec, doc.fileName, read);
       if (!result.ok) { note(`reload: ${result.error}`, true); return; }
       note('reloaded');
     } catch (err) {
@@ -254,7 +255,10 @@ async function main() {
     e.target.value = '';
     if (!file || !discardOk()) return;
     try {
-      loadSpec(JSON.parse(await file.text()), file.name);
+      // From disk there is no address: what it references is looked for in
+      // the scenes folder, as if it were there.
+      const opened = await gpu.withReferences(JSON.parse(await file.text()), SCENE_DIR + file.name);
+      loadSpec(opened.spec, file.name, opened);
     } catch (err) {
       note(`open: ${err.message}`, true);
     }

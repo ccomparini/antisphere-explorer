@@ -1157,6 +1157,22 @@ gpuTest('loadScene by URL: a scene referencing what sits beside it, an STL on it
     assert.ok(Math.abs(hits.t0[0] - (5 - 0.6)) < 1e-4, `hit at ${hits.t0[0]}: the slanted face`);
     sc.destroy();
 
+    // readScene(): the spec as written, what it references, and where -
+    // what the editor and physlab load with. A scene made from them still
+    // finds its references when an edit recompiles it, as the editor's do.
+    const read = await ctx.readScene(`${base}/scenes/s.json`);
+    assert.deepEqual(read.spec.materials, ['@lib/m.json'], 'the spec as written, references and all');
+    assert.equal(read.path, `${base}/scenes/s.json`);
+    assert.ok(Object.keys(read.files).length >= 2, `the library and the mesh: ${Object.keys(read.files)}`);
+    const edited = ctx.createScene(read.spec, read);
+    edited.update({ ...read.spec, lights: [{ pos: [0, 0, 6], color: [1, 1, 1] }] });
+    assert.ok(edited.nodes.length > 2, 'an edit recompiles, references and all');
+    edited.destroy();
+    // withReferences(): a spec in hand - a file opened from disk - with its
+    // references looked for where it is said to be.
+    const opened = await ctx.withReferences(JSON.parse(files['/scenes/s.json']), `${base}/scenes/opened.json`);
+    assert.deepEqual(Object.keys(opened.files).sort(), Object.keys(read.files).sort());
+
     // On its own: a floor, a sky and the mesh, scaled to 2 across (x 2)
     // and centred, on the floor. Over its (0.2, 0.2) it is 0.6 tall: 1.2.
     const alone = await ctx.loadScene(`${base}/scenes/parts/tet.stl?v=2`);

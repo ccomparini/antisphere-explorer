@@ -41,7 +41,7 @@ function validate(spec) {
 function fakeScene() {
   return {
     compiles: 0, lightWrites: 0, lights: [], spec: null,
-    update(spec) { validate(spec); this.compiles++; this.spec = spec; this.lights = spec.lights ?? []; },
+    update(spec, references) { validate(spec); this.compiles++; this.spec = spec; this.lights = spec.lights ?? []; this.references = references; },
     setLights(lights) { this.lightWrites++; this.lights = lights; },
   };
 }
@@ -667,4 +667,11 @@ test('deleting one of a combination leaves the other alone', () => {
   assert.equal(doc.has('lamp'), false, 'a part of it, used nowhere else');
   assert.ok(doc.has('bead'), 'the prototype behind bead-1 is still used by bead-2');
   assert.ok(doc.has('bead-2'));
+});
+
+test('load hands the scene what the spec references, for every compile after', () => {
+  const { doc, scene } = make();
+  const references = { files: { 'lib/m.json': '{}' }, path: 'scenes/s.json' };
+  assert.ok(doc.load(baseSpec(), 's.json', references).ok);
+  assert.equal(scene.references, references);
 });
