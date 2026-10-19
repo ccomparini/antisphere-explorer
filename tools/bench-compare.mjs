@@ -43,6 +43,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseOptions } from './args.mjs';
 
 const SELF = fileURLToPath(import.meta.url);
 const REPO = resolve(SELF, '../..');
@@ -50,7 +51,12 @@ const REPO = resolve(SELF, '../..');
 if (process.argv[2] === '--probe') {
   await probe(JSON.parse(process.argv[3]));
 } else {
-  await compare(process.argv.slice(2));
+  try {
+    await compare(process.argv.slice(2));
+  } catch (error) {
+    console.error(`bench-compare: ${error.message}`);
+    process.exit(1);
+  }
 }
 
 // -- one measurement, in a process of its own ---------------------------------
@@ -188,19 +194,19 @@ async function probe({ tree, scene, size: [width, height] }) {
 // -- the comparison -----------------------------------------------------------
 
 async function compare(argv) {
-  const revs = [], scenes = [];
-  let runs = 3, size = [1920, 1080], limit = 60;
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === '-r' || arg === '--rev') revs.push(argv[++i]);
-    else if (arg === '-n' || arg === '--runs') runs = Number(argv[++i]);
-    else if (arg === '-s' || arg === '--size') size = argv[++i].split('x').map(Number);
-    else if (arg === '-t' || arg === '--time-limit') limit = Number(argv[++i]);
-    else if (arg === '-h' || arg === '--help') {
-      console.log(readFileSync(SELF, 'utf8').split('\n\n')[0].replace(/^\/\/ ?/gm, ''));
-      return;
-    } else scenes.push(arg);
+  const { values, positionals: scenes } = parseOptions(argv, {
+    rev: { type: 'string', short: 'r', multiple: true, default: [] },
+    runs: { type: 'number', short: 'n', default: 3 },
+    size: { type: 'string', short: 's', default: '1920x1080' },
+    'time-limit': { type: 'number', short: 't', default: 60 },
+    help: { type: 'boolean', short: 'h' },
+  }, { positionals: true });
+  if (values.help) {
+    console.log(readFileSync(SELF, 'utf8').split('\n\n')[0].replace(/^\/\/ ?/gm, ''));
+    return;
   }
+  const revs = values.rev, runs = values.runs, limit = values['time-limit'];
+  const size = values.size.split('x').map(Number);
   if (!revs.length) revs.push('.');
   if (!scenes.length) throw new Error('name a scene or two to measure (see --help)');
   if (!(runs >= 1) || !(limit > 0) || size.length !== 2 || !size.every((v) => v > 0)) {

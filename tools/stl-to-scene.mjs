@@ -13,6 +13,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { readSTL } from '../public/stl.js';
 import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-import.js';
 import { compileScene, sceneAroundMesh } from '../public/antisphere-scene.js';
+import { parseOptions } from './args.mjs';
 
 const USAGE = `
 stl-to-scene - convert an STL into an antisphere scene
@@ -30,24 +31,24 @@ stl-to-scene - convert an STL into an antisphere scene
 `.trim();
 
 function parseArguments(argv) {
-  const options = { material: 'clay', name: 'model', centre: true, floor: true, split: true };
-  const rest = [];
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const next = () => argv[++i];
-    if (arg === '-o' || arg === '--out') options.out = next();
-    else if (arg === '--fit') options.fit = Number(next());
-    else if (arg === '--material') options.material = next();
-    else if (arg === '--name') options.name = next();
-    else if (arg === '--no-centre' || arg === '--no-center') options.centre = false;
-    else if (arg === '--no-floor') options.floor = false;
-    else if (arg === '--whole') options.split = false;
-    else if (arg === '-h' || arg === '--help') options.help = true;
-    else if (arg.startsWith('-')) throw new Error(`unknown option ${arg}`);
-    else rest.push(arg);
-  }
-  options.file = rest[0];
-  return options;
+  const { values, positionals } = parseOptions(argv, {
+    out: { type: 'string', short: 'o' },
+    fit: { type: 'number' },
+    material: { type: 'string', default: 'clay' },
+    name: { type: 'string', default: 'model' },
+    'no-centre': { type: 'boolean' },
+    'no-center': { type: 'boolean' },
+    'no-floor': { type: 'boolean' },
+    whole: { type: 'boolean' },
+    help: { type: 'boolean', short: 'h' },
+  }, { positionals: true });
+  return {
+    out: values.out, fit: values.fit, material: values.material, name: values.name, help: values.help,
+    centre: !(values['no-centre'] || values['no-center']),
+    floor: !values['no-floor'],
+    split: !values.whole,
+    file: positionals[0],
+  };
 }
 
 function main(argv) {
@@ -107,4 +108,9 @@ function main(argv) {
   }
 }
 
-main(process.argv.slice(2));
+try {
+  main(process.argv.slice(2));
+} catch (error) {
+  console.error(`stl-to-scene: ${error.message}`);
+  process.exit(1);
+}

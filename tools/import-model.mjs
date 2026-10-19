@@ -49,6 +49,7 @@ import { readPLY } from '../public/ply.js';
 import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-import.js';
 import { compileScene } from '../public/antisphere-scene.js';
 import { stringifyJSON } from '../public/fbm-json.js';
+import { parseOptions } from './args.mjs';
 
 const USAGE = `
 import-model - convert a mesh, from a file or a URL, into a model for scenes
@@ -76,32 +77,19 @@ import-model - convert a mesh, from a file or a URL, into a model for scenes
 const thisScriptName = path.relative(process.cwd(), fileURLToPath(import.meta.url));
 
 function parseArguments(argv) {
-  const options = {};
-  const rest = [];
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const next = () => {
-      if (i + 1 >= argv.length) throw new Error(`${arg} needs a value`);
-      return argv[++i];
-    };
-    if (arg === '-o' || arg === '--out') options.out = next();
-    else if (arg === '--fit') {
-      options.fit = Number(next());
-      if (!(options.fit > 0)) throw new Error('--fit needs a positive number');
-    } else if (arg === '--material') options.material = next();
-    else if (arg === '--up') {
-      options.up = next();
-      if (!UP[options.up]) throw new Error(`--up ${options.up}: x, y, z, -x, -y or -z`);
-    }
-    else if (arg === '--float32') options.float32 = true;
-    else if (arg === '--pretty') options.pretty = true;
-    else if (arg === '-h' || arg === '--help') options.help = true;
-    else if (arg.startsWith('-')) throw new Error(`unknown option ${arg}`);
-    else rest.push(arg);
-  }
-  if (rest.length > 1) throw new Error(`one source at a time, not ${rest.length}`);
-  options.source = rest[0];
-  return options;
+  const { values, positionals } = parseOptions(argv, {
+    out: { type: 'string', short: 'o' },
+    fit: { type: 'number' },
+    material: { type: 'string' },
+    up: { type: 'string' },
+    float32: { type: 'boolean' },
+    pretty: { type: 'boolean' },
+    help: { type: 'boolean', short: 'h' },
+  }, { positionals: true });
+  if (values.fit !== undefined && !(values.fit > 0)) throw new Error('--fit needs a positive number');
+  if (values.up !== undefined && !UP[values.up]) throw new Error(`--up ${values.up}: x, y, z, -x, -y or -z`);
+  if (positionals.length > 1) throw new Error(`one source at a time, not ${positionals.length}`);
+  return { ...values, source: positionals[0] };
 }
 
 // Turning the axis named up onto +z, each a rotation (so windings, and

@@ -47,9 +47,11 @@
 // "dawn_entry_point" and the dump can't otherwise say which is which.
 
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseOptions } from './args.mjs';
 
 const PUBLIC = new URL('../public/', import.meta.url);
 const self = fileURLToPath(import.meta.url);
@@ -88,16 +90,21 @@ try {
   process.exit(1);
 }
 
-const args = process.argv.slice(2);
-let dumpDir = null;
-const rest = [];
-for (let i = 0; i < args.length; i++) {
-  if (args[i] === '--dump') {
-    dumpDir = args[++i];
-    if (!dumpDir) { console.error('--dump needs a directory'); process.exit(1); }
-  } else {
-    rest.push(args[i]);
+let dumpDir = null, rest;
+try {
+  const { values, positionals } = parseOptions(process.argv.slice(2), {
+    dump: { type: 'string' },
+    help: { type: 'boolean', short: 'h' },
+  }, { positionals: true });
+  if (values.help) {
+    console.log(readFileSync(self, 'utf8').split('\n\n')[0].replace(/^\/\/ ?/gm, ''));
+    process.exit(0);
   }
+  dumpDir = values.dump ?? null;
+  rest = positionals;
+} catch (error) {
+  console.error(`shader-stats: ${error.message}`);
+  process.exit(1);
 }
 const shaderArg = rest.find((a) => a.endsWith('.wgsl'));
 const shaderPath = shaderArg ?? fileURLToPath(new URL('gen/antisphere-raycast.wgsl', PUBLIC));

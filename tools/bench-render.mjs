@@ -15,7 +15,10 @@
 // There is no display and no compositor here, so these are the GPU's numbers
 // for the work itself; a browser adds its own presentation cost on top.
 
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { parseOptions } from './args.mjs';
 import * as webgpu from 'webgpu';
 
 const PUBLIC = new URL('../public/', import.meta.url);
@@ -31,7 +34,20 @@ const { ASCamera } = await import(new URL('as-camera.js', PUBLIC));
 const { ABLATE_NONE, ABLATE_TRACE, ABLATE_SHADE } = await import(new URL('gen/layouts.js', PUBLIC));
 const { loadReferences } = await import(new URL('antisphere-scene.js', PUBLIC));
 
-const args = process.argv.slice(2);
+let args;
+try {
+  const { values, positionals } = parseOptions(process.argv.slice(2), { help: { type: 'boolean', short: 'h' } }, { positionals: true });
+  if (values.help) {
+    console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n\n')[0].replace(/^\/\/ ?/gm, ''));
+    process.exit(0);
+  }
+  const odd = positionals.find((a) => !a.endsWith('.json') && !/^\d+x\d+$/.test(a));
+  if (odd) throw new Error(`${odd}: neither a scene (.json) nor a size (WxH)`);
+  args = positionals;
+} catch (error) {
+  console.error(`bench-render: ${error.message}`);
+  process.exit(1);
+}
 const sceneFile = args.find((a) => a.endsWith('.json')) ?? 'scene.json';
 const sizes = args.filter((a) => /^\d+x\d+$/.test(a)).map((s) => s.split('x').map(Number));
 if (!sizes.length) sizes.push([1920, 1080], [1280, 720], [3840, 2160]);

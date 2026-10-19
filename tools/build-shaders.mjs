@@ -17,6 +17,7 @@ import { watch } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAll } from './shader-build/index.js';
+import { parseOptions } from './args.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CONFIG = 'shaders/build.json';
@@ -37,7 +38,15 @@ async function buildOnce() {
   if (!written) console.log(`${files.length} files up to date`);
 }
 
-if (!process.argv.includes('--watch')) {
+let watching;
+try {
+  ({ values: { watch: watching } } = parseOptions(process.argv.slice(2), { watch: { type: 'boolean' } }));
+} catch (e) {
+  console.error(`build-shaders: ${e.message} (the one option is --watch)`);
+  process.exit(1);
+}
+
+if (!watching) {
   try {
     await buildOnce();
   } catch (e) {

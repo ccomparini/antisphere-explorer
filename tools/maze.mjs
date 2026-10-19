@@ -12,6 +12,7 @@
 import { writeFileSync } from 'node:fs';
 import { circularMaze } from '../public/maze.js';
 import { compileScene } from '../public/antisphere-scene.js';
+import { parseOptions } from './args.mjs';
 
 const USAGE = `
 maze - write a scene with a circular maze in it
@@ -38,32 +39,26 @@ maze - write a scene with a circular maze in it
   floor.
 `.trim();
 
-const NAMES = {
-  '--material': 'material', '--door-material': 'doorMaterial',
-  '--top-material': 'topMaterial', '--floor-material': 'floorMaterial',
+const OPTIONS = {
+  out: { type: 'string', short: 'o' },
+  seed: { type: 'number' }, rings: { type: 'number' }, 'hall-width': { type: 'number' },
+  'wall-height': { type: 'number' }, 'wall-thickness': { type: 'number' },
+  'inner-radius': { type: 'number' }, torches: { type: 'number' }, sun: { type: 'number' },
+  material: { type: 'string', default: 'stone' }, 'door-material': { type: 'string' },
+  'top-material': { type: 'string' }, 'floor-material': { type: 'string' },
+  'torches-global': { type: 'boolean' },
+  help: { type: 'boolean', short: 'h' },
 };
 
-const NUMBERS = {
-  '--seed': 'seed', '--rings': 'rings', '--hall-width': 'hallWidth',
-  '--wall-height': 'wallHeight', '--wall-thickness': 'wallThickness',
-  '--inner-radius': 'innerRadius', '--torches': 'torches', '--sun': 'sun',
-};
-
+// mazeScene()'s options: each named as its option is, camel-cased.
 function parseArguments(argv) {
-  const options = { material: 'stone' };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const next = () => argv[++i];
-    if (arg === '-o' || arg === '--out') options.out = next();
-    else if (NAMES[arg]) options[NAMES[arg]] = next();
-    else if (NUMBERS[arg]) {
-      const value = Number(next());
-      if (!Number.isFinite(value)) throw new Error(`${arg} needs a number`);
-      options[NUMBERS[arg]] = value;
-    } else if (arg === '--torches-global') options.scopeTorches = false;
-    else if (arg === '-h' || arg === '--help') options.help = true;
-    else throw new Error(`unknown option ${arg}`);
+  const { values } = parseOptions(argv, OPTIONS);
+  const options = {};
+  for (const [name, value] of Object.entries(values)) {
+    options[name.replace(/-(\w)/g, (_, c) => c.toUpperCase())] = value;
   }
+  if (options.torchesGlobal) options.scopeTorches = false;
+  delete options.torchesGlobal;
   return options;
 }
 
