@@ -1,3 +1,5 @@
 node_modules/
 public/scenes/parts/stanford/
-public/scenes/parts/quaternius/
+# The Universal Animation Library's GLBs; its figure, made from them, is kept.
+public/scenes/parts/quaternius/*
+!public/scenes/parts/quaternius/mannequin.json
