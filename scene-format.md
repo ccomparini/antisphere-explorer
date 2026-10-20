@@ -3,7 +3,8 @@
 A scene file describes a camera, a material palette, a set of lights, and a
 CSG tree of quadric primitives. `compileScene()` in
 `public/antisphere-scene.js` turns it into the flat node/material/light
-tables the WGSL raycaster (`shaders/antisphere-raycast.wgsls`) actually reads.
+tables the WGSL raycaster (`shaders/antisphere-raycast.wgsls`) actually reads
+- described in `compiled-format.md`.
 See `public/scene.json` for a large worked example, and `public/scene-simple.json`
 / `public/scene-just-tower.json` for smaller ones.
 

@@ -9,7 +9,10 @@ This means that CSG operations can be performed in the traditional way, with the
 This is raycaster implemented using this concept.
 
 The model as it stands now (nodes are general quadrics of revolution these
-days), and where it is going, is in [DESIGN.md](DESIGN.md).
+days), and where it is going, is in [DESIGN.md](DESIGN.md). What a scene
+file says is in [scene-format.md](scene-format.md), and what it compiles to,
+for the shaders and anything else reading it, in
+[compiled-format.md](compiled-format.md).
 
 ## Viewing
 
