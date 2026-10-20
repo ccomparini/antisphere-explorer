@@ -110,8 +110,11 @@ function reword(e, options) {
  *  checkout, whatever) the full path isn't going to be correct
  *  and would have to be hand edited.
  *
- *  This to-relative-path is run on all elements of process.argv
- *  which appear to refer to actual files.  I believe this will
+ *  This to-relative-path is run on the elements of process.argv
+ *  which are absolute paths to actual files; anything relative is
+ *  kept as typed ('.' stays '.', not the '' path.relative() would
+ *  make of it), and an argument that can't be looked up (ENOTDIR,
+ *  ENAMETOOLONG, EACCES...) is left as it is.  I believe this will
  *  cover the cases where node (or something else) changed an argument
  *  to an absolute path, but note that it will not work if the invocation
  *  was (for example) `node some_script.mjs --foo=/home/chris/blah`
@@ -128,12 +131,16 @@ function reword(e, options) {
  */
 export function commandLine() {
   const rest = process.argv.slice(1).map((arg) => {
-    if(fs.lstatSync(arg, { throwIfNoEntry:false }) !== undefined) {
-      // arg is the path of an existing file, so convert it to relative
-      // (regardless of if it already is or if it's canonical path or what)
-      return path.relative(process.cwd(), arg);
+    if (!path.isAbsolute(arg)) return arg;   // as typed: '.', 'public/scenes/'
+    let exists = false;
+    try {
+      exists = fs.lstatSync(arg, { throwIfNoEntry: false }) !== undefined;
+    } catch {
+      // ENOTDIR, ENAMETOOLONG, EACCES...: not a file we can name; leave it
     }
-    return arg;
+    // arg is the absolute path of an existing file, so convert it to
+    // relative; the working directory itself is '.', not ''
+    return exists ? (path.relative(process.cwd(), arg) || '.') : arg;
   });
 
   return [

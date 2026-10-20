@@ -90,6 +90,17 @@ test('commandLine(): the command line as given, a script relative to here, -e\'s
     assert.deepEqual(run('--input-type=module', '-e', show), ['node', '--input-type=module', '-e', show]);
     assert.deepEqual(run('--input-type=module', '-e', show, '/abs/path'), ['node', '--input-type=module', '-e', show, '/abs/path'],
                      'after -e, an argument like a path is left as it is');
+
+    // Only absolute paths to files that exist are made relative.
+    const script = (...args) => run('tools/show.mjs', ...args).slice(2);
+    assert.deepEqual(script('-r', '.', 'tools/', 'tools/show.mjs'), ['-r', '.', 'tools/', 'tools/show.mjs'], 'relative ones as typed');
+    assert.deepEqual(script(dir, join(dir, 'tools'), join(dir, 'tools/show.mjs')), ['.', 'tools', 'tools/show.mjs'],
+                     'absolute ones relative to here, here itself "."');
+    assert.deepEqual(script('/abs/not/there'), ['/abs/not/there']);
+    // What can't be looked up is left alone, not thrown over.
+    const long = 'x'.repeat(300);
+    assert.deepEqual(script(join(dir, 'tools/show.mjs/x'), `/${long}`), [join(dir, 'tools/show.mjs/x'), `/${long}`],
+                     'a path through a file (ENOTDIR), a name too long (ENAMETOOLONG)');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
