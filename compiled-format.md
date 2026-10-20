@@ -85,8 +85,8 @@ A child always has a larger index than the node it was first reached from.
 #### The quadric, `prim`
 
 $$
-H(\vec r) = k_\perp\,\vec r\cdot\vec r + (k_\parallel - k_\perp)\,(\vec r\cdot\vec n)^2
-          + 2\,\vec c\cdot\vec r + d
+H(\vec r) = k_\perp \vec r\cdot\vec r + (k_\parallel - k_\perp) (\vec r\cdot\vec n)^2
+          + 2 \vec c\cdot\vec r + d
 $$
 
 with $\vec n$ = `axis` (a unit vector), $k_\parallel$ = `k_par`, $k_\perp$ = `k_perp`,
@@ -234,9 +234,9 @@ are 32-bit, little-endian.
 |---|---|---|---|
 | 0  | `axis`            | `vec3<f32>` | $\vec n$ |
 | 12 | `curvature_perp`  | `f32`       | $k_\perp$ |
-| 16 | `linear`          | `vec3<f32>` | $\vec l = 2\vec c\,'$, about the anchor (below) |
+| 16 | `linear`          | `vec3<f32>` | $\vec l = 2\vec c_a$, about the anchor (below) |
 | 28 | `curvature_delta` | `f32`       | $\delta = k_\parallel - k_\perp$ |
-| 32 | `const_term`      | `f32`       | $d' = H(\vec a)$, about the anchor |
+| 32 | `const_term`      | `f32`       | $d_a = H(\vec a)$, about the anchor |
 | 36 | `inside`          | `u32`       | as compiled |
 | 40 | `outside`         | `u32`       | as compiled |
 | 44 | `material_id`     | `u32`       | the material's index, with its `flags` above it (below) |
@@ -246,11 +246,11 @@ are 32-bit, little-endian.
 **Rearranged, not changed.** The GPU's nine numbers are the forms the
 shader's formulas want: $\delta$ is zero exactly when the axis doesn't matter
 (a sphere or a plane), and $\vec l$ is what both $H$ and $\nabla H$ take.
-$k_\parallel = k_\perp + \delta$ and $\vec c\,' = \vec l / 2$, so nothing is
+$k_\parallel = k_\perp + \delta$ and $\vec c_a = \vec l / 2$, so nothing is
 lost.
 
 **About the anchor.** In f32, a quadric 500 m from the origin, expanded about
-the origin, has terms of $250000\,k$ cancelling to the small $H$ near its
+the origin, has terms of $250000 k$ cancelling to the small $H$ near its
 surface, leaving few correct digits. So the GPU's coefficients are about the
 node's anchor $\vec a$, a point near its own surface - a sphere's,
 spheroid's or hyperboloid's centre, a cone's apex, a paraboloid's vertex, a
@@ -260,13 +260,14 @@ or for anything within twice its size of the origin:
 $$
 \begin{aligned}
 \vec u &= \vec p - \vec a \\
-H(\vec p) &= k_\perp\,\vec u\cdot\vec u + \delta\,(\vec u\cdot\vec n)^2 + \vec l\cdot\vec u + d' \\
-\vec c\,' &= \mathbf{K}\vec a + \vec c, \qquad \mathbf{K} = k_\perp \mathbf{I} + \delta\,\vec n\,\vec n^{\mathsf T} \\
-d' &= H(\vec a)
+H(\vec p) &= k_\perp \vec u\cdot\vec u + \delta (\vec u\cdot\vec n)^2 + \vec l\cdot\vec u + d_a \\
+\vec c_a &= \mathbf{K}\vec a + \vec c, \qquad \mathbf{K} = k_\perp \mathbf{I} + \delta \vec n \vec n^{\mathsf T} \\
+d_a &= H(\vec a)
 \end{aligned}
 $$
 
-worked out in f64 by `packNodes()`.
+where $\vec c_a$ and $d_a$ are the linear and constant terms about the anchor, worked
+out in f64 by `packNodes()`.
 
 **`material_id`.** The low 27 bits index the material; the high bits are its
 trace flags, so `trace()` reads what a ray does in a region without looking
