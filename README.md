@@ -91,6 +91,12 @@ and checks every generated struct layout against the one Dawn actually uses.
 It needs a Vulkan-capable GPU (a software one like llvmpipe works too) and
 skips itself when there isn't one. `npm run test:gpu` runs just that file.
 
+Alternately:
+
+    node --test '**/*.test.mjs'
+
+finds and runs all the test files below the current directory.
+
 ## Benchmarking
 
 Three tools, all headless through Dawn like the GPU tests. Each one's full
