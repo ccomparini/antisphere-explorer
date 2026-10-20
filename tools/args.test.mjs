@@ -3,8 +3,11 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseOptions, commandLine } from './args.mjs';
 
 const OPTIONS = {
@@ -65,9 +68,29 @@ test('what is wrong, said shortly', () => {
   assert.throws(() => parse(['stray'], {}), /^Error: unexpected argument stray$/);
 });
 
-test('commandLine() names the script node was run on, not args.mjs', () => {
-  // Under node --test, each test file is the script its process runs.
-  const [runtime, script] = commandLine();
-  assert.equal(runtime, 'node');
-  assert.equal(script, relative(process.cwd(), fileURLToPath(import.meta.url)));
+test('commandLine(): the command line as given, a script relative to here, -e\'s arguments as they are', () => {
+  const ARGS = pathToFileURL(fileURLToPath(new URL('./args.mjs', import.meta.url))).href;
+  const show = `import { commandLine } from ${JSON.stringify(ARGS)}; console.log(JSON.stringify(commandLine()));`;
+  // realpathSync here is because on OSX /var (where temp files are put)
+  // is a symlink, but cwd() in the subproc will show the canonical path,
+  // and we need them to match:
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'command-line-')));
+  try {
+    mkdirSync(join(dir, 'tools'));
+    writeFileSync(join(dir, 'tools/show.mjs'), show);
+    const run = (...args) => {
+      const out = spawnSync('node', args, { cwd: dir, encoding: 'utf8' });
+      assert.equal(out.status, 0, out.stderr);
+      return JSON.parse(out.stdout);
+    };
+    assert.deepEqual(run('tools/show.mjs', '-o', 'x.json'), ['node', 'tools/show.mjs', '-o', 'x.json']);
+    assert.deepEqual(run('--no-warnings', join(dir, 'tools/show.mjs'), 'a'), ['node', '--no-warnings', 'tools/show.mjs', 'a'],
+                     'node\'s own options; the script relative to here, however it was named');
+    assert.deepEqual(run('--input-type=module', '-e', show, 'fruitbats'), ['node', '--input-type=module', '-e', show, 'fruitbats']);
+    assert.deepEqual(run('--input-type=module', '-e', show), ['node', '--input-type=module', '-e', show]);
+    assert.deepEqual(run('--input-type=module', '-e', show, '/abs/path'), ['node', '--input-type=module', '-e', show, '/abs/path'],
+                     'after -e, an argument like a path is left as it is');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

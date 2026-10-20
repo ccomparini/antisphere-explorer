@@ -27,8 +27,9 @@
 //
 // An option not given is absent from `values` unless it has a `default`.
 
-import * as path         from 'node:path';
-import { parseArgs }     from 'node:util';
+import * as fs       from 'node:fs';
+import * as path     from 'node:path';
+import { parseArgs } from 'node:util';
 
 export function parseOptions(argv, options, { positionals = false } = {}) {
   const config = {};
@@ -96,18 +97,48 @@ function reword(e, options) {
  *  Returns an attempt at a recreation of the command line as
  *  an array.
  *
- *  The 0th element will the node runtime release name,
- *  the 1st should be the name of the script node was run on (not this
- *  file's) with a relative path,
- *  and the rest will be the arguments as seen in argv[2...]
+ *  Any arguments from process.argv which appear to be full
+ *  paths are converted to relative.  This is because if you
+ *  do `node script.mjs` node will put the full path to script.mjs
+ *  in argv[1] instead of just 'script.mjs'.  If (common case)
+ *  this is being used to record how a script was invoked, we
+ *  absolutely do not want to record the full path, as it probably
+ *  contains a user name and possibly other info which the invoker
+ *  of the script doesn't want to spill.  Also, full path is actively
+ *  unhelpful for reinvocations, since if you're invoking it from
+ *  a different directory (different machine, different git
+ *  checkout, whatever) the full path isn't going to be correct
+ *  and would have to be hand edited.
+ *
+ *  This to-relative-path is run on all elements of process.argv
+ *  which appear to refer to actual files.  I believe this will
+ *  cover the cases where node (or something else) changed an argument
+ *  to an absolute path, but note that it will not work if the invocation
+ *  was (for example) `node some_script.mjs --foo=/home/chris/blah`
+ *  since the argument is '--foo=/home/chris/blah' which is (probably)
+ *  not a file in the filesystem.  I'm not worried about that
+ *  so much - if the user went out of their way to give an absolute
+ *  path, that's on them.  The problem comes when node replaces
+ *  the arguments quietly, by surprise.
+ *
+ *  The 0th element will be process.argv0.
+ *  The remaining elements will be the rest of the arguments, with the conversion
+ *  described above.
+ *
  */
 export function commandLine() {
-  const thisScriptName = path.relative(process.cwd(), process.argv[1]);
+  const rest = process.argv.slice(1).map((arg) => {
+    if(fs.lstatSync(arg, { throwIfNoEntry:false }) !== undefined) {
+      // arg is the path of an existing file, so convert it to relative
+      // (regardless of if it already is or if it's canonical path or what)
+      return path.relative(process.cwd(), arg);
+    }
+    return arg;
+  });
+
   return [
-    process.release.name, // "node", probably
-    thisScriptName,
-    ...process.argv.slice(2)
-  ]
+    process.argv0,
+    ...process.execArgv,  // arguments to node itself, which may be relevant
+    ...rest
+  ];
 }
-
-
