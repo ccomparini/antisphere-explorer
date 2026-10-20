@@ -3,7 +3,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseOptions } from './args.mjs';
+import { relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseOptions, commandLine } from './args.mjs';
 
 const OPTIONS = {
   out:   { type: 'string', short: 'o' },
@@ -61,4 +63,11 @@ test('what is wrong, said shortly', () => {
   assert.throws(() => parse(['-o']), /^Error: --out needs a value$/);
   assert.throws(() => parse(['--whole=yes']), /^Error: --whole takes no value$/);
   assert.throws(() => parse(['stray'], {}), /^Error: unexpected argument stray$/);
+});
+
+test('commandLine() names the script node was run on, not args.mjs', () => {
+  // Under node --test, each test file is the script its process runs.
+  const [runtime, script] = commandLine();
+  assert.equal(runtime, 'node');
+  assert.equal(script, relative(process.cwd(), fileURLToPath(import.meta.url)));
 });

@@ -28,7 +28,6 @@
 // An option not given is absent from `values` unless it has a `default`.
 
 import * as path         from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseArgs }     from 'node:util';
 
 export function parseOptions(argv, options, { positionals = false } = {}) {
@@ -98,11 +97,12 @@ function reword(e, options) {
  *  an array.
  *
  *  The 0th element will the node runtime release name,
- *  the 1st should be the name of this script with a relative path,
+ *  the 1st should be the name of the script node was run on (not this
+ *  file's) with a relative path,
  *  and the rest will be the arguments as seen in argv[2...]
  */
 export function commandLine() {
-  const thisScriptName = path.relative(process.cwd(), fileURLToPath(import.meta.url));
+  const thisScriptName = path.relative(process.cwd(), process.argv[1]);
   return [
     process.release.name, // "node", probably
     thisScriptName,
