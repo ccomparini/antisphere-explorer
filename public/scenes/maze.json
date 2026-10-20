@@ -1,36 +1,16 @@
 {
   "_comment": "A circular maze, seed 1: written by tools/maze.mjs (public/maze.js).",
-  "materials": {
-    "stone": {
-      "albedo": [
-        0.62,
-        0.58,
-        0.52
-      ]
-    },
-    "floor": {
-      "albedo": [
-        0.3,
-        0.31,
-        0.34
-      ],
-      "albedo2": [
-        0.18,
-        0.19,
-        0.21
-      ],
-      "pattern": "checker",
-      "scale": 1
-    },
-    "sky": {
-      "kind": "unlit",
-      "albedo": [
-        0.07,
-        0.09,
-        0.14
-      ]
-    }
+  "_meta": {
+    "generatedBy": [
+      "node",
+      "tools/maze.mjs",
+      "-o",
+      "public/scenes/maze.json"
+    ],
+    "generatorVersionMaj": 0,
+    "generatorVersionMin": 9
   },
+  "materials": "@lib/maze_defaults.json",
   "lights": [
     {
       "pos": [
@@ -138,7 +118,7 @@
                   ],
                   "offset": 0
                 },
-                "material": "floor",
+                "material": "maze-floor",
                 "outside": {
                   "cylinder": {
                     "center": [
@@ -154,7 +134,7 @@
                     "radius": 2.8125,
                     "complement": true
                   },
-                  "material": "stone",
+                  "material": "maze-default",
                   "inside": {
                     "plane": {
                       "normal": [
@@ -164,7 +144,7 @@
                       ],
                       "offset": 2.5
                     },
-                    "material": "stone"
+                    "material": "maze-default"
                   }
                 }
               },
@@ -187,7 +167,7 @@
                     ],
                     "offset": 0
                   },
-                  "material": "floor",
+                  "material": "maze-floor",
                   "outside": {
                     "cylinder": {
                       "center": [
@@ -203,7 +183,7 @@
                       "radius": 2.8125,
                       "complement": true
                     },
-                    "material": "stone",
+                    "material": "maze-default",
                     "inside": {
                       "plane": {
                         "normal": [
@@ -213,7 +193,7 @@
                         ],
                         "offset": 2.5
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "slab": {
                           "center": [
@@ -229,7 +209,7 @@
                           "thickness": 1.8,
                           "complement": true
                         },
-                        "material": "stone"
+                        "material": "maze-default"
                       }
                     }
                   }
@@ -243,7 +223,7 @@
                     ],
                     "offset": 0
                   },
-                  "material": "floor",
+                  "material": "maze-floor",
                   "outside": {
                     "cylinder": {
                       "center": [
@@ -259,7 +239,7 @@
                       "radius": 2.8125,
                       "complement": true
                     },
-                    "material": "stone",
+                    "material": "maze-default",
                     "inside": {
                       "plane": {
                         "normal": [
@@ -269,7 +249,7 @@
                         ],
                         "offset": 2.5
                       },
-                      "material": "stone"
+                      "material": "maze-default"
                     }
                   }
                 }
@@ -329,7 +309,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -344,7 +324,7 @@
                           ],
                           "radius": 3.0125
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -354,7 +334,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "cylinder": {
@@ -371,7 +351,7 @@
                             "radius": 5.2625,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -381,7 +361,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -395,7 +375,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -410,7 +390,7 @@
                           ],
                           "radius": 3.0125
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -420,7 +400,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "cylinder": {
@@ -437,7 +417,7 @@
                             "radius": 5.2625,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -447,7 +427,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -463,7 +443,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -480,7 +460,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -490,7 +470,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -506,7 +486,7 @@
                       ],
                       "offset": 0
                     },
-                    "material": "floor",
+                    "material": "maze-floor",
                     "outside": {
                       "cylinder": {
                         "center": [
@@ -521,7 +501,7 @@
                         ],
                         "radius": 3.0125
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "plane": {
                           "normal": [
@@ -531,7 +511,7 @@
                           ],
                           "offset": 2.5
                         },
-                        "material": "stone"
+                        "material": "maze-default"
                       },
                       "outside": {
                         "cylinder": {
@@ -548,7 +528,7 @@
                           "radius": 5.2625,
                           "complement": true
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -558,7 +538,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -574,7 +554,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -591,7 +571,7 @@
                             ],
                             "thickness": 0.2
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -601,7 +581,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -627,7 +607,7 @@
                       ],
                       "offset": 0
                     },
-                    "material": "floor",
+                    "material": "maze-floor",
                     "outside": {
                       "cylinder": {
                         "center": [
@@ -642,7 +622,7 @@
                         ],
                         "radius": 3.0125
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "plane": {
                           "normal": [
@@ -652,7 +632,7 @@
                           ],
                           "offset": 2.5
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "slab": {
                             "center": [
@@ -668,7 +648,7 @@
                             "thickness": 1.8,
                             "complement": true
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         }
                       },
                       "outside": {
@@ -686,7 +666,7 @@
                           "radius": 5.2625,
                           "complement": true
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -696,7 +676,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "slab": {
@@ -712,7 +692,7 @@
                             ],
                             "thickness": 0.2
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -722,7 +702,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -747,7 +727,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -762,7 +742,7 @@
                           ],
                           "radius": 3.0125
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -772,7 +752,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "cylinder": {
@@ -789,7 +769,7 @@
                             "radius": 5.2625,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -799,7 +779,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -815,7 +795,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -832,7 +812,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -842,7 +822,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -857,7 +837,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -872,7 +852,7 @@
                           ],
                           "radius": 3.0125
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -882,7 +862,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "cylinder": {
@@ -899,7 +879,7 @@
                             "radius": 5.2625,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -909,7 +889,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -956,7 +936,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -971,7 +951,7 @@
                           ],
                           "radius": 5.4625
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -981,7 +961,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "cylinder": {
@@ -998,7 +978,7 @@
                             "radius": 7.7125,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -1008,7 +988,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -1024,7 +1004,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -1041,7 +1021,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -1051,7 +1031,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -1066,7 +1046,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -1081,7 +1061,7 @@
                           ],
                           "radius": 5.4625
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -1091,7 +1071,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -1107,7 +1087,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -1125,7 +1105,7 @@
                             "radius": 7.7125,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -1135,7 +1115,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "slab": {
@@ -1151,7 +1131,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -1161,7 +1141,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -1177,7 +1157,7 @@
                       ],
                       "offset": 0
                     },
-                    "material": "floor",
+                    "material": "maze-floor",
                     "outside": {
                       "cylinder": {
                         "center": [
@@ -1192,7 +1172,7 @@
                         ],
                         "radius": 5.4625
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "plane": {
                           "normal": [
@@ -1202,7 +1182,7 @@
                           ],
                           "offset": 2.5
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "slab": {
                             "center": [
@@ -1218,7 +1198,7 @@
                             "thickness": 1.8,
                             "complement": true
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         }
                       },
                       "outside": {
@@ -1236,7 +1216,7 @@
                           "radius": 7.7125,
                           "complement": true
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -1246,7 +1226,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -1262,7 +1242,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -1279,7 +1259,7 @@
                             ],
                             "thickness": 0.2
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -1289,7 +1269,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "slab": {
@@ -1305,7 +1285,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -1315,7 +1295,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -1342,7 +1322,7 @@
                       ],
                       "offset": 0
                     },
-                    "material": "floor",
+                    "material": "maze-floor",
                     "outside": {
                       "cylinder": {
                         "center": [
@@ -1357,7 +1337,7 @@
                         ],
                         "radius": 5.4625
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "plane": {
                           "normal": [
@@ -1367,7 +1347,7 @@
                           ],
                           "offset": 2.5
                         },
-                        "material": "stone"
+                        "material": "maze-default"
                       },
                       "outside": {
                         "cylinder": {
@@ -1384,7 +1364,7 @@
                           "radius": 7.7125,
                           "complement": true
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -1394,7 +1374,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -1410,7 +1390,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -1427,7 +1407,7 @@
                             ],
                             "thickness": 0.2
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -1437,7 +1417,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -1462,7 +1442,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -1477,7 +1457,7 @@
                           ],
                           "radius": 5.4625
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -1487,7 +1467,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -1503,7 +1483,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -1521,7 +1501,7 @@
                             "radius": 7.7125,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -1531,7 +1511,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "slab": {
@@ -1547,7 +1527,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -1557,7 +1537,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -1572,7 +1552,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -1587,7 +1567,7 @@
                           ],
                           "radius": 5.4625
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -1597,7 +1577,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "cylinder": {
@@ -1614,7 +1594,7 @@
                             "radius": 7.7125,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -1624,7 +1604,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -1640,7 +1620,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -1657,7 +1637,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -1667,7 +1647,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             },
                             "outside": {
                               "slab": {
@@ -1683,7 +1663,7 @@
                                 ],
                                 "thickness": 0.2
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -1693,7 +1673,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -1759,7 +1739,7 @@
                       ],
                       "offset": 0
                     },
-                    "material": "floor",
+                    "material": "maze-floor",
                     "outside": {
                       "cylinder": {
                         "center": [
@@ -1774,7 +1754,7 @@
                         ],
                         "radius": 7.9125000000000005
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "plane": {
                           "normal": [
@@ -1784,7 +1764,7 @@
                           ],
                           "offset": 2.5
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "slab": {
                             "center": [
@@ -1800,7 +1780,7 @@
                             "thickness": 1.8,
                             "complement": true
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         }
                       },
                       "outside": {
@@ -1818,7 +1798,7 @@
                           "radius": 10.162500000000001,
                           "complement": true
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -1828,7 +1808,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "slab": {
@@ -1844,7 +1824,7 @@
                             ],
                             "thickness": 0.2
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -1854,7 +1834,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -1869,7 +1849,7 @@
                       ],
                       "offset": 0
                     },
-                    "material": "floor",
+                    "material": "maze-floor",
                     "outside": {
                       "cylinder": {
                         "center": [
@@ -1884,7 +1864,7 @@
                         ],
                         "radius": 7.9125000000000005
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "plane": {
                           "normal": [
@@ -1894,7 +1874,7 @@
                           ],
                           "offset": 2.5
                         },
-                        "material": "stone"
+                        "material": "maze-default"
                       },
                       "outside": {
                         "cylinder": {
@@ -1911,7 +1891,7 @@
                           "radius": 10.162500000000001,
                           "complement": true
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -1921,7 +1901,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -1937,7 +1917,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -1954,7 +1934,7 @@
                             ],
                             "thickness": 0.2
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -1964,7 +1944,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -1980,7 +1960,7 @@
                     ],
                     "offset": 0
                   },
-                  "material": "floor",
+                  "material": "maze-floor",
                   "outside": {
                     "cylinder": {
                       "center": [
@@ -1995,7 +1975,7 @@
                       ],
                       "radius": 7.9125000000000005
                     },
-                    "material": "stone",
+                    "material": "maze-default",
                     "inside": {
                       "plane": {
                         "normal": [
@@ -2005,7 +1985,7 @@
                         ],
                         "offset": 2.5
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "slab": {
                           "center": [
@@ -2021,7 +2001,7 @@
                           "thickness": 1.8,
                           "complement": true
                         },
-                        "material": "stone"
+                        "material": "maze-default"
                       }
                     },
                     "outside": {
@@ -2039,7 +2019,7 @@
                         "radius": 10.162500000000001,
                         "complement": true
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "plane": {
                           "normal": [
@@ -2049,7 +2029,7 @@
                           ],
                           "offset": 2.5
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "slab": {
                             "center": [
@@ -2065,7 +2045,7 @@
                             "thickness": 1.8,
                             "complement": true
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         }
                       },
                       "outside": {
@@ -2082,7 +2062,7 @@
                           ],
                           "thickness": 0.2
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -2092,7 +2072,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "slab": {
@@ -2108,7 +2088,7 @@
                             ],
                             "thickness": 0.2
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -2118,7 +2098,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -2145,7 +2125,7 @@
                     ],
                     "offset": 0
                   },
-                  "material": "floor",
+                  "material": "maze-floor",
                   "outside": {
                     "cylinder": {
                       "center": [
@@ -2160,7 +2140,7 @@
                       ],
                       "radius": 7.9125000000000005
                     },
-                    "material": "stone",
+                    "material": "maze-default",
                     "inside": {
                       "plane": {
                         "normal": [
@@ -2170,7 +2150,7 @@
                         ],
                         "offset": 2.5
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "slab": {
                           "center": [
@@ -2186,7 +2166,7 @@
                           "thickness": 1.8,
                           "complement": true
                         },
-                        "material": "stone"
+                        "material": "maze-default"
                       }
                     },
                     "outside": {
@@ -2204,7 +2184,7 @@
                         "radius": 10.162500000000001,
                         "complement": true
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "plane": {
                           "normal": [
@@ -2214,7 +2194,7 @@
                           ],
                           "offset": 2.5
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "slab": {
                             "center": [
@@ -2230,7 +2210,7 @@
                             "thickness": 1.8,
                             "complement": true
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         }
                       },
                       "outside": {
@@ -2247,7 +2227,7 @@
                           ],
                           "thickness": 0.2
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -2257,7 +2237,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "slab": {
@@ -2273,7 +2253,7 @@
                             ],
                             "thickness": 0.2
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -2283,7 +2263,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -2309,7 +2289,7 @@
                       ],
                       "offset": 0
                     },
-                    "material": "floor",
+                    "material": "maze-floor",
                     "outside": {
                       "cylinder": {
                         "center": [
@@ -2324,7 +2304,7 @@
                         ],
                         "radius": 7.9125000000000005
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "plane": {
                           "normal": [
@@ -2334,7 +2314,7 @@
                           ],
                           "offset": 2.5
                         },
-                        "material": "stone"
+                        "material": "maze-default"
                       },
                       "outside": {
                         "cylinder": {
@@ -2351,7 +2331,7 @@
                           "radius": 10.162500000000001,
                           "complement": true
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -2361,7 +2341,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -2377,7 +2357,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -2394,7 +2374,7 @@
                             ],
                             "thickness": 0.2
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -2404,7 +2384,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -2419,7 +2399,7 @@
                       ],
                       "offset": 0
                     },
-                    "material": "floor",
+                    "material": "maze-floor",
                     "outside": {
                       "cylinder": {
                         "center": [
@@ -2434,7 +2414,7 @@
                         ],
                         "radius": 7.9125000000000005
                       },
-                      "material": "stone",
+                      "material": "maze-default",
                       "inside": {
                         "plane": {
                           "normal": [
@@ -2444,7 +2424,7 @@
                           ],
                           "offset": 2.5
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "slab": {
                             "center": [
@@ -2460,7 +2440,7 @@
                             "thickness": 1.8,
                             "complement": true
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         }
                       },
                       "outside": {
@@ -2478,7 +2458,7 @@
                           "radius": 10.162500000000001,
                           "complement": true
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -2488,7 +2468,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -2504,7 +2484,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -2521,7 +2501,7 @@
                             ],
                             "thickness": 0.2
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -2531,7 +2511,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         }
                       }
@@ -2604,7 +2584,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -2619,7 +2599,7 @@
                             ],
                             "radius": 10.3625
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -2629,7 +2609,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "cylinder": {
@@ -2646,7 +2626,7 @@
                               "radius": 12.6125,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -2656,7 +2636,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -2670,7 +2650,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -2685,7 +2665,7 @@
                             ],
                             "radius": 10.3625
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -2695,7 +2675,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "cylinder": {
@@ -2712,7 +2692,7 @@
                               "radius": 12.6125,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -2722,7 +2702,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             },
                             "outside": {
                               "slab": {
@@ -2738,7 +2718,7 @@
                                 ],
                                 "thickness": 0.2
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -2748,7 +2728,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -2764,7 +2744,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -2779,7 +2759,7 @@
                           ],
                           "radius": 10.3625
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -2789,7 +2769,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -2805,7 +2785,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -2823,7 +2803,7 @@
                             "radius": 12.6125,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -2833,7 +2813,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "slab": {
@@ -2849,7 +2829,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -2859,7 +2839,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -2885,7 +2865,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -2900,7 +2880,7 @@
                           ],
                           "radius": 10.3625
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -2910,7 +2890,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "cylinder": {
@@ -2927,7 +2907,7 @@
                             "radius": 12.6125,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -2937,7 +2917,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -2953,7 +2933,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -2970,7 +2950,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -2980,7 +2960,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -3005,7 +2985,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -3020,7 +3000,7 @@
                             ],
                             "radius": 10.3625
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -3030,7 +3010,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "cylinder": {
@@ -3047,7 +3027,7 @@
                               "radius": 12.6125,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -3057,7 +3037,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "slab": {
                                   "center": [
@@ -3073,7 +3053,7 @@
                                   "thickness": 1.8,
                                   "complement": true
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             },
                             "outside": {
@@ -3090,7 +3070,7 @@
                                 ],
                                 "thickness": 0.2
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -3100,7 +3080,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -3115,7 +3095,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -3130,7 +3110,7 @@
                             ],
                             "radius": 10.3625
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -3140,7 +3120,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -3156,7 +3136,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -3174,7 +3154,7 @@
                               "radius": 12.6125,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -3184,7 +3164,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             },
                             "outside": {
                               "slab": {
@@ -3200,7 +3180,7 @@
                                 ],
                                 "thickness": 0.2
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -3210,7 +3190,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -3258,7 +3238,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -3273,7 +3253,7 @@
                             ],
                             "radius": 10.3625
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -3283,7 +3263,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -3299,7 +3279,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -3317,7 +3297,7 @@
                               "radius": 12.6125,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -3327,7 +3307,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             },
                             "outside": {
                               "slab": {
@@ -3343,7 +3323,7 @@
                                 ],
                                 "thickness": 0.2
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -3353,7 +3333,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -3368,7 +3348,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -3383,7 +3363,7 @@
                             ],
                             "radius": 10.3625
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -3393,7 +3373,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "cylinder": {
@@ -3410,7 +3390,7 @@
                               "radius": 12.6125,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -3420,7 +3400,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "slab": {
                                   "center": [
@@ -3436,7 +3416,7 @@
                                   "thickness": 1.8,
                                   "complement": true
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             },
                             "outside": {
@@ -3453,7 +3433,7 @@
                                 ],
                                 "thickness": 0.2
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -3463,7 +3443,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -3479,7 +3459,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -3494,7 +3474,7 @@
                           ],
                           "radius": 10.3625
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -3504,7 +3484,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "cylinder": {
@@ -3521,7 +3501,7 @@
                             "radius": 12.6125,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -3531,7 +3511,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -3547,7 +3527,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -3564,7 +3544,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -3574,7 +3554,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -3600,7 +3580,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -3615,7 +3595,7 @@
                           ],
                           "radius": 10.3625
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -3625,7 +3605,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -3641,7 +3621,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -3659,7 +3639,7 @@
                             "radius": 12.6125,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -3669,7 +3649,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "slab": {
@@ -3685,7 +3665,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -3695,7 +3675,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -3720,7 +3700,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -3735,7 +3715,7 @@
                             ],
                             "radius": 10.3625
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -3745,7 +3725,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "cylinder": {
@@ -3762,7 +3742,7 @@
                               "radius": 12.6125,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -3772,7 +3752,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "slab": {
                                   "center": [
@@ -3788,7 +3768,7 @@
                                   "thickness": 1.8,
                                   "complement": true
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             },
                             "outside": {
@@ -3805,7 +3785,7 @@
                                 ],
                                 "thickness": 0.2
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -3815,7 +3795,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -3830,7 +3810,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -3845,7 +3825,7 @@
                             ],
                             "radius": 10.3625
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -3855,7 +3835,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -3871,7 +3851,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -3889,7 +3869,7 @@
                               "radius": 12.6125,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -3899,7 +3879,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -3957,7 +3937,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -3972,7 +3952,7 @@
                             ],
                             "radius": 12.8125
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -3982,7 +3962,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "cylinder": {
@@ -3999,7 +3979,7 @@
                               "radius": 15.0625,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "cylinder": {
                                 "center": [
@@ -4014,7 +3994,7 @@
                                 ],
                                 "radius": 15.2625
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -4024,7 +4004,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -4039,7 +4019,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -4054,7 +4034,7 @@
                             ],
                             "radius": 12.8125
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -4064,7 +4044,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "cylinder": {
@@ -4081,7 +4061,7 @@
                               "radius": 15.0625,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "cylinder": {
                                 "center": [
@@ -4096,7 +4076,7 @@
                                 ],
                                 "radius": 15.2625
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -4106,7 +4086,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone",
+                                "material": "maze-default",
                                 "inside": {
                                   "slab": {
                                     "center": [
@@ -4122,7 +4102,7 @@
                                     "thickness": 1.8,
                                     "complement": true
                                   },
-                                  "material": "stone"
+                                  "material": "maze-default"
                                 }
                               }
                             }
@@ -4139,7 +4119,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -4154,7 +4134,7 @@
                           ],
                           "radius": 12.8125
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -4164,7 +4144,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "cylinder": {
@@ -4181,7 +4161,7 @@
                             "radius": 15.0625,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "cylinder": {
                               "center": [
@@ -4196,7 +4176,7 @@
                               ],
                               "radius": 15.2625
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -4206,7 +4186,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -4232,7 +4212,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -4247,7 +4227,7 @@
                           ],
                           "radius": 12.8125
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -4257,7 +4237,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -4273,7 +4253,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -4291,7 +4271,7 @@
                             "radius": 15.0625,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "cylinder": {
                               "center": [
@@ -4306,7 +4286,7 @@
                               ],
                               "radius": 15.2625
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -4316,7 +4296,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -4333,7 +4313,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -4343,7 +4323,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -4368,7 +4348,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -4383,7 +4363,7 @@
                             ],
                             "radius": 12.8125
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -4393,7 +4373,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -4409,7 +4389,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -4427,7 +4407,7 @@
                               "radius": 15.0625,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "cylinder": {
                                 "center": [
@@ -4442,7 +4422,7 @@
                                 ],
                                 "radius": 15.2625
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -4452,7 +4432,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             },
                             "outside": {
@@ -4469,7 +4449,7 @@
                                 ],
                                 "thickness": 0.2
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -4479,7 +4459,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -4494,7 +4474,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -4509,7 +4489,7 @@
                             ],
                             "radius": 12.8125
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -4519,7 +4499,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "cylinder": {
@@ -4536,7 +4516,7 @@
                               "radius": 15.0625,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "cylinder": {
                                 "center": [
@@ -4551,7 +4531,7 @@
                                 ],
                                 "radius": 15.2625
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -4561,7 +4541,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -4609,7 +4589,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -4624,7 +4604,7 @@
                             ],
                             "radius": 12.8125
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -4634,7 +4614,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "cylinder": {
@@ -4651,7 +4631,7 @@
                               "radius": 15.0625,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "cylinder": {
                                 "center": [
@@ -4666,7 +4646,7 @@
                                 ],
                                 "radius": 15.2625
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -4676,7 +4656,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -4691,7 +4671,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -4706,7 +4686,7 @@
                             ],
                             "radius": 12.8125
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -4716,7 +4696,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -4732,7 +4712,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -4750,7 +4730,7 @@
                               "radius": 15.0625,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "cylinder": {
                                 "center": [
@@ -4765,7 +4745,7 @@
                                 ],
                                 "radius": 15.2625
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -4775,7 +4755,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             },
                             "outside": {
@@ -4792,7 +4772,7 @@
                                 ],
                                 "thickness": 0.2
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -4802,7 +4782,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -4818,7 +4798,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -4833,7 +4813,7 @@
                           ],
                           "radius": 12.8125
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -4843,7 +4823,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "slab": {
                               "center": [
@@ -4859,7 +4839,7 @@
                               "thickness": 1.8,
                               "complement": true
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           }
                         },
                         "outside": {
@@ -4877,7 +4857,7 @@
                             "radius": 15.0625,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "cylinder": {
                               "center": [
@@ -4892,7 +4872,7 @@
                               ],
                               "radius": 15.2625
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -4902,7 +4882,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -4919,7 +4899,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -4929,7 +4909,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -4955,7 +4935,7 @@
                         ],
                         "offset": 0
                       },
-                      "material": "floor",
+                      "material": "maze-floor",
                       "outside": {
                         "cylinder": {
                           "center": [
@@ -4970,7 +4950,7 @@
                           ],
                           "radius": 12.8125
                         },
-                        "material": "stone",
+                        "material": "maze-default",
                         "inside": {
                           "plane": {
                             "normal": [
@@ -4980,7 +4960,7 @@
                             ],
                             "offset": 2.5
                           },
-                          "material": "stone"
+                          "material": "maze-default"
                         },
                         "outside": {
                           "cylinder": {
@@ -4997,7 +4977,7 @@
                             "radius": 15.0625,
                             "complement": true
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "cylinder": {
                               "center": [
@@ -5012,7 +4992,7 @@
                               ],
                               "radius": 15.2625
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -5022,7 +5002,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -5039,7 +5019,7 @@
                               ],
                               "thickness": 0.2
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "plane": {
                                 "normal": [
@@ -5049,7 +5029,7 @@
                                 ],
                                 "offset": 2.5
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           }
                         }
@@ -5074,7 +5054,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -5089,7 +5069,7 @@
                             ],
                             "radius": 12.8125
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -5099,7 +5079,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "slab": {
                                 "center": [
@@ -5115,7 +5095,7 @@
                                 "thickness": 1.8,
                                 "complement": true
                               },
-                              "material": "stone"
+                              "material": "maze-default"
                             }
                           },
                           "outside": {
@@ -5133,7 +5113,7 @@
                               "radius": 15.0625,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "cylinder": {
                                 "center": [
@@ -5148,7 +5128,7 @@
                                 ],
                                 "radius": 15.2625
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -5158,7 +5138,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             },
                             "outside": {
@@ -5175,7 +5155,7 @@
                                 ],
                                 "thickness": 0.2
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -5185,7 +5165,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -5200,7 +5180,7 @@
                           ],
                           "offset": 0
                         },
-                        "material": "floor",
+                        "material": "maze-floor",
                         "outside": {
                           "cylinder": {
                             "center": [
@@ -5215,7 +5195,7 @@
                             ],
                             "radius": 12.8125
                           },
-                          "material": "stone",
+                          "material": "maze-default",
                           "inside": {
                             "plane": {
                               "normal": [
@@ -5225,7 +5205,7 @@
                               ],
                               "offset": 2.5
                             },
-                            "material": "stone"
+                            "material": "maze-default"
                           },
                           "outside": {
                             "cylinder": {
@@ -5242,7 +5222,7 @@
                               "radius": 15.0625,
                               "complement": true
                             },
-                            "material": "stone",
+                            "material": "maze-default",
                             "inside": {
                               "cylinder": {
                                 "center": [
@@ -5257,7 +5237,7 @@
                                 ],
                                 "radius": 15.2625
                               },
-                              "material": "stone",
+                              "material": "maze-default",
                               "inside": {
                                 "plane": {
                                   "normal": [
@@ -5267,7 +5247,7 @@
                                   ],
                                   "offset": 2.5
                                 },
-                                "material": "stone"
+                                "material": "maze-default"
                               }
                             }
                           }
@@ -5306,7 +5286,7 @@
             ],
             "offset": 0
           },
-          "material": "floor",
+          "material": "maze-floor",
           "outside": {
             "sphere": {
               "center": [
@@ -5317,7 +5297,7 @@
               "radius": 595.2375
             },
             "complement": true,
-            "material": "sky"
+            "material": "maze-sky"
           }
         }
       ]

@@ -1,0 +1,48 @@
+{
+   "_comment" : "The materials tools/maze.mjs's scenes name by default - the walls with their doorways and tops (maze-default), the floor and the sky, as it once wrote into each scene itself - and two ambient lights for --material-ambient: maze-dusk, as its --sun 0.4 once made it, and maze-night, its darkest. They are named after --prefix's default, maze; a library for another prefix names its entries to match. It references this library unless given --library.",
+   "maze-default" : {
+      "albedo" : [
+         0.62,
+         0.58,
+         0.52
+      ]
+   },
+   "maze-dusk" : {
+      "kind" : "ambient",
+      "albedo" : [
+         0.052,
+         0.052,
+         0.056
+      ]
+   },
+   "maze-floor" : {
+      "albedo" : [
+         0.3,
+         0.31,
+         0.34
+      ],
+      "albedo2" : [
+         0.18,
+         0.19,
+         0.21
+      ],
+      "pattern" : "checker",
+      "scale" : 1
+   },
+   "maze-night" : {
+      "kind" : "ambient",
+      "albedo" : [
+         0.0195,
+         0.0195,
+         0.021
+      ]
+   },
+   "maze-sky" : {
+      "kind" : "unlit",
+      "albedo" : [
+         0.07,
+         0.09,
+         0.14
+      ]
+   }
+}

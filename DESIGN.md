@@ -188,6 +188,13 @@ coefficients in place, with no recompile.
   what some node names - or not reading what nothing needs - would keep the
   table to the scene. A library scoped to what its scenes need stays the
   author's responsibility either way.
+- **Libraries in the scene format** (Chris's idea, not yet designed). A
+  scene's `"library"`: a .json imported whole, what it holds going where
+  it belongs - its `"materials"` into the scene's materials, and in time
+  its objects (parts like `public/scenes/parts/bolt.json`) into the
+  scene's objects - in place of a reference per section
+  (`"materials": ["@lib/materials.json", ...]`). tools/maze.mjs's
+  `--library` is named for it.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.
