@@ -325,10 +325,32 @@ empty.
 ## An example
 
 ```json
-{ "materials": { "stone": { "albedo": [0.6, 0.6, 0.6] } },
-  "lights": [{ "pos": [0, 0, 5], "color": [10, 10, 10] }],
-  "root": { "sphere": { "center": [0, 0, 0], "radius": 10 },
-            "inside": { "sphere": { "center": [0, 0, 1], "radius": 1 }, "material": "stone" } } }
+{
+  "materials": {
+    "stone": {
+      "albedo": [ 0.6, 0.6, 0.6 ]
+    }
+  },
+  "lights": [
+    {
+      "pos": [ 0, 0, 5 ],
+      "color": [ 10, 10, 10 ]
+    }
+  ],
+  "root": {
+    "sphere": {
+      "center": [ 0, 0, 0 ],
+      "radius": 10
+    },
+    "inside": {
+      "sphere": {
+        "center": [ 0, 0, 1 ],
+        "radius": 1
+      },
+      "material": "stone"
+    }
+  }
+}
 ```
 
 compiles to:
