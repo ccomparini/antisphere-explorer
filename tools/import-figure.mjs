@@ -15,9 +15,10 @@
 // mittens unless told otherwise.
 //
 // Each clip is resampled at --fps into each bone's local rotation, and the
-// translations of the bones that move (a walk's pelvis). The figure's
-// "object" is the figure posed - at rest, or as --pose says - as a scene
-// subtree, for "use": "@parts/.../figure.json#/object".
+// translations of the bones that move (a walk's pelvis). Its "objects"
+// hold the figure posed - at rest, or as --pose says - as a scene subtree,
+// named as the file is (or --name), as other parts files hold theirs:
+// "use": "@parts/quaternius/mannequin.json#/objects/mannequin".
 //
 // glTF is y up; scenes are z up, and the figure is turned to match.
 // Reports on stderr; writes the figure on stdout unless told where.
@@ -41,6 +42,9 @@ import-figure - a figure (skeleton, quadric body, clips) from a skinned glTF
   -o, --out <file>          write here instead of stdout; a name ending .gz
                             is gzipped
       --no-check            write it without compiling its posed object first
+      --name <n>            the posed object's name in "objects" (default: the
+                            output file's name, mannequin for mannequin.json;
+                            on stdout, figure)
       --prefix <p>          its materials are <p>-<primitive's material>, as
                             figure-main (default "figure")
       --min-thickness <m>   a bone whose vertices are thinner than this
@@ -69,6 +73,7 @@ function parseArguments(argv) {
     fps: { type: 'number', default: 30 },
     clips: { type: 'string' },
     pose: { type: 'string' },
+    name: { type: 'string' },
     skin: { type: 'number', default: 0 },
     pretty: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' },
@@ -77,10 +82,12 @@ function parseArguments(argv) {
   if (!(values['min-thickness'] >= 0)) throw new Error('--min-thickness needs a number, 0 or more');
   if (!(values['fit-percentile'] > 50 && values['fit-percentile'] <= 100)) throw new Error('--fit-percentile needs a number above 50, up to 100');
   if (!(values.fps > 0)) throw new Error('--fps needs a positive number');
+  if (values.name !== undefined && !/^[^/#~\s]+$/.test(values.name)) throw new Error(`--name ${JSON.stringify(values.name)}: a name, with no / # ~ or spaces`);
   return {
     source: positionals[0], out: values.out, check: !values['no-check'], prefix: values.prefix,
     minThickness: values['min-thickness'], percentile: values['fit-percentile'] / 100, fps: values.fps,
     clips: values.clips?.split(',').map((s) => s.trim()).filter(Boolean), pose: values.pose,
+    name: values.name ?? (values.out ? path.basename(values.out).replace(/\.json(\.gz)?$/i, '') : 'figure'),
     skin: values.skin, pretty: values.pretty, help: values.help,
   };
 }
@@ -320,11 +327,11 @@ async function main(argv) {
       ...(options.pose ? { pose: options.pose } : {}),
     },
     ...figure,
-    object,
+    objects: { [options.name]: object },
   };
   const materials = [...new Set(figure.parts.map((p) => p.material))];
   say(`${path.basename(options.source)}: ${figure.skeleton.length} bones, ${figure.parts.length} parts ` +
-      `(${materials.join(', ')}), ${Object.keys(figure.clips).length} clips`);
+      `(${materials.join(', ')}), ${Object.keys(figure.clips).length} clips; posed as objects.${options.name}`);
 
   if (options.check) {
     try {

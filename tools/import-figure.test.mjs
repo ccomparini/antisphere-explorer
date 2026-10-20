@@ -83,7 +83,19 @@ test('from the command line: a figure written, its object posed, how it was made
     assert.deepEqual(figure._meta.generatedBy.slice(2), ['model.glb', '-o', 'figure.json', '--pose', 'Bend@1']);
     assert.match(figure._meta.generatedBy[1], /import-figure\.mjs$/);
     assert.equal(figure._meta.source, 'model.glb');
-    near(centreOf(figure.object, 1), [0.4, 0, 1], 'the object, posed as asked', 1e-4);
+    assert.deepEqual(Object.keys(figure.objects), ['figure'], 'named for its file');
+    near(centreOf(figure.objects.figure, 1), [0.4, 0, 1], 'the object, posed as asked', 1e-4);
+    // Placed in a scene by reference, as a part.
+    writeFileSync(join(dir, 'scene.json'), JSON.stringify({ materials: { 'figure-skin': {} }, lights: [],
+                                                             root: { use: '@figure.json#/objects/figure' } }));
+    const scene = JSON.parse(readFileSync(join(dir, 'scene.json'), 'utf8'));
+    const built = compileScene(scene, { files: { [join(dir, 'figure.json')]: figure }, path: join(dir, 'scene.json') });
+    assert.ok(built.nodes.length > 2, 'a scene places it by reference');
+    const named = run('-o', 'walker.json.gz', '--name', 'bob');
+    assert.equal(named.status, 0, named.stderr);
+    assert.match(named.stderr, /posed as objects\.bob/);
+    assert.match(run('--name', 'a/b').stderr, /--name "a\/b": a name, with no/);
+    assert.match(spawnSync('node', [script, 'model.glb'], { cwd: dir, encoding: 'utf8' }).stdout, /"objects":\{"figure":/, 'on stdout, "figure"');
     assert.match(run('--clips', 'Dance').stderr, /import-figure: no animation "Dance"/);
     assert.match(run('--pose', 'Dance@1').stderr, /import-figure: figure: no clip "Dance"/);
     assert.match(run('--min-thickness=-1').stderr, /--min-thickness needs a number, 0 or more/);
