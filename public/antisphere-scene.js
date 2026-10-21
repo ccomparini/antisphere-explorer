@@ -2299,10 +2299,14 @@ export function compileScene(rawSpec, options = {}) {
 
     // An instance gets nodes of its own, attributed to it, so a hit can say
     // which instance was struck (see the Provenance comment up top).
+// XXX is this not better set in the actual "use" case?
     if (isUseBody(def) && t) {
       t = reown(t, def.use, name);
       // Two instances with the same prototype and offset are the same
       // geometry in the same place: never what anyone means.
+// this is a nice check but I'm not sure it's really correct in principle.
+// What happens if someone (say) wants the union (or intersection)
+// of 2 instances of the same thing, with (say) only a rotation or scale?
       const key = `${def.use}|${JSON.stringify(def.translate ?? [0, 0, 0])}`;
       const twin = instanceBodies.get(key);
       if (twin) {
@@ -2797,6 +2801,8 @@ export function compileScene(rawSpec, options = {}) {
     if (!def) return null;
     if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
 
+    const material = materialOf(def, path);
+
     let out;
     if (def.lights !== undefined &&
         (def.use !== undefined || def.group !== undefined ||
@@ -2816,7 +2822,7 @@ export function compileScene(rawSpec, options = {}) {
       // flatten()'s doc comment.
       const insideTree = tree(def.inside, `${path}.inside`, below(where, 'inside'));
       const outsideTree = tree(def.outside, `${path}.outside`, below(where, 'outside'));
-      const material = materialOf(def, path);
+
       // Lights make the node a region (an env): what fills it is its
       // ambient level, if it names one, or the level around it.
       const lights = def.lights === undefined ? null : lightsOf(def.lights, `${path}.lights`);
@@ -2825,6 +2831,10 @@ export function compileScene(rawSpec, options = {}) {
                                'ambient or glowRegion material, or none, to keep the level around it');
       }
       out = node(primOf(def, path), insideTree, outsideTree, material, 0, provOf(where), lights);
+    }
+
+    if(material !== INHERIT_MATERIAL) {
+      out.material = material;
     }
 
     // "complement" turns the whole subtree inside out: what was interior
