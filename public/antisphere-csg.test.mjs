@@ -958,3 +958,27 @@ test('"intersect", the old name for "intersection", is still read, with a warnin
   assert.throws(() => compileScene({ materials: MATERIALS, lights: [], root: { ...ops('intersect'), ...ops('intersection') } }),
                 /has both "intersection" and "intersect"/);
 });
+
+test('instances alike in everything are warned of as twins; alike only in place, they are not', () => {
+  const warned = [];
+  const warn = console.warn;
+  console.warn = (msg) => warned.push(String(msg));
+  try {
+    const ball = { sphere: { center: [0, 0, 0], radius: 1 } };
+    const scene = (objects) => ({ materials: { stone: {} }, lights: [], objects: { ball, ...objects },
+                                  root: { union: Object.keys(objects) } });
+    compileScene(scene({ a: { use: 'ball', translate: [1, 0, 0] }, b: { use: 'ball', translate: [1, 0, 0] } }));
+    assert.match(warned.join('\n'), /objects\.b: identical to objects\.a \(same prototype, placed alike\)/);
+    warned.length = 0;
+    // The same place, turned, scaled or made of something else: not twins.
+    compileScene(scene({
+      a: { use: 'ball', translate: [1, 0, 0] },
+      b: { use: 'ball', translate: [1, 0, 0], rotate: { axis: [0, 0, 1], degrees: 45 } },
+      c: { use: 'ball', translate: [1, 0, 0], scale: 2 },
+      d: { use: 'ball', translate: [1, 0, 0], material: 'stone' },
+    }));
+    assert.equal(warned.filter((w) => /identical to/.test(w)).length, 0, warned.join('\n'));
+  } finally {
+    console.warn = warn;
+  }
+});

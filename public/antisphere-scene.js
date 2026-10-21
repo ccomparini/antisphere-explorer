@@ -2302,16 +2302,15 @@ export function compileScene(rawSpec, options = {}) {
 // XXX is this not better set in the actual "use" case?
     if (isUseBody(def) && t) {
       t = reown(t, def.use, name);
-      // Two instances with the same prototype and offset are the same
-      // geometry in the same place: never what anyone means.
-// this is a nice check but I'm not sure it's really correct in principle.
-// What happens if someone (say) wants the union (or intersection)
-// of 2 instances of the same thing, with (say) only a rotation or scale?
-      const key = `${def.use}|${JSON.stringify(def.translate ?? [0, 0, 0])}`;
+      // Two instances alike in everything - prototype, every transform,
+      // material - are the same geometry in the same place: never what
+      // anyone means. Alike only in where they are, they are not: two
+      // turned or scaled differently, their union or intersection, say.
+      const key = JSON.stringify(def);
       const twin = instanceBodies.get(key);
       if (twin) {
         console.warn(`scene.json objects.${name}: identical to objects.${twin} ` +
-                     '(same prototype, same place)');
+                     '(same prototype, placed alike)');
       } else {
         instanceBodies.set(key, name);
       }
@@ -2833,8 +2832,15 @@ export function compileScene(rawSpec, options = {}) {
       out = node(primOf(def, path), insideTree, outsideTree, material, 0, provOf(where), lights);
     }
 
-    if(material !== INHERIT_MATERIAL) {
-      out.material = material;
+    // A material named on a use, group or combination goes on the root of
+    // what it makes - on a copy of that root, never on the root itself: a
+    // use's result is its object's own tree, shared by every use of it
+    // (named() memoizes it), so setting it there set it for all of them,
+    // the last one named winning even where none was (the first, untouched
+    // use of three teapots took the third's gold). Copied, the rest of the
+    // tree stays shared.
+    if (material !== INHERIT_MATERIAL && out && out.material !== material) {
+      out = node(out.prim, out.inside, out.outside, material, out.env, out.prov, out.lights);
     }
 
     // "complement" turns the whole subtree inside out: what was interior
