@@ -8,6 +8,24 @@ tables the WGSL raycaster (`shaders/antisphere-raycast.wgsls`) actually reads
 See `public/scene.json` for a large worked example, and `public/scene-simple.json`
 / `public/scene-just-tower.json` for smaller ones.
 
+## When something is missing
+
+A slip in a scene is warned of, and the scene plays on without it, rather
+than not loading at all:
+
+- **A material no one defines** is shown as a stand-in, flat magenta,
+  solid. It keeps the name it was asked for, and the viewer's centre probe
+  reports it as "not defined".
+- **An object no one defines** (`"use"`, or a name where a subtree goes)
+  is left out: nothing there.
+- **A referenced file that can't be read** is left out, and so is what
+  refers to it. A material from it becomes a stand-in, and an object from
+  it nothing.
+
+Other mistakes, such as a malformed shape or a bad transform, still stop
+the scene for now. Tools that check what they write (`tools/maze.mjs`)
+treat any of these warnings as a failed check, which `--no-check` skips.
+
 ## Coordinates
 
 All positions, normals and offsets are in a right-handed coordinate system

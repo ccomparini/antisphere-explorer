@@ -191,14 +191,21 @@ async function main(argv) {
   // here - unless told to write it anyway.
   if (options.check) {
     const path = options.out ?? 'maze.json';
+    // What the scene would play on past - a library not found, a material
+    // none defines - is what the check is for: any of it fails it.
+    const slips = [];
     try {
       const files = await loadReferences(scene, {
         from: path, readText: async (file) => readFileSync(file, 'utf8'), readBytes: async (file) => readFileSync(file),
+        warn: (msg) => slips.push(msg),
       });
-      const built = compileScene(structuredClone(scene), { files, path });
-      say(`  compiles to ${built.nodes.length - 1} nodes`);
+      const built = compileScene(structuredClone(scene), { files, path, warn: (where, msg) => slips.push(`${where}: ${msg}`) });
+      if (!slips.length) say(`  compiles to ${built.nodes.length - 1} nodes`);
     } catch (error) {
-      throw new Error(`${error.message} (--no-check writes it anyway)`);
+      slips.unshift(error.message);
+    }
+    if (slips.length) {
+      throw new Error(`${slips[0]}${slips.length > 1 ? ` (and ${slips.length - 1} more)` : ''} (--no-check writes it anyway)`);
     }
   }
   const json = JSON.stringify(scene, null, 2) + '\n';

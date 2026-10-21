@@ -1828,9 +1828,14 @@ export function expandReferences(spec, files = {}, { from = '' } = {}) {
  * likes: fetch in a browser, readFile in node. A .json is read as text and
  * parsed; an .stl as bytes and converted (meshToTree()); either, ending
  * .gz, as bytes and unzipped first.
+ *
+ * A file that can't be read, or parsed, is warned of (`warn(message)`) and
+ * left out of `files`; compileScene() then warns again and goes on
+ * without what referred to it.
  */
 export async function loadReferences(spec, { from = '', readText, readBytes, warn = console.warn } = {}) {
   const files = {};
+  const failed = new Set();          // warned of, and left out: compileScene() goes on without them
   const load = async (path) => {
     try {
       if (isSTL(path) || isGzip(path)) {
@@ -1853,8 +1858,16 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
   };
   for (;;) {
     const { missing } = expandReferences(spec, files, { from });
-    if (!missing.size) return files;
-    await Promise.all([...missing].map(async (path) => { files[path] = await load(path); }));
+    const wanted = [...missing].filter((path) => !failed.has(path));
+    if (!wanted.length) return files;
+    await Promise.all(wanted.map(async (path) => {
+      try {
+        files[path] = await load(path);
+      } catch (error) {
+        warn(`${error.message}: left out`);
+        failed.add(path);
+      }
+    }));
   }
 }
 
@@ -1999,14 +2012,18 @@ export function compileScene(rawSpec, options = {}) {
                  '"use": "@parts/bolt.json#/objects/bolt", "materials": ["@lib/materials.json", { ... }] ' +
                  '(see scene-format.md, References)');
   }
+  // A slip in a scene - a material or object it doesn't define, a file it
+  // references that isn't there - is warned of, and the scene plays on
+  // without it, rather than not loading at all. options.warn(path, msg)
+  // hears the warnings instead of the console (a tool's check, failing on
+  // them); options.quiet silences them.
+  const quietly = options.warn ?? ((path, msg) => { if (!options.quiet) console.warn(`warning: ${path}: ${msg}`); });
   const { spec, missing } = expandReferences(rawSpec, options.files ?? {}, { from: options.path ?? '' });
   if (missing.size) {
-    at([...missing][0], `not loaded${missing.size > 1 ? ` (nor ${missing.size - 1} more)` : ''}: ` +
-                        'fetch what a scene references first - see loadReferences() - and pass it in options.files');
+    quietly([...missing].join(', '), 'not loaded, so what refers to it is left out (see loadReferences())');
   }
   // Drops are worked out first, on a copy (resolveDrops()), and the scene
   // they give compiled as any other: it has none left, and no references.
-  const quietly = (path, msg) => { if (!options.quiet) console.warn(`warning: ${path}: ${msg}`); };
   if (tangentSites(spec, at).length || dropSites(spec, at).length) {
     // tangentTo first, then drops: what is placed flush can then fall.
     const compile = (s) => compileScene(s, { quiet: true });
@@ -2024,6 +2041,9 @@ export function compileScene(rawSpec, options = {}) {
                    pattern: 0, scale: 1, kind: 0, params: [0, 0], flags: 0 }];
   const matIndex = new Map();
   for (const [name, def] of Object.entries(spec.materials || {})) {
+    // A reference to a material in a file that wasn't loaded comes to
+    // nothing (warned of above): left out, so what uses it gets a stand-in.
+    if (def === undefined) continue;
     if (LEGACY_PAINT_WORDS.includes(name)) at(`materials.${name}`, 'name is reserved');
     const pattern = PATTERNS[def.pattern ?? 'flat'];
     if (pattern === undefined) at(`materials.${name}`, `unknown pattern "${def.pattern}"`);
@@ -2076,9 +2096,18 @@ export function compileScene(rawSpec, options = {}) {
   // The scene's own lights: env 0's, which light everything.
   const topLights = lightsOf(spec.lights ?? [], 'lights').map((lt) => ({ ...lt, env: 0 }));
 
+  // A material the scene doesn't define gets a stand-in, unmissable -
+  // flat magenta, solid and seen - which keeps the name it was asked for,
+  // so the viewer's centre probe says what is missing. Warned of once.
   function substrate(name, path) {
-    const m = matIndex.get(name);
-    if (m === undefined) at(path, `unknown material "${name}"`);
+    let m = matIndex.get(name);
+    if (m === undefined) {
+      quietly(path, `unknown material "${name}": shown as a stand-in, flat magenta`);
+      table.push({ name, missing: true, albedo: [1, 0, 1], albedo2: [1, 0, 1], scale: 1, opacity: 1,
+                   kind: KIND_UNLIT, params: [0, 0], pattern: 0, flags: (MATERIAL_SOLID | MATERIAL_OPTICAL) >>> 0 });
+      m = table.length - 1;
+      matIndex.set(name, m);
+    }
     return m;
   }
 
@@ -2259,7 +2288,12 @@ export function compileScene(rawSpec, options = {}) {
   function named(name, path) {
     if (built.has(name)) return built.get(name);
     const def = (spec.objects || {})[name];
-    if (!def) at(path, `unknown object "${name}"`);
+    if (!def) {
+      // Nothing there: as an outside, empty; as an inside, the node's own.
+      quietly(path, `unknown object "${name}": left out`);
+      built.set(name, null);
+      return null;
+    }
     built.set(name, BUILDING);                   // cycle guard
     let t = tree(def, `objects.${name}`, { owner: name, segments: [] });
 
@@ -2875,7 +2909,11 @@ export function compileScene(rawSpec, options = {}) {
 
   if (!spec.root) at('root', 'missing');
   const overlaps = [];
-  const nodes = flatten(bakeScopes(tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] }), table));
+  // A root that comes to nothing (an object left out) is still a node 1,
+  // which trace() starts at: one with nothing inside it anywhere, H = 1.
+  const rootTree = tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] })
+    ?? node({ axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: 1 }, null, null, NO_MATERIAL);
+  const nodes = flatten(bakeScopes(rootTree, table));
 
   // Every light, with the env it belongs to: the scene's (env 0) first, in
   // order, so the editor can replace just those; then each node's, its env

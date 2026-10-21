@@ -33,6 +33,7 @@ const built = compileScene(spec, { files, path: 'scenes/maze.json' });
 |---|---|
 | `files` | what the scene references, path → content, as `loadReferences()` fetches it. A reference not in it is an error |
 | `path`  | the scene's own path, which its references are relative to |
+| `warn`  | `(path, message)`, told each warning instead of the console: a slip the scene plays on past (`scene-format.md`, "When something is missing") |
 | `quiet` | no warnings on the console |
 
 Before anything is flattened, the compiler expands references, resolves

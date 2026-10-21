@@ -73,8 +73,13 @@ test('names in what a reference brings are the scene\'s', () => {
   // The scene calls something else steel: the bolt is made of that.
   const built = compile(host({ materials: { steel: { albedo: IRON } } }));
   assert.deepEqual(albedoAt(built, [2, 0, 0]), IRON);
-  // And with none, it is the scene's problem, named as the compiler names it.
-  assert.throws(() => compile(host({ materials: { clay: {} } })), /steel/);
+  // And with none, it is the scene's problem, named as the compiler names
+  // it: warned of, and the bolt shown in the stand-in, flat magenta.
+  const warned = [];
+  const without = compileScene(host({ materials: { clay: {} } }),
+                               { files: files(), path: 'scenes/host.json', warn: (path, msg) => warned.push(msg) });
+  assert.match(warned.join('\n'), /unknown material "steel": shown as a stand-in/);
+  assert.deepEqual(albedoAt(without, [2, 0, 0]), [1, 0, 1]);
 });
 
 test('every use of one reference shares one set of nodes', () => {
@@ -152,9 +157,12 @@ test('relative to the file that names them, and to a URL', () => {
   assert.deepEqual(albedoAt(built, [0, 0, 0]), IRON);
 });
 
-test('what is missing, a cycle, and "import" are each said plainly', () => {
-  assert.throws(() => compileScene(host(), { path: 'scenes/host.json' }),
-                /scenes\/parts\/bolt.json: not loaded.*loadReferences\(\)/);
+test('what is missing is warned of and left out; a cycle, and "import", are each said plainly', () => {
+  const warned = [];
+  const built = compileScene(host(), { path: 'scenes/host.json', warn: (path, msg) => warned.push(`${path}: ${msg}`) });
+  assert.match(warned.join('\n'), /scenes\/parts\/bolt.json: not loaded, so what refers to it is left out \(see loadReferences\(\)\)/);
+  assert.match(warned.join('\n'), /unknown object "scenes\/parts\/bolt.json#\/objects\/bolt": left out|unknown object "@parts\/bolt.json#\/objects\/bolt": left out/);
+  assert.ok(built.nodes.length >= 2, 'the scene still compiles, without the bolts');
   // A file that is itself a reference is followed - round, here.
   const loop = { 'scenes/a.json': '@b.json', 'scenes/b.json': '@a.json' };
   assert.throws(() => compileScene({ materials: '@a.json', lights: [], root: null }, { files: loop, path: 'scenes/s.json' }),
@@ -178,8 +186,15 @@ test('loadReferences fetches everything, and what that references, once each', a
   } });
   assert.deepEqual(asked.sort(), ['scenes/lib/m.json', 'scenes/parts/bolt.json']);
   assert.deepEqual(albedoAt(compileScene(spec, { files: got, path: 'scenes/host.json' }), [2, 0, 0]), STEEL);
-  await assert.rejects(loadReferences({ root: '@missing.json' }, { readText: async () => { throw new Error('ENOENT'); } }),
-                       /cannot load "missing.json": ENOENT/);
+  // A file that can't be read is warned of and left out; what refers to it
+  // is then left out of the scene, warned of again by compileScene().
+  const warned = [];
+  const partial = await loadReferences({ root: { group: ['@missing.json', '@lib/m.json'] } }, {
+    readText: async (path) => { if (path !== 'lib/m.json') throw new Error('ENOENT'); return '{}'; },
+    warn: (msg) => warned.push(msg),
+  });
+  assert.deepEqual(Object.keys(partial), ['lib/m.json']);
+  assert.match(warned.join('\n'), /cannot load "missing.json": ENOENT: left out/);
 });
 
 test('an STL by reference, and gzipped files', async () => {
@@ -202,7 +217,9 @@ test('an STL by reference, and gzipped files', async () => {
     assert.deepEqual(albedoAt(built, [0.2, 0.2, 0.2]), CLAY, mesh);
     assert.equal(albedoAt(built, [1, 1, 1]), null, `${mesh}: outside the slanted face`);
   }
-  await assert.rejects(loadReferences({ root: '@tet.stl' }, { readText: async () => '' }), /needs loadReferences\(\) given readBytes/);
+  const warned = [];
+  await loadReferences({ root: '@tet.stl' }, { readText: async () => '', warn: (msg) => warned.push(msg) });
+  assert.match(warned.join('\n'), /needs loadReferences\(\) given readBytes/);
   assert.throws(() => compileScene({ materials: {}, lights: [], root: '@tet.stl#/x' }, { files: { 'tet.stl': {} } }),
                 /no parts to point into/);
 });
@@ -236,4 +253,30 @@ test('references resolve against a scene read from above its own directory, or f
   asked.length = 0;
   await loadReferences(spec, { from: '/site/scenes/planet.json', readText, readBytes: async () => new Uint8Array() });
   assert.deepEqual(asked.sort(), ['/site/scenes/lib/materials.json', '/site/shared/thing.json'].sort());
+});
+
+test('names no one defines play on: a material as a stand-in, an object left out', () => {
+  const warned = [];
+  const warn = (path, msg) => warned.push(`${path}: ${msg}`);
+  const ball = (material, center = [0, 0, 0]) => ({ sphere: { center, radius: 1 }, material });
+  const scene = (root) => ({ materials: { stone: { albedo: [0.5, 0.5, 0.5] } }, lights: [], root });
+  // One stand-in per name, warned of once, however often it is used.
+  const built = compileScene(scene({ group: [ball('oak'), ball('oak', [3, 0, 0]), ball('stone', [6, 0, 0])] }), { warn });
+  assert.deepEqual(built.materials.map((m) => m.name ?? null), [null, 'stone', 'oak']);
+  assert.deepEqual(built.materials[2].albedo, [1, 0, 1]);
+  assert.equal(built.materials[2].missing, true);
+  assert.equal(warned.filter((w) => /unknown material "oak"/.test(w)).length, 1);
+  assert.deepEqual(albedoAt(built, [3, 0, 0]), [1, 0, 1], 'the second oak ball, magenta');
+  assert.deepEqual(albedoAt(built, [6, 0, 0]), [0.5, 0.5, 0.5], 'the stone one, as defined');
+  // Objects: a member left out, the rest there; an inside left out is the node's own.
+  warned.length = 0;
+  const members = compileScene(scene({ group: [ball('stone'), { use: 'nope' }, { use: 'nope', translate: [1, 0, 0], complement: true }] }), { warn });
+  assert.deepEqual(albedoAt(members, [0, 0, 0]), [0.5, 0.5, 0.5]);
+  assert.match(warned.join('\n'), /root.group\[1\]: unknown object "nope": left out/);
+  const inner = compileScene(scene({ ...ball('stone'), inside: { use: 'gone' } }), { warn });
+  assert.deepEqual(albedoAt(inner, [0, 0, 0]), [0.5, 0.5, 0.5], 'the ball\'s own stone');
+  // A root left out: a scene of nothing, with a node 1 for trace() to start at.
+  const empty = compileScene(scene({ use: 'nothing' }), { warn });
+  assert.equal(empty.nodes.length, 2);
+  assert.equal(albedoAt(empty, [0, 0, 0]), null);
 });

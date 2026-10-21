@@ -194,7 +194,7 @@ test('the check: a library not found, or a material none defines, is an error; -
     assert.equal(run().status, 0, 'found');
     const oak = run('--material-door', 'oak');
     assert.equal(oak.status, 1);
-    assert.match(oak.stderr, /unknown material "oak" \(--no-check writes it anyway\)/);
+    assert.match(oak.stderr, /unknown material "oak".*\(--no-check writes it anyway\)/);
     assert.equal(run('--material-door', 'oak', '--no-check').status, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });

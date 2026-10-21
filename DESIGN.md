@@ -195,6 +195,18 @@ coefficients in place, with no recompile.
   scene's objects - in place of a reference per section
   (`"materials": ["@lib/materials.json", ...]`). tools/maze.mjs's
   `--library` is named for it.
+- **Play on past mistakes** (Chris: "more like a concert than surgery" -
+  a player who stops at a wrong note spoils the concert, one who plays on
+  may go unnoticed). An authoring slip should be warned of, with a
+  fallback, not stop the scene. Done for the commonest: a material no one
+  defines (a magenta stand-in, named), an object no one defines (left
+  out), and a referenced file that can't be read (left out, with what
+  refers to it). The rest of the compiler's hard errors - about 70: a
+  malformed shape, a bad transform, an unknown kind or pattern - are to be
+  gone through the same way, each given a fallback (the node left out, the
+  transform ignored, the default taken), and their tests turned from
+  "throws" to "warns and falls back". A tool's check (`--no-check`) keeps
+  failing on any of them.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.

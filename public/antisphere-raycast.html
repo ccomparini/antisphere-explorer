@@ -244,7 +244,8 @@ async function main() {
         : `${prov.owner}${prov.path ? ` / ${prov.path}` : ''}`;
       const material = hit ? scene.materials[scene.nodes[hit.node]?.material] : null;
       el('probe-object').textContent = where;
-      el('probe-material').textContent = !hit ? '-' : material?.name ?? '(none)';
+      el('probe-material').textContent = !hit ? '-'
+        : material?.missing ? `${material.name} (not defined: a stand-in)` : material?.name ?? '(none)';
     }, () => {}).finally(() => { probeInFlight = false; });
   }
 
