@@ -100,15 +100,45 @@ acceleration structure to build, keep in step, or traverse.
 
 A rigid motion changes only a node's coefficients (its quadric), not the
 tree's structure. So moving an object can mean rewriting its nodes'
-coefficients in place, with no recompile.
+coefficients in place, with no recompile. What is at stake is the tree's
+shape: each decision the compiler made from where things were when it
+compiled is a bet that they stay there.
 
-- The structure stays valid as long as the separations it assumes still
-  hold, such as a group's splits between its members.
-- The GPU overlap test (`shaders/overlap.wgsls`, `public/overlap.js`) is
-  how that gets checked. A rebuild is needed only when a separation fails,
-  meaning there is an overlap.
-- The same overlap tests are what physics uses to detect collisions, so
-  one check serves both.
+- **Where things are, as the compiler bets on it:**
+  - a group's dividers, placed between its members' balls
+    (`chooseDivider()`);
+  - which earlier members' outsides a later member is grafted into, as far
+    as it may reach (`knock()` in `buildGroup()`);
+  - the copies pruned to a region, an env's (`pruneTo()`), from the
+    member's actual geometry;
+  - a `"wrap"`, sized to what it wraps.
+
+  Each holds while something stays within some region, and a move that
+  breaks one leaves the tree wrong: part of an object missing beyond a
+  divider, or in a region it was never grafted into.
+- **Within an object that moves**, the answer is a shape that makes no
+  such bets, so moving or posing it only rewrites coefficients. A rigid
+  object is one already: it moves as a whole, and its tree with it. A
+  figure, whose parts move against each other, is not, compiled as a
+  group: compiled afresh at each frame of its walk, the mannequin's tree
+  came out different at 39 of the 40 steps (197 to 261 nodes) - its
+  dividers and grafts chosen for each pose, and with 41 limbs swinging,
+  surely crossed. Its parts as a chain - each part's outside the next -
+  never changed (41 nodes), but a chain is a stack of
+  pending segments for every part a ray crosses, and `trace()` has
+  `TRACE_STACK_SIZE` (32) of them: that is why `buildGroup()` divides
+  chains longer than `MAX_CHAIN` (4). So a figure wants a shallow shape
+  that holds in every pose: spheres about its joints, each centred on a
+  joint with the reach of everything below it as its radius, which holds
+  its limb however the joint turns - pelvis, spine, shoulder, elbow,
+  hand.
+- **Between moving objects and the scene**, the scene that doesn't move
+  is compiled once, and what moves is linked into it where it is (see
+  Planned, "Movers linked into the static tree"): nodes near the root -
+  a maze - are static, and things move from region to region within it.
+- The GPU overlap test (`shaders/overlap.wgsls`, `public/overlap.js`)
+  says when two things meet: physics' collisions, and movers meeting
+  each other where they share a region.
 
 ## Planned (agreed, not yet built)
 
@@ -210,11 +240,59 @@ coefficients in place, with no recompile.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.
+- **Movers linked into the static tree** (Chris and Claude, from the
+  figure work). The scene that doesn't move is compiled once; each thing
+  that moves - a figure walking, a ball thrown - is compiled on its own,
+  a mover, and linked into the static tree where it is:
+  - **Slots.** The static tree's empty places are its absent outsides,
+    and the absent insides of regions that aren't solid (an env's air):
+    0s in some static node's child. Each frame, a mover's ball is walked
+    down the static tree - wholly inside a node, in; wholly outside, out;
+    across it, both - to the slots it touches, and the mover's root is
+    linked there; where it has left, unlinked. A mover across a static
+    divider is linked on both sides of it, so the static tree never has
+    to separate anything from a mover: it is never added to, and only
+    those slots' pointers change. A slot within something solid is never
+    linked into: the earlier claim stands, as in a group.
+  - **The mover list.** The compiled scene keeps its movers, by name -
+    the provenance owner, the object placed (`mannequin`): provenance
+    maps a node to its object, the list an object to its nodes. Each
+    entry holds the mover's block of nodes, contiguous, so that moving it
+    is one buffer write; its copies (below); the slots linked to it (node
+    and side), so a move relinks only what changed; and its bound - a
+    ball in its own frame, a figure's root joint sphere - and its
+    transform. A figure's block is subdivided by part (provenance path),
+    so posing it rewrites each part's slice, while the figure links and
+    moves as one. How a scene says a thing moves - a key on a placed
+    object, physlab's world objects - is open.
+  - **Envs.** Every node carries its env, baked; a mover in a torch-lit
+    room needs the room's on all its nodes. So a mover has a copy for
+    each env it touches - usually one, two in a doorway - each carrying
+    that env, made or re-baked as it crosses.
+  - **Several movers in one slot** would chain, into `MAX_CHAIN` and the
+    stack; so an occupied slot gets a small tree of its own movers,
+    rebuilt each frame - a few movers, cheap. The static tree above,
+    small moving trees hung from its empty leaves.
+  - **Pruning** (`pruneTo()`) is an economy, not needed for correctness:
+    a mover linked whole into a slot is reached only by rays in that
+    slot's region.
+  - **In place.** Moving a mover rewrites every copy of its nodes (the
+    `surfaces` ids already group copies); the node buffer keeps spare
+    room for copies and links, compacted now and then by a rebuild.
+
+  Measured, before any of it was built: a ball walked from the hub of
+  `maze.json` to its exit through the doorways, 142 m in 5 cm steps,
+  touched 1 or 2 slots at a time - a figure-sized one (r 0.95) and a
+  thrown one (r 0.1) alike - and the set of them changed 37 times and 47
+  times, at doorways and turns. In the same maze lit by torches (18 envs)
+  the figure-sized ball touched 1 to 4 slots, in up to 4 envs, changing
+  102 times. The cost to know: a mover large enough to be in many slots
+  at once costs for each of them.
 - **Provenance for compiler-invented nodes.** Today they have none, which
-  was enough for picking, since a hit never lands on one. A bounding
-  wrapper needs to record the member it bounds, so it moves with that
-  member. A split surface needs to record its group and the members it
-  separates, so it stays put and is re-validated when they move.
+  was enough for picking, since a hit never lands on one. With movers
+  linked rather than grouped (above), the static scene's dividers and
+  wrappers never move; what still needs it is a mover's own: a wrapper
+  recording what it bounds, so it moves with it.
 - **physlab** (`public/physlab/`): world objects, whose geometry becomes
   the scene, and a camera riding on one of them. It is the testbed for
   moving objects and the overlap queries.
