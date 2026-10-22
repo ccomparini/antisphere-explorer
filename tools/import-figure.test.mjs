@@ -63,10 +63,28 @@ test('posed: y up becomes z up, and the clip bends and moves it', async () => {
   near(centreOf(bent, 1), [1 - 0.6, 0, 1], 'j1\'s, bent over');
   near(bent.group[1].spheroid.axis.map(Math.abs), [1, 0, 0], 'lying along x');
   near(centreOf(poseFigure(figure, 'Bend', 0.5), 0), [0, 0, 0.5], 'halfway: the STEP not taken yet');
-  assert.equal(figure.clips.Bend.frames, 31, 'one second at 30 fps');
-  assert.deepEqual(Object.keys(figure.clips.Bend.rotations), ['j1'], 'only the bones a clip turns');
-  assert.deepEqual(Object.keys(figure.clips.Bend.translations), ['j0'], 'only the bones it moves');
-  assert.throws(() => poseFigure(figure, 'Dance'), /no clip "Dance" \(has Bend\)/);
+  // The source's own keys, its own interpolation kept: only the bones the clip
+  // moves, only the properties it changes.
+  const bend = figure.clips.Bend;
+  assert.equal(bend.duration, 1);
+  assert.equal(bend.loop, undefined, 'not named _Loop: plays once');
+  assert.deepEqual(Object.keys(bend.channels).sort(), ['j0', 'j1']);
+  assert.deepEqual(Object.keys(bend.channels.j1), ['rotation']);
+  assert.deepEqual(bend.channels.j1.rotation.times, [0, 1], 'two keys: linear, the default, not written');
+  assert.equal(bend.channels.j1.rotation.interpolation, undefined);
+  assert.deepEqual(Object.keys(bend.channels.j0), ['translation']);
+  assert.equal(bend.channels.j0.translation.interpolation, 'step', 'STEP kept');
+  // Resampled at 30 fps, a slerp reduces back to its two keys.
+  const resampled = await figureOf({ fps: 30 });
+  assert.deepEqual(resampled.clips.Bend.channels.j1.rotation.times, [0, 1]);
+  const kept = await figureOf({ fps: 30, rotationTolerance: 0 });
+  assert.equal(kept.clips.Bend.channels.j1.rotation.times.length, 31, 'tolerance 0: every resampled key');
+  // An unknown clip plays on, warned of once, at rest.
+  const warned = [];
+  for (let i = 0; i < 3; i++) {
+    assert.deepEqual(poseFigure(figure, 'Dance', 0.5, { warn: (msg) => warned.push(msg) }), rest);
+  }
+  assert.deepEqual(warned, ['figure: no clip "Dance" (has Bend): at rest']);
   const built = compileScene({ materials: { 'figure-skin': {} }, lights: [], root: bent });
   assert.ok(built.nodes.length > 2, 'the posed object compiles');
 });
@@ -97,7 +115,7 @@ test('from the command line: a figure written, its object posed, how it was made
     assert.match(run('--name', 'a/b').stderr, /--name "a\/b": a name, with no/);
     assert.match(spawnSync('node', [script, 'model.glb'], { cwd: dir, encoding: 'utf8' }).stdout, /"objects":\{"figure":/, 'on stdout, "figure"');
     assert.match(run('--clips', 'Dance').stderr, /import-figure: no animation "Dance"/);
-    assert.match(run('--pose', 'Dance@1').stderr, /import-figure: figure: no clip "Dance"/);
+    assert.match(run('--pose', 'Dance@1').stderr, /import-figure: --pose Dance@1: no clip "Dance" \(has Bend\)/);
     assert.match(run('--min-thickness=-1').stderr, /--min-thickness needs a number, 0 or more/);
     assert.match(run('--pose', 'Bend@soon').stderr, /--pose Bend@soon: the time after @ needs to be a number/);
   } finally {

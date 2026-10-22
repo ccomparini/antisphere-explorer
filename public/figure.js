@@ -11,30 +11,45 @@
 //             stand in, in scene coordinates (z up)
 //   parts     { bone, material, spheroid: { center, axis, height, radius } },
 //             the spheroid in its bone's frame
-//   clips     name -> { fps, frames, rotations: { bone: [[x, y, z, w], ...] },
-//             translations: { bone: [[x, y, z], ...] } } - a bone a clip
-//             doesn't list stays at its rest
+//   clips     name -> a keyframed clip (keyframes.js): { duration, loop,
+//             markers, channels: { bone: { rotation, translation } } },
+//             each a track of the bone's local rotation ([x, y, z, w]) or
+//             translation in its parent's frame. A bone a clip doesn't
+//             move stays at its rest; a bone it moves that the figure
+//             hasn't (fingers, on a figure without) is passed over.
 //
 // Each part is a spheroid, a quadric of revolution, so posing one is moving
 // its centre and turning its axis: no transforms are left on the nodes.
 
-import { compose, multiply, slerp, transformDirection, transformPoint } from './gltf.js';
+import { compose, multiply, transformDirection, transformPoint } from './gltf.js';
+import { sampleTrack, clipTime } from './keyframes.js';
+
+// Clips asked for and not there, by figure: warned of once each.
+const unknownClips = new WeakMap();
 
 /**
- * Each bone's local { translation, rotation } at time t (seconds) in a clip,
- * or at rest without one. Between frames, translations are interpolated
- * linearly and rotations by slerp; t is clamped to the clip.
+ * Each bone's local { translation, rotation } at time t (seconds since the
+ * clip started) in a clip, or at rest without one; a looping clip wraps,
+ * any other holds its ends. A clip the figure hasn't is warned of (once)
+ * and the figure stays at rest: it plays on.
  */
-export function bonePose(figure, clipName, t = 0) {
-  const clip = clipName ? figure.clips?.[clipName] : null;
-  if (clipName && !clip) throw new Error(`figure: no clip "${clipName}" (has ${Object.keys(figure.clips ?? {}).join(', ') || 'none'})`);
-  const f = clip ? Math.min(Math.max(t * clip.fps, 0), clip.frames - 1) : 0;
-  const k = Math.floor(f), u = f - k, k1 = Math.min(k + 1, (clip?.frames ?? 1) - 1);
+export function bonePose(figure, clipName, t = 0, { warn = console.warn } = {}) {
+  let clip = clipName ? figure.clips?.[clipName] : null;
+  if (clipName && !clip) {
+    const seen = unknownClips.get(figure) ?? new Set();
+    unknownClips.set(figure, seen);
+    if (!seen.has(clipName)) {
+      seen.add(clipName);
+      warn(`figure: no clip "${clipName}" (has ${Object.keys(figure.clips ?? {}).join(', ') || 'none'}): at rest`);
+    }
+    clip = null;
+  }
+  const time = clip ? clipTime(clip, t) : 0;
   return figure.skeleton.map((bone) => {
-    const rotations = clip?.rotations?.[bone.name], translations = clip?.translations?.[bone.name];
+    const channel = clip?.channels?.[bone.name];
     return {
-      translation: translations ? translations[k].map((v, c) => v + (translations[k1][c] - v) * u) : bone.translation,
-      rotation: rotations ? slerp(rotations[k], rotations[k1], u) : bone.rotation,
+      translation: channel?.translation ? sampleTrack(channel.translation, time) : bone.translation,
+      rotation: channel?.rotation ? sampleTrack(channel.rotation, time, { rotation: true }) : bone.rotation,
     };
   });
 }
@@ -56,8 +71,8 @@ export function boneMatrices(figure, pose) {
  * wrapped in a spheroid round them all. `at` moves the whole by a
  * translation, after posing.
  */
-export function poseFigure(figure, clipName = null, t = 0, { at = [0, 0, 0] } = {}) {
-  const world = boneMatrices(figure, bonePose(figure, clipName, t));
+export function poseFigure(figure, clipName = null, t = 0, { at = [0, 0, 0], warn } = {}) {
+  const world = boneMatrices(figure, bonePose(figure, clipName, t, { warn }));
   const index = new Map(figure.skeleton.map((bone, i) => [bone.name, i]));
   const round = (v) => +v.toFixed(6);
   const group = figure.parts.map(({ bone, material, spheroid: s }) => {

@@ -14,8 +14,11 @@
 // than --min-thickness gives its vertices to its parent, so fingers become
 // mittens unless told otherwise.
 //
-// Each clip is resampled at --fps into each bone's local rotation, and the
-// translations of the bones that move (a walk's pelvis). Its "objects"
+// Each clip keeps its source's keys - each bone's local rotation, and the
+// translation of the bones that move (a walk's pelvis) - as a keyframed clip
+// (public/keyframes.js), dropping the keys interpolation reproduces within
+// --rotation-tolerance and --translation-tolerance, or resampled at --fps.
+// A clip named *_Loop loops. Its "objects"
 // hold the figure posed - at rest, or as --pose says - as a scene subtree,
 // named as the file is (or --name), as other parts files hold theirs:
 // "use": "@parts/quaternius/mannequin.json#/objects/mannequin".
@@ -24,12 +27,13 @@
 // Reports on stderr; writes the figure on stdout unless told where.
 
 const VERSION_MAJ = 0;
-const VERSION_MIN = 1;
+const VERSION_MIN = 2;
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { readGLTF, sample, clipRange, compose, multiply, transformPoint, decompose } from '../public/gltf.js';
+import { readGLTF, trackOf, clipRange, compose, multiply, transformPoint, decompose } from '../public/gltf.js';
+import { sampleTrack, reduceTrack } from '../public/keyframes.js';
 import { poseFigure } from '../public/figure.js';
 import { compileScene } from '../public/antisphere-scene.js';
 import { parseOptions, commandLine } from './args.mjs';
@@ -52,7 +56,13 @@ import-figure - a figure (skeleton, quadric body, clips) from a skinned glTF
                             (default 0.06: fingers into hands; 0 keeps all)
       --fit-percentile <p>  how much of a bone's vertices its part covers,
                             along and around it (default 95)
-      --fps <n>             frames per second the clips are kept at (default 30)
+      --rotation-tolerance <degrees>
+                            drop the keys interpolation reproduces this
+                            closely (default 0.1; 0 keeps every key)
+      --translation-tolerance <metres>
+                            the same for translations (default 0.0005)
+      --fps <n>             resample the clips at this rate, rather than
+                            keeping their own keys
       --clips <a,b,...>     which animations to keep (default all)
       --pose <clip>[@t]     the posed object: a clip at t seconds (default:
                             the bind pose)
@@ -70,7 +80,9 @@ function parseArguments(argv) {
     prefix: { type: 'string', default: 'figure' },
     'min-thickness': { type: 'number', default: 0.06 },
     'fit-percentile': { type: 'number', default: 95 },
-    fps: { type: 'number', default: 30 },
+    fps: { type: 'number' },
+    'rotation-tolerance': { type: 'number', default: 0.1 },
+    'translation-tolerance': { type: 'number', default: 0.0005 },
     clips: { type: 'string' },
     pose: { type: 'string' },
     name: { type: 'string' },
@@ -81,11 +93,15 @@ function parseArguments(argv) {
   if (positionals.length > 1) throw new Error(`one source at a time, not ${positionals.length}`);
   if (!(values['min-thickness'] >= 0)) throw new Error('--min-thickness needs a number, 0 or more');
   if (!(values['fit-percentile'] > 50 && values['fit-percentile'] <= 100)) throw new Error('--fit-percentile needs a number above 50, up to 100');
-  if (!(values.fps > 0)) throw new Error('--fps needs a positive number');
+  if (values.fps !== undefined && !(values.fps > 0)) throw new Error('--fps needs a positive number');
+  for (const key of ['rotation-tolerance', 'translation-tolerance']) {
+    if (!(values[key] >= 0)) throw new Error(`--${key} needs a number, 0 or more`);
+  }
   if (values.name !== undefined && !/^[^/#~\s]+$/.test(values.name)) throw new Error(`--name ${JSON.stringify(values.name)}: a name, with no / # ~ or spaces`);
   return {
     source: positionals[0], out: values.out, check: !values['no-check'], prefix: values.prefix,
     minThickness: values['min-thickness'], percentile: values['fit-percentile'] / 100, fps: values.fps,
+    rotationTolerance: values['rotation-tolerance'] * Math.PI / 180, translationTolerance: values['translation-tolerance'],
     clips: values.clips?.split(',').map((s) => s.trim()).filter(Boolean), pose: values.pose,
     name: values.name ?? (values.out ? path.basename(values.out).replace(/\.json(\.gz)?$/i, '') : 'figure'),
     skin: values.skin, pretty: values.pretty, help: values.help,
@@ -171,10 +187,13 @@ const thickness = (points, percentile) => (points.length < 4 ? 0 : 2 * fitSphero
 
 /**
  * A figure from a parsed glTF (see public/gltf.js). Options: skin, prefix,
- * minThickness, percentile, fps, clips (names), warn.
+ * minThickness, percentile, clips (names); rotationTolerance (radians) and
+ * translationTolerance (metres), how closely interpolation must reproduce a
+ * key for it to be dropped; fps, to resample instead; warn.
  */
 export function figureFromGLTF(gltf, { skin: skinIndex = 0, prefix = 'figure', minThickness = 0.06, percentile = 0.95,
-                                       fps = 30, clips: wanted, warn = console.warn } = {}) {
+                                       fps = null, rotationTolerance = 0.1 * Math.PI / 180, translationTolerance = 0.0005,
+                                       clips: wanted, warn = console.warn } = {}) {
   const json = gltf.json;
   const skin = json.skins?.[skinIndex];
   if (!skin) throw new Error(`no skin ${skinIndex} (the file has ${json.skins?.length ?? 0})`);
@@ -271,25 +290,38 @@ export function figureFromGLTF(gltf, { skin: skinIndex = 0, prefix = 'figure', m
   for (const [i, animation] of animations.entries()) {
     const clipName = animation.name ?? `animation${i}`;
     const [start, end] = clipRange(gltf, animation);
-    const frames = Math.max(1, Math.round((end - start) * fps) + 1);
-    const rotations = {}, translations = {};
+    const channels = {};
     let scaled = false;
-    for (let f = 0; f < frames; f++) {
-      const trs = sample(gltf, animation, Math.min(start + f / fps, end));
-      for (const k of bones) {
-        const at = trs.get(joints[k]) ?? gltf.rest(joints[k]);
-        (rotations[name(k)] ??= []).push(at.rotation);
-        (translations[name(k)] ??= []).push(at.translation);
-        if (at.scale.some((s) => Math.abs(s - 1) > 1e-3)) scaled = true;
+    for (const channel of animation.channels) {
+      const k = jointOf.get(channel.target.node), path = channel.target.path;
+      if (k === undefined || !index.has(k)) continue;              // not a bone the figure keeps
+      const source = trackOf(gltf, animation.samplers[channel.sampler]);
+      if (path === 'scale') {
+        if (source.values.flat(2).some((v) => Math.abs(v - 1) > 1e-3)) scaled = true;
+        continue;
       }
+      if (path !== 'rotation' && path !== 'translation') continue;
+      const rotation = path === 'rotation';
+      // The source's keys, from the clip's start; or resampled.
+      let track = { times: source.times.map((t) => t - start), values: source.values, interpolation: source.interpolation };
+      if (fps) {
+        const n = Math.max(1, Math.round((end - start) * fps) + 1);
+        const times = Array.from({ length: n }, (_, f) => Math.min(f / fps, end - start));
+        track = { times, values: times.map((t) => sampleTrack(source, t + start, { rotation })), interpolation: 'linear' };
+      }
+      // A track that never leaves the rest is no track at all.
+      const bone = skeleton[index.get(k)];
+      const values = track.interpolation === 'cubic' ? track.values.map((v) => v[1]) : track.values;
+      const atRest = rotation
+        ? values.every((q) => Math.abs(Math.abs(dot4(q, bone.rotation)) - 1) < 1e-9)
+        : values.every((t) => Math.hypot(...sub(t, bone.translation)) < 1e-5);
+      if (atRest) continue;
+      track = reduceTrack(track, rotation ? rotationTolerance : translationTolerance, { rotation });
+      if (track.interpolation === 'linear') delete track.interpolation;   // the default
+      (channels[bone.name] ??= {})[path] = track;
     }
     if (scaled) warn(`${clipName}: scales a bone, which a figure doesn't keep`);
-    for (const k of bones) {
-      const bone = skeleton[index.get(k)];
-      if (rotations[bone.name].every((q) => Math.abs(Math.abs(dot4(q, bone.rotation)) - 1) < 1e-9)) delete rotations[bone.name];
-      if (translations[bone.name].every((t) => Math.hypot(...sub(t, bone.translation)) < 1e-5)) delete translations[bone.name];
-    }
-    clips[clipName] = { fps, frames, rotations, ...(Object.keys(translations).length ? { translations } : {}) };
+    clips[clipName] = { duration: end - start, ...(/_loop$/i.test(clipName) ? { loop: true } : {}), channels };
   }
 
   return { skeleton, base: { translation, rotation }, parts, clips };
@@ -316,6 +348,10 @@ async function main(argv) {
   const [poseClip, poseTime = '0'] = options.pose ? options.pose.split('@') : [null];
   if (poseTime.trim() === '' || !Number.isFinite(Number(poseTime))) {
     throw new Error(`--pose ${options.pose}: the time after @ needs to be a number`);
+  }
+  // A clip mistyped here is an argument mistyped: said, as any bad option is.
+  if (poseClip && !figure.clips[poseClip]) {
+    throw new Error(`--pose ${options.pose}: no clip "${poseClip}" (has ${Object.keys(figure.clips).join(', ') || 'none'})`);
   }
   const object = poseFigure(figure, poseClip, Number(poseTime));
   const out = {

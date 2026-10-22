@@ -16,10 +16,13 @@
 //   gltf.worldMatrices(trs)      every node's world matrix, from each node's
 //                                TRS (trs(i), default its rest)
 //   sample(gltf, animation, t)   the animated nodes' TRS at time t
+//   trackOf(gltf, sampler)       a channel's keys as a track (keyframes.js)
 //   clipRange(gltf, animation)   [start, end] of its keys
 //
 // Matrices are glTF's: 4x4, column-major, in a Float64Array(16).
 // Quaternions are [x, y, z, w].
+
+import { sampleTrack } from './keyframes.js';
 
 const GLB_MAGIC = 0x46546c67;          // "glTF"
 const CHUNK_JSON = 0x4e4f534a;         // "JSON"
@@ -187,6 +190,24 @@ export function clipRange(gltf, animation) {
 }
 
 /**
+ * A channel's keys as a track (keyframes.js): { times, values,
+ * interpolation }, values one vector per key - for CUBICSPLINE each
+ * [in-tangent, value, out-tangent]. Cached on the sampler: don't change it.
+ */
+export function trackOf(gltf, sampler) {
+  if (gltf.tracks?.has(sampler)) return gltf.tracks.get(sampler);
+  const times = Array.from(gltf.accessor(sampler.input));
+  const flat = gltf.accessor(sampler.output);
+  const mode = sampler.interpolation ?? 'LINEAR';
+  const per = mode === 'CUBICSPLINE' ? 3 : 1, size = flat.length / times.length / per;
+  const vec = (i) => Array.from(flat.subarray(i * size, (i + 1) * size));
+  const values = times.map((_, k) => (per === 3 ? [vec(3 * k), vec(3 * k + 1), vec(3 * k + 2)] : vec(k)));
+  const track = { times, values, interpolation: { LINEAR: 'linear', STEP: 'step', CUBICSPLINE: 'cubic' }[mode] ?? 'linear' };
+  (gltf.tracks ??= new Map()).set(sampler, track);
+  return track;
+}
+
+/**
  * The TRS, at time t, of every node an animation moves: a Map from node
  * index to { translation, rotation, scale }, each path the animation
  * doesn't drive left at the node's rest. t is clamped to each channel's
@@ -197,54 +218,15 @@ export function sample(gltf, animation, t) {
   for (const channel of animation.channels) {
     const { node, path } = channel.target;
     if (node === undefined || !['translation', 'rotation', 'scale'].includes(path)) continue;
-    const sampler = animation.samplers[channel.sampler];
     if (!out.has(node)) out.set(node, { ...gltf.rest(node) });
-    out.get(node)[path] = interpolate(gltf.accessor(sampler.input), gltf.accessor(sampler.output),
-                                      sampler.interpolation ?? 'LINEAR', t, path === 'rotation');
+    out.get(node)[path] = sampleTrack(trackOf(gltf, animation.samplers[channel.sampler]), t, { rotation: path === 'rotation' });
   }
   return out;
 }
-
-function interpolate(times, values, mode, t, isRotation) {
-  const n = times.length, size = mode === 'CUBICSPLINE' ? values.length / n / 3 : values.length / n;
-  // CUBICSPLINE stores each key as (in-tangent, value, out-tangent).
-  const value = (k) => (mode === 'CUBICSPLINE' ? at(values, (3 * k + 1) * size, size) : at(values, k * size, size));
-  if (t <= times[0] || n === 1) return value(0);
-  if (t >= times[n - 1]) return value(n - 1);
-  let k = 0;
-  while (times[k + 1] < t) k++;                         // t in [times[k], times[k+1]]
-  const dt = times[k + 1] - times[k], u = (t - times[k]) / dt;
-  let out;
-  if (mode === 'STEP') out = value(k);
-  else if (mode === 'CUBICSPLINE') {
-    const p0 = value(k), p1 = value(k + 1);
-    const m0 = at(values, (3 * k + 2) * size, size).map((v) => v * dt);   // out-tangent of k
-    const m1 = at(values, (3 * (k + 1)) * size, size).map((v) => v * dt); // in-tangent of k+1
-    const u2 = u * u, u3 = u2 * u;
-    out = p0.map((_, c) => (2 * u3 - 3 * u2 + 1) * p0[c] + (u3 - 2 * u2 + u) * m0[c]
-                         + (-2 * u3 + 3 * u2) * p1[c] + (u3 - u2) * m1[c]);
-    if (isRotation) out = normalize4(out);
-  } else {
-    out = isRotation ? slerp(value(k), value(k + 1), u) : value(k).map((v, c) => v + (value(k + 1)[c] - v) * u);
-  }
-  return out;
-}
-
-const at = (values, start, size) => Array.from(values.subarray(start, start + size));
 
 // -- maths -------------------------------------------------------------------------
 
 const normalize4 = (q) => { const l = Math.hypot(...q) || 1; return q.map((v) => v / l); };
-
-/** Spherical interpolation from quaternion a to b, the short way round. */
-export function slerp(a, b, u) {
-  let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-  if (d < 0) { b = b.map((v) => -v); d = -d; }
-  if (d > 0.9995) return normalize4(a.map((v, c) => v + (b[c] - v) * u));
-  const th = Math.acos(d), s = Math.sin(th);
-  const wa = Math.sin((1 - u) * th) / s, wb = Math.sin(u * th) / s;
-  return a.map((v, c) => wa * v + wb * b[c]);
-}
 
 /** The matrix of a TRS: translate * rotate * scale. */
 export function compose({ translation: [tx, ty, tz] = [0, 0, 0], rotation: [x, y, z, w] = [0, 0, 0, 1], scale: [sx, sy, sz] = [1, 1, 1] }) {
