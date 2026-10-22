@@ -231,7 +231,8 @@ test('a skinned glTF is a model with a skeleton: an object per bone, in its rest
   assert.deepEqual(m.skeleton.bones.map((b) => b.name), ['j0', 'j1', 'j2']);
   assert.ok(m.skeleton.base, 'with its base frame');
   assert.deepEqual(Object.keys(m.objects).sort(), ['j0', 'j1', 'j2', 'model']);
-  assert.deepEqual(m.objects.model, { group: ['j0', 'j1', 'j2'] }, 'the whole, named "model" on stdout');
+  assert.deepEqual(m.objects.model, { group: ['@#/objects/j0', '@#/objects/j1', '@#/objects/j2'] },
+                   'the whole, named "model" on stdout, its parts referred to within the file');
   assert.equal(m.objects.j0.material, 'M_Skin', 'mesh parts: the source\'s own material');
   // Placed in a scene, at rest: j0's tube round the scene's z axis, from 0.1 to 0.9.
   const built = compileScene({ materials: { M_Skin: {} }, lights: [], objects: m.objects, root: { use: 'model' } });

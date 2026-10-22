@@ -74,11 +74,13 @@ export function partsOf(model, { warn = console.warn } = {}) {
   const refers = new Map(), used = new Set();
   for (const [name, def] of Object.entries(objects)) {
     const names = new Set();
+    // An object by name, or by a reference within the file ("@#/objects/x").
+    const named = (v) => { const n = v.startsWith('@#/objects/') ? v.slice('@#/objects/'.length) : v; if (n in objects) names.add(n); };
     const walk = (v) => {
-      if (typeof v === 'string') { if (v in objects) names.add(v); return; }
+      if (typeof v === 'string') { named(v); return; }
       if (Array.isArray(v)) { v.forEach(walk); return; }
       if (v && typeof v === 'object') {
-        if (typeof v.use === 'string' && v.use in objects) names.add(v.use);
+        if (typeof v.use === 'string') named(v.use);
         for (const key of ['inside', 'outside', 'group', 'union', 'intersection', 'difference']) if (v[key] !== undefined) walk(v[key]);
       }
     };

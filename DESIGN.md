@@ -310,13 +310,20 @@ compiled is a bet that they stay there.
     play them; the skeleton a clip was recorded on would come with it
     then, as `"recordedOn"` (`"skeleton"` means a model's own).
   - **Scene syntax** for a model playing a clip.
-  - **Cost.** Posed by recompiling, mesh parts are far too slow: the
-    mannequin's 52 pieces, 19,687 nodes, compile as one group to 148,543
-    nodes in about 70 s - neighbouring pieces' bounding spheroids overlap,
-    so the group grafts each into many empty leaves of the others - and
-    each turned piece costs over a second more. Its fitted spheroids
-    compile in a fraction of a second. Movers (above), each piece linked
-    where it reaches and moved in place, are the way out for mesh parts.
+  - **Cost: full mesh parts are too slow, for now.** The mannequin's 52
+    pieces, 19,687 nodes, compile as one group to 148,543 nodes in about
+    70 s, and each turned piece costs over a second more. Not the mesh's
+    size - the 871,414-triangle dragon is one tree and compiles - but
+    grouping many overlapping meshes: about 85% of the time is overlap.js's
+    separation certificates (smallestEigen(), separation()), which
+    knock() in buildGroup() asks for between each new member and the
+    regions it passes - hundreds of planes a piece, the pieces touching, so
+    the proofs mostly fail after their full cost. Its fitted spheroids
+    compile in a fraction of a second, so the committed mannequin is
+    those; mesh parts are made on demand (--parts mesh). Ways out: the
+    exact, cheap ballClear() for planes before a certificate; mesh members
+    grafted without proofs (more copies, no certificates); or movers
+    (above), each piece linked where it reaches and moved in place.
 - **Provenance for compiler-invented nodes.** Today they have none, which
   was enough for picking, since a hit never lands on one. With movers
   linked rather than grouped (above), the static scene's dividers and

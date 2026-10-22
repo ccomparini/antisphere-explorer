@@ -63,7 +63,7 @@ test('parts by name or "bone"; helpers and assemblies left as they are; anything
   const m = await model({
     rivet: ball,                                                  // a helper: used by the glove
     glove: { bone: 'j1', group: ['rivet'] },                      // rides j1, by its "bone"
-    whole: { group: ['j0', 'j1', 'glove'] },                      // an assembly
+    whole: { group: ['j0', '@#/objects/j1', 'glove'] },           // an assembly, by name or within the file
     stray: { sphere: { center: [0, 0, 0], radius: 0.1 } },        // none of these
     lost: { bone: 'j9', sphere: { center: [0, 0, 0], radius: 0.1 } },
   });

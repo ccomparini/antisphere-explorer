@@ -310,10 +310,11 @@ function skinnedModel(gltf, options, name, say) {
     : boneParts(skin, { prefix: options.prefix });
   const objects = {};
   for (const [bone, def] of parts) objects[skin.skeleton.bones[bone].name] = def;
-  // The whole, at rest: named so as not to be taken for a bone.
+  // The whole, at rest: named so as not to be taken for a bone, its parts
+  // referred to within this file ("@#/..."), so it holds wherever it is used.
   let whole = name;
   while (whole in objects) whole = `${whole}-model`;
-  objects[whole] = { group: Object.keys(objects) };
+  objects[whole] = { group: Object.keys(objects).map((part) => `@#/objects/${part}`) };
   say(`  ${skin.skeleton.bones.length} bones, ${parts.size} with ${how} parts; the whole as objects.${whole}`);
   return { skeleton: skin.skeleton, ...(scale !== 1 ? { scale } : {}), objects, whole };
 }
