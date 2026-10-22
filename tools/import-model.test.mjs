@@ -14,6 +14,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { writeSTL } from '../public/stl.js';
 import { compileScene, isSolid } from '../public/antisphere-scene.js';
 import { quadricAt as H } from '../public/quadric.js';
+import { fixture, toGLB } from '../public/gltf-fixture.mjs';
 
 const script = fileURLToPath(new URL('./import-model.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'import-model-'));
@@ -215,4 +216,59 @@ test('what it cannot do, it says', async () => {
   assert.match((await run(['a.ply', '--fit', '-1'])).stderr, /--fit needs a positive number/);
   assert.match((await run(['a.ply', '--bogus'])).stderr, /unknown option --bogus/);
   assert.match((await run(['a.ply', 'b.ply'])).stderr, /one source at a time/);
+});
+
+// -- glTF: the tiny skinned model of public/gltf-fixture.mjs --------------------
+
+const glbFile = () => {
+  const file = join(scratch, 'chain.glb');
+  writeFileSync(file, toGLB(fixture()));
+  return file;
+};
+
+test('a skinned glTF is a model with a skeleton: an object per bone, in its rest pose, and the whole', async () => {
+  const m = await model([glbFile()]);
+  assert.deepEqual(m.skeleton.bones.map((b) => b.name), ['j0', 'j1', 'j2']);
+  assert.ok(m.skeleton.base, 'with its base frame');
+  assert.deepEqual(Object.keys(m.objects).sort(), ['j0', 'j1', 'j2', 'model']);
+  assert.deepEqual(m.objects.model, { group: ['j0', 'j1', 'j2'] }, 'the whole, named "model" on stdout');
+  assert.equal(m.objects.j0.material, 'M_Skin', 'mesh parts: the source\'s own material');
+  // Placed in a scene, at rest: j0's tube round the scene's z axis, from 0.1 to 0.9.
+  const built = compileScene({ materials: { M_Skin: {} }, lights: [], objects: m.objects, root: { use: 'model' } });
+  const solid = (p) => {
+    let i = 1, found = 0;
+    while (i) {
+      const n = built.nodes[i];
+      if (H(n.prim, p) < 0) { if (isSolid(built.materials[n.material])) found = found || i; else found = 0; if (!n.inside) break; i = n.inside; }
+      else { found = 0; i = n.outside; }
+    }
+    return !!found;
+  };
+  assert.equal(solid([0, 0, 0.5]), true, 'inside j0\'s tube');
+  assert.equal(solid([0.5, 0, 0.5]), false, 'beside it');
+});
+
+test('--parts spheroid and bones, of <prefix>-...; --name names the whole', async () => {
+  const sph = await model([glbFile(), '--parts', 'spheroid', '--prefix', 'robot', '--name', 'chain']);
+  assert.deepEqual(Object.keys(sph.objects).sort(), ['chain', 'j0', 'j1'], 'the thin j2 folded into j1');
+  assert.equal(sph.objects.j0.material, 'robot-skin');
+  const bones = await model([glbFile(), '--parts', 'bones']);
+  assert.equal(bones.objects.j0.material, 'figure-bone');
+  assert.ok(bones.objects.j2.sphere, 'the end bone a ball');
+  assert.match((await run([glbFile(), '--parts', 'clay'])).stderr, /--parts clay: mesh, spheroid or bones/);
+});
+
+test('--overlap shares a blended band; --fit scales the skeleton too, and says so', async () => {
+  const plain = await model([glbFile()]), shared = await model([glbFile(), '--overlap', '0.3']);
+  assert.notDeepEqual(shared.objects.j1, plain.objects.j1, 'j1\'s piece takes in the band it weighs 0.4');
+  const fitted = await model([glbFile(), '--parts', 'spheroid', '--fit', '4']);
+  assert.ok(Math.abs(fitted.scale - 2) < 1e-6, `scale ${fitted.scale}: 2 tall (0.1 to 2.1) made 4`);
+  assert.deepEqual(fitted.skeleton.bones[1].translation.map((v) => +v.toFixed(6)), [0, 2, 0], 'j1 two up now');
+});
+
+test('--no-skeleton: the geometry alone, at rest, as one model', async () => {
+  const m = await model([glbFile(), '--no-skeleton', '--material', 'clay']);
+  assert.equal(m.skeleton, undefined);
+  assert.equal(m.material, 'clay');
+  assert.ok(m.spheroid || m.sphere, 'one tree, wrapped');
 });

@@ -1,12 +1,13 @@
-// A tiny skinned, animated glTF, built in code: for the tests of gltf.js
-// and tools/import-figure.mjs, not for the page.
+// A tiny skinned, animated glTF, built in code: for the tests of gltf.js,
+// skin.js and the import tools, not for the page.
 //
 // Three joints in a chain up +y, each 1 apart: j0 at the origin, j1 above
 // it, j2 above that. The mesh, all one primitive, is rings of points round
 // the y axis - radius 0.2 from y = 0.1 to 0.9 (on j0), from 1.1 to 1.9 (on
-// j1) - and a thin tip on j2, radius 0.01 from 2.0 to 2.1. Positions are
+// j1) - and a thin tip on j2, radius 0.01 from 2.0 to 2.1. Each is a tube of
+// triangles, outward, open at its ends (indices, ushort). Positions are
 // stored interleaved with padding (byteStride 16), weights as normalized
-// bytes.
+// bytes: j0's top ring, at y 0.9, is blended, 0.6 j0 and 0.4 j1.
 //
 // One animation, "Bend", from 0 to 1 s:
 //   j1 rotation, LINEAR:      identity -> 90 degrees about z
@@ -22,12 +23,23 @@ export function fixture() {
       const y = y0 + (y1 - y0) * i / 4;
       for (let a = 0; a < 8; a++) {
         positions.push([r * Math.cos(a * Math.PI / 4), y, r * Math.sin(a * Math.PI / 4)]);
-        joints.push([joint, 0, 0, 0]);
-        weights.push([255, 0, 0, 0]);
+        const blended = joint === 0 && i === 4;
+        joints.push(blended ? [0, 1, 0, 0] : [joint, 0, 0, 0]);
+        weights.push(blended ? [153, 102, 0, 0] : [255, 0, 0, 0]);
       }
     }
   }
   const n = positions.length;
+  // Each tube: between levels i and i + 1 of its rings, two triangles a side.
+  const indices = [];
+  for (let g = 0; g < rings.length; g++) {
+    for (let i = 0; i < 4; i++) {
+      for (let a = 0; a < 8; a++) {
+        const at = (level, k) => g * 40 + level * 8 + (k % 8);
+        indices.push(at(i, a), at(i + 1, a), at(i, a + 1), at(i + 1, a), at(i + 1, a + 1), at(i, a + 1));
+      }
+    }
+  }
   const s = Math.SQRT1_2;
   const parts = [];                                         // [bytes, alignment]
   let offset = 0;
@@ -53,6 +65,7 @@ export function fixture() {
   const vTimes = add(Float32Array.of(0, 1));
   const vRot = add(Float32Array.of(0, 0, 0, 1, 0, 0, s, s));
   const vStep = add(Float32Array.of(0, 0, 0, 1, 0, 0));
+  const vIndices = add(Uint16Array.from(indices));
   const vCubic = add(Float32Array.of(0, 0, 0, 0, 1, 0, 0, 2, 0, /* key 2 */ 0, 0, 0, 0, 2, 0, 0, 0, 0));
 
   const bin = new Uint8Array(offset + ((4 - (offset % 4)) % 4));
@@ -70,7 +83,7 @@ export function fixture() {
       { name: 'body', mesh: 0, skin: 0 },
       { name: 'Armature', children: [3, 0] },
     ],
-    meshes: [{ name: 'body', primitives: [{ attributes: { POSITION: 0, JOINTS_0: 1, WEIGHTS_0: 2 }, material: 0 }] }],
+    meshes: [{ name: 'body', primitives: [{ attributes: { POSITION: 0, JOINTS_0: 1, WEIGHTS_0: 2 }, indices: 8, material: 0 }] }],
     materials: [{ name: 'M_Skin' }],
     skins: [{ joints: [0, 1, 2], inverseBindMatrices: 3 }],
     animations: [{
@@ -95,6 +108,7 @@ export function fixture() {
       { bufferView: vRot, componentType: 5126, count: 2, type: 'VEC4' },
       { bufferView: vStep, componentType: 5126, count: 2, type: 'VEC3' },
       { bufferView: vCubic, componentType: 5126, count: 6, type: 'VEC3' },
+      { bufferView: vIndices, componentType: 5123, count: indices.length, type: 'SCALAR' },
     ],
     bufferViews: views,
     buffers: [{ byteLength: bin.byteLength }],

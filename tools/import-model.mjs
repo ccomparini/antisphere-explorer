@@ -34,11 +34,31 @@
 // which the scene then defines. An output name ending .gz is gzipped,
 // which the loaders unzip.
 //
+// A glTF (.glb or .gltf) is read too, turned z up from its y up. One with a
+// skin is a model with a skeleton, unless --no-skeleton: its bones, rest
+// pose and all (public/skin.js), and an object for each bone with geometry
+// - named for the bone, in the rest pose, in scene coordinates - and one
+// for the whole, named for the file it is written to, at rest. A clip
+// (tools/import-animations.mjs) poses it (public/figure.js). What each
+// bone's object is made of, --parts:
+//
+//   mesh      the model's own triangles, each to the bone weighting it most
+//             (or, --overlap, every bone weighting it that much), each
+//             bone's a tree - made of the source's own materials
+//   spheroid  a spheroid fitted to each bone's vertices, per material,
+//             fingers folded into mittens (--min-thickness): light, for
+//             trying a clip - made of <prefix>-<material>
+//   bones     spheroids along the bones themselves, needing no geometry -
+//             made of <prefix>-bone
+//
+// --fit scales a model with a skeleton about its origin, skeleton and all,
+// and records the scale, by which its clips' translations are scaled.
+//
 // Reports what it found on stderr, and writes the model on stdout unless
 // told where.
 
 const VERSION_MAJ = 0;
-const VERSION_MIN = 2;
+const VERSION_MIN = 3;
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
@@ -48,6 +68,8 @@ import { readSTL } from '../public/stl.js';
 import { readPLY } from '../public/ply.js';
 import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-import.js';
 import { compileScene } from '../public/antisphere-scene.js';
+import { readGLTF, compose, multiply, transformPoint } from '../public/gltf.js';
+import { skinOf, meshParts, spheroidParts, boneParts, Y_UP_TO_Z_UP } from '../public/skin.js';
 import { stringifyJSON } from '../public/fbm-json.js';
 import { parseOptions } from './args.mjs';
 
@@ -56,9 +78,9 @@ import-model - convert a mesh, from a file or a URL, into a model for scenes
 
   node tools/import-model.mjs <source> [options]
 
-  <source>             a file or URL: .ply or .stl, either maybe .gz; or a
-                       tar archive (.tar, .tar.gz, .tgz) with the file in it
-                       after a #: archive.tar.gz#dir/model.ply
+  <source>             a file or URL: .ply, .stl, .glb or .gltf, maybe .gz;
+                       or a tar archive (.tar, .tar.gz, .tgz) with the file
+                       in it after a #: archive.tar.gz#dir/model.ply
   -o, --out <file>     write here instead of stdout; a name ending .gz is
                        gzipped
       --fit <size>     scale the model so its longest side is this
@@ -72,6 +94,24 @@ import-model - convert a mesh, from a file or a URL, into a model for scenes
                        float32 back: the GPU works in f32, and a mesh's
                        vertices usually are float32 to begin with
       --pretty         make output more readable
+
+  A glTF with a skin:
+      --no-skeleton    just its geometry, at rest, as one model
+      --parts <how>    each bone's object: mesh (the default), spheroid or
+                       bones (see above)
+      --overlap <w>    mesh: a triangle also goes to every bone weighting
+                       one of its vertices at least w (0 to 1)
+      --min-thickness <m>
+                       spheroid: a bone thinner than this gives its vertices
+                       to its parent (default 0.06: fingers into hands)
+      --fit-percentile <p>
+                       spheroid: how much of a bone's vertices its part
+                       covers (default 95)
+      --prefix <p>     spheroid, bones: materials are <p>-... (default
+                       "figure")
+      --name <n>       the whole model's object (default: the output
+                       file's name; on stdout, model)
+      --skin <n>       which of the file's skins (default 0)
 `.trim();
 
 const thisScriptName = path.relative(process.cwd(), fileURLToPath(import.meta.url));
@@ -84,11 +124,23 @@ function parseArguments(argv) {
     up: { type: 'string' },
     float32: { type: 'boolean' },
     pretty: { type: 'boolean' },
+    'no-skeleton': { type: 'boolean' },
+    parts: { type: 'string', default: 'mesh' },
+    overlap: { type: 'number' },
+    'min-thickness': { type: 'number', default: 0.06 },
+    'fit-percentile': { type: 'number', default: 95 },
+    prefix: { type: 'string', default: 'figure' },
+    name: { type: 'string' },
+    skin: { type: 'number', default: 0 },
     help: { type: 'boolean', short: 'h' },
   }, { positionals: true });
   if (values.fit !== undefined && !(values.fit > 0)) throw new Error('--fit needs a positive number');
   if (values.up !== undefined && !UP[values.up]) throw new Error(`--up ${values.up}: x, y, z, -x, -y or -z`);
   if (positionals.length > 1) throw new Error(`one source at a time, not ${positionals.length}`);
+  if (!['mesh', 'spheroid', 'bones'].includes(values.parts)) throw new Error(`--parts ${values.parts}: mesh, spheroid or bones`);
+  if (values.overlap !== undefined && !(values.overlap > 0 && values.overlap <= 1)) throw new Error('--overlap needs a weight, above 0, up to 1');
+  if (!(values['min-thickness'] >= 0)) throw new Error('--min-thickness needs a number, 0 or more');
+  if (!(values['fit-percentile'] > 50 && values['fit-percentile'] <= 100)) throw new Error('--fit-percentile needs a number above 50, up to 100');
   return { ...values, source: positionals[0] };
 }
 
@@ -107,7 +159,7 @@ const UP = {
 const isURL = (path) => /^[a-z][a-z0-9+.-]*:\/\//i.test(path);
 const isGzipped = (bytes) => bytes[0] === 0x1f && bytes[1] === 0x8b;
 const isTar = (bytes) => new TextDecoder().decode(bytes.subarray(257, 262)) === 'ustar';
-const MESH = /\.(ply|stl)$/i;
+const MESH = /\.(ply|stl|glb|gltf)$/i;
 
 /** The files in a tar archive, as a Map of name to bytes. */
 function untar(bytes) {
@@ -174,7 +226,13 @@ async function readSource(source, say) {
     throw new Error(`${location} is not an archive, so it has no ${member} in it`);
   }
   const format = file.match(MESH)?.[1]?.toLowerCase();
-  if (!format) throw new Error(`${file}: not a mesh this reads - .ply or .stl (maybe .gz, or in an archive)`);
+  if (!format) throw new Error(`${file}: not a mesh this reads - .ply, .stl, .glb or .gltf (maybe .gz, or in an archive)`);
+  if (format === 'glb' || format === 'gltf') {
+    // A .gltf's sidecar buffers, beside it, if it is a local file.
+    const dir = isURL(location) ? null : path.dirname(location);
+    const gltf = await readGLTF(bytes, { readBytes: dir ? async (p) => readFileSync(p) : undefined, base: dir ? `${dir}/` : '' });
+    return { name: file.replace(MESH, ''), gltf };
+  }
   const read = format === 'ply' ? readPLY(bytes) : readSTL(bytes);
   return { name: file.replace(MESH, ''), ...read };
 }
@@ -195,6 +253,71 @@ function asFloat32(x) {
 
 const float32Converter = (key, val) => (typeof val === 'number' ? asFloat32(val) : val);
 
+/**
+ * Every triangle of a glTF at rest, in scene coordinates (z up): skinned
+ * meshes as their skins pose them, the rest as their nodes place them.
+ */
+function trianglesOfGLTF(gltf) {
+  const triangles = [];
+  (gltf.json.skins ?? []).forEach((_, i) => {
+    for (const { points, triangles: tris } of skinOf(gltf, i).primitives) {
+      for (const [a, b, c] of tris) triangles.push([points[a], points[b], points[c]]);
+    }
+  });
+  const world = gltf.worldMatrices(), toScene = compose({ rotation: Y_UP_TO_Z_UP });
+  gltf.json.nodes.forEach((node, n) => {
+    if (node.mesh === undefined || node.skin !== undefined) return;
+    const m = multiply(toScene, world[n]);
+    for (const prim of gltf.json.meshes[node.mesh].primitives) {
+      if ((prim.mode ?? 4) !== 4 || prim.attributes.POSITION === undefined) continue;
+      const pos = gltf.accessor(prim.attributes.POSITION);
+      const at = (v) => transformPoint(m, [pos[3 * v], pos[3 * v + 1], pos[3 * v + 2]]);
+      const order = prim.indices === undefined ? Array.from({ length: pos.length / 3 }, (_, i) => i) : gltf.accessor(prim.indices);
+      for (let i = 0; i + 2 < order.length; i += 3) triangles.push([at(order[i]), at(order[i + 1]), at(order[i + 2])]);
+    }
+  });
+  return triangles;
+}
+
+/**
+ * A model with a skeleton, from a glTF's skin: { skeleton, scale, objects },
+ * an object per bone with geometry and one for the whole (see the top).
+ */
+function skinnedModel(gltf, options, name, say) {
+  const skin = skinOf(gltf, options.skin);
+  // --fit: the model scaled about its origin, its skeleton with it.
+  let scale = 1;
+  if (options.fit) {
+    const points = skin.primitives.flatMap((p) => p.points);
+    if (points.length) {
+      const { lo, hi } = boundsOf([points]);
+      scale = options.fit / Math.max(...hi.map((v, i) => v - lo[i]));
+    }
+  }
+  if (scale !== 1) {
+    const times = (v) => v.map((x) => x * scale);
+    skin.skeleton.base.translation = times(skin.skeleton.base.translation);
+    for (const bone of skin.skeleton.bones) bone.translation = times(bone.translation);
+    for (const prim of skin.primitives) prim.points = prim.points.map(times);
+    const worldOf = skin.worldOf;
+    skin.worldOf = (i) => { const m = Float64Array.from(worldOf(i)); for (const k of [12, 13, 14]) m[k] *= scale; return m; };
+  }
+  const how = skin.primitives.length ? options.parts : 'bones';
+  if (how !== options.parts) say(`  no mesh is skinned to it: --parts bones`);
+  const parts = how === 'mesh' ? meshParts(skin, { overlap: options.overlap ?? null })
+    : how === 'spheroid' ? spheroidParts(skin, { minThickness: options['min-thickness'],
+                                                  percentile: options['fit-percentile'] / 100, prefix: options.prefix })
+    : boneParts(skin, { prefix: options.prefix });
+  const objects = {};
+  for (const [bone, def] of parts) objects[skin.skeleton.bones[bone].name] = def;
+  // The whole, at rest: named so as not to be taken for a bone.
+  let whole = name;
+  while (whole in objects) whole = `${whole}-model`;
+  objects[whole] = { group: Object.keys(objects) };
+  say(`  ${skin.skeleton.bones.length} bones, ${parts.size} with ${how} parts; the whole as objects.${whole}`);
+  return { skeleton: skin.skeleton, ...(scale !== 1 ? { scale } : {}), objects, whole };
+}
+
 async function main(argv) {
   const options = parseArguments(argv);
   if (options.help || !options.source) {
@@ -204,44 +327,57 @@ async function main(argv) {
   const say = (...parts) => console.error(...parts);
 
   const read = await readSource(options.source, say);
-  say(`${read.name}: ${read.triangles.length} triangles`
-      + (read.degenerate ? `, ${read.degenerate} with no area (skipped)` : '')
-      + (read.flipped ? `, ${read.flipped} wound backwards (corrected)` : '')
-      + (read.openEdges ? `, ${read.openEdges} open edges (what is inside it is partly a guess)` : ''));
-  if (!read.triangles.length) throw new Error('nothing to convert');
-
-  const turn = UP[options.up ?? 'z'];
-  const upright = options.up && options.up !== 'z' ? read.triangles.map((tri) => tri.map(turn)) : read.triangles;
-  const placed = placeTriangles(upright, { fit: options.fit });
-
-  const started = Date.now();
-  const model = meshToTree(placed);
-  if (!model) throw new Error('the mesh produced no geometry');
-  const stats = treeStats(model);
-  say(`  ${stats.nodes} nodes, depth ${stats.depth}, ${stats.solidLeaves} solid regions`
-      + ` (${((Date.now() - started) / 1000).toFixed(1)}s)`);
-
-  const { lo, hi } = boundsOf(placed);
-  const out = {
-    _meta: {
-      importer:           thisScriptName,
-      importerVersionMaj: VERSION_MAJ,
-      importerVersionMin: VERSION_MIN,
-      importArguments:    argv,
-      sourceTricount:     read.triangles.length,
-      dimensions:         hi.map((v, i) => +(v - lo[i]).toPrecision(4)),
-    },
-    ...(options.material ? { material: options.material } : {}),
-    ...model,
+  const meta = {
+    importer:           thisScriptName,
+    importerVersionMaj: VERSION_MAJ,
+    importerVersionMin: VERSION_MIN,
+    importArguments:    argv,
   };
+  let out, scene;
+  if (read.gltf && read.gltf.json.skins?.length && !options['no-skeleton']) {
+    // A model with a skeleton.
+    const name = options.name ?? (options.out ? path.basename(options.out).replace(/\.json(\.gz)?$/i, '') : 'model');
+    say(`${read.name}: a skin`);
+    const started = Date.now();
+    const { whole, ...model } = skinnedModel(read.gltf, options, name, say);
+    say(`  (${((Date.now() - started) / 1000).toFixed(1)}s)`);
+    out = { _meta: meta, ...model };
+    // To compile it: the whole, at rest, its materials whatever they are.
+    const materials = new Set();
+    JSON.stringify(model.objects, (key, value) => { if (key === 'material' && typeof value === 'string') materials.add(value); return value; });
+    scene = { materials: Object.fromEntries([...materials].map((m) => [m, {}])), lights: [],
+              objects: structuredClone(model.objects), root: { use: whole } };
+  } else {
+    if (read.gltf) read.triangles = trianglesOfGLTF(read.gltf);
+    say(`${read.name}: ${read.triangles.length} triangles`
+        + (read.degenerate ? `, ${read.degenerate} with no area (skipped)` : '')
+        + (read.flipped ? `, ${read.flipped} wound backwards (corrected)` : '')
+        + (read.openEdges ? `, ${read.openEdges} open edges (what is inside it is partly a guess)` : ''));
+    if (!read.triangles.length) throw new Error('nothing to convert');
+
+    const turn = UP[options.up ?? 'z'];
+    const upright = options.up && options.up !== 'z' ? read.triangles.map((tri) => tri.map(turn)) : read.triangles;
+    const placed = placeTriangles(upright, { fit: options.fit });
+
+    const started = Date.now();
+    const model = meshToTree(placed);
+    if (!model) throw new Error('the mesh produced no geometry');
+    const stats = treeStats(model);
+    say(`  ${stats.nodes} nodes, depth ${stats.depth}, ${stats.solidLeaves} solid regions`
+        + ` (${((Date.now() - started) / 1000).toFixed(1)}s)`);
+
+    const { lo, hi } = boundsOf(placed);
+    out = {
+      _meta: { ...meta, sourceTricount: read.triangles.length, dimensions: hi.map((v, i) => +(v - lo[i]).toPrecision(4)) },
+      ...(options.material ? { material: options.material } : {}),
+      ...model,
+    };
+    scene = { materials: options.material ? { [options.material]: {} } : {}, lights: [], root: structuredClone(out) };
+  }
 
   // Compile before writing, as a scene would place it: a model that will
   // not load is worse than an error here, about a file nobody wrote by hand.
-  const built = compileScene({
-    materials: options.material ? { [options.material]: {} } : {},
-    lights: [],
-    root: structuredClone(out),
-  });
+  const built = compileScene(scene);
   say(`  compiles to ${built.nodes.length - 1} nodes`);
 
   const filter = options.float32 ? float32Converter : undefined;
@@ -249,7 +385,7 @@ async function main(argv) {
   if (options.out) {
     mkdirSync(path.dirname(options.out), { recursive: true });
     writeFileSync(options.out, /\.gz$/i.test(options.out) ? gzipSync(json, { level: 9 }) : json);
-    say(`  written to ${options.out}`);
+    say(`  written to ${options.out} (${(json.length / 1024).toFixed(0)} KB of JSON)`);
   } else {
     process.stdout.write(json);
   }

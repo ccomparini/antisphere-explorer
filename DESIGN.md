@@ -288,6 +288,35 @@ compiled is a bet that they stay there.
   the figure-sized ball touched 1 to 4 slots, in up to 4 envs, changing
   102 times. The cost to know: a mover large enough to be in many slots
   at once costs for each of them.
+- **Models and animations** (Chris and Claude). Built so far: a model
+  with a skeleton (`tools/import-model.mjs` on a skinned glTF): its bones'
+  rest pose (`public/skin.js`), and an object per bone in the rest pose,
+  in scene coordinates - the model's own mesh split among its bones
+  (default), fitted spheroids, or spheroids along the bones. Clips apart
+  (`tools/import-animations.mjs`), keyframed (`public/keyframes.js`), by
+  bone name, every bone the source moves. `public/figure.js` poses a model
+  by a clip as a scene subtree, each part turned and moved as its bone has
+  from rest. To come:
+  - **Fitting quadrics** (Chris): geometry import choosing a quadric
+    where a region of the mesh fits one within a tolerance - a forearm a
+    spheroid, a finger left a mesh - for static models as for parts.
+  - **Splitting by weight:** `splitByBone()` gives a triangle to its
+    dominant bone (or, `--overlap`, to every bone weighing that much).
+    Cutting where a blend is half one bone, half the next, and capping
+    what is cut (an open piece's solid runs on to its bounding
+    spheroid), are changes to it alone.
+  - **Retargeting:** clips hold full local rotations, right for models of
+    the same rig. Rotations relative to the rest pose would let others
+    play them; the skeleton a clip was recorded on would come with it
+    then, as `"recordedOn"` (`"skeleton"` means a model's own).
+  - **Scene syntax** for a model playing a clip.
+  - **Cost.** Posed by recompiling, mesh parts are far too slow: the
+    mannequin's 52 pieces, 19,687 nodes, compile as one group to 148,543
+    nodes in about 70 s - neighbouring pieces' bounding spheroids overlap,
+    so the group grafts each into many empty leaves of the others - and
+    each turned piece costs over a second more. Its fitted spheroids
+    compile in a fraction of a second. Movers (above), each piece linked
+    where it reaches and moved in place, are the way out for mesh parts.
 - **Provenance for compiler-invented nodes.** Today they have none, which
   was enough for picking, since a hit never lands on one. With movers
   linked rather than grouped (above), the static scene's dividers and

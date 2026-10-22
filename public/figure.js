@@ -1,86 +1,137 @@
-// A figure: a skeleton, rigid quadric parts riding on its bones, and clips
-// that move the bones - what tools/import-figure.mjs makes from a skinned,
-// animated glTF. poseFigure() turns one into a scene subtree, posed.
+// Posing a model by a clip: its bones moved as the clip says, and each of
+// its parts carried by its bone.
 //
-// A figure, as JSON:
+// A model with a skeleton (tools/import-model.mjs makes one from a skinned
+// glTF; one can be written by hand) is:
 //
-//   skeleton  bones, parents first: { name, parent (index, or -1),
-//             translation, rotation } - each bone's rest transform in its
-//             parent's frame (quaternions [x, y, z, w])
-//   base      { translation, rotation }: the frame the skeleton's roots
-//             stand in, in scene coordinates (z up)
-//   parts     { bone, material, spheroid: { center, axis, height, radius } },
-//             the spheroid in its bone's frame
-//   clips     name -> a keyframed clip (keyframes.js): { duration, loop,
-//             markers, channels: { bone: { rotation, translation } } },
-//             each a track of the bone's local rotation ([x, y, z, w]) or
-//             translation in its parent's frame. A bone a clip doesn't
-//             move stays at its rest; a bone it moves that the figure
-//             hasn't (fingers, on a figure without) is passed over.
+//   skeleton   { base, bones } - see public/skin.js
+//   scale      optional: the model's size against the skeleton its clips
+//              were made for; a clip's translations are multiplied by it
+//   objects    its parts, in its rest pose, in scene coordinates. A part is
+//              an object named for a bone, or one naming its bone
+//              ("bone": "hand_r"). Objects that other objects use are
+//              helpers, and objects that only gather others (the whole
+//              model, at rest) are assemblies: neither is moved itself.
+//              Anything else rides on the root bone, warned of.
 //
-// Each part is a spheroid, a quadric of revolution, so posing one is moving
-// its centre and turning its axis: no transforms are left on the nodes.
+// Clips come separately (tools/import-animations.mjs): keyframed
+// (keyframes.js), each bone's channels by its name. A bone the clip doesn't
+// move stays at rest; a bone it moves that the model hasn't - fingers, on a
+// model without - is passed over.
 
-import { compose, multiply, transformDirection, transformPoint } from './gltf.js';
+import { compose, multiply, decompose } from './gltf.js';
 import { sampleTrack, clipTime } from './keyframes.js';
 
-// Clips asked for and not there, by figure: warned of once each.
+// Clips asked for and not there, by clip set: warned of once each.
 const unknownClips = new WeakMap();
 
 /**
  * Each bone's local { translation, rotation } at time t (seconds since the
- * clip started) in a clip, or at rest without one; a looping clip wraps,
- * any other holds its ends. A clip the figure hasn't is warned of (once)
- * and the figure stays at rest: it plays on.
+ * clip started) in `clip`, or at rest without one; a looping clip wraps,
+ * any other holds its ends. Translations from the clip are scaled by
+ * `scale`.
  */
-export function bonePose(figure, clipName, t = 0, { warn = console.warn } = {}) {
-  let clip = clipName ? figure.clips?.[clipName] : null;
-  if (clipName && !clip) {
-    const seen = unknownClips.get(figure) ?? new Set();
-    unknownClips.set(figure, seen);
-    if (!seen.has(clipName)) {
-      seen.add(clipName);
-      warn(`figure: no clip "${clipName}" (has ${Object.keys(figure.clips ?? {}).join(', ') || 'none'}): at rest`);
-    }
-    clip = null;
-  }
+export function bonePose(skeleton, clip, t = 0, { scale = 1 } = {}) {
   const time = clip ? clipTime(clip, t) : 0;
-  return figure.skeleton.map((bone) => {
+  return skeleton.bones.map((bone) => {
     const channel = clip?.channels?.[bone.name];
     return {
-      translation: channel?.translation ? sampleTrack(channel.translation, time) : bone.translation,
+      translation: channel?.translation ? sampleTrack(channel.translation, time).map((v) => v * scale) : bone.translation,
       rotation: channel?.rotation ? sampleTrack(channel.rotation, time, { rotation: true }) : bone.rotation,
     };
   });
 }
 
 /** Each bone's matrix in scene coordinates, for a pose from bonePose(). */
-export function boneMatrices(figure, pose) {
-  const base = compose(figure.base);
+export function boneMatrices(skeleton, pose) {
+  const base = compose(skeleton.base);
   const world = [];
-  figure.skeleton.forEach((bone, i) => {
-    const local = compose(pose[i]);
-    world[i] = multiply(bone.parent < 0 ? base : world[bone.parent], local);
+  skeleton.bones.forEach((bone, i) => {
+    world[i] = multiply(bone.parent < 0 ? base : world[bone.parent], compose(pose[i]));
   });
   return world;
 }
 
+// A rigid matrix's inverse: its rotation transposed, its translation undone.
+function invertRigid(m) {
+  const out = new Float64Array(16);
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) out[c * 4 + r] = m[r * 4 + c];
+  for (let r = 0; r < 3; r++) out[12 + r] = -(out[r] * m[12] + out[4 + r] * m[13] + out[8 + r] * m[14]);
+  out[15] = 1;
+  return out;
+}
+
 /**
- * The figure posed at time t of a clip (or at rest, without one), as a scene
- * subtree: a group of its parts, each a spheroid placed in the world,
- * wrapped in a spheroid round them all. `at` moves the whole by a
- * translation, after posing.
+ * Which bone each of a model's objects rides on: a Map from object name to
+ * bone index, for its parts. Objects named for a bone, or naming one, are
+ * its; helpers and assemblies (see above) are none; any other is the root's,
+ * and `warn` is told.
  */
-export function poseFigure(figure, clipName = null, t = 0, { at = [0, 0, 0], warn } = {}) {
-  const world = boneMatrices(figure, bonePose(figure, clipName, t, { warn }));
-  const index = new Map(figure.skeleton.map((bone, i) => [bone.name, i]));
-  const round = (v) => +v.toFixed(6);
-  const group = figure.parts.map(({ bone, material, spheroid: s }) => {
-    const m = world[index.get(bone)];
-    const center = transformPoint(m, s.center).map((v, c) => round(v + at[c]));
-    const axis = transformDirection(m, s.axis);
-    const l = Math.hypot(...axis);
-    return { spheroid: { center, axis: axis.map((v) => round(v / l)), height: s.height, radius: s.radius }, material };
-  });
-  return { group, wrap: 'spheroid' };
+export function partsOf(model, { warn = console.warn } = {}) {
+  const bones = new Map(model.skeleton.bones.map((bone, i) => [bone.name, i]));
+  const objects = model.objects ?? {};
+  // The names each object refers to, and so which are used.
+  const refers = new Map(), used = new Set();
+  for (const [name, def] of Object.entries(objects)) {
+    const names = new Set();
+    const walk = (v) => {
+      if (typeof v === 'string') { if (v in objects) names.add(v); return; }
+      if (Array.isArray(v)) { v.forEach(walk); return; }
+      if (v && typeof v === 'object') {
+        if (typeof v.use === 'string' && v.use in objects) names.add(v.use);
+        for (const key of ['inside', 'outside', 'group', 'union', 'intersection', 'difference']) if (v[key] !== undefined) walk(v[key]);
+      }
+    };
+    walk(def);
+    refers.set(name, names);
+    for (const n of names) used.add(n);
+  }
+  const out = new Map();
+  for (const [name, def] of Object.entries(objects)) {
+    const boneName = def?.bone ?? (bones.has(name) ? name : null);
+    if (boneName !== null) {
+      if (bones.has(boneName)) out.set(name, bones.get(boneName));
+      else { warn(`model: objects.${name} names a bone "${boneName}" the skeleton hasn't: on the root`); out.set(name, 0); }
+    } else if (!used.has(name) && !refers.get(name).size) {
+      warn(`model: objects.${name} names no bone, and nothing uses it: on the root`);
+      out.set(name, 0);
+    }
+  }
+  return out;
+}
+
+/**
+ * The model posed at time t of a clip from `clips` (or at rest, without
+ * one), as a scene subtree: a group of its parts, each turned and moved as
+ * its bone has from rest. A clip not in `clips` is warned of (once) and
+ * leaves the model at rest: it plays on. `at` moves the whole after posing.
+ */
+export function poseModel(model, clips, clipName = null, t = 0, { at = [0, 0, 0], warn = console.warn } = {}) {
+  let clip = clipName ? clips?.[clipName] : null;
+  if (clipName && !clip) {
+    const key = clips ?? model;
+    const seen = unknownClips.get(key) ?? new Set();
+    unknownClips.set(key, seen);
+    if (!seen.has(clipName)) {
+      seen.add(clipName);
+      warn(`model: no clip "${clipName}" (has ${Object.keys(clips ?? {}).join(', ') || 'none'}): at rest`);
+    }
+    clip = null;
+  }
+  const { skeleton } = model;
+  const rest = boneMatrices(skeleton, bonePose(skeleton, null));
+  const posed = boneMatrices(skeleton, bonePose(skeleton, clip, t, { scale: model.scale ?? 1 }));
+  const group = [];
+  for (const [name, bone] of partsOf(model, { warn })) {
+    // The bone's motion since rest: posed, after undoing rest.
+    const { translation, rotation } = decompose(multiply(posed[bone], invertRigid(rest[bone])));
+    const [x, y, z, w] = rotation;
+    const s = Math.hypot(x, y, z), angle = 2 * Math.atan2(s, w);
+    group.push({
+      group: [model.objects[name]],
+      ...(s > 1e-12 ? { rotate: { axis: [x / s, y / s, z / s], radians: angle } } : {}),
+      translate: translation.map((v, i) => v + at[i]),
+    });
+  }
+  return { group };
 }
