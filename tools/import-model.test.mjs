@@ -14,6 +14,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { writeSTL } from '../public/stl.js';
 import { compileScene, isSolid } from '../public/antisphere-scene.js';
 import { quadricAt as H } from '../public/quadric.js';
+import { fixture, toGLB, toGLTFText } from '../public/gltf-fixture.mjs';
 
 const script = fileURLToPath(new URL('./import-model.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'import-model-'));
@@ -215,4 +216,33 @@ test('what it cannot do, it says', async () => {
   assert.match((await run(['a.ply', '--fit', '-1'])).stderr, /--fit needs a positive number/);
   assert.match((await run(['a.ply', '--bogus'])).stderr, /unknown option --bogus/);
   assert.match((await run(['a.ply', 'b.ply'])).stderr, /one source at a time/);
+});
+
+// -- glTF: public/gltf-fixture.mjs's three tubes, up glTF's +y ----------------
+
+test('glTF: a .glb, a .gltf with its buffer in it or beside it - y up made z up, standing on z = 0', async () => {
+  const f = fixture();
+  // As placed: the tubes up z, centred over the origin, from 0 (the first
+  // ring, 0.1 up glTF's y) to 2: inside the first tube, solid; beside it, not.
+  const check = (got, what) => {
+    assert.deepEqual(albedoAt(got, [0, 0, 0.4]), CLAY, `${what}: inside the first tube`);
+    assert.equal(albedoAt(got, [0.5, 0, 0.4]), null, `${what}: beside it`);
+  };
+  check(await model([file('chain.glb', toGLB(f))]), '.glb');
+  check(await model([file('chain.gltf', toGLTFText(f))]), '.gltf, data: URI');
+  file('chain.bin', f.bin);
+  check(await model([file('beside.gltf', JSON.stringify({ ...f.json, buffers: [{ byteLength: f.bin.length, uri: 'chain.bin' }] }))]),
+        '.gltf, its buffer beside it');
+  check(await model([file('chain.glb.gz', gzipSync(toGLB(f)))]), 'gzipped');
+  check(await model([`${file('models.tar', tar({ 'models/chain.glb': toGLB(f) }))}#models/chain.glb`]), 'in an archive');
+  const said = await run([file('chain.glb', toGLB(f))]);
+  assert.match(said.stderr, /chain: 192 triangles/);
+});
+
+test('glTF: --up z keeps the file\'s own axes - the tubes lying along y - and what isn\'t triangles is skipped, said', async () => {
+  // Along y, centred: the first tube's middle, glTF y 0.5, is y -0.6; lying on z = 0, its axis at z 0.2.
+  assert.deepEqual(albedoAt(await model([file('flat.glb', toGLB(fixture())), '--up', 'z']), [0, -0.6, 0.2]), CLAY);
+  const lines = fixture();
+  lines.json.meshes[0].primitives.push({ attributes: { POSITION: 0 }, mode: 1 });
+  assert.match((await run([file('lines.glb', toGLB(lines))])).stderr, /192 triangles, and 1 primitives that aren't triangles \(skipped\)/);
 });

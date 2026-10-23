@@ -8,9 +8,13 @@
 //     'http://graphics.stanford.edu/pub/3Dscanrep/dragon/dragon_recon.tar.gz#dragon_recon/dragon_vrip.ply' \
 //     --up y --float32 -o public/scenes/parts/stanford/dragon.json.gz
 //
-// Reads PLY (ascii or binary) and STL (ascii or binary), either of them
-// gzipped, or in a tar archive (gzipped or not) - the file in it named
-// after a #, or, if the archive holds only one mesh, that one. The Stanford
+// Reads PLY (ascii or binary), STL (ascii or binary) and glTF (.glb, or
+// .gltf with its buffers in it or beside it), any of them gzipped, or in a
+// tar archive (gzipped or not) - the file in it named after a #, or, if
+// the archive holds only one mesh, that one. A glTF is read as a viewer
+// shows it: its default scene's meshes, each placed by its node, a skinned
+// one at rest; y up, as glTF is, unless --up says otherwise. Its materials
+// are not kept, as PLY's and STL's colours aren't. The Stanford
 // 3D Scanning Repository's models come as such archives:
 //
 //   bunny   http://graphics.stanford.edu/pub/3Dscanrep/bunny.tar.gz#bunny/reconstruction/bun_zipper.ply
@@ -48,6 +52,7 @@ import { readSTL } from '../public/stl.js';
 import { readPLY } from '../public/ply.js';
 import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-import.js';
 import { compileScene } from '../public/antisphere-scene.js';
+import { readGLTF, trianglesOf } from '../public/gltf.js';
 import { stringifyJSON } from '../public/fbm-json.js';
 import { parseOptions } from './args.mjs';
 
@@ -56,18 +61,19 @@ import-model - convert a mesh, from a file or a URL, into a model for scenes
 
   node tools/import-model.mjs <source> [options]
 
-  <source>             a file or URL: .ply or .stl, either maybe .gz; or a
-                       tar archive (.tar, .tar.gz, .tgz) with the file in it
-                       after a #: archive.tar.gz#dir/model.ply
+  <source>             a file or URL: .ply, .stl, .glb or .gltf, maybe .gz;
+                       or a tar archive (.tar, .tar.gz, .tgz) with the file
+                       in it after a #: archive.tar.gz#dir/model.ply
   -o, --out <file>     write here instead of stdout; a name ending .gz is
                        gzipped
       --fit <size>     scale the model so its longest side is this
       --material <m>   what it is made of: a material the scene using it
                        defines (default: none, so whatever the node around
                        it in the scene names)
-      --up <axis>      which of the file's axes is up: x, y, z (the default)
-                       or one of them negated, -y; the model is turned so
-                       that it points along +z, the scene's up
+      --up <axis>      which of the file's axes is up: x, y, z or one of
+                       them negated, -y (default z; y for glTF, whose spec
+                       it is); the model is turned so that it points along
+                       +z, the scene's up
       --float32        numbers as float32, in as few digits as give the same
                        float32 back: the GPU works in f32, and a mesh's
                        vertices usually are float32 to begin with
@@ -107,7 +113,7 @@ const UP = {
 const isURL = (path) => /^[a-z][a-z0-9+.-]*:\/\//i.test(path);
 const isGzipped = (bytes) => bytes[0] === 0x1f && bytes[1] === 0x8b;
 const isTar = (bytes) => new TextDecoder().decode(bytes.subarray(257, 262)) === 'ustar';
-const MESH = /\.(ply|stl)$/i;
+const MESH = /\.(ply|stl|glb|gltf)$/i;
 
 /** The files in a tar archive, as a Map of name to bytes. */
 function untar(bytes) {
@@ -174,7 +180,24 @@ async function readSource(source, say) {
     throw new Error(`${location} is not an archive, so it has no ${member} in it`);
   }
   const format = file.match(MESH)?.[1]?.toLowerCase();
-  if (!format) throw new Error(`${file}: not a mesh this reads - .ply or .stl (maybe .gz, or in an archive)`);
+  if (!format) throw new Error(`${file}: not a mesh this reads - .ply, .stl, .glb or .gltf (maybe .gz, or in an archive)`);
+  if (format === 'glb' || format === 'gltf') {
+    // A .gltf's buffers may be files beside it: read from the same place,
+    // the same way - a URL's directory, or a file's.
+    const readBytes = async (uri) => {
+      if (isURL(location) && !location.startsWith('file:')) {
+        const url = new URL(uri, location).href;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`${url}: ${response.status} ${response.statusText}`);
+        return new Uint8Array(await response.arrayBuffer());
+      }
+      const local = location.startsWith('file:') ? fileURLToPath(location) : location;
+      return new Uint8Array(readFileSync(path.join(path.dirname(local), uri)));
+    };
+    const gltf = await readGLTF(bytes, { readBytes: (p) => readBytes(p), base: '' });
+    const { triangles, skipped } = trianglesOf(gltf);
+    return { name: file.replace(MESH, ''), triangles, skipped, up: 'y', degenerate: 0, flipped: 0, openEdges: 0 };
+  }
   const read = format === 'ply' ? readPLY(bytes) : readSTL(bytes);
   return { name: file.replace(MESH, ''), ...read };
 }
@@ -207,11 +230,12 @@ async function main(argv) {
   say(`${read.name}: ${read.triangles.length} triangles`
       + (read.degenerate ? `, ${read.degenerate} with no area (skipped)` : '')
       + (read.flipped ? `, ${read.flipped} wound backwards (corrected)` : '')
-      + (read.openEdges ? `, ${read.openEdges} open edges (what is inside it is partly a guess)` : ''));
+      + (read.openEdges ? `, ${read.openEdges} open edges (what is inside it is partly a guess)` : '')
+      + (read.skipped ? `, and ${read.skipped} primitives that aren't triangles (skipped)` : ''));
   if (!read.triangles.length) throw new Error('nothing to convert');
 
-  const turn = UP[options.up ?? 'z'];
-  const upright = options.up && options.up !== 'z' ? read.triangles.map((tri) => tri.map(turn)) : read.triangles;
+  const up = options.up ?? read.up ?? 'z';
+  const upright = up !== 'z' ? read.triangles.map((tri) => tri.map(UP[up])) : read.triangles;
   const placed = placeTriangles(upright, { fit: options.fit });
 
   const started = Date.now();
