@@ -1,10 +1,10 @@
 // A reader for glTF 2.0 (https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html):
 // a .glb, or a .gltf with its buffers in data: URIs or files beside it.
 //
-// It reads what a model needs - the node hierarchy, skins and mesh
-// attributes - and nothing it can't read correctly: an extension the file
-// requires, or a sparse accessor, is refused rather than half read.
-// Materials, textures, cameras and animations are left in `json` for
+// It reads what a model needs - the node hierarchy, skins, mesh
+// attributes and animations - and nothing it can't read correctly: an
+// extension the file requires, or a sparse accessor, is refused rather
+// than half read. Materials, textures and cameras are left in `json` for
 // whoever wants them.
 //
 //   const gltf = await readGLTF(bytes, { readBytes, base });
@@ -16,9 +16,14 @@
 //   gltf.worldMatrices(trs)      every node's world matrix, from each node's
 //                                TRS (trs(i), default its rest)
 //   trianglesOf(gltf)            every triangle of its default scene, at rest
+//   sample(gltf, animation, t)   the animated nodes' TRS at time t
+//   trackOf(gltf, sampler)       a channel's keys as a track (keyframes.js)
+//   clipRange(gltf, animation)   [start, end] of its keys
 //
 // Matrices are glTF's: 4x4, column-major, in a Float64Array(16).
 // Quaternions are [x, y, z, w].
+
+import { sampleTrack } from './keyframes.js';
 
 const GLB_MAGIC = 0x46546c67;          // "glTF"
 const CHUNK_JSON = 0x4e4f534a;         // "JSON"
@@ -170,6 +175,54 @@ class GLTF {
     this.nodes.forEach((_, i) => visit(i));
     return world;
   }
+}
+
+// -- animation -------------------------------------------------------------------
+
+/** The time range of an animation's keys: [start, end]. */
+export function clipRange(gltf, animation) {
+  let start = Infinity, end = -Infinity;
+  for (const sampler of animation.samplers) {
+    const times = gltf.accessor(sampler.input);
+    start = Math.min(start, times[0]);
+    end = Math.max(end, times[times.length - 1]);
+  }
+  return [start, end];
+}
+
+/**
+ * A channel's keys as a track (keyframes.js): { times, values,
+ * interpolation }, values one vector per key - for CUBICSPLINE each
+ * [in-tangent, value, out-tangent]. Cached on the sampler: don't change it.
+ */
+export function trackOf(gltf, sampler) {
+  if (gltf.tracks?.has(sampler)) return gltf.tracks.get(sampler);
+  const times = Array.from(gltf.accessor(sampler.input));
+  const flat = gltf.accessor(sampler.output);
+  const mode = sampler.interpolation ?? 'LINEAR';
+  const per = mode === 'CUBICSPLINE' ? 3 : 1, size = flat.length / times.length / per;
+  const vec = (i) => Array.from(flat.subarray(i * size, (i + 1) * size));
+  const values = times.map((_, k) => (per === 3 ? [vec(3 * k), vec(3 * k + 1), vec(3 * k + 2)] : vec(k)));
+  const track = { times, values, interpolation: { LINEAR: 'linear', STEP: 'step', CUBICSPLINE: 'cubic' }[mode] ?? 'linear' };
+  (gltf.tracks ??= new Map()).set(sampler, track);
+  return track;
+}
+
+/**
+ * The TRS, at time t, of every node an animation moves: a Map from node
+ * index to { translation, rotation, scale }, each path the animation
+ * doesn't drive left at the node's rest. t is clamped to each channel's
+ * keys. Morph target weights are ignored.
+ */
+export function sample(gltf, animation, t) {
+  const out = new Map();
+  for (const channel of animation.channels) {
+    const { node, path } = channel.target;
+    if (node === undefined || !['translation', 'rotation', 'scale'].includes(path)) continue;
+    if (!out.has(node)) out.set(node, { ...gltf.rest(node) });
+    out.get(node)[path] = sampleTrack(trackOf(gltf, animation.samplers[channel.sampler]), t, { rotation: path === 'rotation' });
+  }
+  return out;
 }
 
 // -- geometry ---------------------------------------------------------------------

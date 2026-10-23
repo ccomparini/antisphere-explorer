@@ -11,6 +11,10 @@ Models in this directory are from the following sources:
     - model: PixelMannen, 2014, CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
     - rigging and animation: tomkranis, 2014, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
     - conversion to glTF: @AsoboStudio and @scurest, 2017, CC BY 4.0
+  - UAL1_Standard.glb: the Universal Animation Library (Standard) by
+    Quaternius, https://quaternius.itch.io/universal-animation-library -
+    a rigged mannequin and 43 animations; CC0 1.0
+    (https://creativecommons.org/publicdomain/zero/1.0/). Thanks, Quaternius.
 
 Models from fbmstudios.net fall under the license for this project.
 Other models fall under their respective licenses.
