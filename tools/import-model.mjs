@@ -44,15 +44,16 @@
 const VERSION_MAJ = 0;
 const VERSION_MIN = 2;
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gunzipSync, gzipSync } from 'node:zlib';
+import { gzipSync } from 'node:zlib';
 import { readSTL } from '../public/stl.js';
 import { readPLY } from '../public/ply.js';
 import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-import.js';
 import { compileScene } from '../public/antisphere-scene.js';
 import { readGLTF, trianglesOf } from '../public/gltf.js';
+import { openSource } from './sources.mjs';
 import { stringifyJSON } from '../public/fbm-json.js';
 import { parseOptions } from './args.mjs';
 
@@ -110,91 +111,21 @@ const UP = {
   '-x': ([x, y, z]) => [z, y, -x],
 };
 
-const isURL = (path) => /^[a-z][a-z0-9+.-]*:\/\//i.test(path);
-const isGzipped = (bytes) => bytes[0] === 0x1f && bytes[1] === 0x8b;
-const isTar = (bytes) => new TextDecoder().decode(bytes.subarray(257, 262)) === 'ustar';
 const MESH = /\.(ply|stl|glb|gltf)$/i;
-
-/** The files in a tar archive, as a Map of name to bytes. */
-function untar(bytes) {
-  const files = new Map();
-  const text = (at, length) => {
-    const field = bytes.subarray(at, at + length);
-    const end = field.indexOf(0);
-    return new TextDecoder().decode(end < 0 ? field : field.subarray(0, end));
-  };
-  let at = 0;
-  while (at + 512 <= bytes.length && bytes[at] !== 0) {
-    const name = text(at, 100);
-    const size = parseInt(text(at + 124, 12).trim() || '0', 8);
-    const type = text(at + 156, 1);
-    const prefix = text(at + 345, 155);
-    if (type === '0' || type === '') {
-      files.set(prefix ? `${prefix}/${name}` : name, bytes.subarray(at + 512, at + 512 + size));
-    }
-    at += 512 + Math.ceil(size / 512) * 512;
-  }
-  return files;
-}
 
 /**
  * The mesh a source names: { name, triangles, degenerate, flipped,
  * openEdges }, `name` the mesh file's, without directories or extensions.
  * Fetched if a URL, read if a file; unzipped if gzipped; taken out of an
- * archive if one, by the member after a #.
+ * archive if one, by the member after a # (tools/sources.mjs).
  */
 async function readSource(source, say) {
-  const hash = source.indexOf('#');
-  const location = hash < 0 ? source : source.slice(0, hash);
-  const member = hash < 0 ? null : decodeURIComponent(source.slice(hash + 1));
-  let bytes;
-  if (isURL(location) && !location.startsWith('file:')) {
-    say(`fetching ${location}`);
-    const response = await fetch(location);
-    if (!response.ok) throw new Error(`${location}: ${response.status} ${response.statusText}`);
-    bytes = new Uint8Array(await response.arrayBuffer());
-  } else {
-    bytes = new Uint8Array(readFileSync(location.startsWith('file:') ? fileURLToPath(location) : location));
-  }
-  let file = location.split(/[?]/)[0].split('/').pop();
-  if (isGzipped(bytes)) {
-    bytes = new Uint8Array(gunzipSync(bytes));
-    file = file.replace(/\.t?gz$/i, (ext) => (ext.toLowerCase() === '.tgz' ? '.tar' : ''));
-  }
-  if (isTar(bytes)) {
-    const files = untar(bytes);
-    const meshes = [...files.keys()].filter((name) => MESH.test(name.replace(/\.gz$/i, '')));
-    const chosen = member ?? (meshes.length === 1 ? meshes[0] : null);
-    if (!chosen) {
-      throw new Error(`${location} holds ${meshes.length ? `${meshes.length} meshes` : 'no meshes'}; ` +
-                      `name one after a #${meshes.length ? `:\n  ${meshes.join('\n  ')}` : ''}`);
-    }
-    if (!files.has(chosen)) throw new Error(`${location} has no ${chosen}`);
-    bytes = files.get(chosen);
-    file = chosen.split('/').pop();
-    if (isGzipped(bytes)) {
-      bytes = new Uint8Array(gunzipSync(bytes));
-      file = file.replace(/\.gz$/i, '');
-    }
-  } else if (member) {
-    throw new Error(`${location} is not an archive, so it has no ${member} in it`);
-  }
+  const { bytes, file, besideIt } = await openSource(source, { kind: MESH, what: 'meshes', say });
   const format = file.match(MESH)?.[1]?.toLowerCase();
   if (!format) throw new Error(`${file}: not a mesh this reads - .ply, .stl, .glb or .gltf (maybe .gz, or in an archive)`);
   if (format === 'glb' || format === 'gltf') {
-    // A .gltf's buffers may be files beside it: read from the same place,
-    // the same way - a URL's directory, or a file's.
-    const readBytes = async (uri) => {
-      if (isURL(location) && !location.startsWith('file:')) {
-        const url = new URL(uri, location).href;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`${url}: ${response.status} ${response.statusText}`);
-        return new Uint8Array(await response.arrayBuffer());
-      }
-      const local = location.startsWith('file:') ? fileURLToPath(location) : location;
-      return new Uint8Array(readFileSync(path.join(path.dirname(local), uri)));
-    };
-    const gltf = await readGLTF(bytes, { readBytes: (p) => readBytes(p), base: '' });
+    // A .gltf's buffers may be files beside it, read from the same place.
+    const gltf = await readGLTF(bytes, { readBytes: besideIt, base: '' });
     const { triangles, skipped } = trianglesOf(gltf);
     return { name: file.replace(MESH, ''), triangles, skipped, up: 'y', degenerate: 0, flipped: 0, openEdges: 0 };
   }

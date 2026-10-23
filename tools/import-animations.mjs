@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 // Import a glTF's animations as a library of clips, for any model whose
-// bones are named as the file's are (public/figure.js poses a model by one).
+// bones are named as the file's are.
 //
-//   node tools/import-animations.mjs public/scenes/parts/quaternius/UAL1_Standard.glb \
-//     -o public/scenes/anim/quaternius/ual.json
+//   node tools/import-animations.mjs test_models/UAL1_Standard.glb -o ual.json
 //   node tools/import-animations.mjs model.glb --clips Walk_Loop,Idle_Loop -o walk.json
+//   node tools/import-animations.mjs \
+//     https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb \
+//     --loop Walk,Run -o fox.json
+//
+// The source is a file or a URL, maybe gzipped, or in a tar archive (the
+// file in it named after a #) - as tools/import-model.mjs takes them
+// (tools/sources.mjs); a .gltf's buffers beside it are read from the same
+// place.
 //
 // Each clip keeps its source's keys - each bone's local rotation, and the
 // translation of the bones that move (a walk's pelvis) - keyframed
@@ -21,17 +28,24 @@
 const VERSION_MAJ = 0;
 const VERSION_MIN = 1;
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { readGLTF, trackOf, clipRange } from '../public/gltf.js';
 import { sampleTrack, reduceTrack } from '../public/keyframes.js';
 import { parseOptions, commandLine } from './args.mjs';
+import { openSource } from './sources.mjs';
+
+const GLTF = /\.(glb|gltf)$/i;
 
 const USAGE = `
 import-animations - a glTF's animations as a library of keyframed clips
 
-  node tools/import-animations.mjs <source.glb|.gltf> [options]
+  node tools/import-animations.mjs <source> [options]
+
+  <source>                  a .glb or .gltf, a file or a URL, maybe .gz; or a
+                            tar archive with the file in it after a #:
+                            archive.tar.gz#dir/model.glb
 
   -o, --out <file>          write here instead of stdout; a name ending .gz
                             is gzipped
@@ -138,17 +152,18 @@ async function main(argv) {
     process.exit(options.help ? 0 : 1);
   }
   const say = (...parts) => console.error(...parts);
-  const gltf = await readGLTF(readFileSync(options.source),
-                              { readBytes: async (file) => readFileSync(file), base: options.source });
+  const { bytes, file, besideIt } = await openSource(options.source, { kind: GLTF, what: 'glTF files', say });
+  if (!GLTF.test(file)) throw new Error(`${file}: not a glTF - .glb or .gltf (maybe .gz, or in an archive)`);
+  const gltf = await readGLTF(bytes, { readBytes: besideIt, base: '' });
   const clips = clipsFromGLTF(gltf, { ...options, warn: (msg) => say(`  ${msg}`) });
   const bones = new Set(Object.values(clips).flatMap((c) => Object.keys(c.channels)));
-  say(`${path.basename(options.source)}: ${Object.keys(clips).length} clips, moving ${bones.size} bones`);
+  say(`${file}: ${Object.keys(clips).length} clips, moving ${bones.size} bones`);
   const out = {
     _meta: {
       generatedBy: commandLine(),
       generatorVersionMaj: VERSION_MAJ,
       generatorVersionMin: VERSION_MIN,
-      source: path.basename(options.source),
+      source: file,
     },
     clips,
   };

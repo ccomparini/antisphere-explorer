@@ -5,7 +5,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { gzipSync } from 'node:zlib';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -111,3 +113,65 @@ test('the mannequin: 43 clips moving 55 bones, fingers among them; *_Loop loopin
     assert.ok(angle <= ROTATION + 1e-9 && distance <= TRANSLATION + 1e-9, `${name}: ${angle} rad, ${distance} off`);
   }
 });
+
+test('sources as import-model takes them: a URL (a .gltf\'s buffer fetched beside it), gzipped, in an archive', async () => {
+  // Asynchronous, so a server in this process can answer it.
+  const runAsync = (args, cwd) => new Promise((done) => {
+    const child = spawn(process.execPath, [script, ...args], { cwd });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('close', (status) => done({ status, stdout, stderr }));
+  });
+  const f = fixture();
+  const served = {
+    '/models/chain.gltf': JSON.stringify({ ...f.json, buffers: [{ byteLength: f.bin.length, uri: 'chain.bin' }] }),
+    '/models/chain.bin': Buffer.from(f.bin),
+  };
+  const server = createServer((req, res) => {
+    const body = served[req.url];
+    res.writeHead(body ? 200 : 404);
+    res.end(body ?? 'not found');
+  });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  const dir = mkdtempSync(join(tmpdir(), 'import-animations-'));
+  try {
+    const bends = (got) => {
+      assert.equal(got.status, 0, got.stderr);
+      return Object.keys(JSON.parse(got.stdout).clips);
+    };
+    const url = `http://127.0.0.1:${server.address().port}/models/chain.gltf`;
+    assert.deepEqual(bends(await runAsync([url])), ['Bend'], 'over http, its buffer fetched beside it');
+    writeFileSync(join(dir, 'chain.glb.gz'), gzipSync(toGLB(f)));
+    assert.deepEqual(bends(await runAsync(['chain.glb.gz'], dir)), ['Bend'], 'gzipped');
+    writeFileSync(join(dir, 'models.tar'), tar({ 'models/readme.txt': 'hi', 'models/chain.glb': toGLB(f) }));
+    assert.deepEqual(bends(await runAsync(['models.tar'], dir)), ['Bend'], 'the one glTF in an archive');
+    assert.match((await runAsync([`${url.replace('chain.gltf', 'gone.gltf')}`])).stderr, /404 Not Found/);
+    writeFileSync(join(dir, 'tet.stl'), 'solid x\nendsolid x\n');
+    assert.match((await runAsync(['tet.stl'], dir)).stderr, /tet.stl: not a glTF - .glb or .gltf/);
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** A tar archive of { name: content } (ustar, as untar() reads). */
+function tar(files) {
+  const blocks = [];
+  for (const [name, content] of Object.entries(files)) {
+    const body = Buffer.from(content);
+    const header = Buffer.alloc(512);
+    header.write(name, 0, 100);
+    header.write('0000644\0', 100); header.write('0000000\0', 108); header.write('0000000\0', 116);
+    header.write(body.length.toString(8).padStart(11, '0') + '\0', 124);
+    header.write('00000000000\0', 136);
+    header.write('        ', 148);
+    header.write('0', 156);
+    header.write('ustar\0', 257); header.write('00', 263);
+    let sum = 0; for (const b of header) sum += b;
+    header.write(sum.toString(8).padStart(6, '0') + '\0 ', 148);
+    blocks.push(header, body, Buffer.alloc((512 - (body.length % 512)) % 512));
+  }
+  blocks.push(Buffer.alloc(1024));
+  return Buffer.concat(blocks);
+}
