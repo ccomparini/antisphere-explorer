@@ -259,3 +259,75 @@ test('real glTFs from test_models: Box beside its buffer, the Fox at rest', asyn
   const [wide, long, tall] = JSON.parse(said.stdout)._meta.dimensions;
   assert.ok(tall > wide && long > tall, `upright, nose to tail along y: ${wide} x ${long} x ${tall}`);
 });
+
+// -- --skeleton: a skinned glTF as a model with a skeleton --------------------
+
+const chain = () => file('chain.glb', toGLB(fixture()));
+
+test('--skeleton: a skeleton, an object per bone in its rest pose, and the whole, referring to them within its file', async () => {
+  const m = await model([chain(), '--skeleton', 'mesh']);
+  assert.deepEqual(m.skeleton.bones.map((b) => [b.name, b.parent]), [['j0', -1], ['j1', 0], ['j2', 1]]);
+  assert.ok(m.skeleton.base, 'with its base frame');
+  assert.deepEqual(Object.keys(m.objects).sort(), ['j0', 'j1', 'j2', 'model']);
+  assert.deepEqual(m.objects.model, { group: ['@#/objects/j0', '@#/objects/j1', '@#/objects/j2'] },
+                   'the whole, named "model" on stdout');
+  assert.equal(m.objects.j0.material, 'M_Skin', 'mesh: the source\'s own material');
+  // Placed in a scene, at rest: j0's tube round the scene's z axis, from 0.1 to 0.9.
+  const built = compileScene({ materials: { M_Skin: {} }, lights: [], objects: m.objects, root: { use: 'model' } });
+  const solid = (p) => {
+    let i = 1, found = 0;
+    while (i) {
+      const n = built.nodes[i];
+      if (H(n.prim, p) < 0) { if (isSolid(built.materials[n.material])) found = found || i; else found = 0; if (!n.inside) break; i = n.inside; }
+      else { found = 0; i = n.outside; }
+    }
+    return !!found;
+  };
+  assert.equal(solid([0, 0, 0.5]), true, 'inside j0\'s tube');
+  assert.equal(solid([0.5, 0, 0.5]), false, 'beside it');
+});
+
+test('--skeleton fit-to-mesh and along-bones, of <prefix>-...; --name names the whole', async () => {
+  const fitted = await model([chain(), '--skeleton', 'fit-to-mesh', '--prefix', 'robot', '--name', 'chain']);
+  assert.deepEqual(Object.keys(fitted.objects).sort(), ['chain', 'j0', 'j1'], 'the thin j2 folded into j1');
+  assert.equal(fitted.objects.j0.material, 'robot-skin');
+  const along = await model([chain(), '--skeleton', 'along-bones']);
+  assert.equal(along.objects.j0.material, 'figure-bone');
+  assert.ok(along.objects.j2.sphere, 'the end bone a ball');
+  assert.match((await run([chain(), '--skeleton', 'clay'])).stderr, /--skeleton clay: fit-to-mesh, along-bones, mesh/);
+});
+
+test('--skeleton: --overlap shares a blended band; --fit scales the skeleton too, and records it', async () => {
+  const plain = await model([chain(), '--skeleton', 'mesh']), shared = await model([chain(), '--skeleton', 'mesh', '--overlap', '0.3']);
+  assert.notDeepEqual(shared.objects.j1, plain.objects.j1, 'j1\'s piece takes in the band it weighs 0.4');
+  const fitted = await model([chain(), '--skeleton', 'fit-to-mesh', '--fit', '4']);
+  assert.ok(Math.abs(fitted.scale - 2) < 1e-6, `scale ${fitted.scale}: 2 tall (0.1 to 2.1) made 4`);
+  assert.deepEqual(fitted.skeleton.bones[1].translation.map((v) => +v.toFixed(6)), [0, 2, 0], 'j1 two up now');
+});
+
+test('without --skeleton, a skin is ignored; with it, a file without one is converted as a mesh, said so', async () => {
+  const plain = await model([chain()]);
+  assert.equal(plain.skeleton, undefined);
+  assert.ok(plain.spheroid, 'one tree, wrapped, as before');
+  const stl = await run([file('tet.stl', STL), '--skeleton', 'fit-to-mesh']);
+  assert.equal(stl.status, 0, stl.stderr);
+  assert.match(stl.stderr, /--skeleton: tet has no skin, so it is converted as a mesh/);
+  assert.ok(JSON.parse(stl.stdout).spheroid);
+});
+
+test('--skeleton on the real skins in test_models: SimpleSkin, the Fox and the mannequin', async () => {
+  const models = fileURLToPath(new URL('../test_models/', import.meta.url));
+  const simple = await model([join(models, 'SimpleSkin/SimpleSkin.gltf'), '--skeleton', 'along-bones']);
+  assert.equal(simple.skeleton.bones.length, 2);
+  const fox = await model([join(models, 'Fox.glb'), '--skeleton', 'fit-to-mesh']);
+  assert.equal(fox.skeleton.bones.length, 24);
+  const wrote = await run([join(models, 'UAL1_Standard.glb'), '--skeleton', 'fit-to-mesh', '-o', join(scratch, 'mannequin.json')]);
+  assert.equal(wrote.status, 0, wrote.stderr);
+  const written = JSON.parse(readFileSync(join(scratch, 'mannequin.json'), 'utf8'));
+  assert.equal(written.skeleton.bones.length, 65);
+  assert.equal(Object.keys(written.objects).length, 22 + 1, 'parts on 22 bones, and the whole');
+  // Placed by reference in another scene: its whole holds, referring within its file.
+  const host = { materials: { 'figure-main': {}, 'figure-joints': {} }, lights: [], root: { use: '@mannequin.json#/objects/mannequin' } };
+  const built = compileScene(host, { files: { [join(scratch, 'mannequin.json')]: written }, path: join(scratch, 'host.json') });
+  assert.ok(built.nodes.length > 200, `${built.nodes.length} nodes: all of it`);
+});
