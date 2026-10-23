@@ -140,3 +140,23 @@ test('Fox: a real skin - 24 joints, at rest, its three clips left in the JSON', 
   const ys = triangles.flat().map((p) => p[1]);
   assert.ok(Math.max(...ys) - Math.min(...ys) > 70, 'standing up glTF\'s y, its legs under it');
 });
+
+test('SimpleSkin: four buffers beside it, a two-joint skin at rest, and a clip turning its second joint', async () => {
+  const dir = new URL('SimpleSkin/', MODELS);
+  const skin = await readGLTF(readFileSync(new URL('SimpleSkin.gltf', dir)), {
+    base: '', readBytes: async (path) => readFileSync(new URL(path, dir)),
+  });
+  assert.equal(skin.json.buffers.length, 4);
+  assert.deepEqual(skin.json.skins[0].joints, [1, 2]);
+  const all = trianglesOf(skin).triangles.flat();
+  assert.equal(all.length, 8 * 3, 'eight triangles');
+  const span = (axis) => [Math.min(...all.map((p) => p[axis])), Math.max(...all.map((p) => p[axis]))];
+  near([...span(0), ...span(1), ...span(2)], [-0.5, 0.5, 0, 2, 0, 0], 'a flat strip, 1 wide and 2 tall, at rest');
+  const clip = skin.json.animations[0];
+  assert.deepEqual(clipRange(skin, clip), [0, 5.5]);
+  const turn = (deg) => [0, 0, Math.sin(deg * Math.PI / 360), Math.cos(deg * Math.PI / 360)];
+  near(sample(skin, clip, 1).get(2).rotation, turn(90), 'at 1 s, 90 degrees about z', 1e-3);
+  // (The file's rotations are written to three places: 0.383 for sin 22.5.)
+  near(sample(skin, clip, 0.75).get(2).rotation, turn(67.5), 'between keys, by slerp', 1e-3);
+  near(sample(skin, clip, 4).get(2).rotation, turn(-90), 'at 4 s, the other way', 1e-3);
+});

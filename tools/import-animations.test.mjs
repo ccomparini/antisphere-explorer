@@ -175,3 +175,21 @@ function tar(files) {
   blocks.push(Buffer.alloc(1024));
   return Buffer.concat(blocks);
 }
+
+test('SimpleSkin: an unnamed joint\'s channel by its node; keys halfway along a slerp dropped, and still there', async () => {
+  const dir = new URL('SimpleSkin/', MODELS);
+  const gltf = await readGLTF(readFileSync(new URL('SimpleSkin.gltf', dir)), {
+    base: '', readBytes: async (path) => readFileSync(new URL(path, dir)),
+  });
+  const { animation0: clip } = clipsFromGLTF(gltf);
+  assert.equal(clip.duration, 5.5);
+  assert.deepEqual(Object.keys(clip.channels), ['node2'], 'its joint has no name: "node" and its index');
+  // 0, 45, 90, 90, 45, 0, 0, -45, -90, -90, -45, 0 degrees, every half second:
+  // each 45 lies halfway along a slerp between its neighbours, so goes.
+  assert.deepEqual(clip.channels.node2.rotation.times, [0, 1, 1.5, 2.5, 3, 4, 4.5, 5.5]);
+  const at = (t) => angleBetween(sampleTrack(clip.channels.node2.rotation, t, { rotation: true }), [0, 0, 0, 1]) * 180 / Math.PI;
+  // (The file writes its rotations to three places, so its 45s are 45.02 or so.)
+  assert.ok(Math.abs(at(0.5) - 45) < 0.05 && Math.abs(at(3.5) - 45) < 0.05, `the dropped 45s, sampled: ${at(0.5)}, ${at(3.5)}`);
+  const { animation0: kept } = clipsFromGLTF(gltf, { rotationTolerance: 0 });
+  assert.equal(kept.channels.node2.rotation.times.length, 12, 'tolerance 0: all twelve');
+});
