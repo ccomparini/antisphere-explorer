@@ -246,3 +246,16 @@ test('glTF: --up z keeps the file\'s own axes - the tubes lying along y - and wh
   lines.json.meshes[0].primitives.push({ attributes: { POSITION: 0 }, mode: 1 });
   assert.match((await run([file('lines.glb', toGLB(lines))])).stderr, /192 triangles, and 1 primitives that aren't triangles \(skipped\)/);
 });
+
+test('real glTFs from test_models: Box beside its buffer, the Fox at rest', async () => {
+  const models = fileURLToPath(new URL('../test_models/', import.meta.url));
+  const box = await model([join(models, 'Box/Box.gltf')]);
+  assert.deepEqual(box._meta.dimensions, [1, 1, 1]);
+  assert.deepEqual(albedoAt(box, [0, 0, 0.5]), CLAY, 'inside the cube, standing on z = 0');
+  assert.equal(albedoAt(box, [0, 0, 1.5]), null, 'above it');
+  const said = await run([join(models, 'Fox.glb')]);
+  assert.equal(said.status, 0, said.stderr);
+  assert.match(said.stderr, /Fox: 576 triangles/);
+  const [wide, long, tall] = JSON.parse(said.stdout)._meta.dimensions;
+  assert.ok(tall > wide && long > tall, `upright, nose to tail along y: ${wide} x ${long} x ${tall}`);
+});

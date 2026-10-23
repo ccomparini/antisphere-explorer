@@ -4,6 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { readGLTF, transformPoint, trianglesOf } from './gltf.js';
 import { fixture, toGLB, toGLTFText } from './gltf-fixture.mjs';
 
@@ -89,4 +90,32 @@ test('trianglesOf(): a skinned mesh as its skin holds it; a mesh once per node u
   assert.equal(placed.triangles.length, 2 * 192, 'twice: skinned, and again - not offstage');
   assert.equal(placed.skipped, 2, 'the line primitive, at each of the two nodes');
   near(placed.triangles[192][0], [more.positions[0][0] + 5, more.positions[0][1], more.positions[0][2]], 'the second, 5 along x');
+});
+
+// -- real files, from Khronos's glTF-Sample-Assets (test_models/ATTRIBUTION.md) ----
+
+const MODELS = new URL('../test_models/', import.meta.url);
+
+test('Box: a .gltf with its buffer in a file beside it, its node placed by a matrix', async () => {
+  const box = await readGLTF(readFileSync(new URL('Box/Box.gltf', MODELS)), {
+    base: 'Box/', readBytes: async (path) => readFileSync(new URL(path, MODELS)),
+  });
+  assert.ok(box.nodes[0].matrix, 'its root node has a matrix, not TRS');
+  const { triangles, skipped } = trianglesOf(box);
+  assert.equal(triangles.length, 12);
+  assert.equal(skipped, 0);
+  const all = triangles.flat();
+  for (let axis = 0; axis < 3; axis++) {
+    near([Math.min(...all.map((p) => p[axis])), Math.max(...all.map((p) => p[axis]))], [-0.5, 0.5], `a unit cube about the origin, axis ${axis}`);
+  }
+});
+
+test('Fox: a real skin - 24 joints, at rest, its three clips left in the JSON', async () => {
+  const fox = await readGLTF(readFileSync(new URL('Fox.glb', MODELS)));
+  assert.equal(fox.json.skins[0].joints.length, 24);
+  assert.deepEqual(fox.json.animations.map((a) => a.name), ['Survey', 'Walk', 'Run']);
+  const { triangles } = trianglesOf(fox);
+  assert.equal(triangles.length, 576);
+  const ys = triangles.flat().map((p) => p[1]);
+  assert.ok(Math.max(...ys) - Math.min(...ys) > 70, 'standing up glTF\'s y, its legs under it');
 });
