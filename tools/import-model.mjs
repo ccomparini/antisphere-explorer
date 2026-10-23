@@ -65,13 +65,24 @@
 // --fit scales such a model, skeleton and all, about its origin, and
 // records the scale, by which its clips' translations are to be scaled.
 //
-// Reports what it found on stderr, and writes the model on stdout unless
-// told where.
+// --material-template <file> writes the materials the model names as a
+// library, as public/scenes/lib/materials.json is one, to fill in - each
+// coloured as the source colours it (a glTF material's baseColorFactor) or
+// a plain grey. A scene lists it after its library:
+//
+//   "materials": ["@lib/materials.json", "@parts/mannequin-materials.json"]
+//
+// A template already there keeps what it has, filled in or not, and gains
+// only what it lacks, so importing again - or with another --prefix - adds
+// to it.
+//
+// Reports what it found on stderr, the materials it names among it, and
+// writes the model on stdout unless told where.
 
 const VERSION_MAJ = 0;
-const VERSION_MIN = 3;
+const VERSION_MIN = 4;
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
@@ -80,7 +91,7 @@ import { readPLY } from '../public/ply.js';
 import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-import.js';
 import { compileScene } from '../public/antisphere-scene.js';
 import { readGLTF, trianglesOf } from '../public/gltf.js';
-import { skinOf, meshParts, fitToMeshParts, alongBonesParts } from '../public/skin.js';
+import { skinOf, meshParts, fitToMeshParts, alongBonesParts, fitToMeshMaterial } from '../public/skin.js';
 import { openSource } from './sources.mjs';
 import { stringifyJSON } from '../public/fbm-json.js';
 import { parseOptions } from './args.mjs';
@@ -107,6 +118,10 @@ import-model - convert a mesh, from a file or a URL, into a model for scenes
                        float32 back: the GPU works in f32, and a mesh's
                        vertices usually are float32 to begin with
       --pretty         make output more readable
+      --material-template <file>
+                       write the materials the model names to this file, a
+                       library to fill in; one already there gains only
+                       what it lacks
 
   A glTF with a skin, as a model with a skeleton:
       --skeleton <mode>
@@ -137,6 +152,7 @@ function parseArguments(argv) {
     up: { type: 'string' },
     float32: { type: 'boolean' },
     pretty: { type: 'boolean' },
+    'material-template': { type: 'string' },
     skeleton: { type: 'string' },
     overlap: { type: 'number' },
     'min-thickness': { type: 'number', default: 0.06 },
@@ -220,7 +236,7 @@ async function main(argv) {
   const read = await readSource(options.source, say);
   if (options.skeleton && read.gltf?.json.skins?.length) {
     const name = options.name ?? (options.out ? path.basename(options.out).replace(/\.json(\.gz)?$/i, '') : 'model');
-    return write(options, say, skinnedModel(read, options, name, say, argv));
+    return write(options, say, read.name, skinnedModel(read, options, name, say, argv));
   }
   if (options.skeleton) say(`  --skeleton: ${read.name} has no skin, so it is converted as a mesh`);
   say(`${read.name}: ${read.triangles.length} triangles`
@@ -255,7 +271,7 @@ async function main(argv) {
     ...model,
   };
 
-  write(options, say, { out, scene: {
+  write(options, say, read.name, { out, scene: {
     materials: options.material ? { [options.material]: {} } : {},
     lights: [],
     root: structuredClone(out),
@@ -263,8 +279,9 @@ async function main(argv) {
 }
 
 /**
- * A model with a skeleton, from a glTF's skin (see the top): { out, scene },
- * the model and a scene placing it whole, at rest, to compile.
+ * A model with a skeleton, from a glTF's skin (see the top): { out, scene,
+ * colours }, the model, a scene placing it whole, at rest, to compile, and
+ * the colours the source gives the materials it names.
  */
 function skinnedModel(read, options, name, say, argv) {
   if (options.up && options.up !== 'y') say(`  --up ${options.up}: ignored with --skeleton, whose base turns glTF's y up`);
@@ -317,18 +334,37 @@ function skinnedModel(read, options, name, say, argv) {
   };
   const materials = new Set();
   JSON.stringify(objects, (key, value) => { if (key === 'material' && typeof value === 'string') materials.add(value); return value; });
-  return { out, scene: { materials: Object.fromEntries([...materials].map((m) => [m, {}])), lights: [],
-                         objects: structuredClone(objects), root: { use: whole } } };
+  // A glTF material's colour is its baseColorFactor, linear, as albedo is.
+  const colours = new Map();
+  for (const m of read.gltf.json.materials ?? []) {
+    const rgb = m.pbrMetallicRoughness?.baseColorFactor?.slice(0, 3);
+    if (rgb) colours.set(mode === 'mesh' ? m.name : fitToMeshMaterial(options.prefix, m.name), rgb);
+  }
+  return { out, colours, scene: { materials: Object.fromEntries([...materials].map((m) => [m, {}])), lights: [],
+                                  objects: structuredClone(objects), root: { use: whole } } };
 }
 
 /**
  * Compile `scene` - the model, placed as a scene would place it - and write
  * `out`: a model that will not load is worse than an error here, about a
- * file nobody wrote by hand.
+ * file nobody wrote by hand. The materials it names are said, and with
+ * --material-template written.
  */
-function write(options, say, { out, scene }) {
+function write(options, say, source, { out, scene, colours = new Map() }) {
   const built = compileScene(scene);
   say(`  compiles to ${built.nodes.length - 1} nodes`);
+  const names = Object.keys(scene.materials);
+  say(names.length ? `  materials: ${names.join(', ')}` : '  materials: none - it is made of what the scene around it names');
+
+  const file = options['material-template'];
+  let template = null;
+  if (file && !names.length) {
+    say('  --material-template: the model names no materials, so there are none to write (--material names one)');
+  } else if (file && options.out && path.resolve(file) === path.resolve(options.out)) {
+    say(`  --material-template ${file}: that is the model's own file, so no template is written`);
+  } else if (file) {
+    template = materialTemplate(file, names, colours, source);
+  }
 
   const filter = options.float32 ? float32Converter : undefined;
   const json = stringifyJSON(out, filter, options.pretty?2:null) + "\n"
@@ -339,6 +375,42 @@ function write(options, say, { out, scene }) {
   } else {
     process.stdout.write(json);
   }
+  if (template) {
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, stringifyJSON(template.library, undefined, 2) + '\n');
+    say(`  material template ${file}: ` + (template.added.length ? `${template.added.join(', ')} added` : 'nothing to add')
+        + (template.kept ? `, ${template.kept} already there` : ''));
+  }
+}
+
+const GREY = [0.7, 0.7, 0.7];               // scene-format's default albedo
+
+/**
+ * --material-template: `names` as a library of materials, `file`'s own
+ * entries kept if it is there, each new one coloured as `colours` says or
+ * grey. { library, added, kept }. A file there that isn't a library is an
+ * error, before anything is written, rather than written over.
+ */
+function materialTemplate(file, names, colours, source) {
+  let library = {};
+  if (existsSync(file)) {
+    try { library = JSON.parse(readFileSync(file, 'utf8')); } catch (error) {
+      throw new Error(`--material-template ${file}: ${error.message}, so it is left as it is`);
+    }
+    if (!library || typeof library !== 'object' || Array.isArray(library)) {
+      throw new Error(`--material-template ${file}: not a map of materials, so it is left as it is`);
+    }
+  }
+  const added = names.filter((name) => !(name in library));
+  const out = {
+    _comment: `The materials ${source} names, as ${thisScriptName} found them, to fill in. `
+            + 'A scene lists them after its library: "materials": ["@lib/materials.json", "@<this file>"].',
+    ...library,
+  };
+  for (const name of added) {
+    out[name] = { kind: 'lambert', albedo: (colours.get(name) ?? GREY).map((v) => +v.toPrecision(4)) };
+  }
+  return { library: out, added, kept: names.length - added.length };
 }
 
 main(process.argv.slice(2)).catch((error) => {

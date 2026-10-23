@@ -157,6 +157,14 @@ export function meshParts({ primitives }, { overlap = null } = {}) {
 }
 
 /**
+ * What fit-to-mesh calls a source material: `<prefix>-<its name>`, lowercased,
+ * hyphenated, without the M_ many exporters start with (M_Main: figure-main);
+ * one with no name, `<prefix>-body`.
+ */
+export const fitToMeshMaterial = (prefix, source) =>
+  `${prefix}-${String(source ?? '').replace(/^M_/i, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'body'}`;
+
+/**
  * --skeleton fit-to-mesh: a spheroid per bone per primitive, fitted to the
  * vertices the bone weighs most (fitSpheroid()), made of
  * `<prefix>-<the primitive's material>`. A bone thinner than `minThickness`
@@ -164,10 +172,9 @@ export function meshParts({ primitives }, { overlap = null } = {}) {
  * mitten hands.
  */
 export function fitToMeshParts({ skeleton, primitives }, { minThickness = 0.06, percentile = 0.95, prefix = 'figure' } = {}) {
-  const slug = (s) => String(s ?? '').replace(/^M_/i, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'body';
   const vertices = [];                                      // { p, owner, material }
   for (const prim of primitives) {
-    const material = `${prefix}-${slug(prim.material)}`;
+    const material = fitToMeshMaterial(prefix, prim.material);
     prim.points.forEach((p, v) => { if (prim.weights[v].length) vertices.push({ p, owner: prim.weights[v][0][0], material }); });
   }
   // Thin bones, leaves first, give their vertices (theirs, and what their

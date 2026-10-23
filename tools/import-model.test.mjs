@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { writeFileSync, readFileSync, mkdtempSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -295,6 +295,59 @@ test('--skeleton fit-to-mesh and along-bones, of <prefix>-...; --name names the 
   assert.equal(along.objects.j0.material, 'figure-bone');
   assert.ok(along.objects.j2.sphere, 'the end bone a ball');
   assert.match((await run([chain(), '--skeleton', 'clay'])).stderr, /--skeleton clay: fit-to-mesh, along-bones, mesh/);
+});
+
+test('--material-template: the materials named, a library to fill in, coloured as the source colours them', async () => {
+  const f = fixture();
+  f.json.materials[0].pbrMetallicRoughness = { baseColorFactor: [0.2, 0.4, 0.6, 1] };
+  const painted = file('painted.glb', toGLB(f));
+  const template = join(scratch, 'template.json');
+  const read = () => JSON.parse(readFileSync(template, 'utf8'));
+  const fitted = await run([painted, '--skeleton', 'fit-to-mesh', '--prefix', 'robot', '--material-template', template]);
+  assert.equal(fitted.status, 0, fitted.stderr);
+  assert.match(fitted.stderr, /materials: robot-skin\n/, 'said, whether or not a template is asked for');
+  assert.match(fitted.stderr, /template\.json: robot-skin added\n/);
+  assert.deepEqual(read()['robot-skin'], { kind: 'lambert', albedo: [0.2, 0.4, 0.6] }, 'the source\'s baseColorFactor');
+  assert.match(read()._comment, /painted names/);
+  // A scene listing it after its library gets the colour.
+  const m = JSON.parse(fitted.stdout);
+  const built = compileScene({ materials: ['@lib.json', '@template.json'], lights: [], objects: m.objects, root: { use: 'model' } },
+                             { files: { [join(scratch, 'lib.json')]: { clay: {} }, [template]: read() }, path: join(scratch, 'scene.json') });
+  assert.ok(built.materials.some((mat) => mat.albedo?.every((v, i) => Math.abs(v - [0.2, 0.4, 0.6][i]) < 1e-6)), 'robot-skin, from the template');
+
+  // Filled in, then imported again or otherwise: what is there is kept, only what it lacks is added.
+  writeFileSync(template, JSON.stringify({ ...read(), _comment: 'mine', 'robot-skin': { albedo: [1, 0, 0] } }));
+  const along = await run([painted, '--skeleton', 'along-bones', '--material-template', template]);
+  assert.match(along.stderr, /figure-bone added\n/);
+  assert.deepEqual(read(), { _comment: 'mine', 'robot-skin': { albedo: [1, 0, 0] }, 'figure-bone': { kind: 'lambert', albedo: [0.7, 0.7, 0.7] } },
+                   'an uncoloured one grey');
+  const again = await run([painted, '--skeleton', 'fit-to-mesh', '--prefix', 'robot', '--material-template', template]);
+  assert.match(again.stderr, /nothing to add, 1 already there/);
+  assert.deepEqual(read()['robot-skin'], { albedo: [1, 0, 0] });
+
+  // mesh: the source's own names, coloured; a static mesh, --material's.
+  const meshed = join(scratch, 'meshed.json');
+  await model([painted, '--skeleton', 'mesh', '--material-template', meshed]);
+  assert.deepEqual(JSON.parse(readFileSync(meshed, 'utf8')).M_Skin.albedo, [0.2, 0.4, 0.6]);
+  const brass = join(scratch, 'brass.json');
+  await model([file('tet.ply', PLY), '--material', 'brass', '--material-template', brass]);
+  assert.deepEqual(JSON.parse(readFileSync(brass, 'utf8')).brass, { kind: 'lambert', albedo: [0.7, 0.7, 0.7] });
+});
+
+test('--material-template: none to write, said; a file there that isn\'t a library, left as it is', async () => {
+  const none = join(scratch, 'none.json');
+  const plain = await run([file('tet.ply', PLY), '--material-template', none]);
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.match(plain.stderr, /materials: none/);
+  assert.match(plain.stderr, /names no materials, so there are none to write/);
+  assert.equal(existsSync(none), false);
+  const notes = file('notes.json', 'not JSON');
+  const out = join(scratch, 'unwritten.json');
+  const refused = await run([chain(), '--skeleton', 'along-bones', '--material-template', notes, '-o', out]);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /notes\.json: .*, so it is left as it is/);
+  assert.equal(readFileSync(notes, 'utf8'), 'not JSON');
+  assert.equal(existsSync(out), false, 'nor the model written');
 });
 
 test('--skeleton: --overlap shares a blended band; --fit scales the skeleton too, and records it', async () => {
