@@ -324,6 +324,17 @@ compiled is a bet that they stay there.
     exact, cheap ballClear() for planes before a certificate; mesh members
     grafted without proofs (more copies, no certificates); or movers
     (above), each piece linked where it reaches and moved in place.
+- **Group adds, made cheaper** (to revisit). Adding a member to a group,
+  `knock()` in `buildGroup()` asks `overlap.js` to prove it clear of each
+  region it passes (`regionsDisjoint()`: `separation()`,
+  `smallestEigen()`), so as not to graft a copy there. For members that
+  touch - a mesh's pieces, many planes each - most proofs fail, after
+  their full cost: the mannequin's 52 mesh pieces took about 70 s,
+  about 85% of it in those proofs (see "Models and animations"). One
+  big tree (the dragon) never asks for any. To try: the exact, cheap
+  `ballClear()` for a plane before a certificate; grafting a mesh member
+  without proofs (more copies, no certificates); and, for things that
+  move, movers (above), which aren't grouped at all.
 - **Provenance for compiler-invented nodes.** Today they have none, which
   was enough for picking, since a hit never lands on one. With movers
   linked rather than grouped (above), the static scene's dividers and
