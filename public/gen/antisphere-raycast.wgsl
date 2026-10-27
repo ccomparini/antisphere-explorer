@@ -68,11 +68,11 @@ struct Node {
   // part of; the origin for a plane. packNodes() chooses it.
   anchor          : vec3<f32>,
 
-  // The env this node is in: the index of the node that starts it, one
-  // naming an ambient material - its inside subtree is the env's region,
-  // and its material the ambient level there - or 0 for none. An env
-  // node's own env is the one enclosing it, so following env from node to
-  // node walks outward to 0. Precomputed (bakeScopes()).
+  // On a node that starts an env (NODE_ENV): the env enclosing it - the
+  // node that starts that one, or 0 - so following env from env node to
+  // env node walks outward to 0. On any other node, 0: the env a hit is in
+  // is found by where it is (envAt()), not read from its node. Precomputed
+  // (bakeScopes()).
   env             : u32,
 };
 
@@ -95,14 +95,20 @@ struct Node {
 //              the hit shows what it sees, times its albedo (main())
 //              Past MAX_BOUNCES, a mirror or glass is its own material,
 //              shaded
-//   bits 0-26  the material's index (materialIndex())
+//   bit 26     NODE_ENV: not the material's but the node's - it starts an
+//              env (an ambient or glow-region material, or lights of its
+//              own), which a hit within its inside is lit by (see
+//              envAt()). Set on node 0 if any node has it. NODE_, not
+//              MATERIAL_, so no scene key
+//   bits 0-25  the material's index (materialIndex())
 const MATERIAL_SOLID      : u32 = 0x80000000u;
 const MATERIAL_OPTICAL    : u32 = 0x40000000u;
 const MATERIAL_IOR        : u32 = 0x30000000u;
 const MATERIAL_IOR_GLASS  : u32 = 0x20000000u;
 const MATERIAL_IOR_WATER  : u32 = 0x10000000u;
 const MATERIAL_REFLECTIVE : u32 = 0x08000000u;
-const MATERIAL_INDEX      : u32 = 0x07ffffffu;
+const NODE_ENV            : u32 = 0x04000000u;
+const MATERIAL_INDEX      : u32 = 0x03ffffffu;
 fn materialIndex(id : u32) -> u32 { return id & MATERIAL_INDEX; }
 
 // The implicit function at an arbitrary point. trace() no longer calls this:
@@ -211,9 +217,8 @@ const KIND_GLOSSY   : u32 = 1u;
 const KIND_EMISSIVE : u32 = 2u;
 const KIND_UNLIT    : u32 = 3u;
 // An ambient material never shades, and has no trace flags by default. A node naming one
-// starts an env: every node beneath it has it as its env (see Node.env and
-// bakeScopes() in antisphere-scene.js), and its albedo is the ambient
-// level there.
+// starts an env: a hit within its inside is lit as the env is (envAt()),
+// and its albedo is the ambient level there.
 const KIND_AMBIENT  : u32 = 4u;
 // A glow region: like an ambient material, a region rather than a
 // substance - no trace flags by default, and a node naming one starts an env -
@@ -706,6 +711,7 @@ struct Hit {
   toViewer      : vec3<f32>,  // unit vector back along the ray
   surfaceCoords : vec2<f32>,  // node-frame parameterization, scaled per material
   node          : u32,        // the node whose surface was hit
+  env           : u32,        // the env it is in (envAt())
 };
 
 struct Direct { diffuse : vec3<f32>, specular : vec3<f32>, };
@@ -715,7 +721,7 @@ struct Direct { diffuse : vec3<f32>, specular : vec3<f32>, };
 // Env 0's is the default. A glow region's fill, which varies from point to
 // point, is added with its direct light (addGlow()).
 fn surfaceAmbient(hit : Hit) -> vec3<f32> {
-  let env = nodes[hit.node].env;
+  let env = hit.env;
   if (env == 0u) { return vec3<f32>(0.13, 0.13, 0.14); }
   return materials[materialIndex(nodes[env].material_id)].ambient;
 }
@@ -860,7 +866,7 @@ fn directLighting(hit : Hit, shininess : f32) -> Direct {
   out.specular = vec3<f32>(0.0);
 
   let n = arrayLength(&lights);
-  var env = nodes[hit.node].env;
+  var env = hit.env;
   var through = 1.0;
   loop {
     for (var i = firstLightOf(env); i < n && lights[i].env == env; i = i + 1u) {
@@ -914,7 +920,7 @@ fn shade(hit : Hit) -> vec3<f32> {
 fn highlight(hit : Hit, shininess : f32) -> vec3<f32> {
   var out = vec3<f32>(0.0);
   let n = arrayLength(&lights);
-  var env = nodes[hit.node].env;
+  var env = hit.env;
   loop {
     for (var i = firstLightOf(env); i < n && lights[i].env == env; i = i + 1u) {
       let lt = lights[i];
@@ -954,10 +960,36 @@ fn surfaceAt(P : vec3<f32>) -> u32 {
   return best;
 }
 
-// trace()'s extend_flags for a ray in glass: every bit of the material id,
-// so the run is one material - glass meeting other glass ends it, and the
-// ray goes on coloured by the next (main()).
-const EXTEND_SAME_MATERIAL : u32 = 0xffffffffu;
+// The env a hit is in: walking down from the root as P lies - inside or
+// outside each node by the sign of H(P) - the last node on the way that
+// starts an env (NODE_ENV) and holds P inside, until `region`, the node
+// whose region the ray found (trace()'s found.node), which is where the
+// walk was going. P is to be within that region, not on its edge - a
+// little way into the segment the ray found - so no sign on the way is a
+// toss-up. Found by where the hit is, not by a field of the node: so a
+// subtree linked into several envs - a figure half in water, half out -
+// is lit by the one each part of it is in, with no env baked into its
+// nodes. A handful of nodes, once per shaded hit; trace() keeps none.
+fn envAt(P : vec3<f32>, region : u32) -> u32 {
+  var node = ROOT;
+  var env = 0u;
+  for (var depth = 0; depth < 64 && node != 0u && node != region; depth = depth + 1) {
+    let nd = nodes[node];
+    if (fAt(nd, P) < 0.0) {
+      if ((nd.material_id & NODE_ENV) != 0u) { env = node; }
+      node = nd.inside;
+    } else {
+      node = nd.outside;
+    }
+  }
+  return env;
+}
+
+// trace()'s extend_flags for a ray in glass: every bit of the material id
+// but the node's NODE_ENV, so the run is one material - glass meeting
+// other glass ends it, and the ray goes on coloured by the next (main()) -
+// whichever of its nodes start envs.
+const EXTEND_SAME_MATERIAL : u32 = ~NODE_ENV;
 
 // How many times a camera ray may go on from a hit (main()) - through a
 // piece of glass is two, in and out. A mirror or glass reached past that
@@ -1080,6 +1112,14 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     // (fromSurface) moves that one's roots, not its own.
     hit.position = origin + select(seg.t0, seg.t1, inMedium) * dir;
     hit.node = seg.node;
+    // A little way into the region found: where the ray entered it (t0), or,
+    // in glass, where what follows the glass begins.
+    // Node 0 says whether the scene has any env (packNodes()): if not, none.
+    hit.env = 0u;
+    if ((nodes[0].material_id & NODE_ENV) != 0u) {
+      let into = select(seg.t0 + min(1e-3, 0.5 * (seg.t1 - seg.t0)), seg.t1 + 1e-3, inMedium);
+      hit.env = envAt(origin + into * dir, select(seg.node, bitcast<u32>(seg.t0), inMedium));
+    }
     if (inMedium || (nodes[seg.node].material_id & (MATERIAL_REFLECTIVE | MATERIAL_IOR)) != 0u) {
       hit.node = surfaceAt(hit.position);
     }
@@ -1174,4 +1214,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":133},{"path":"shaders/random.wgsls","offset":135,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":166,"lines":1010}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":139},{"path":"shaders/random.wgsls","offset":141,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":172,"lines":1044}]

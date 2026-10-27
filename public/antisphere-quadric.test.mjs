@@ -12,7 +12,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene, packNodes, packSurfaces, packMaterials, MATERIAL_FLAG_KEYS, isSolid } from './antisphere-scene.js';
+import { compileScene, packNodes, packSurfaces, packMaterials, MATERIAL_FLAG_KEYS, isSolid, startsEnv } from './antisphere-scene.js';
 import { Node, Material, viewsOf } from './gen/layouts.js';
 import * as layouts from './gen/layouts.js';
 
@@ -612,8 +612,10 @@ test('a node\'s material id carries its material\'s trace flags over the index',
     const id = Node.read(views, i).material_id;
     const { material } = built.nodes[i];
     assert.equal(id & MATERIAL_INDEX, material, `node ${i}'s index`);
-    assert.equal(u32(id & ~MATERIAL_INDEX), built.materials[material].flags, `node ${i}'s flags`);
-    named.set(material, u32(id & ~MATERIAL_INDEX));
+    // Its material's flags, and the node's own: NODE_ENV if it starts an env.
+    const own = startsEnv(built.nodes[i], built.materials) ? layouts.NODE_ENV : 0;
+    assert.equal(u32(id & ~MATERIAL_INDEX), u32(built.materials[material].flags | own), `node ${i}'s flags`);
+    named.set(material, u32(id & ~MATERIAL_INDEX & ~layouts.NODE_ENV));
   }
   assert.equal(named.get(0), 0, 'a pure division: no flags, no interaction');
   // By name: the table is in the order the scene names them, from 1.

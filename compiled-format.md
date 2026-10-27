@@ -39,7 +39,8 @@ const built = compileScene(spec, { files, path: 'scenes/maze.json' });
 Before anything is flattened, the compiler expands references, resolves
 `"tangentTo"` and `"drop"`, applies every transform to the quadrics
 themselves, divides groups (`chooseDivider()`, `buildGroup()`), adds wrappers
-and bounds, and bakes each node's material and env (`bakeScopes()`). So
+and bounds, and bakes each node's material, and each env node's env
+and ambient level (`bakeScopes()`). So
 nothing in the compiled scene refers to an object by name, carries a
 transform, or inherits anything: each node says exactly what it is.
 
@@ -70,7 +71,7 @@ lies on each side of it:
 { prim: { axis, k_par, k_perp, linear, constant },
   inside, outside,      // node indices; 0 is "no node" (see below)
   material,             // index into materials
-  env,                  // node index of the env it is in, or 0
+  env,                  // an env node's: the env round it; 0 for any other
   prov,                 // as provenance[i]
   lights }              // the lights it carries, or null
 ```
@@ -132,11 +133,16 @@ operators follow the same rules.
   and the compiler's own divisions have all been baked (`bakeScopes()`), so
   it is the material of the region this node's inside is, where nothing
   further divides it. 0 is vacuum.
-- **`env`** is the index of the node that starts the env this node is in - a
-  node naming an ambient or glow-region material, or carrying lights - or 0.
-  An env node's own `env` is the env enclosing it, so following `env` walks
-  outward to 0. A hit is lit by the lights of its env and of those enclosing
-  it.
+- **`env`**, on a node that starts an env - one naming an ambient or
+  glow-region material, or carrying lights - is the env enclosing it: the
+  node that starts that one, or 0. On any other node it is 0. Which env a
+  point is in is found by where it is, not read from a node: walking down
+  from the root as the point lies, the last node on the way that starts an
+  env and holds it inside (`envAt()`, in the compiler and in the shader).
+  From there, following env nodes' `env` walks outward to 0. A hit is lit
+  by the lights of its env and of those enclosing it. So a subtree that
+  starts no env is the same in every env, and is compiled once however
+  many envs it is used in.
 - **`prov`** is where the node came from: see `provenance`.
 - **`lights`** are the lights a node carries in the spec (`"lights"` on a
   subtree), as compiled: they are also in the scene's `lights`, so a reader
@@ -270,10 +276,13 @@ $$
 where $\vec c_a$ and $d_a$ are the linear and constant terms about the anchor, worked
 out in f64 by `packNodes()`.
 
-**`material_id`.** The low 27 bits index the material; the high bits are its
+**`material_id`.** The low 26 bits index the material; the high bits are its
 trace flags, so `trace()` reads what a ray does in a region without looking
 the material up. They come from the material's `flags`; without a material
-table (`packNodes(nodes)`, as physics packs), only the index.
+table (`packNodes(nodes)`, as physics packs), only the index. Bit 26 is the
+node's own, not its material's: `NODE_ENV`, set on a node that starts an
+env, and on node 0 if any node does (so a scene with none looks for no env
+at its hits).
 
 | bits  | mask | flag | scene key |
 |---|---|---|---|
@@ -281,7 +290,8 @@ table (`packNodes(nodes)`, as physics packs), only the index.
 | 30    | `0x40000000` | `MATERIAL_OPTICAL`: camera and shadow rays stop there | `optical` |
 | 28–29 | `0x30000000` | `MATERIAL_IOR`: glass `0x20000000` (1.5), water `0x10000000` (1.333), both (2.42) | `iorGlass`, `iorWater` |
 | 27    | `0x08000000` | `MATERIAL_REFLECTIVE`: a mirror | `reflective` |
-| 0–26  | `0x07ffffff` | `MATERIAL_INDEX`: the material's index | |
+| 26    | `0x04000000` | `NODE_ENV`: the node starts an env (the node's, not the material's) | |
+| 0–25  | `0x03ffffff` | `MATERIAL_INDEX`: the material's index | |
 
 A material that is neither an ambient nor a glow region has `SOLID` and
 `OPTICAL` by default; each scene key sets or clears its own bit.

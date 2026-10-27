@@ -144,11 +144,15 @@ coefficients in place, with no recompile.
   inside subtree is all of its inside region, so this is exact for a ray
   that stays inside). A shadow ray that leaves its scope is blocked - that
   is the scoping: torches light their own room. A maze with many torches
-  then tests each hit against its room's few. Built so far: a node's `env`
-  is the index of the node starting its env (an ambient material's region,
-  or a node carrying `"lights"`), an env node's own `env` the one enclosing
-  it, and every light belongs to an env - a node's to its own, the scene's
-  to env 0 - so a hit is lit only by the lights on its chain outward. An
+  then tests each hit against its room's few. Built so far: a hit's env
+  is found by where it is - walking down from the root as the hit lies, the
+  last node starting an env (an ambient material's region, or a node
+  carrying `"lights"`) that holds it (`envAt()`) - not read from its node,
+  so a subtree is the same in every env and compiled once, and one linked
+  into several envs is lit by the one each hit is in. An env node's own
+  `env` is the one enclosing it, and every light belongs to an env - a
+  node's to its own, the scene's to env 0 - so a hit is lit only by the
+  lights on its chain outward. An
   outer env's light - the sky's sun - reaches into a room through a
   window, as a torch inside cannot reach out. A light's shadow rays start
   inside its env - trace() takes a starting node, here the env node tagged

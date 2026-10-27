@@ -68,11 +68,11 @@ struct Node {
   // part of; the origin for a plane. packNodes() chooses it.
   anchor          : vec3<f32>,
 
-  // The env this node is in: the index of the node that starts it, one
-  // naming an ambient material - its inside subtree is the env's region,
-  // and its material the ambient level there - or 0 for none. An env
-  // node's own env is the one enclosing it, so following env from node to
-  // node walks outward to 0. Precomputed (bakeScopes()).
+  // On a node that starts an env (NODE_ENV): the env enclosing it - the
+  // node that starts that one, or 0 - so following env from env node to
+  // env node walks outward to 0. On any other node, 0: the env a hit is in
+  // is found by where it is (envAt()), not read from its node. Precomputed
+  // (bakeScopes()).
   env             : u32,
 };
 
@@ -95,14 +95,20 @@ struct Node {
 //              the hit shows what it sees, times its albedo (main())
 //              Past MAX_BOUNCES, a mirror or glass is its own material,
 //              shaded
-//   bits 0-26  the material's index (materialIndex())
+//   bit 26     NODE_ENV: not the material's but the node's - it starts an
+//              env (an ambient or glow-region material, or lights of its
+//              own), which a hit within its inside is lit by (see
+//              envAt()). Set on node 0 if any node has it. NODE_, not
+//              MATERIAL_, so no scene key
+//   bits 0-25  the material's index (materialIndex())
 const MATERIAL_SOLID      : u32 = 0x80000000u;
 const MATERIAL_OPTICAL    : u32 = 0x40000000u;
 const MATERIAL_IOR        : u32 = 0x30000000u;
 const MATERIAL_IOR_GLASS  : u32 = 0x20000000u;
 const MATERIAL_IOR_WATER  : u32 = 0x10000000u;
 const MATERIAL_REFLECTIVE : u32 = 0x08000000u;
-const MATERIAL_INDEX      : u32 = 0x07ffffffu;
+const NODE_ENV            : u32 = 0x04000000u;
+const MATERIAL_INDEX      : u32 = 0x03ffffffu;
 fn materialIndex(id : u32) -> u32 { return id & MATERIAL_INDEX; }
 
 // The implicit function at an arbitrary point. trace() no longer calls this:
@@ -302,8 +308,12 @@ struct Certificate {
 // A congruence, applied to both regions alike, keeps any certificate a
 // certificate (T^T (Q_b + mu Q_a) T is PSD exactly when the pencil is).
 fn frameMatrix(c : vec3<f32>, L : f32) -> mat4x4<f32> {
-  return mat4x4<f32>(vec4<f32>(L, 0.0, 0.0, 0.0), vec4<f32>(0.0, L, 0.0, 0.0),
-                     vec4<f32>(0.0, 0.0, L, 0.0), vec4<f32>(c, 1.0));
+  return mat4x4<f32>(
+    vec4<f32>(L, 0.0, 0.0, 0.0),
+    vec4<f32>(0.0, L, 0.0, 0.0),
+    vec4<f32>(0.0, 0.0, L, 0.0),
+    vec4<f32>(c,           1.0)
+  );
 }
 
 // certify(), measured in the frame at centre c with unit length L, chosen
@@ -1557,4 +1567,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":133},{"path":"shaders/overlap.wgsls","offset":135,"lines":253},{"path":"shaders/collision.wgsls","offset":388,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":939,"lines":620}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":139},{"path":"shaders/overlap.wgsls","offset":141,"lines":257},{"path":"shaders/collision.wgsls","offset":398,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":949,"lines":620}]

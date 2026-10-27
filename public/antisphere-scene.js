@@ -38,6 +38,7 @@ import {
   Light, Material, Node,
   KIND_LAMBERT, KIND_GLOSSY, KIND_EMISSIVE, KIND_UNLIT, KIND_AMBIENT, KIND_GLOW_REGION,
   PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, MATERIAL_SOLID, MATERIAL_OPTICAL,
+  MATERIAL_INDEX, NODE_ENV,
 } from './gen/layouts.js';
 import * as layouts from './gen/layouts.js';
 import { regionsDisjoint, interiorPaths } from './overlap.js';
@@ -417,6 +418,35 @@ const KINDS = {
 const isRegionKind = (kind) => kind === KIND_AMBIENT || kind === KIND_GLOW_REGION;
 
 /**
+ * The env a point is in, in a compiled scene, as the shader finds a hit's
+ * (envAt() in antisphere-raycast.wgsls): walking down from the root as P
+ * lies - inside or outside each node by the sign of H(P) - the last node
+ * on the way that starts an env and holds P inside; 0 for none. An env
+ * node's own env is the one round it, so following env from there walks
+ * outward.
+ */
+export function envAt(built, P) {
+  let i = 1, env = 0;
+  for (let depth = 0; i && depth < 4096; depth++) {
+    const nd = built.nodes[i];
+    if (quadricAt(nd.prim, P) < 0) {
+      if (startsEnv(nd, built.materials)) env = i;
+      i = nd.inside;
+    } else {
+      i = nd.outside;
+    }
+  }
+  return env;
+}
+
+/**
+ * Whether a compiled node starts an env: names an ambient or glow-region
+ * material, or carries lights. Its pack sets NODE_ENV, which trace() keeps
+ * as a ray goes into its inside.
+ */
+export const startsEnv = (nd, materials) => !!nd.lights?.length || isRegionKind(materials[nd.material]?.kind);
+
+/**
  * The trace flags a material can set, by the key a scene sets it with:
  * every MATERIAL_ constant in shaders/node.wgsls that is a single bit,
  * named without MATERIAL_ and camelCased - SOLID is "solid", IOR_GLASS
@@ -783,38 +813,34 @@ function mapTree(t, f, g) {
   return walk(t);
 }
 
-// Resolves material inheritance and env scopes once, here, instead of once
-// per ray in antisphere-raycast.wgsls's trace(), so a hit's material and
-// env are each read directly off nodes[entry] (main() does exactly that).
+// Resolves material inheritance once, here, instead of once per ray in
+// antisphere-raycast.wgsls's trace(), so a hit's material is read directly
+// off its node; and works out which nodes start envs, and how they nest.
 //
 // Material: descending into a node's *inside* adopts its own material as
 // the scope for everything below it, unless it inherits (INHERIT_MATERIAL),
 // in which case the incoming scope keeps threading through; *outside*
 // always keeps the incoming scope, never the current node's own.
 //
-// Env: the same threading, of a node rather than a material. A node that
-// itself names an ambient material, or carries lights, starts an env:
-// everything in its inside gets it as `env` - the node, so the env's
-// geometry is its inside subtree, its ambient level its material, and its
-// lights its own - while the node's own `env` is the env enclosing it, so
-// following env from node to node walks outward. Outside keeps the
-// incoming env. A lit node naming no material takes the enclosing env's
-// ambient material (or a default one, appended to `table` when needed), so
-// lighting a region leaves its ambient level as it was. Which nodes start
-// one is a question about materials and lights, asked here because this is
-// where materials are resolved; the tree's divisions are untouched.
-// `table` is the compiled materials list.
+// Env: a node that itself names an ambient or glow-region material, or
+// carries lights, starts an env - its inside is the env's region, its
+// material the ambient level there, its lights the env's own - and records
+// as its own `env` the env enclosing it, so following env from env node to
+// env node walks outward. No other node records one: the env a hit is in
+// is found by where it is (envAt(), in the shader and here), so a subtree
+// starting no env is the same in every env. A lit node naming no material
+// takes the enclosing env's ambient material (or a default one, appended
+// to `table` when needed), so lighting a region leaves its ambient level as
+// it was. Which nodes start one is a question about materials and lights,
+// asked here because this is where materials are resolved; the tree's
+// divisions are untouched. `table` is the compiled materials list.
 //
-// Correct as long as the tree is static: nothing here moves a node between
-// material or env regions after this bakes it in, so if scenes ever need
-// runtime-mutable regions, this bake would need to move to (or be redone
-// for) whatever does that mutating.
-//
-// Memoized by (subtree, material scope, env): a subtree shared under one
-// pair of scopes (by "use", "group", or "union") still collapses to one
-// baked copy; only reuse under a genuinely different pair forces a
-// separate one, which is required for correctness - the same subtree can
-// resolve to different materials or envs in different contexts.
+// Memoized by subtree, by the material scope only if something in it
+// inherits one, and by the env only if something in it starts one: a
+// subtree that names its own materials and starts no env - most of them -
+// is one baked copy wherever it is used. One with an env in it is baked
+// per env it is in, since its env nodes record the env round them and its
+// level.
 function bakeScopes(tree, table) {
   const memo = new Map();       // "material:env id" -> (subtree -> baked)
   const envIds = new Map();     // env node -> a number for the memo key
@@ -843,9 +869,44 @@ function bakeScopes(tree, table) {
     }
     return passing;
   };
+  // Whether a subtree holds a node that starts an env. One that doesn't is
+  // the same whatever env it is in - a hit's env is found by where it is
+  // (envAt() in the shader), not read from its node - so it is resolved
+  // once per material scope, and shared by every env that has it: a world
+  // reused under six ambient bubbles is one set of nodes, not six. Only
+  // env nodes record the env round them (env), for the shader's walk
+  // outward through enclosing envs, and their level.
+  const startsEnvHere = (t) => t.lights?.length > 0
+    || (t.material !== INHERIT_MATERIAL && t.material !== PASS_MATERIAL && isRegionKind(table[t.material]?.kind));
+  const holdsEnv = new Map();
+  const hasEnv = (t) => {
+    if (!t) return false;
+    if (!holdsEnv.has(t)) {
+      holdsEnv.set(t, false);                    // a cycle can't hold one more
+      holdsEnv.set(t, startsEnvHere(t) || hasEnv(t.inside) || hasEnv(t.outside));
+    }
+    return holdsEnv.get(t);
+  };
+  // Likewise whether it depends on the material round it: whether a node in
+  // it inherits one - names none, and isn't a pass-through or lit - where
+  // nothing above it within the subtree names one. One that names all its
+  // own is the same in any material scope, and is shared too.
+  const named = (t) => t.material !== INHERIT_MATERIAL && t.material !== PASS_MATERIAL;
+  const inheritsOf = new Map();
+  const inherits = (t) => {
+    if (!t) return false;
+    if (!inheritsOf.has(t)) {
+      inheritsOf.set(t, false);
+      const lit = t.lights?.length > 0;
+      const own = !named(t) && t.material !== PASS_MATERIAL && !lit;
+      inheritsOf.set(t, own || inherits(t.outside) || (!named(t) && !lit && inherits(t.inside)));
+    }
+    return inheritsOf.get(t);
+  };
   const resolve = (t, matScope, envNode) => {
     if (!t) return t;
-    const key = `${matScope}:${envNode ? envIds.get(envNode) : 0}`;
+    if (!hasEnv(t)) envNode = null;
+    const key = `${inherits(t) ? matScope : '-'}:${envNode ? envIds.get(envNode) : 0}`;
     let byScope = memo.get(key);
     if (!byScope) { byScope = new Map(); memo.set(key, byScope); }
     if (byScope.has(t)) return byScope.get(t);
@@ -863,7 +924,7 @@ function bakeScopes(tree, table) {
       level = own.map((v, i) => v + m.params[0] * around[i]);
       hereMat = withLevel(hereMat, level);
     }
-    const out = node(t.prim, null, null, passes ? NO_MATERIAL : hereMat, envNode, t.prov, t.lights);
+    const out = node(t.prim, null, null, passes ? NO_MATERIAL : hereMat, startsEnv ? envNode : null, t.prov, t.lights);
     byScope.set(t, out);
     if (startsEnv) {
       envIds.set(out, envIds.size + 1);
@@ -3086,10 +3147,15 @@ export function packSurfaces(list) {
 /**
  * The nodes as the GPU takes them. With `materials` (the compiled table),
  * each node's material id carries its material's trace flags (its `flags`),
- * which trace() reads; without, just the index (physics, which reads none).
+ * which trace() reads, and NODE_ENV if the node starts an env; without,
+ * just the index (physics, which reads none). Node 0, never a real node,
+ * carries NODE_ENV if any node does: a scene with no envs skips looking
+ * for one at every hit (envAt()). `first` is list[0]'s index in the tree,
+ * for a list that is part of one.
  */
-export function packNodes(list, materials = null) {
+export function packNodes(list, materials = null, first = 0) {
   const views = Node.allocate(list.length);
+  const anyEnv = materials && first === 0 && list.some((nd, j) => j > 0 && startsEnv(nd, materials));
   list.forEach((nd, j) => {
     const { axis, k_par, k_perp, linear } = nd.prim;
     const a = anchorOf(nd.prim);
@@ -3104,7 +3170,8 @@ export function packNodes(list, materials = null) {
       anchor: a,
       inside: nd.inside,
       outside: nd.outside,
-      material_id: (nd.material | (materials?.[nd.material]?.flags ?? 0)) >>> 0,
+      material_id: (nd.material | (materials?.[nd.material]?.flags ?? 0)
+                    | (materials && (first + j === 0 ? anyEnv : startsEnv(nd, materials)) ? NODE_ENV : 0)) >>> 0,
       env: nd.env,
     });
   });

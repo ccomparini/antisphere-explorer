@@ -10,7 +10,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene, isSolid } from './antisphere-scene.js';
+import { compileScene, envAt, isSolid } from './antisphere-scene.js';
 import { quadricAt as H } from './quadric.js';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -577,10 +577,14 @@ function buildEnvs(subtree, objects = {}) {
   });
 }
 
-/** The envs a node is in, innermost first, ending at 0. */
-const envChain = (built, index) => {
+/**
+ * The envs a point is in, innermost first, ending at 0: the env a hit there
+ * is lit by (envAt(), as the shader finds it), then outward through each
+ * env node's own env.
+ */
+const envChain = (built, P) => {
   const chain = [];
-  for (let e = built.nodes[index].env; ; e = built.nodes[e].env) {
+  for (let e = envAt(built, P); ; e = built.nodes[e].env) {
     chain.push(e);
     if (e === 0) return chain;
     assert.ok(chain.length < 50, 'an env chain that does not end');
@@ -593,11 +597,10 @@ test('a node\'s env is the node its ambient region starts at, and envs chain out
     ball(-5, 1, { material: 'clay' }),
     ball(5, 3, { material: 'warm', inside: ball(5, 1, { material: 'clay' }) }),
   ] } }));
-  const outerBall = at(built, [-5, 0, 0]).node, innerBall = at(built, [5, 0, 0]).node;
-  assert.ok(outerBall && innerBall, 'both balls are there');
-  const [outer] = envChain(built, outerBall), [inner] = envChain(built, innerBall);
-  assert.deepEqual(envChain(built, outerBall), [outer, 0]);
-  assert.deepEqual(envChain(built, innerBall), [inner, outer, 0]);
+  assert.ok(at(built, [-5, 0, 0]).node && at(built, [5, 0, 0]).node, 'both balls are there');
+  const [outer] = envChain(built, [-5, 0, 0]), [inner] = envChain(built, [5, 0, 0]);
+  assert.deepEqual(envChain(built, [-5, 0, 0]), [outer, 0]);
+  assert.deepEqual(envChain(built, [5, 0, 0]), [inner, outer, 0]);
 
   // An env node carries its ambient as its material - the level - which
   // does not stop rays: the air between is empty.
@@ -616,31 +619,43 @@ test('regions with the same ambient are different envs; a node inheriting it sta
     // env, not an env of its own.
     ball(10, 4, { material: 'air', inside: ball(10, 3, { inside: ball(10, 1, { material: 'clay' }) }) }),
   ] });
-  const [left] = envChain(built, at(built, [-10, 0, 0]).node);
-  const right = envChain(built, at(built, [10, 0, 0]).node);
+  const [left] = envChain(built, [-10, 0, 0]);
+  const right = envChain(built, [10, 0, 0]);
   assert.notEqual(left, right[0], 'two rooms, one ambient: two envs');
   assert.equal(right.length, 2, `inheriting air started an env: ${right}`);
 });
 
-test('a subtree used in two envs is baked once for each', () => {
-  // Two overlapping regions, both holding the same pebble: one shared
-  // subtree, in two envs, so two baked copies - one in each.
-  const built = buildEnvs({ union: [
-    ball(-2, 5, { material: 'air', inside: { use: 'pebble' } }),
-    ball(2, 5, { material: 'warm', inside: { use: 'pebble' } }),
-  ] }, { pebble: ball(0, 1, { material: 'clay' }) });
+test('a subtree used in two envs is one set of nodes, lit by whichever a hit is in', () => {
+  // The same pebble on both sides of a warm region inside an air one: in
+  // warm's inside, its env warm; in its outside, air. A hit's env is found
+  // by where it is (envAt()), not baked into its node, so the pebble is
+  // compiled once (it was twice, one per env). No union: a union grafts
+  // copies of its own.
+  const built = buildEnvs(ball(0, 9, { material: 'air', inside:
+    ball(3, 8, { material: 'warm', inside: { use: 'pebble' }, outside: { use: 'pebble' } }) }),
+  { pebble: ball(0, 1, { material: 'clay' }) });
   // The pebble: a unit sphere at the origin, (|R|^2 - 1) / 2.
   const pebbles = built.nodes.filter((nd) => Math.abs(nd.prim.k_perp - 0.5) < 1e-9 &&
     Math.abs(nd.prim.constant + 0.5) < 1e-9 && nd.prim.linear.every((c) => Math.abs(c) < 1e-9));
-  // (Three, in fact: the union also grafts the warm region into air's
-  // absent outsides, where it is warm-within-air, an env of its own.)
-  assert.ok(pebbles.length >= 2, `${pebbles.length} pebbles`);
-  assert.equal(new Set(pebbles.map((nd) => nd.env)).size, pebbles.length, 'each in its own env');
-  const levels = new Set(pebbles.map((nd) => String(built.materials[built.nodes[nd.env].material].albedo)));
-  assert.deepEqual([...levels].sort(), ['0.2,0.2,0.3', '0.4,0.3,0.2']);
-  // A ray reaching it comes through air first: the union keeps the first.
-  const [first] = envChain(built, at(built, [0, 0, 0]).node);
-  assert.deepEqual(built.materials[built.nodes[first].material].albedo, [0.2, 0.2, 0.3]);
+  assert.equal(pebbles.length, 1, 'one pebble, in both');
+  // Lit as the region holding the point: the pebble is within warm.
+  const [env, outer] = envChain(built, [0, 0, 0]);
+  assert.deepEqual(built.materials[built.nodes[env].material].albedo, [0.4, 0.3, 0.2]);
+  assert.deepEqual(built.materials[built.nodes[outer].material].albedo, [0.2, 0.2, 0.3]);
+});
+
+test('a world reused under several envs and airs is compiled once, not once per env', () => {
+  // scene-ambient.json's case: one world, under bubbles of different air.
+  // Its balls name their own material and start no env, so they are the
+  // same whatever air is round them - neither env nor material scope.
+  const world = { union: Array.from({ length: 6 }, (_, i) => ball(-5 + 2 * i, 0.5, { material: 'clay' })) };
+  const balls = (built) => built.nodes.filter((nd) => Math.abs(nd.prim.k_perp - 1) < 1e-9).length;
+  const one = buildEnvs(ball(0, 20, { material: 'air', inside: { use: 'world' } }), { world });
+  const two = buildEnvs(ball(0, 20, { material: 'air', inside:
+    ball(0, 8, { material: 'warm', inside: { use: 'world' }, outside: { use: 'world' } }) }), { world });
+  assert.equal(balls(two), balls(one), `${balls(two)} balls in two envs, ${balls(one)} in one`);
+  const [env] = envChain(two, [-5, 0, 0]);
+  assert.deepEqual(two.materials[two.nodes[env].material].albedo, [0.4, 0.3, 0.2], 'lit as warm');
 });
 
 // -- lights belong to envs ----------------------------------------------------------
@@ -662,8 +677,8 @@ test('a node\'s lights belong to its env, the scene\'s to env 0, and come first'
   });
   assert.equal(built.topLights, 1);
   assert.deepEqual(built.lights.map((lt) => lt.env)[0], 0);
-  const left = envChain(built, at(built, [-10, 0, 0]).node)[0];
-  const right = envChain(built, at(built, [10, 0, 0]).node)[0];
+  const left = envChain(built, [-10, 0, 0])[0];
+  const right = envChain(built, [10, 0, 0])[0];
   assert.deepEqual(built.lights.slice(1).map((lt) => lt.env).sort(), [left, left, right].sort());
   assert.deepEqual(built.lights.find((lt) => lt.env === right).pos, [10, 0, 2]);
   // In order of env: the shader finds an env's lights by binary search.
@@ -680,7 +695,7 @@ test('lights alone make a region, at the ambient level around it', () => {
       ball(10, 4, { lights: [lamp([10, 0, 2])], inside: ball(10, 1, { material: 'clay' }) }) }),
   ] });
   const level = (x) => {
-    const env = envChain(built, at(built, [x, 0, 0]).node)[0];
+    const env = envChain(built, [x, 0, 0])[0];
     const m = built.materials[built.nodes[env].material];
     assert.equal(isSolid(m), false);
     return m.ambient;            // the level there, baked (bakeScopes())
@@ -764,9 +779,9 @@ test('a group grafts into a lit region only the part of a member that reaches it
   }
   // and those within the sphere are in its env, those beyond not.
   const sphereNode = lit.lights[lit.topLights].env;
-  assert.deepEqual(envChain(lit, at(lit, [2, 0, 0]).node), [sphereNode, 0]);
-  assert.deepEqual(envChain(lit, at(lit, [-2, 0.5, 0]).node), [sphereNode, 0]);
-  assert.deepEqual(envChain(lit, at(lit, [30, 0, 0]).node), [0]);
+  assert.deepEqual(envChain(lit, [2, 0, 0]), [sphereNode, 0]);
+  assert.deepEqual(envChain(lit, [-2, 0.5, 0]), [sphereNode, 0]);
+  assert.deepEqual(envChain(lit, [30, 0, 0]), [0]);
 });
 
 test('a glow region is a region: an env, not solid; a lit node within it is no glow of its own', () => {
@@ -779,13 +794,13 @@ test('a glow region is a region: an env, not solid; a lit node within it is no g
         ball(2, 1.5, { lights: [lamp([2, 0, 0])], inside: ball(2, 0.5, { material: 'clay' }) }),
       ] } }) },
   });
-  const region = envChain(built, at(built, [-2, 0, 0]).node)[0];
+  const region = envChain(built, [-2, 0, 0])[0];
   assert.equal(built.materials[built.nodes[region].material].kind, 5, 'the glow region starts the env');
   assert.equal(at(built, [0, 0, 3]).solid, false, 'and is not solid');
   // The lit ball within it starts an env too - with no level of its own,
   // letting in the glow's (all of the default, by its transmit of 1) - not
   // the glow's material, which would make it a second glow.
-  const [lit, outer] = envChain(built, at(built, [2, 0, 0]).node);
+  const [lit, outer] = envChain(built, [2, 0, 0]);
   assert.equal(outer, region);
   const litMaterial = built.materials[built.nodes[lit].material];
   assert.equal(litMaterial.kind, 4);
@@ -811,13 +826,13 @@ test('an env\'s ambient level is its own and what its transmit lets in of the le
     ] } },
   });
   const level = (x) => {
-    const m = built.materials[built.nodes[envChain(built, at(built, [x, 0, 0]).node)[0]].material];
+    const m = built.materials[built.nodes[envChain(built, [x, 0, 0])[0]].material];
     return m.ambient.map((v) => +v.toFixed(6));
   };
   assert.deepEqual(level(-20), [0.15, 0.1, 0.1], 'the porch: its own, and half the hall\'s');
   assert.deepEqual(level(0), [0.15, 0.1, 0.1], 'the same porch in a glow, which lets all the hall\'s in');
   assert.deepEqual(level(20), [0.05, 0.05, 0.05], 'a glow that lets a quarter in');
-  assert.deepEqual(built.materials[built.nodes[envChain(built, at(built, [0, 0, 0]).node)[1]].material].params, [1, 0.1],
+  assert.deepEqual(built.materials[built.nodes[envChain(built, [0, 0, 0])[1]].material].params, [1, 0.1],
                    'a glow\'s transmit and fill go to the shader');
   assert.throws(() => compileScene({ materials: { bad: { kind: 'ambient', transmit: 'all' } }, lights: [],
                                      root: ball(0, 1, { material: 'bad' }) }), /transmit: must be a number/);
