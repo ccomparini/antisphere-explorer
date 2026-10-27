@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Antisphere animation viewer</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --line: #1e2530; --bg: #0b0d10; --panel: #0f1217; --field: #161b22;
+    --text: #7f8a99; --bright: #cbd5e1; --accent: #3b6ea5; --warn: #fbbf24;
+    --panel-w: 320px;
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden;
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
+
+  #app { display: grid; height: 100vh; grid-template-columns: 1fr var(--panel-w); }
+
+  /* The view ------------------------------------------------------------- */
+  #view { position: relative; min-width: 0; }
+  #view canvas { display: block; width: 100%; height: 100%; }
+  #hud {
+    position: absolute; left: 12px; bottom: 10px; pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,.8);
+  }
+  #hud b { color: var(--bright); font-weight: 500; }
+  #note { display: inline-block; min-height: 1.6em; color: #4ade80; }
+  #prof {
+    position: absolute; right: 12px; top: 12px; min-width: 15rem; padding: 10px 12px;
+    background: rgba(10,13,17,.82); border: 1px solid var(--line); border-radius: 8px;
+    font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; color: #8b95a5;
+    pointer-events: none;
+  }
+  #prof .r { display: flex; justify-content: space-between; gap: 2em; }
+  #prof .r b { color: var(--bright); font-weight: 500; font-variant-numeric: tabular-nums; }
+  #prof .spark { display: block; margin: 6px 0; width: 100%; height: 40px; }
+  #prof .note { color: #6b7686; }
+
+  /* The panel ------------------------------------------------------------ */
+  #panel {
+    background: var(--panel); border-left: 1px solid var(--line);
+    overflow-y: auto; overflow-x: hidden; min-width: 0;
+  }
+  .sec { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .sec h2 { margin: 0 0 6px; font-size: 11px; font-weight: 500; color: var(--bright);
+    text-transform: uppercase; letter-spacing: .06em; }
+  .file { color: var(--bright); word-break: break-all; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .row > span:first-child { width: 4.5em; flex: none; }
+  select, button {
+    font: inherit; color: var(--bright); background: var(--field);
+    border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px;
+  }
+  select { flex: 1; min-width: 0; }
+  button { cursor: pointer; min-width: 5.5em; }
+  input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+  #time-readout { color: var(--bright); font-variant-numeric: tabular-nums; }
+  #markers div { color: var(--text); }
+  #markers b { color: var(--bright); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .stat { display: flex; justify-content: space-between; }
+  .stat b { color: var(--bright); font-weight: 500; font-variant-numeric: tabular-nums; }
+  #warnings div { color: var(--warn); margin: 2px 0; word-break: break-word; }
+  .quiet { color: #56606e; }
+
+  #err {
+    position: fixed; inset: 0; display: none; place-content: center;
+    padding: 2rem; text-align: center; white-space: pre-wrap; max-width: 46rem;
+    margin: 0 auto; font: 14px/1.7 ui-monospace, Menlo, monospace; color: #e2e8f0;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="view">
+    <canvas id="c"></canvas>
+    <div id="prof"></div>
+    <div id="hud">drag to look · wheel to zoom · M camera mode · C reset camera<br>space play/pause · , . step a frame · S shadows · P profiler<br><span id="note"></span></div>
+  </div>
+  <div id="panel">
+    <div class="sec" id="sec-model">
+      <h2>Model</h2>
+      <div class="file" data-shows="modelFile"></div>
+      <div class="quiet" data-shows="modelAbout"></div>
+    </div>
+    <div class="sec" id="sec-clip">
+      <h2>Clip</h2>
+      <div class="quiet file" data-shows="clipsFile"></div>
+      <div data-shows-if="hasClips">
+        <div class="row"><span>clip</span><select data-controls="clip">
+          <option data-expands="clipNames" value="@key" data-shows="@key"></option>
+        </select></div>
+      </div>
+    </div>
+    <div class="sec" id="sec-play" data-shows-if="hasClip">
+      <div class="row"><span></span><button id="play"><span data-shows="playLabel"></span></button>
+        <span>speed</span><select data-controls="speed">
+          <option value="0.1">0.1×</option><option value="0.25">0.25×</option>
+          <option value="0.5">0.5×</option><option value="1" selected>1×</option>
+          <option value="2">2×</option>
+        </select></div>
+      <div class="row"><span>time</span><input id="time" type="range" min="0" max="1" step="0.001" data-controls="scrub"></div>
+      <div class="row"><span></span><span id="time-readout" data-shows="timeReadout"></span></div>
+      <div id="markers"><div data-expands="markers"><b data-shows="time"></b> <span data-shows="name"></span></div></div>
+    </div>
+    <div class="sec" id="sec-frame">
+      <h2>Frame</h2>
+      <div class="row" data-shows-if="hasChain"><span>pose by</span><select data-controls="poseBy">
+        <option value="coefficients">coefficients</option><option value="recompile">recompiling</option>
+      </select></div>
+      <div class="quiet" data-shows="grafted"></div>
+      <div class="quiet">times: the profiler, over the view (P)</div>
+    </div>
+    <div class="sec" id="sec-warnings">
+      <h2>Warnings</h2>
+      <div id="warnings">
+        <span class="quiet" data-shows-unless="warnings.length">none</span>
+        <div data-expands="warnings" data-shows=""></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="err"></div>
+<script src="../vendor/uiulator.js"></script>
+<script type="module" src="anim-viewer.js"></script>
+</body>
+</html>

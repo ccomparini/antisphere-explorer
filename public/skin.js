@@ -1,7 +1,7 @@
 // A glTF skin as a model wants it: its skeleton, in scene coordinates (z
 // up), and its meshes' triangles at rest, each vertex with its weights.
-// tools/import-model.mjs builds models from it (--skeleton); posing them by
-// a clip is to come.
+// tools/import-model.mjs builds models from it (--skeleton); public/figure.js
+// poses them by a clip.
 //
 // A skeleton, as a model holds it:
 //

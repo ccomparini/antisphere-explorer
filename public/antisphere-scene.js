@@ -609,7 +609,7 @@ function difference(t, other) {
 // re-derivation the old (n, a, k) form did: that form compressed the
 // position into a single distance along the normal, which is precisely what
 // stops working once a primitive has an axis of its own.
-function translatePrim(prim, t) {
+export function translatePrim(prim, t) {
   const Kt = applyCurvature(prim, t);
   return {
     axis: prim.axis,
@@ -623,7 +623,7 @@ function translatePrim(prim, t) {
 // Rotation by a 3x3 matrix, as rows. Only the two vectors turn: curvature
 // is a property of the shape, not of where it points, and the constant term
 // is about the origin, which rotation fixes.
-function rotatePrim(prim, rows) {
+export function rotatePrim(prim, rows) {
   const turn = (v) => rows.map((row) => dot3(row, v));
   return {
     axis: turn(prim.axis),
@@ -632,6 +632,16 @@ function rotatePrim(prim, rows) {
     linear: turn(prim.linear),
     constant: prim.constant,
   };
+}
+
+/**
+ * A primitive moved rigidly: turned about the origin by `rotate` ({ axis,
+ * radians }, or none), then moved by `translate` - as a subtree's "rotate"
+ * and "translate" place it, and as figure.js gives a part's motion.
+ */
+export function movePrim(prim, { rotate = null, translate = [0, 0, 0] } = {}) {
+  const turned = rotate ? rotatePrim(prim, rotationRows(rotate.axis, rotate.radians)) : prim;
+  return translatePrim(turned, translate);
 }
 
 // Uniform scale about the origin by a positive factor. Substituting R/s for
@@ -652,7 +662,7 @@ function scalePrim(prim, s) {
 
 // Rotation matrix for a turn about a unit axis, by Rodrigues' formula, as
 // rows so rotatePrim can dot with them.
-function rotationRows(axis, radians) {
+export function rotationRows(axis, radians) {
   const [x, y, z] = unitVector(axis);
   const c = Math.cos(radians), s = Math.sin(radians), t = 1 - c;
   return [
@@ -1234,6 +1244,26 @@ function ballClear(prim, sign, ball) {
   return sign * k > 0 ? apart >= R + r          // its inside: the two balls apart
                       : apart + r <= R;         // its outside: the ball within it
 }
+
+/**
+ * Which sides of a primitive a spheroid ({ center, axis, height, radius },
+ * as a scene's "spheroid" or boundingSpheroidOfPoints() gives one) may
+ * reach: "inside", "outside", or "both" - by overlap.js's certificate,
+ * measured in the spheroid's own frame, and "both" whenever neither side is
+ * proved clear, which is always safe. Touching a side counts as clear of
+ * it.
+ */
+export function spheroidSide(prim, reach) {
+  const { center, height, radius } = reach;
+  const region = spheroidPrim(reach);
+  const frame = { c: center, L: Math.max(height / 2, radius) };
+  if (regionsDisjoint(region, 1, prim, 1, frame)) return 'outside';
+  if (regionsDisjoint(region, 1, prim, -1, frame)) return 'inside';
+  return 'both';
+}
+
+/** A spheroid ({ center, axis, height, radius }) as a primitive. */
+export const spheroidPrim = ({ center, axis, height, radius }) => spheroid(center, axis, height, radius);
 
 // ---------------------------------------------------------------------------
 // Drops: "drop": true

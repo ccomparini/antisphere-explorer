@@ -1,11 +1,11 @@
-// Tests for physlab's frame profiler, with real GPU timestamps. Run with:
-//   node --test public/physlab/
+// Tests for the frame profiler, with real GPU timestamps. Run with:
+//   node --test public/frame-profiler.test.mjs
 //
 // Skipped where there is no GPU, or no timestamp-query.
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { FrameProfiler } from './profiler.js';
+import { FrameProfiler } from './frame-profiler.js';
 
 async function openDevice() {
   let webgpu;

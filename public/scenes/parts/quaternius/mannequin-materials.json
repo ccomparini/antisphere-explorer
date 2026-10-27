@@ -1,0 +1,11 @@
+{
+  "_comment": "The materials UAL1_Standard names, as tools/import-model.mjs found them, to fill in. A scene lists them after its library: \"materials\": [\"@lib/materials.json\", \"@<this file>\"].",
+  "figure-main": {
+    "kind": "lambert",
+    "albedo": [ 0.7991, 0.402, 0.04231 ]
+  },
+  "figure-joints": {
+    "kind": "lambert",
+    "albedo": [ 0.402, 0.1329, 0.7084 ]
+  }
+}

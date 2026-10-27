@@ -30,7 +30,7 @@ import { fromBasis, fromAxisAngle, fromTo, multiply, rotate } from './quat.js';
 import { PhysicsWorld } from './physics-world.js';
 import { octahedron, octahedronBody } from './shapes.js';
 import { loadText, checkShader } from '../gpu-setup.js';
-import { FrameProfiler } from './profiler.js';
+import { FrameProfiler } from '../frame-profiler.js';
 
 // What physlab's own things are made of, where the scene doesn't say.
 const BODY_MATERIALS = {

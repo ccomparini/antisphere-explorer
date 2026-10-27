@@ -1,6 +1,7 @@
-// Always-on frame profiling for physlab: frames per second, frame and CPU
-// time, and GPU time per pass from timestamp queries, shown in a small
-// panel with a frame-time sparkline.
+// Frame profiling for the pages that run their own frame loop (physlab,
+// anim-viewer): frames per second, frame and CPU time, and GPU time per
+// pass from timestamp queries, shown in a small panel with a frame-time
+// sparkline.
 //
 // GPU timestamps can only be written at pass boundaries, so what is timed
 // is whole passes, each by name ('render', 'physics'). A frame
@@ -24,7 +25,7 @@
 // until the browser stops handing out canvas images. (The browser delivers
 // completions on its own schedule, which can add one.)
 
-import { createTimestampQuery } from '../gpu-setup.js';
+import { createTimestampQuery } from './gpu-setup.js';
 
 // Rolling means, so the readout doesn't flicker.
 function rolling(n) {

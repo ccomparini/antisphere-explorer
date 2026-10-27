@@ -30,6 +30,17 @@ there, is shown on its own, scaled to 2 across on a floor with a sky and
 lights. Anything ending in `.gz` (`scene.json.gz`, `model.stl.gz`) is
 unzipped as it loads.
 
+`anim-viewer/anim-viewer.html` shows a model with a skeleton posed by its
+clips: pick one from a list, play it, or scrub through it. It opens on the
+Quaternius mannequin; another model, its clips and its materials are named
+in the URL:
+
+    anim-viewer/anim-viewer.html?model=parts/quaternius/mannequin.json&clips=anim/quaternius/ual.json&materials=parts/quaternius/mannequin-materials.json
+
+`tools/import-model.mjs --skeleton` and `tools/import-animations.mjs` make
+those from a skinned glTF. Every frame the pose changes is compiled afresh,
+for now.
+
 ## Shaders
 
 The shader sources live in `shaders/` as `.wgsls` files ("WGSL source"):

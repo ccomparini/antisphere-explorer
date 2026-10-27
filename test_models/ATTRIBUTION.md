@@ -19,6 +19,8 @@ Models in this directory are from the following sources:
     Quaternius, https://quaternius.itch.io/universal-animation-library -
     a rigged mannequin and 43 animations; CC0 1.0
     (https://creativecommons.org/publicdomain/zero/1.0/). Thanks, Quaternius.
+    The animation viewer's mannequin and clips are made from it:
+    public/scenes/parts/quaternius/ and public/scenes/anim/quaternius/.
 
 Models from fbmstudios.net fall under the license for this project.
 Other models fall under their respective licenses.

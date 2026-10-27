@@ -18,7 +18,7 @@ import {
   compileScene, compileLight, packNodes, packSurfaces, packMaterials, packLights, loadReferences,
   isSTL, isGzip, gunzip, sceneForMesh,
 } from './antisphere-scene.js';
-import { BINDINGS, RayQuery, Seg, viewsOf } from './gen/layouts.js';
+import { BINDINGS, Node, RayQuery, Seg, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
 
 const MAX_TRACE_RAYS = 16;
@@ -222,17 +222,27 @@ export class ASScene {
     // notice without being subscribed.
     this.generation = 0;
 
-    this.update(spec);
+    this.update(spec, { warn: options.warn });
   }
 
   /**
    * Recompile and replace every buffer. compileScene throws before anything
-   * here is touched, so a bad spec leaves the previous scene intact.
+   * here is touched, so a bad spec leaves the previous scene intact. Its
+   * warnings go to options.warn(path, msg), if given, or the console.
    */
   update(spec, options = {}) {
     if (options.files) this.files = options.files;
     if (options.path !== undefined) this.path = options.path;
-    const built = compileScene(spec, { files: this.files, path: this.path });
+    const built = compileScene(spec, { files: this.files, path: this.path,
+                                       ...(options.warn ? { warn: options.warn } : {}) });
+    this.load(built, spec);
+  }
+
+  /**
+   * Take a compiled scene (compileScene()'s result, perhaps worked on since -
+   * a mover grafted in, movers.js) and replace every buffer with it.
+   */
+  load(built, spec = this.spec) {
     const { device } = this.context;
 
     this.destroyBuffers();
@@ -261,6 +271,31 @@ export class ASScene {
     this.matBuf = uploadStorage(device, matData);
     this.bytes = nodeData.byteLength + this.surfaces.byteLength + lightData.byteLength + matData.byteLength;
     this.generation++;
+  }
+
+  /**
+   * Move nodes without recompiling: give some nodes new quadrics (`entries`,
+   * [index, prim] pairs), the tree otherwise as it was - their children,
+   * materials and envs. The nodes from the first to the last moved are
+   * repacked and written into the node buffer in place, one write, so no
+   * bind group changes: cheap enough to do every frame.
+   *
+   * Whether the tree is still right with them moved is the caller's to
+   * know: a chain of self-contained parts, each in the others' outsides, is
+   * right in any pose; a group's dividers and grafts are not. Surfaces
+   * (packSurfaces()) stay as compiled - which ids are the same surface is
+   * unchanged by moving distinct ones.
+   */
+  setNodePrims(entries) {
+    if (!entries.length) return;
+    let lo = Infinity, hi = -Infinity;
+    for (const [index, prim] of entries) {
+      this.nodes[index] = { ...this.nodes[index], prim };
+      lo = Math.min(lo, index);
+      hi = Math.max(hi, index);
+    }
+    const data = packNodes(this.nodes.slice(lo, hi + 1), this.materials, lo);
+    this.context.device.queue.writeBuffer(this.nodeBuf, lo * Node.STRIDE, data);
   }
 
   /**

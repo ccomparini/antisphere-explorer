@@ -3,6 +3,9 @@
 /**
   uiulator - a simple way to display javascript state in html.
 
+  From its own project, https://github.com/ccomparini/uiulars; shared
+  here, in vendor/, by the pages that use it (editor/, anim-viewer/).
+
   How to use this:
 
    - Lay out your html as you like.  Mark elements on which you'd
@@ -37,7 +40,7 @@
   and "value" to specify the expanded key.  This is useful for setting
   setting values for things like <option> or <button> tags.
 
-  See the example*.html files for examples.
+  See the example*.html files there for examples.
 
  */
 
