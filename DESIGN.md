@@ -100,15 +100,75 @@ acceleration structure to build, keep in step, or traverse.
 
 A rigid motion changes only a node's coefficients (its quadric), not the
 tree's structure. So moving an object can mean rewriting its nodes'
-coefficients in place, with no recompile.
+coefficients in place, with no recompile (`ASScene.setNodePrims()`: one
+write of the changed nodes, no new bind group). What is at stake is the
+tree's shape: each decision the compiler made from where things were is a
+bet that they stay there.
 
-- The structure stays valid as long as the separations it assumes still
-  hold, such as a group's splits between its members.
-- The GPU overlap test (`shaders/overlap.wgsls`, `public/overlap.js`) is
-  how that gets checked. A rebuild is needed only when a separation fails,
-  meaning there is an overlap.
-- The same overlap tests are what physics uses to detect collisions, so
-  one check serves both.
+- **The compiler's bets on position:** a group's dividers, placed between
+  its members (`chooseDivider()`); which earlier members' outsides a later
+  member is grafted into, as far as it may reach (`knock()` in
+  `buildGroup()`), and the members it leaves out as hidden; copies pruned
+  to an env's region (`pruneTo()`); a `"wrap"` sized to what it wraps.
+  Move what they were made for and the tree is wrong. A figure compiled
+  as a group shows it: compiled afresh in 32 poses of four clips, the
+  mannequin's tree took 26 different shapes, 184 to 497 nodes.
+- **A shape that makes no bets: a chain.** A figure's parts - spheres and
+  spheroids, each self-contained - each in the outside of the one before.
+  What fills a point is the first shape holding it, or nothing: the
+  group's union, in any pose. Where shapes overlap, the earlier wins, and
+  the order is fixed. So posing it is only its quadrics, each part's rest
+  quadrics moved by its bone (`movePrim()`). The mannequin: 41 spheroids,
+  41 nodes in every pose, against the group's hundreds, filling every
+  sampled point as the group does and rendering pixel-identically. Its
+  rays are shallower too - a ray finds a self-contained shape's inside at
+  once, so pending segments don't pile up along the chain: peak stack
+  depth 8-9 against the group's 10-11 (`TRACE_STACK_SIZE` is 32).
+- **Movers, grafted into the static scene** (`public/movers.js`,
+  `graftMover()`). The scene that doesn't move is compiled once, and a
+  mover - a chain - is put into it wherever its reach may take it: a
+  spheroid it never leaves (`boundingSpheroidOfPoints()` round its shapes
+  in every pose of its clips). From the root, at each node, the reach is
+  tested against the node's surface (`spheroidSide()`, by certificate):
+  on one side only, the mover goes down that side; across it, down both.
+  Where a side has no child, a copy of the chain goes in. In an absent
+  outside it ends in nothing, as the outside did; in an absent inside it
+  ends in a filler - the node again, childless, of its material - since an
+  absent inside meant that node's own material. A chain in front of any
+  subtree means "the mover, and where it isn't, what was there", so every
+  copy is right in any pose within the reach. A swimmer straddling the
+  floor: one copy above it, ending in nothing, and one below, ending in
+  the floor. No dividers are added and nothing is left out. Moving the
+  mover writes every copy's quadrics (they share a surface id, as copies
+  do, and moving them alike keeps it so).
+- **Each copy is wrapped in the reach:** a node of no material, its inside
+  the copy, its outside straight on to what the copy ends in. A ray that
+  never comes near the mover tests the one wrapper: the mannequin's copy
+  below an opaque floor cost a third of the frame unwrapped (every ray into
+  the floor tested 41 spheroids), and wrapped almost nothing (17 ms
+  against 23, and against 65 over water).
+- **A budget:** a subtree that would take more than 8 copies gets one copy
+  in front of it instead - fewer nodes to write, less culling, and lit as
+  the region holding that whole subtree is.
+- **Lit where it is:** a hit's env is found by where the hit is
+  (`envAt()`), not read from its node, so a copy needs no env of its own,
+  and one in a lit room is lit by the room.
+- **Why copies, not one shared chain linked into each slot:** a node has
+  one outside, so a chain ends in one thing; above a floor it must end in
+  nothing, below it in floor. An absent outside means empty, never
+  "whatever enclosed this" - that rule is what gives cutaways - so one
+  copy per distinct continuation. One link resuming what it replaced
+  would be call-and-return in `trace()` (see Planned, "Movers: what is
+  left").
+- **The cost, measured** (the anim viewer, 800x600, on Intel): a pose by
+  coefficients 0.3 ms of CPU, against 28-45 ms recompiling the group; the
+  chain renders faster than the group in the same pose (60 ms against 65,
+  at 1920x1080, the figure filling the frame).
+- **The GPU overlap test** (`shaders/overlap.wgsls`, `public/overlap.js`)
+  says when two things meet: physics' collisions, and movers meeting each
+  other or the scene - which a game, not the tree, decides what to do
+  about. A mover in solid geometry is simply shown there; in water, that
+  is right.
 
 ## Planned (agreed, not yet built)
 
@@ -214,11 +274,77 @@ coefficients in place, with no recompile.
 - **Portals.** A "material" on a surface - a doorway's cut - that passes rays
   into another region, not necessarily connected: light through a doorway,
   or a magic portal. A continued ray again, into the other region's subtree.
+- **Movers: what is left** (Chris and Claude, from the animation work).
+  - **Leaving the reach.** A mover kept within its reach is right; one
+    that leaves it (a figure walking across a maze) is grafted again, a
+    recompile of the static scene's slots it now reaches. The anim viewer's
+    reach is every clip in place, so it never does. Regrafting, and
+    choosing a reach for a moving figure (where it is, and how far it may
+    go before the next), are to build.
+  - **Several movers.** Each is grafted on its own; several in one scene
+    is grafting each in turn, a later one into the earlier's copies too.
+    How a scene says a thing moves - a key on a placed object, physlab's
+    world objects - is open.
+  - **A link instead of copies.** One shared chain linked into every slot,
+    no copies, needs a chain that runs out to resume what it replaced.
+    Two ways: a link node whose subtree resumes (call-and-return in
+    `trace()`, a shader change), or a scope's fill - an absent outside
+    meaning the enclosing env's fill rather than empty, the root's being
+    empty, so existing scenes mean what they do, and a solid scope (a
+    floor hosting a swimmer) opted into with a flag. Copies are cheap for
+    a few movers; this pays for many, or large ones.
+- **Models and animations** (Chris and Claude). Built: a model with a
+  skeleton (`tools/import-model.mjs --skeleton`), its bones' rest pose and
+  an object per bone in scene coordinates - fitted spheroids, spheroids
+  along the bones, or the model's own mesh split among them; clips apart
+  (`tools/import-animations.mjs`), keyframed (`public/keyframes.js`), by
+  bone name; posing (`public/figure.js`); and the anim viewer
+  (`public/anim-viewer/`), posing by coefficients. To come:
+  - **Shape tracks:** deformation and morphing - a sphere swelling into a
+    spheroid, a spheroid into a paraboloid - as a second kind of channel
+    in the same clips, targeting a shape rather than a bone. A frame is
+    then the shape's form at t, in its part's rest frame, moved by its
+    bone at t, so a morphing hand still follows the arm. Bones stay the
+    motion: a rigid motion interpolates as a rotation, which coefficients
+    don't (halfway between two turned spheroids, averaged coefficients
+    are another shape), a bone moves a part of any size with 7 numbers,
+    and clips play on any model of the rig. Within a family, the
+    authoring parameters (centre, axis, height, radius) interpolate
+    cleanly; across families, coefficients do, normalized - a quadric
+    times any constant is the same surface - perhaps by a point held on
+    the surface and a unit gradient there. A part's reach then samples
+    its shape tracks too.
+  - **Retargeting:** clips hold full local rotations, right for models of
+    the same rig. Rotations relative to the rest pose would let others
+    play them, with the skeleton a clip was recorded on alongside it
+    (`"recordedOn"`).
+  - **Fitting quadrics** (Chris): geometry import choosing a quadric where
+    a region of the mesh fits one within a tolerance - a forearm a
+    spheroid, a finger left a mesh.
+  - **Splitting by weight:** `splitByBone()` gives a triangle to its
+    dominant bone (or, `--overlap`, to every bone weighing that much).
+    Cutting where a blend is half one bone, half the next, and capping
+    what is cut, are changes to it alone.
+  - **Scene syntax** for a model playing a clip.
+  - **Mesh parts are slow to compile** (`--skeleton mesh`): the mannequin's
+    52 pieces compile as one group to 148,543 nodes in about 70 s (see
+    "Group adds, made cheaper"). They can't chain, not being
+    self-contained, so they pose by recompiling.
+- **Group adds, made cheaper** (to revisit). Adding a member to a group,
+  `knock()` in `buildGroup()` asks `overlap.js` to prove it clear of each
+  region it passes (`regionsDisjoint()`: `separation()`,
+  `smallestEigen()`), so as not to graft a copy there. For members that
+  touch - a mesh's pieces, many planes each - most proofs fail after their
+  full cost: about 85% of the mannequin's 70 s. One big tree (the 871,414
+  triangle dragon) never asks for any. To try: the exact, cheap
+  `ballClear()` for a plane before a certificate; grafting a mesh member
+  without proofs (more copies, no certificates).
 - **Provenance for compiler-invented nodes.** Today they have none, which
-  was enough for picking, since a hit never lands on one. A bounding
-  wrapper needs to record the member it bounds, so it moves with that
-  member. A split surface needs to record its group and the members it
-  separates, so it stays put and is re-validated when they move.
+  was enough for picking, since a hit never lands on one. With movers
+  grafted rather than grouped, the static scene's dividers and wrappers
+  never move; a mover's wrapper (`graftMover()`) has none either, which
+  is enough while the reach is fixed. One that moves with its mover would
+  need to record what it bounds.
 - **physlab** (`public/physlab/`): world objects, whose geometry becomes
   the scene, and a camera riding on one of them. It is the testbed for
   moving objects and the overlap queries.
