@@ -1,6 +1,10 @@
 // Headless render benchmark: times antisphere-raycast.html's default view.
 //
-//   node tools/bench-render.mjs [scene.json] [WxH ...]
+//   node tools/bench-render.mjs [scene] [WxH ...]
+//
+// The scene (scene.json by default) is a scene (.json) or an STL, maybe
+// .gz: a URL, a file, or a name under public/scenes (scene-url.mjs), read
+// as the page reads one (readScene()).
 //
 // Drives the real ASContext/ASRenderer - same camera packing, same compute
 // dispatch, same blit - through Dawn (the `webgpu` package), with a stand-in
@@ -19,6 +23,9 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { parseOptions } from './args.mjs';
+import { sceneURL, isURL } from './scene-url.mjs';
+
+const isScene = (a) => isURL(a) || /\.(json|stl)(\.gz)?$/i.test(a);
 import * as webgpu from 'webgpu';
 
 const PUBLIC = new URL('../public/', import.meta.url);
@@ -32,7 +39,7 @@ const { ASContext } = await import(new URL('as-context.js', PUBLIC));
 await import(new URL('as-renderer.js', PUBLIC));      // registers ASRenderer
 const { ASCamera } = await import(new URL('as-camera.js', PUBLIC));
 const { ABLATE_NONE, ABLATE_TRACE, ABLATE_SHADE } = await import(new URL('gen/layouts.js', PUBLIC));
-const { loadReferences } = await import(new URL('antisphere-scene.js', PUBLIC));
+const { readScene } = await import(new URL('antisphere-scene.js', PUBLIC));
 
 let args;
 try {
@@ -41,26 +48,22 @@ try {
     console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n\n')[0].replace(/^\/\/ ?/gm, ''));
     process.exit(0);
   }
-  const odd = positionals.find((a) => !a.endsWith('.json') && !/^\d+x\d+$/.test(a));
-  if (odd) throw new Error(`${odd}: neither a scene (.json) nor a size (WxH)`);
+  const odd = positionals.find((a) => !isScene(a) && !/^\d+x\d+$/.test(a));
+  if (odd) throw new Error(`${odd}: neither a scene (.json, .stl, maybe .gz, or a URL) nor a size (WxH)`);
   args = positionals;
 } catch (error) {
   console.error(`bench-render: ${error.message}`);
   process.exit(1);
 }
-const sceneFile = args.find((a) => a.endsWith('.json')) ?? 'scene.json';
+const sceneFile = args.find(isScene) ?? 'scene.json';
 const sizes = args.filter((a) => /^\d+x\d+$/.test(a)).map((s) => s.split('x').map(Number));
 if (!sizes.length) sizes.push([1920, 1080], [1280, 720], [3840, 2160]);
 
 const load = (name) => readFile(new URL(name, PUBLIC), 'utf8');
 const gpu = await ASContext.create({ load });
-// As ASContext.loadScene does it, references and all, but from disk.
-const scenePath = `scenes/${sceneFile}`;
-const spec = JSON.parse(await load(scenePath));
-const scene = gpu.createScene(spec, {
-  files: await loadReferences(spec, { from: scenePath, readText: load, readBytes: (p) => readFile(new URL(p, PUBLIC)) }),
-  path: scenePath,
-});
+// As the page reads one (readScene()), references and all.
+const read = await readScene(sceneURL(sceneFile));
+const scene = gpu.createScene(read.spec, { files: read.files, path: read.path });
 const { device } = gpu;
 
 /** A canvas as far as ASRenderer can tell: its current texture is just a texture. */

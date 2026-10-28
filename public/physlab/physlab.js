@@ -22,14 +22,15 @@ import { ASContext } from '../as-context.js';
 import '../as-renderer.js';           // registers the renderer ASContext.createRenderer makes
 import { World, WorldObject } from './world.js';
 import { gravityOf } from './gravity.js';
-import { expandReferences, parseGravity, parseSpawn } from '../antisphere-scene.js';
+import { expandReferences, parseGravity, parseSpawn, readScene } from '../antisphere-scene.js';
 import { AttachedCamera } from './camera.js';
 import { FlightControl, levelOrientation } from './flight.js';
 import { attachFlightInput } from './flight-input.js';
 import { fromBasis, fromAxisAngle, fromTo, multiply, rotate } from './quat.js';
 import { PhysicsWorld } from './physics-world.js';
 import { octahedron, octahedronBody } from './shapes.js';
-import { loadText, checkShader } from '../gpu-setup.js';
+import { checkShader } from '../gpu-setup.js';
+import { loadText } from '../load.js';
 import { FrameProfiler } from '../frame-profiler.js';
 
 // What physlab's own things are made of, where the scene doesn't say.
@@ -202,7 +203,7 @@ async function main() {
   // The scene file, with what it references in place.
   const sceneName = new URLSearchParams(location.search).get('scene') ?? DEFAULT_SCENE;
   const scenePath = `../scenes/${sceneName}`;
-  const { spec: raw, files } = await gpu.readScene(scenePath);
+  const { spec: raw, files } = await readScene(scenePath);
   const file = expandReferences(raw, files, { from: scenePath }).spec;
   const gravity = gravityOf(parseGravity(file.gravity));
   const spawn = parseSpawn(file.spawn) ?? { at: [0, 0, 0], facing: [1, 0, 0] };

@@ -15,8 +15,9 @@
 //
 // A scene is a file - every revision renders that same file - or a name
 // under public/scenes, read from each revision's own tree (so a scene a
-// revision changes is compared as each has it). References resolve in each
-// revision's tree.
+// revision changes is compared as each has it): a scene (.json) or an STL,
+// maybe .gz, read as the page reads one (readScene()). References resolve
+// in each revision's tree.
 //
 // Each revision other than the working tree is checked out, detached, in a
 // temporary git worktree (removed afterwards), and every measurement is
@@ -78,14 +79,33 @@ async function probe({ tree, scene, size: [width, height] }) {
   const gpu = await ASContext.create({ load });
   const { device } = gpu;
 
-  const readJson = async (path) => JSON.parse(await load(path));
-  const readBytes = (p) => readFile(new URL(p, PUBLIC));
-  const from = `scenes/${basename(scene.file)}`;
-  const spec = JSON.parse(readFileSync(scene.file, 'utf8'));
-  // References, or, in a revision from before them, imports.
-  const built = gpu.createScene(spec, sceneModule.loadReferences
-    ? { files: await sceneModule.loadReferences(spec, { from, readText: load, readBytes }), path: from }
-    : { imports: await sceneModule.loadImports(spec, readJson, { from, readBytes }), path: from });
+  // The scene file is read as the page reads one (readScene()), but its
+  // references as if it were in this revision's scenes/, so a scene file
+  // compares the revisions' own libraries and parts. An STL on its own
+  // references nothing. A revision from before readScene() reads it as it
+  // did then: references, or before them, imports.
+  let built;
+  if (sceneModule.withReferences) {
+    const fileURL = pathToFileURL(scene.file).href;
+    const asIf = pathToFileURL(join(tree, 'public/scenes', basename(scene.file))).href;
+    let read;
+    if (sceneModule.isSTL(fileURL)) {
+      read = await sceneModule.readScene(fileURL);
+    } else {
+      const bytes = readFileSync(scene.file);
+      const text = sceneModule.isGzip(fileURL) ? new TextDecoder().decode(await sceneModule.gunzip(bytes)) : bytes.toString('utf8');
+      read = await sceneModule.withReferences(JSON.parse(text), asIf);
+    }
+    built = gpu.createScene(read.spec, { files: read.files, path: read.path });
+  } else {
+    const readJson = async (path) => JSON.parse(await load(path));
+    const readBytes = (p) => readFile(new URL(p, PUBLIC));
+    const from = `scenes/${basename(scene.file)}`;
+    const spec = JSON.parse(readFileSync(scene.file, 'utf8'));
+    built = gpu.createScene(spec, sceneModule.loadReferences
+      ? { files: await sceneModule.loadReferences(spec, { from, readText: load, readBytes }), path: from }
+      : { imports: await sceneModule.loadImports(spec, readJson, { from, readBytes }), path: from });
+  }
 
   // A canvas as far as ASRenderer can tell (see bench-render.mjs).
   let config = null, swap = null;

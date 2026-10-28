@@ -364,7 +364,7 @@ export class SceneDocument {
   // -- file --------------------------------------------------------------------
 
   /** Replace the whole document, as for New or Open. History starts over. */
-  // `references` ({ files, path }, from ASContext.readScene()): what the
+  // `references` ({ files, path }, from readScene()): what the
   // spec references, and where it is - kept by the scene for every compile
   // after, so a scene using a library opens and edits like any other.
   load(spec, fileName, references = {}) {

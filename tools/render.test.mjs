@@ -11,7 +11,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { inflateSync } from 'node:zlib';
+import { inflateSync, gzipSync } from 'node:zlib';
+import { writeSTL } from '../public/stl.js';
 
 const script = fileURLToPath(new URL('./render.mjs', import.meta.url));
 
@@ -70,6 +71,18 @@ test('a scene to a PNG: the scene\'s camera, or moved; a size whose rows need pa
     assert.equal(normals.status, 0, normals.stderr);
     assert.match(normals.stderr, /normals, no shadows/);
     assert.notDeepEqual(readPNG(join(dir, 'normals.png')).pixel(16, 8), png.pixel(16, 8), 'a different view');
+
+    // Read as the page reads a scene: gzipped, and an STL on its own, in a
+    // scene made round it (a floor, a sky, lights, a camera on it).
+    writeFileSync(join(dir, 'ball.json.gz'), gzipSync(readFileSync(join(dir, 'ball.json'))));
+    const gz = run('ball.json.gz', '--size', '33x17');
+    assert.equal(gz.status, 0, gz.stderr);
+    assert.deepEqual(readPNG(join(dir, 'ball.png')).pixel(16, 8), png.pixel(16, 8), 'the same ball, written as ball.png');
+    const T = [[0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2]];
+    writeFileSync(join(dir, 'tet.stl'), Buffer.from(writeSTL([[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]].map((f) => f.map((i) => T[i])))));
+    const stl = run('tet.stl', '--size', '33x17');
+    assert.equal(stl.status, 0, stl.stderr);
+    assert.match(stl.stderr, /tet\.stl: \d+ nodes, 3 lights, 33x17 -> tet\.png/);
 
     assert.match(run('none.json').stderr, /render: no scene none\.json/);
     assert.match(run('ball.json', '--eye', '1,2').stderr, /--eye 1,2: x,y,z/);

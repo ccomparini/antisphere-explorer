@@ -46,6 +46,7 @@ import { tangentSlide, tangentScale } from './tangent.js';
 import { quadricAt } from './quadric.js';
 import { readSTL } from './stl.js';
 import { meshToTree, boundsOf, boundingSpheroidOfPoints } from './mesh-import.js';
+import { loadText, loadBytes } from './load.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -2059,6 +2060,42 @@ export function sceneForMesh(path, bytes, { warn = console.warn } = {}) {
 
 const isVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x));
 const isPositive = (x) => typeof x === 'number' && Number.isFinite(x) && x > 0;
+
+/**
+ * A scene file as everything that reads one takes it - the page
+ * (ASContext.loadScene()), the editor, physlab, the tools: { spec, files,
+ * path }, the spec as written (references and all), what it references
+ * (loadReferences()), and where it is, for those to resolve against.
+ * Needs no GPU: a scene is read by URL (load.js) - a page's, fetched, or,
+ * in Node, a file: URL from disk.
+ *
+ * References are read relative to the file that names them, so a scene in
+ * scenes/ can say "parts/bolt.json#/objects/bolt" and mean
+ * scenes/parts/bolt.json; a scene on another server reads what it
+ * references from beside it there. An STL on its own is shown in a scene
+ * made round it: a floor, a sky, lights and a camera (sceneForMesh()). A
+ * .gz is unzipped as it loads: scene.json.gz, model.stl.gz. `warn` hears
+ * of a reference that can't be read (left out).
+ */
+export async function readScene(url, { warn } = {}) {
+  const bytes = async () => (isGzip(url) ? gunzip(new Uint8Array(await loadBytes(url))) : loadBytes(url));
+  if (isSTL(url)) {
+    const { spec, files } = sceneForMesh(url, new Uint8Array(await bytes()), warn ? { warn } : {});
+    return { spec, files, path: undefined };
+  }
+  const spec = JSON.parse(isGzip(url) ? new TextDecoder().decode(await bytes()) : await loadText(url));
+  return withReferences(spec, url, { warn });
+}
+
+/**
+ * A spec that came from somewhere else - a file opened from disk, one
+ * written in memory - with what it references read as if it were at
+ * `from`: { spec, files, path }.
+ */
+export async function withReferences(spec, from, { warn } = {}) {
+  const files = await loadReferences(spec, { from, readText: loadText, readBytes: loadBytes, ...(warn ? { warn } : {}) });
+  return { spec, files, path: from };
+}
 
 /**
  * A scene's gravity (scene-format.md), checked and normalized:

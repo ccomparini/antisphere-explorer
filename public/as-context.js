@@ -11,12 +11,11 @@
 // buffer per frame.
 
 import {
-  loadText, loadBytes, requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage,
-  createTraceBuffers,
+  requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage, createTraceBuffers,
 } from './gpu-setup.js';
+import { loadText } from './load.js';
 import {
-  compileScene, compileLight, packNodes, packSurfaces, packMaterials, packLights, loadReferences,
-  isSTL, isGzip, gunzip, sceneForMesh,
+  compileScene, compileLight, packNodes, packSurfaces, packMaterials, packLights, readScene,
 } from './antisphere-scene.js';
 import { BINDINGS, Node, RayQuery, Seg, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
@@ -115,46 +114,13 @@ export class ASContext {
   }
 
   /**
-   * Fetch and compile a scene file, along with everything it references.
-   *
-   * References are fetched relative to the file that names them, so a
-   * scene in scenes/ can say "parts/bolt.json#/objects/bolt" and mean
-   * scenes/parts/bolt.json. `url` may be a full URL, on another server,
-   * and what it references is then fetched from beside it there.
-   *
-   * An STL on its own is shown in a scene made round it: a floor, a sky,
-   * lights and a camera (sceneForMesh()). A .gz is unzipped as it loads:
-   * scene.json.gz, model.stl.gz.
+   * Read and compile a scene file, along with everything it references
+   * (readScene() in antisphere-scene.js, which needs no GPU: this is that,
+   * then a GPU scene of it).
    */
   async loadScene(url) {
-    const { spec, files, path } = await this.readScene(url);
+    const { spec, files, path } = await readScene(url);
     return this.createScene(spec, { files, path });
-  }
-
-  /**
-   * A scene file as everything that loads one takes it - the viewer
-   * (loadScene()), the editor, physlab: { spec, files, path }, the spec as
-   * written (references and all), what it references (loadReferences()),
-   * and where it is, for those to resolve against. Gzipped or an STL on its
-   * own as loadScene() says.
-   */
-  async readScene(url) {
-    const bytes = async () => (isGzip(url) ? gunzip(await loadBytes(url)) : loadBytes(url));
-    if (isSTL(url)) {
-      const { spec, files } = sceneForMesh(url, new Uint8Array(await bytes()));
-      return { spec, files, path: undefined };
-    }
-    const spec = JSON.parse(isGzip(url) ? new TextDecoder().decode(await bytes()) : await loadText(url));
-    return this.withReferences(spec, url);
-  }
-
-  /**
-   * A spec that came from somewhere else - a file opened from disk - with
-   * what it references loaded as if it were at `from`: { spec, files, path }.
-   */
-  async withReferences(spec, from) {
-    const files = await loadReferences(spec, { from, readText: loadText, readBytes: loadBytes });
-    return { spec, files, path: from };
   }
 
   createRenderer(canvas, opts) {

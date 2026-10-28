@@ -30,7 +30,7 @@ import { ASContext } from '../as-context.js';
 import '../as-renderer.js';                        // registers ASRenderer
 import { ASCamera, attachCameraControls } from '../as-camera.js';
 import { FrameProfiler } from '../frame-profiler.js';
-import { loadText, loadBytes } from '../gpu-setup.js';
+import { loadText, loadBytes } from '../load.js';
 import { loadReferences, compileScene, isGzip, gunzip } from '../antisphere-scene.js';
 import { stageSpec, STAGE_FILE, chainOf, chainSpec, chainPrims, reachOf, graftedStage } from './stage.js';
 

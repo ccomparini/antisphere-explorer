@@ -162,9 +162,12 @@ Scenes that cover the renderer well:
 
 ### One revision: `tools/bench-render.mjs`
 
-    node tools/bench-render.mjs [scene.json] [WxH ...]
+    node tools/bench-render.mjs [scene] [WxH ...]
 
-Times the default view, or a given scene, at one or more sizes. It reports
+Times the default view, or a given scene, at one or more sizes. A scene is
+read as the page reads one: a URL, a file, or a name in `public/scenes`; a
+`.json` or an `.stl` on its own, either maybe `.gz`. So are the scenes of
+`tools/render.mjs` and `tools/bench-compare.mjs`. It reports
 the compute and blit passes, the ablation ladder, and frame times both one
 at a time and pipelined.
 

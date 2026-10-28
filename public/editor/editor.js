@@ -10,6 +10,7 @@
 // opens one at startup, and Revert reloads the current one from there.
 
 import { ASContext } from '../as-context.js';
+import { readScene, withReferences } from '../antisphere-scene.js';
 import { DEBUG_VIEWS } from '../as-renderer.js';
 import { ASCamera, attachCameraControls } from '../as-camera.js';
 import { SceneDocument } from './scene-document.js';
@@ -75,11 +76,11 @@ async function main() {
   });
 
   // A scene file and what it references, read as the viewer reads one
-  // (ASContext.readScene()); a new one resolves its references, if it gains
+  // (readScene()); a new one resolves its references, if it gains
   // any, against the scenes folder.
   let fileName = new URLSearchParams(location.search).get('scene');
   const { spec, files, path } = fileName
-    ? await gpu.readScene(SCENE_DIR + fileName)
+    ? await readScene(SCENE_DIR + fileName)
     : { spec: structuredClone(NEW_SCENE), files: {}, path: SCENE_DIR + 'untitled.json' };
   fileName ??= 'untitled.json';
 
@@ -230,7 +231,7 @@ async function main() {
     try {
       const shaders = await gpu.reloadShaders({ force: true });
       if (shaders.error) { note(`reload: ${shaders.error}`, true); return; }
-      const read = await gpu.readScene(SCENE_DIR + doc.fileName);
+      const read = await readScene(SCENE_DIR + doc.fileName);
       const result = doc.load(read.spec, doc.fileName, read);
       if (!result.ok) { note(`reload: ${result.error}`, true); return; }
       note('reloaded');
@@ -257,7 +258,7 @@ async function main() {
     try {
       // From disk there is no address: what it references is looked for in
       // the scenes folder, as if it were there.
-      const opened = await gpu.withReferences(JSON.parse(await file.text()), SCENE_DIR + file.name);
+      const opened = await withReferences(JSON.parse(await file.text()), SCENE_DIR + file.name);
       loadSpec(opened.spec, file.name, opened);
     } catch (err) {
       note(`open: ${err.message}`, true);

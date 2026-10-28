@@ -8,25 +8,28 @@
 //   node tools/render.mjs tangents.json --eye 0,-9,3 --target 0,0,1
 //   node tools/render.mjs scene.json --view normals --no-shadows
 //
-// A scene is a file, or failing that a name under public/scenes; what it
-// references is found relative to it. The view is the scene's camera,
+// A scene is a URL, a file, or failing that a name under public/scenes
+// (scene-url.mjs), read as the page reads one (readScene()): what it
+// references is found relative to it, a .gz is unzipped, and an STL on its
+// own is shown in a scene made round it. The view is the scene's camera,
 // unless --eye or --target moves it (the other kept as the scene has it).
 
 import { readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 import { parseOptions } from './args.mjs';
+import { sceneURL } from './scene-url.mjs';
 
 const PUBLIC = fileURLToPath(new URL('../public/', import.meta.url));
 
 const USAGE = `
 render - a scene to a PNG, headless
 
-  node tools/render.mjs <scene.json> [options]
+  node tools/render.mjs <scene> [options]
 
-  <scene.json>          a file, or a name under public/scenes
+  <scene>               a scene (.json) or an STL, maybe .gz: a URL, a
+                        file, or a name under public/scenes
   -o, --out <file>      the PNG (default: the scene's name, .png, here)
       --size <WxH>      in pixels (default 1280x720)
       --eye <x,y,z>     where the camera is (default: the scene's camera)
@@ -114,7 +117,7 @@ async function render(options) {
   const { ASContext } = await import(path.join(PUBLIC, 'as-context.js'));
   const { DEBUG_VIEWS } = await import(path.join(PUBLIC, 'as-renderer.js'));   // registers ASRenderer
   const { ASCamera } = await import(path.join(PUBLIC, 'as-camera.js'));
-  const { loadReferences } = await import(path.join(PUBLIC, 'antisphere-scene.js'));
+  const { readScene } = await import(path.join(PUBLIC, 'antisphere-scene.js'));
   const view_ = DEBUG_VIEWS.indexOf(options.view);
   if (view_ < 0) throw new Error(`--view ${options.view}: one of ${DEBUG_VIEWS.map((v) => `"${v}"`).join(', ')}`);
 
@@ -122,13 +125,8 @@ async function render(options) {
   const gpu = await ASContext.create({ load: (name) => readFile(path.join(PUBLIC, name), 'utf8') });
   const { device } = gpu;
   try {
-    const file = existsSync(options.scene) ? path.resolve(options.scene) : path.join(PUBLIC, 'scenes', options.scene);
-    if (!existsSync(file)) throw new Error(`no scene ${options.scene}, as a file or in public/scenes`);
-    const spec = JSON.parse(await readFile(file, 'utf8'));
-    const files = await loadReferences(spec, {
-      from: file, readText: (p) => readFile(p, 'utf8'), readBytes: (p) => readFile(p),
-    });
-    const scene = gpu.createScene(spec, { files, path: file });
+    const { spec, files, path: from } = await readScene(sceneURL(options.scene));
+    const scene = gpu.createScene(spec, { files, path: from });
 
     const { width, height } = options;
     let format = null, texture = null;
@@ -179,7 +177,7 @@ async function main(argv) {
     console.log(USAGE);
     process.exit(options.help ? 0 : 1);
   }
-  const out = options.out ?? `${path.basename(options.scene).replace(/\.json(\.gz)?$/i, '')}.png`;
+  const out = options.out ?? `${path.basename(options.scene.split(/[?#]/)[0]).replace(/\.(json|stl)(\.gz)?$/i, '')}.png`;
   const started = performance.now();
   const { rgba, nodes, lights } = await render(options);
   await writeFile(out, encodePNG(rgba, options.width, options.height));

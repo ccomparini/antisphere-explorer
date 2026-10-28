@@ -10,20 +10,6 @@
 import { readSourceMap, mapLine } from './shader-map.js';
 import { Camera, RayQuery, Seg } from './gen/layouts.js';
 
-/** Fetch a file's text, bypassing the cache so hot reload sees edits. */
-export async function loadText(url) {
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`${url}: ${res.status} ${res.statusText}`);
-  return res.text();
-}
-
-/** The same, as bytes: for files that aren't text, such as an STL mesh. */
-export async function loadBytes(url) {
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`${url}: ${res.status} ${res.statusText}`);
-  return res.arrayBuffer();
-}
-
 /**
  * Adapter, device, and the optional features this renderer can use.
  *

@@ -5,7 +5,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { compileScene, expandReferences, loadReferences, isReference, isSolid } from './antisphere-scene.js';
+import { compileScene, expandReferences, loadReferences, isReference, isSolid, readScene, withReferences } from './antisphere-scene.js';
+import { loadText, loadBytes } from './load.js';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { writeSTL } from './stl.js';
 import { quadricAt as H } from './quadric.js';
 
@@ -279,4 +284,65 @@ test('names no one defines play on: a material as a stand-in, an object left out
   const empty = compileScene(scene({ use: 'nothing' }), { warn });
   assert.equal(empty.nodes.length, 2);
   assert.equal(albedoAt(empty, [0, 0, 0]), null);
+});
+
+// -- readScene(): a scene by URL, no GPU - here file: URLs, from disk ------------
+
+/** A scratch directory of { name: text or bytes } files: its file: URL, ending /. */
+function onDisk(files) {
+  const dir = mkdtempSync(join(tmpdir(), 'read-scene-'));
+  for (const [name, content] of Object.entries(files)) {
+    mkdirSync(join(dir, name, '..'), { recursive: true });
+    writeFileSync(join(dir, name), content);
+  }
+  return pathToFileURL(dir + '/').href;
+}
+
+const TET = [[0, 0, 0], [2, 0, 0], [0, 2, 0], [0, 0, 2]];
+const TET_STL = Buffer.from(writeSTL([[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]].map((f) => f.map((i) => TET[i]))));
+const SCENE = {
+  materials: ['@lib/m.json'], lights: [],
+  root: { sphere: { center: [0, 0, 0], radius: 5 }, material: 'clay', inside: '@parts/tet.stl' },
+};
+
+test('the loaders read a file: URL from disk, as text or bytes', async () => {
+  const base = onDisk({ 'a.txt': 'hello', 'b.bin': Buffer.from([1, 2, 3]) });
+  assert.equal(await loadText(`${base}a.txt`), 'hello');
+  assert.deepEqual([...new Uint8Array(await loadBytes(`${base}b.bin`))], [1, 2, 3]);
+  await assert.rejects(loadText(`${base}none.txt`), /none\.txt: no such file/);
+});
+
+test('readScene(): the spec as written, what it references read from beside it, and where it is', async () => {
+  const base = onDisk({ 'scenes/s.json': JSON.stringify(SCENE), 'scenes/lib/m.json': '{ "clay": {} }', 'scenes/parts/tet.stl': TET_STL });
+  const read = await readScene(`${base}scenes/s.json`);
+  assert.deepEqual(read.spec.materials, ['@lib/m.json'], 'as written, references and all');
+  assert.equal(read.path, `${base}scenes/s.json`);
+  assert.deepEqual(Object.keys(read.files).sort(), [`${base}scenes/lib/m.json`, `${base}scenes/parts/tet.stl`]);
+  const built = compileScene(read.spec, read);
+  assert.ok(built.nodes.length > 3, 'compiles, the mesh in it');
+  // withReferences(): a spec in hand, its references looked for where it is said to be.
+  const opened = await withReferences(structuredClone(SCENE), `${base}scenes/elsewhere.json`);
+  assert.deepEqual(Object.keys(opened.files).sort(), Object.keys(read.files).sort());
+  assert.equal(opened.path, `${base}scenes/elsewhere.json`);
+});
+
+test('readScene(): gzipped, the scene and what it references; an STL on its own, a scene round it', async () => {
+  const gz = { ...SCENE, root: { ...SCENE.root, inside: '@parts/tet.stl.gz' } };
+  const base = onDisk({ 's.json.gz': gzipSync(JSON.stringify(gz)), 'lib/m.json': '{ "clay": {} }',
+                        'parts/tet.stl.gz': gzipSync(TET_STL), 'tet.stl': TET_STL });
+  const read = await readScene(`${base}s.json.gz`);
+  assert.equal(read.spec.root.inside, '@parts/tet.stl.gz');
+  assert.ok(compileScene(read.spec, read).nodes.length > 3);
+  const alone = await readScene(`${base}tet.stl`);
+  assert.equal(alone.spec.lights.length, 3, 'a floor, a sky and lights round it');
+  assert.ok(compileScene(alone.spec, alone).nodes.length > 3);
+});
+
+test('readScene(): a reference that can\'t be read is warned of and left out', async () => {
+  const base = onDisk({ 's.json': JSON.stringify(SCENE), 'parts/tet.stl': TET_STL });
+  const warned = [];
+  const read = await readScene(`${base}s.json`, { warn: (msg) => warned.push(msg) });
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /lib\/m\.json.*no such file.*left out/);
+  assert.ok(compileScene(read.spec, { ...read, quiet: true }), 'and the scene plays on');
 });

@@ -19,6 +19,7 @@ import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { writeSTL } from './stl.js';
 import { ASContext } from './as-context.js';
+import { readScene, withReferences } from './antisphere-scene.js';
 import { matrixOf, separation } from './overlap.js';
 import { OverlapQuery, OverlapResult, viewsOf } from './gen/layouts.js';
 import { sharedStructs } from '../tools/shader-build/layout.js';
@@ -1160,7 +1161,7 @@ gpuTest('loadScene by URL: a scene referencing what sits beside it, an STL on it
     // readScene(): the spec as written, what it references, and where -
     // what the editor and physlab load with. A scene made from them still
     // finds its references when an edit recompiles it, as the editor's do.
-    const read = await ctx.readScene(`${base}/scenes/s.json`);
+    const read = await readScene(`${base}/scenes/s.json`);
     assert.deepEqual(read.spec.materials, ['@lib/m.json'], 'the spec as written, references and all');
     assert.equal(read.path, `${base}/scenes/s.json`);
     assert.ok(Object.keys(read.files).length >= 2, `the library and the mesh: ${Object.keys(read.files)}`);
@@ -1170,7 +1171,7 @@ gpuTest('loadScene by URL: a scene referencing what sits beside it, an STL on it
     edited.destroy();
     // withReferences(): a spec in hand - a file opened from disk - with its
     // references looked for where it is said to be.
-    const opened = await ctx.withReferences(JSON.parse(files['/scenes/s.json']), `${base}/scenes/opened.json`);
+    const opened = await withReferences(JSON.parse(files['/scenes/s.json']), `${base}/scenes/opened.json`);
     assert.deepEqual(Object.keys(opened.files).sort(), Object.keys(read.files).sort());
 
     // On its own: a floor, a sky and the mesh, scaled to 2 across (x 2)

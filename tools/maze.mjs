@@ -21,9 +21,11 @@
 const VERSION_MAJ = 0;
 const VERSION_MIN = 9;
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { circularMaze } from '../public/maze.js';
-import { compileScene, loadReferences } from '../public/antisphere-scene.js';
+import { compileScene, withReferences } from '../public/antisphere-scene.js';
 import { parseOptions, commandLine } from './args.mjs';
 
 const USAGE = `
@@ -195,11 +197,10 @@ async function main(argv) {
     // none defines - is what the check is for: any of it fails it.
     const slips = [];
     try {
-      const files = await loadReferences(scene, {
-        from: path, readText: async (file) => readFileSync(file, 'utf8'), readBytes: async (file) => readFileSync(file),
-        warn: (msg) => slips.push(msg),
-      });
-      const built = compileScene(structuredClone(scene), { files, path, warn: (where, msg) => slips.push(`${where}: ${msg}`) });
+      // Read as the page reads it (withReferences()), from where it is to be written.
+      const { files, path: from } = await withReferences(scene, pathToFileURL(resolvePath(path)).href,
+                                                        { warn: (msg) => slips.push(msg) });
+      const built = compileScene(structuredClone(scene), { files, path: from, warn: (where, msg) => slips.push(`${where}: ${msg}`) });
       if (!slips.length) say(`  compiles to ${built.nodes.length - 1} nodes`);
     } catch (error) {
       slips.unshift(error.message);

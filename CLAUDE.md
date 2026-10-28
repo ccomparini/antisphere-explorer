@@ -28,7 +28,7 @@ machine, documentation and maths notation - is in the workspace's own
     npm test                 unit tests, plus GPU tests when a GPU is there
     npm run shaders          build shaders/*.wgsls into public/gen/
     npm run shaders:watch    rebuild on change
-    node tools/bench-render.mjs [scene.json] [WxH ...]
+    node tools/bench-render.mjs [scene] [WxH ...]
     node tools/bench-compare.mjs [-r rev ...] scene ...
                              scenes x revisions, one table, with work counts
     node tools/shader-stats.mjs [file.wgsl] [entry ...] [--dump DIR]
