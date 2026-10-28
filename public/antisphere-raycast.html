@@ -17,7 +17,7 @@
   #hud b { color: #cbd5e1; font-weight: 500; }
   #note { display: inline-block; min-height: 1.6em; }
   #prof {
-    position: fixed; right: 14px; top: 14px; display: none;
+    position: fixed; right: 14px; top: 14px;
     min-width: 15rem; padding: 10px 12px;
     background: rgba(10,13,17,.82); border: 1px solid #1e2530; border-radius: 8px;
     font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; color: #8b95a5;
@@ -27,9 +27,9 @@
   #prof .r b { color: #cbd5e1; font-weight: 500; font-variant-numeric: tabular-nums; }
   #prof hr { border: 0; border-top: 1px solid #1e2530; margin: 7px 0; }
   #prof .note { color: #6b7686; }
-  #spark { display: block; margin-top: 6px; width: 100%; height: 40px; }
-  #lad-bar { display: flex; height: 10px; margin: 6px 0; border-radius: 3px; overflow: hidden; background: #161b22; }
-  #lad-bar span { display: block; height: 100%; }
+  #prof .spark { display: block; margin: 6px 0; width: 100%; height: 40px; }
+  #prof .lad-bar { display: flex; height: 10px; margin: 6px 0; border-radius: 3px; overflow: hidden; background: #161b22; }
+  #prof .lad-bar span { display: block; height: 100%; }
   #prof .r i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
   #probe {
     position: fixed; left: 14px; top: 12px;
@@ -59,43 +59,27 @@
 <div id="probe">object <b id="probe-object">-</b><br>material <b id="probe-material">-</b></div>
 <div id="crosshair"></div>
 <div id="hud"><b id="stat">starting…</b><br>orbit: drag to look · wheel to zoom<br>free/walk: mouse looks, click to grab it · &uarr;&darr; move<br>M camera mode · C reset camera · S shadows · I what's at the centre<br>R reload · W watch · P profiler · A ablation (⇧ forces full)<br>D debug view · B blit/direct · [ ] render scale<br><span id="note"></span></div>
-<div id="prof">
-  <div class="r"><span>frame</span><b id="p-frame">-</b></div>
-  <div class="r"><span>cpu encode</span><b id="p-cpu">-</b></div>
-  <div class="r"><span>gpu compute</span><b id="p-gpu">-</b></div>
-  <div class="r"><span>gpu blit</span><b id="p-blit">-</b></div>
-  <div class="r"><span>gpu gap</span><b id="p-gap">-</b></div>
-  <div class="r"><span>gpu total</span><b id="p-total">-</b></div>
-  <div class="r"><span>submit&rarr;done</span><b id="p-done">-</b></div>
-  <canvas id="spark" width="240" height="40"></canvas>
-  <hr>
-  <div class="r"><span>view</span><b id="p-view">shaded</b></div>
-  <div class="r"><span>output</span><b id="p-out">blit</b></div>
-  <div class="r"><span>rays/frame</span><b id="p-rays">-</b></div>
-  <div class="note" id="p-note"></div>
-  <hr>
-  <div class="r"><span>ablation</span><b id="p-lad">A to run</b></div>
-  <div id="lad-bar"></div>
-  <div id="lad-rows"></div>
-</div>
+<div id="prof"><div id="prof-panel"></div><hr><div id="ladder"></div></div>
 <div id="err"></div>
 
 <script type="module">
-// The profiling view: one renderer, one camera, plus the timestamp and
-// ablation machinery. It drives its own frame loop rather than using
-// ASContext.start(), because profiling needs to inject timestampWrites into
-// the encode and resolve the query set before the submit. Everything else
-// here is the library doing the work.
+// The profiling view: one renderer, one camera, the frame profiler
+// (frame-profiler.js) and the ablation ladder (ablation-ladder.js). It
+// drives its own frame loop rather than using ASContext.start(), because
+// profiling needs to inject timestampWrites into the encode and resolve the
+// query set before the submit. Everything else here is the library doing
+// the work.
 
 import { ASContext } from './as-context.js';
 import { ASRenderer, DEBUG_VIEWS } from './as-renderer.js';
 import { ASCamera, attachCameraControls } from './as-camera.js';
-import { loadText, loadBytes, createTimestampQuery } from './gpu-setup.js';
+import { loadText, loadBytes } from './gpu-setup.js';
+import { FrameProfiler } from './frame-profiler.js';
+import { AblationLadder } from './ablation-ladder.js';
 import { loadReferences } from './antisphere-scene.js';
 
 const canvas = document.getElementById('c');
 const el = (id) => document.getElementById(id);
-const TS_COUNT = 4;
 
 function fail(msg) {
   el('err').style.display = 'grid';
@@ -129,32 +113,19 @@ async function main() {
   logSceneSize(scene);
 
   // -----------------------------------------------------------------------
-  // Profiling state
+  // Profiling
   //
   // GPU timestamps can only be written at pass boundaries, so what is
-  // measured here is compute pass vs blit pass. Anything finer comes from the
-  // shader's per-invocation work counters, surfaced as debug views. Chrome
-  // quantizes timestamp results (100us by default), so treat these as
-  // millisecond-scale figures, not precise ones.
+  // measured here is the compute pass and the blit pass, and the gap
+  // between. Anything finer comes from the shader's per-invocation work
+  // counters, surfaced as debug views, and from the ablation ladder (A).
+  // Shown from the start; hidden (P), and no ladder running, nothing is
+  // timed.
   // -----------------------------------------------------------------------
 
-  const ts = createTimestampQuery(gpu.device, gpu.canTimestamp, TS_COUNT);
-  let tsPending = false, tsQuantized = false, tsDropped = 0;
-  let profiling = false;
-
-  // Ablation ladder. Pass timestamps carry a systematic bias in how the driver
-  // stamps pass edges, but that bias cancels when the same measurement is
-  // differenced across configurations, so the gaps between rungs are
-  // trustworthy where the absolute numbers are not.
-  const LADDER = [
-    { name: 'dispatch',    ablate: 0, shadows: 0, color: '#3d4757' },
-    { name: 'traversal',   ablate: 1, shadows: 0, color: '#4b9fd8' },
-    { name: 'shading',     ablate: 2, shadows: 0, color: '#5ec26a' },
-    { name: 'shadow rays', ablate: 2, shadows: 1, color: '#e0b83c' },
-  ];
-  const LADDER_WARMUP = 8;     // frames discarded after switching rungs
-  const LADDER_SAMPLES = 16;   // timestamps collected per rung
-  let ladder = null;
+  const profiler = new FrameProfiler(gpu.device, gpu.canTimestamp, ['compute', 'blit'], el('prof-panel'),
+                                     { enabled: () => !el('prof').hidden || ladder.running });
+  const ladder = new AblationLadder(profiler, el('ladder'), { pass: 'compute' });
 
   // -----------------------------------------------------------------------
   // Input
@@ -163,7 +134,7 @@ async function main() {
   const controls = attachCameraControls(canvas, camera, {
     onNote: note,
     // Frozen during a ladder run so the view can't move mid-measurement.
-    enabled: () => !ladder,
+    enabled: () => !ladder.running,
     probe: (origin, direction) => scene.traceRay(origin, direction),
   });
 
@@ -198,17 +169,20 @@ async function main() {
         note(watching ? 'watching files for changes' : 'watch off');
         break;
       case 'p':
-        profiling = !profiling;
-        el('prof').style.display = profiling ? 'block' : 'none';
+        el('prof').hidden = !el('prof').hidden;
         break;
       case 'i':
         probing = !probing;
         el('probe').hidden = el('crosshair').hidden = !probing;
         break;
       case 'a':
-        if (!ts) note('ablation needs timestamp-query', true);
-        else if (ladder) { ladder = null; el('p-lad').textContent = 'cancelled'; }
-        else startLadder(e.shiftKey);
+        // A run profiles the view as it is; shift forces the shadow-ray rung.
+        if (!gpu.canTimestamp) note('ablation needs timestamp-query', true);
+        else if (ladder.running) ladder.cancel();
+        else {
+          el('prof').hidden = false;
+          ladder.start({ shadows: view.shadows, force: e.shiftKey, label: view.directOut ? 'direct' : 'blit' });
+        }
         break;
       default: return;
     }
@@ -233,7 +207,7 @@ async function main() {
 
   let probing = true, probeInFlight = false;
   function probeCentre() {
-    if (!probing || probeInFlight || ladder) return;
+    if (!probing || probeInFlight || ladder.running) return;
     probeInFlight = true;
     const { eye, forward } = camera.basis();
     scene.pick(eye, forward).then((hit) => {
@@ -299,157 +273,10 @@ async function main() {
   }
 
   // -----------------------------------------------------------------------
-  // Ablation ladder
-  // -----------------------------------------------------------------------
-
-  // A run profiles the configuration currently on screen. With shadows off the
-  // last rung would repeat the one before it, so it is dropped and the run is
-  // labelled accordingly. Shift forces the full pipeline instead, for when the
-  // shadow cost is the thing being asked about.
-  const ladderRungs = (force) => ((force || view.shadows) ? LADDER : LADDER.slice(0, 3));
-
-  const median = (xs) => {
-    const a = [...xs].sort((x, y) => x - y);
-    return a.length ? a[a.length >> 1] : NaN;
-  };
-
-  function startLadder(force) {
-    const rungs = ladderRungs(force);
-    const shadows = force || view.shadows ? 'shadows on' : 'shadows off';
-    ladder = {
-      i: 0, frames: 0, rungs,
-      samples: rungs.map(() => []),
-      label: `${shadows} \u00b7 ${view.directOut ? 'direct' : 'blit'}` +
-             (force && !view.shadows ? ' (forced)' : ''),
-    };
-    profiling = true;
-    el('prof').style.display = 'block';
-  }
-
-  function finishLadder() {
-    const { samples, rungs, label } = ladder;
-    const totals = samples.map(median);
-    ladder = null;
-    // Each stage is the gap between consecutive rungs. Differences can go
-    // slightly negative on noise; report them rather than hide them.
-    const parts = totals.map((t, i) => (i === 0 ? t : t - totals[i - 1]));
-    const total = totals[totals.length - 1];
-    el('p-lad').textContent = `${total.toFixed(2)} ms \u00b7 ${label}`;
-    el('lad-bar').innerHTML = rungs.map((L, i) =>
-      `<span style="width:${Math.max(0, parts[i]) / total * 100}%;background:${L.color}"></span>`
-    ).join('');
-    el('lad-rows').innerHTML = rungs.map((L, i) =>
-      `<div class="r"><span><i style="background:${L.color}"></i>${L.name}</span>` +
-      `<b>${parts[i].toFixed(2)} ms &middot; ${(parts[i] / total * 100).toFixed(0)}%</b></div>`
-    ).join('');
-  }
-
-  function advanceLadder() {
-    if (!ladder) return;
-    if (ladder.frames > LADDER_WARMUP &&
-        (ladder.samples[ladder.i].length >= LADDER_SAMPLES ||
-         ladder.frames > 300)) {          // give up on a rung rather than hang
-      ladder.i++;
-      ladder.frames = 0;
-      if (ladder.i >= ladder.rungs.length) { finishLadder(); return; }
-    }
-    el('p-lad').textContent =
-      `running ${ladder.i + 1}/${ladder.rungs.length}: ${ladder.rungs[ladder.i].name}`;
-  }
-
-  // -----------------------------------------------------------------------
-  // Panel
-  // -----------------------------------------------------------------------
-
-  // Rolling means, so the readout does not flicker.
-  const avg = (n) => {
-    const buf = [];
-    return (x) => {
-      if (x !== undefined) { buf.push(x); if (buf.length > n) buf.shift(); }
-      return buf.length ? buf.reduce((a, b) => a + b, 0) / buf.length : NaN;
-    };
-  };
-  const avgFrame = avg(30), avgCpu = avg(30), avgGpu = avg(30),
-        avgBlit = avg(30), avgGap = avg(30), avgTotal = avg(30), avgDone = avg(30);
-  const history = new Array(120).fill(0);
-  const ms = (x) => (Number.isFinite(x) ? x.toFixed(2) + ' ms' : '-');
-
-  function drawSpark() {
-    const c = el('spark'), g = c.getContext('2d');
-    const w = c.width, h = c.height;
-    g.clearRect(0, 0, w, h);
-    const peak = Math.max(16.7, ...history);
-    g.strokeStyle = '#2a3340';
-    g.beginPath();                                  // 60 fps reference
-    const y60 = h - (16.7 / peak) * h;
-    g.moveTo(0, y60); g.lineTo(w, y60); g.stroke();
-    g.fillStyle = '#4b9fd8';
-    const bw = w / history.length;
-    history.forEach((v, i) => {
-      const bh = Math.max(1, (v / peak) * h);
-      g.fillRect(i * bw, h - bh, Math.max(1, bw - 1), bh);
-    });
-  }
-
-  function updatePanel(frameMs, cpuMs) {
-    history.push(frameMs); history.shift();
-    el('p-frame').textContent = ms(avgFrame(frameMs));
-    el('p-cpu').textContent   = ms(avgCpu(cpuMs));
-    el('p-gpu').textContent   = ts ? ms(avgGpu()) : 'n/a';
-    el('p-blit').textContent  = !ts ? 'n/a' : view.directOut ? 'none' : ms(avgBlit());
-    el('p-gap').textContent   = ts ? ms(avgGap()) : 'n/a';
-    el('p-total').textContent = ts ? ms(avgTotal()) : 'n/a';
-    el('p-done').textContent  = ms(avgDone());
-    el('p-out').textContent   = view.directOut ? 'direct' : 'blit';
-    el('p-view').textContent  = DEBUG_VIEWS[view.debugView];
-    el('p-rays').textContent  = (view.pixelCount / 1e6).toFixed(2) + ' M';
-    let msg = '';
-    if (!ts) msg = 'timestamp-query unavailable on this adapter';
-    else if (tsQuantized) msg = 'timestamps quantized to 100us; see ' +
-                                'chrome://flags/#enable-webgpu-developer-features';
-    if (tsDropped) msg += `${msg ? ' | ' : ''}${tsDropped} bad samples`;
-    el('p-note').textContent = msg;
-    drawSpark();
-  }
-
-  // Reads back the pass timestamps and folds them into the rolling averages.
-  // `rung` is captured at submit time, since the readback lands one or more
-  // frames later and may arrive after the rung has changed.
-  function readTimestamps(rung) {
-    tsPending = true;
-    ts.readBuf.mapAsync(GPUMapMode.READ).then(() => {
-      const stamps = new BigInt64Array(ts.readBuf.getMappedRange().slice(0));
-      ts.readBuf.unmap();
-      const direct = view.directOut;
-      const computeNs = Number(stamps[1] - stamps[0]);
-      const blitNs    = direct ? 0 : Number(stamps[3] - stamps[2]);
-      const gapNs     = direct ? 0 : Number(stamps[2] - stamps[1]);
-      const totalNs   = direct ? computeNs : Number(stamps[3] - stamps[0]);
-
-      // GPUs reset the timestamp counter occasionally, which shows up as
-      // negative or wild deltas. Drop those samples rather than average them in.
-      if (computeNs >= 0 && blitNs >= 0 && totalNs >= 0 && totalNs < 1e9) {
-        avgGpu(computeNs / 1e6);
-        avgBlit(blitNs / 1e6);
-        avgGap(gapNs / 1e6);
-        avgTotal(totalNs / 1e6);
-        // Quantized values are exact multiples of 100us, which is easy to spot
-        // and worth saying out loud.
-        tsQuantized = [computeNs, blitNs, totalNs]
-          .every((v) => v === 0 || v % 100000 === 0);
-        if (ladder && rung >= 0) ladder.samples[rung].push(computeNs / 1e6);
-      } else {
-        tsDropped++;
-      }
-      tsPending = false;
-    }).catch(() => { tsPending = false; });
-  }
-
-  // -----------------------------------------------------------------------
   // Frame
   // -----------------------------------------------------------------------
 
-  let frames = 0, tPrev = performance.now(), fps = 0, tLast = performance.now();
+  let tLast = performance.now(), tStat = 0;
 
   function frame() {
     requestAnimationFrame(frame);
@@ -460,80 +287,49 @@ async function main() {
 
     controls.update(Math.min(0.1, frameMs / 1000));   // clamp after a stall
 
-    // Only samples taken after the warmup count toward the current rung.
-    let rungSampled = -1;
-    if (ladder) {
-      ladder.frames++;
-      if (ladder.frames > LADDER_WARMUP) rungSampled = ladder.i;
-    }
-
-    const timing = !!ts && (profiling || ladder) && !tsPending;
+    // Tagged with the rung it samples, if a ladder is running (-1 warming up).
+    profiler.begin(ladder.tag());
     const cpuStart = performance.now();
 
+    // Direct output writes no blit pass: idle, so it shows no time.
+    if (view.directOut) profiler.idle('blit');
     // The ladder drives the shadow flag, the ablation level and the debug view
     // through the encode rather than by mutating the renderer, so a run leaves
     // the user's own settings alone.
-    const rung = ladder ? ladder.rungs[ladder.i] : null;
-    const opts = {
-      camera: rung ? { shadows: rung.shadows, ablate: rung.ablate, debugView: 0 } : undefined,
-      computeTimestamps: timing
-        ? { querySet: ts.querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 }
-        : undefined,
-      blitTimestamps: timing && !view.directOut
-        ? { querySet: ts.querySet, beginningOfPassWriteIndex: 2, endOfPassWriteIndex: 3 }
-        : undefined,
-    };
-
     const enc = gpu.device.createCommandEncoder();
-    const drew = view.encode(enc, opts);
-    if (!drew) return;
-
-    // Direct output writes no blit pass, so only the first two slots hold
-    // anything worth resolving.
-    if (timing) {
-      const n = view.directOut ? 2 : TS_COUNT;
-      enc.resolveQuerySet(ts.querySet, 0, n, ts.resolveBuf, 0);
-      enc.copyBufferToBuffer(ts.resolveBuf, 0, ts.readBuf, 0, n * 8);
-    }
-
+    const drew = view.encode(enc, {
+      camera: ladder.override(),
+      computeTimestamps: profiler.pass('compute'),
+      blitTimestamps: view.directOut ? undefined : profiler.pass('blit'),
+    });
+    if (!drew) { profiler.skipped('compute'); profiler.skipped('blit'); }
+    profiler.resolve(enc);
     gpu.device.queue.submit([enc.finish()]);
-    const cpuMs = performance.now() - cpuStart;
 
-    // Independent of the timestamps: how long until the queue reports the
-    // whole submission finished. Includes queue wait and event-loop latency,
-    // so it is an upper bound rather than a GPU-time measurement. Never
-    // awaited, since awaiting it would remove the pipelining being measured.
-    if (profiling) {
-      const submittedAt = performance.now();
-      gpu.device.queue.onSubmittedWorkDone().then(() => {
-        avgDone(performance.now() - submittedAt);
-      });
-    }
+    profiler.extra = {
+      view: DEBUG_VIEWS[view.debugView],
+      output: view.directOut ? 'direct' : 'blit',
+      'rays/frame': `${(view.pixelCount / 1e6).toFixed(2)} M`,
+    };
+    profiler.end(frameMs, performance.now() - cpuStart);
 
-    // One in-flight mapping at a time; frames that arrive while a readback is
-    // pending simply skip their timestamps.
-    if (timing) readTimestamps(rungSampled);
-
-    advanceLadder();
+    ladder.frame();
     probeCentre();
-    if (profiling) updatePanel(frameMs, cpuMs);
 
-    frames++;
-    if (now - tPrev > 500) {
-      fps = Math.round((frames * 1000) / (now - tPrev));
-      frames = 0; tPrev = now;
+    if (now - tStat > 500) {
+      tStat = now;
       const full = view.renderWidth === view.width && view.renderHeight === view.height;
       const res = full
         ? `${view.width}x${view.height}`
         : `${view.width}x${view.height} (render ${view.renderWidth}x${view.renderHeight})`;
       el('stat').textContent =
         `${scene.nodes.length} nodes · ${scene.materials.length - 1} materials · ` +
-        `${scene.lights.length} lights · ${res} · ${fps} fps`;
+        `${scene.lights.length} lights · ${res}`;
     }
   }
   requestAnimationFrame(frame);
 
-  Object.assign(window, { gpu, scene, view, camera, controls });
+  Object.assign(window, { gpu, scene, view, camera, controls, profiler, ladder });
 }
 </script>
 </body>

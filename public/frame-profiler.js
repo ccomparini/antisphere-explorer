@@ -17,6 +17,21 @@
 // average. That is different from skipped(): a pass that didn't run this
 // frame, as physics doesn't when a frame is too short for a substep.
 //
+// gpu total is the span from the first timed pass's start to the last
+// one's end - one pass alone, its own time. In a frame that times more than
+// one, gpu gap is that span less the passes: time between them, or,
+// negative, an overlap (shown so, before the number) - a later pass's
+// start stamped before the one before it finished, so that its time takes
+// in waiting for it (Apple's GPUs stamp the blit as it starts, then wait
+// for the compute pass it reads: blit about as long as compute, gap minus
+// as much). So the span is the total to trust, never the passes summed.
+//
+// A frame's times are dropped, and counted in the note, if any is
+// negative or a second or more: GPUs reset their timestamp counter now and
+// then. Times that are all whole multiples of 100 us are quantized - the
+// browser rounding them (Chrome, without its WebGPU developer features) -
+// which the note says too.
+//
 // submit→done is latency, not work: onSubmittedWorkDone() waits for
 // everything submitted so far, frames queued ahead of this one included.
 // Frames in flight says how many are queued: counted at each end(),
@@ -46,8 +61,11 @@ export class FrameProfiler {
    * @param {boolean} canTimestamp  whether the device has timestamp-query
    * @param {string[]} passes       names of the passes to time
    * @param {HTMLElement} panel     where to show it (filled in here)
+   * @param {object} [options]
+   * @param {() => boolean} [options.enabled]  whether to time this frame
+   *   (default always): a page whose panel is hidden needn't
    */
-  constructor(device, canTimestamp, passes, panel) {
+  constructor(device, canTimestamp, passes, panel, { enabled = () => true } = {}) {
     this.device = device;
     this.passes = passes;
     this.ts = createTimestampQuery(device, canTimestamp, passes.length * 2);
@@ -55,8 +73,13 @@ export class FrameProfiler {
     this.inFlight = 0;            // frames submitted whose work hasn't completed
     this.peakInFlight = 0;        // the most since the last _show()
     this.timing = false;          // whether this frame's passes are timed
+    this.enabled = enabled;
+    this.tag = undefined;         // this frame's, for onTimes()
+    this.listeners = [];
+    this.dropped = 0;             // frames whose times were bad
+    this.quantized = false;
     this.written = new Set();     // passes that actually ran this frame
-    this.avg = { frame: rolling(30), cpu: rolling(30), done: rolling(30) };
+    this.avg = { frame: rolling(30), cpu: rolling(30), done: rolling(30), gap: rolling(30), span: rolling(30) };
     for (const p of passes) this.avg[p] = rolling(30);
     this.idlePasses = new Set();  // passes not running at all (idle())
     this.history = new Array(120).fill(0);
@@ -67,7 +90,8 @@ export class FrameProfiler {
 
     panel.innerHTML = [
       row('fps', 'fps'), row('frame', 'frame'), row('cpu', 'cpu'),
-      ...passes.map((p) => row(p, `gpu ${p}`)), row('gpu', 'gpu total'), row('done', 'submit→done'),
+      ...passes.map((p) => row(p, `gpu ${p}`)), ...(passes.length > 1 ? [row('gap', 'gpu gap')] : []),
+      row('gpu', 'gpu total'), row('done', 'submit→done'),
       row('flight', 'frames in flight'),
       '<canvas class="spark" width="240" height="40"></canvas>',
       '<div class="extra"></div><div class="note"></div>',
@@ -76,14 +100,21 @@ export class FrameProfiler {
     this.cells = {};
     for (const b of panel.querySelectorAll('b[data-k]')) this.cells[b.dataset.k] = b;
     this.spark = panel.querySelector('.spark');
-    if (!this.ts) panel.querySelector('.note').textContent = 'timestamp-query unavailable: no GPU times';
+    this._note();
   }
 
-  /** Start a frame: decide whether its passes are timed. */
-  begin() {
-    this.timing = !!this.ts && !this.pending;
+  /**
+   * Start a frame: decide whether its passes are timed. `tag`, anything,
+   * comes back with its times (onTimes()).
+   */
+  begin(tag) {
+    this.timing = !!this.ts && !this.pending && this.enabled();
+    this.tag = tag;
     this.written.clear();
   }
+
+  /** Call fn(tag, { pass: ms }) with each timed frame's times, as they come back. */
+  onTimes(fn) { this.listeners.push(fn); }
 
   /** timestampWrites for pass `name` this frame, or undefined when not timing. */
   pass(name) {
@@ -106,6 +137,8 @@ export class FrameProfiler {
     this.idlePasses.add(name);
     this.written.delete(name);
     this.avg[name].clear();
+    this.avg.gap.clear();
+    this.avg.span.clear();
   }
 
   /** Resolve this frame's timestamps into `enc`, before it is finished. */
@@ -128,17 +161,26 @@ export class FrameProfiler {
       .finally(() => { this.inFlight--; });
     if (this.timing) {
       this.pending = true;
-      const ran = [...this.written];
+      const ran = [...this.written], tag = this.tag;
       this.ts.readBuf.mapAsync(GPUMapMode.READ).then(() => {
         const t = new BigInt64Array(this.ts.readBuf.getMappedRange().slice(0));
         this.ts.readBuf.unmap();
-        for (const name of ran) {
-          if (this.idlePasses.has(name)) continue;          // gone idle since
-          const i = this.passes.indexOf(name);
-          const ns = Number(t[2 * i + 1] - t[2 * i]);
-          // Counters occasionally reset, showing as negative or wild gaps.
-          if (ns >= 0 && ns < 1e9) this.avg[name](ns / 1e6);
-        }
+        const live = ran.filter((name) => !this.idlePasses.has(name));   // not gone idle since
+        if (!live.length) return;
+        const at = (name) => 2 * this.passes.indexOf(name);
+        const ns = live.map((name) => Number(t[at(name) + 1] - t[at(name)]));
+        const span = live.length > 1
+          ? Number(live.reduce((m, n) => (t[at(n) + 1] > m ? t[at(n) + 1] : m), t[at(live[0]) + 1])
+                   - live.reduce((m, n) => (t[at(n)] < m ? t[at(n)] : m), t[at(live[0])]))
+          : ns[0];
+        // Counters occasionally reset, showing as negative or wild times.
+        if (ns.some((v) => !(v >= 0 && v < 1e9)) || !(span >= 0 && span < 1e9)) { this.dropped++; return; }
+        this.quantized = ns.every((v) => v % 100000 === 0) && span % 100000 === 0;
+        const times = {};
+        live.forEach((name, k) => { times[name] = ns[k] / 1e6; this.avg[name](times[name]); });
+        this.avg.span(span / 1e6);
+        if (live.length > 1) this.avg.gap((span - ns.reduce((a, b) => a + b, 0)) / 1e6);
+        for (const fn of this.listeners) fn(tag, times);
       }).catch(() => {}).finally(() => { this.pending = false; });
     }
     this.avg.frame(frameMs);
@@ -166,13 +208,25 @@ export class FrameProfiler {
       c[p].textContent = this.ts ? ms(v) : 'n/a';
       if (Number.isFinite(v)) { gpu += v; any = true; }
     }
-    c.gpu.textContent = this.ts && any ? ms(gpu) : 'n/a';
+    const gap = this.avg.gap(), span = this.avg.span();
+    if (c.gap) c.gap.textContent = !this.ts ? 'n/a' : `${gap < 0 ? '(overlap) ' : ''}${ms(gap)}`;
+    c.gpu.textContent = this.ts && any && Number.isFinite(span) ? ms(span) : this.ts && any ? ms(gpu) : 'n/a';
     c.done.textContent = ms(this.avg.done());
     c.flight.textContent = `${this.inFlight} (peak ${this.peakInFlight})`;
     this.peakInFlight = this.inFlight;
     this.panel.querySelector('.extra').innerHTML =
       Object.entries(this.extra).map(([k, v]) => row(null, k, v)).join('');
+    this._note();
     this._spark();
+  }
+
+  // What the times can't say for themselves.
+  _note() {
+    const notes = [];
+    if (!this.ts) notes.push('timestamp-query unavailable: no GPU times');
+    else if (this.quantized) notes.push('timestamps quantized to 100 us; see chrome://flags/#enable-webgpu-developer-features');
+    if (this.dropped) notes.push(`${this.dropped} bad samples dropped`);
+    this.panel.querySelector('.note').textContent = notes.join(' | ');
   }
 
   _spark() {
