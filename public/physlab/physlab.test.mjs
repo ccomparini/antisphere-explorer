@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { identity, fromAxisAngle, multiply, rotate, axes, fromBasis, toAxisAngle, normalize, fromTo } from './quat.js';
+import { identity, fromAxisAngle, multiply, rotate, axes, fromBasis, toAxisAngle, normalize, fromTo } from '../quat.js';
 import { World, WorldObject } from './world.js';
 import { AttachedCamera } from './camera.js';
 import { FlightControl, levelOrientation } from './flight.js';

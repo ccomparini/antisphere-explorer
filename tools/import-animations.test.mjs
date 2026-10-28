@@ -13,7 +13,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readGLTF, trackOf, clipRange } from '../public/gltf.js';
-import { sampleTrack, angleBetween } from '../public/keyframes.js';
+import { sampleTrack } from '../public/keyframes.js';
+import { angleBetween } from '../public/quat.js';
 import { fixture, toGLB } from '../public/gltf-fixture.mjs';
 import { clipsFromGLTF } from './import-animations.mjs';
 

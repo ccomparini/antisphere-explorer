@@ -25,6 +25,8 @@
 // here knows what they are: a spheroid's "height" would be a track like any
 // other, of size 1.
 
+import { normalize, slerp, angleBetween } from './quat.js';
+
 /** A track's value at time t (`rotation`: its values are quaternions). */
 export function sampleTrack({ times, values, interpolation = 'linear' }, t, { rotation = false } = {}) {
   const n = times.length;
@@ -104,24 +106,4 @@ export function reduceTrack(track, tolerance, { rotation = false } = {}) {
     i = j;
   }
   return { ...track, times: keep.map((k) => times[k]), values: keep.map((k) => values[k]) };
-}
-
-// -- quaternions ------------------------------------------------------------------
-
-const normalize = (q) => { const l = Math.hypot(...q) || 1; return q.map((v) => v / l); };
-
-/** Spherical interpolation from quaternion a to b, the short way round. */
-export function slerp(a, b, u) {
-  let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-  if (d < 0) { b = b.map((v) => -v); d = -d; }
-  if (d > 0.9995) return normalize(a.map((v, c) => v + (b[c] - v) * u));
-  const th = Math.acos(d), s = Math.sin(th);
-  const wa = Math.sin((1 - u) * th) / s, wb = Math.sin(u * th) / s;
-  return a.map((v, c) => wa * v + wb * b[c]);
-}
-
-/** The angle, in radians, of the rotation from quaternion a to b. */
-export function angleBetween(a, b) {
-  const d = Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]);
-  return 2 * Math.acos(Math.min(1, d));
 }

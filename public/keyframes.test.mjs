@@ -3,7 +3,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sampleTrack, clipTime, markersBetween, reduceTrack, angleBetween } from './keyframes.js';
+import { sampleTrack, clipTime, markersBetween, reduceTrack } from './keyframes.js';
+import { angleBetween } from './quat.js';
 
 const near = (got, want, what, tol = 1e-9) => {
   [want].flat().forEach((w, i) => assert.ok(Math.abs([got].flat()[i] - w) <= tol, `${what}: ${JSON.stringify(got)}, not ${JSON.stringify(want)}`));

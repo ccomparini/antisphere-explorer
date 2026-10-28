@@ -11,7 +11,7 @@ import { buildAll } from '../../tools/shader-build/index.js';
 import { compileSolid, packSolids, PhysicsSim } from './physics.js';
 import { PhysicsWorld } from './physics-world.js';
 import { World, WorldObject } from './world.js';
-import { fromAxisAngle, fromTo, multiply, rotate, toAxisAngle } from './quat.js';
+import { fromAxisAngle, fromTo, multiply, rotate, toAxisAngle } from '../quat.js';
 import { octahedron, octahedronBody } from './shapes.js';
 import { gravityOf } from './gravity.js';
 import { BINDINGS, Contact, ContactQuery, viewsOf } from '../gen/layouts.js';

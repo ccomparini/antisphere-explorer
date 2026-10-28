@@ -18,7 +18,7 @@
 // "Moving objects"); otherwise the simulation is rebuilt, as for add().
 
 import { compileSolid, PhysicsSim } from './physics.js';
-import { fromTo, multiply, normalize, rotate, toAxisAngle } from './quat.js';
+import { fromTo, multiply, normalize, rotate, toAxisAngle } from '../quat.js';
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];

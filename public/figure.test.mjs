@@ -10,6 +10,7 @@ import { fixture, toGLB } from './gltf-fixture.mjs';
 import { skinOf, fitToMeshParts } from './skin.js';
 import { poseModel, partsOf } from './figure.js';
 import { compileScene } from './antisphere-scene.js';
+import { fromAxisAngle, rotate } from './quat.js';
 
 const near = (got, want, what, tol = 1e-6) => {
   [want].flat().forEach((w, i) => assert.ok(Math.abs([got].flat()[i] - w) <= tol, `${what}: ${JSON.stringify(got)}, not ${JSON.stringify(want)}`));
@@ -32,11 +33,7 @@ async function model(extra = {}) {
 function placed(part) {
   const inner = part.group[0], sph = (inner.group ?? [inner])[0].spheroid;
   let c = sph.center;
-  if (part.rotate) {
-    const { axis: [x, y, z], radians: a } = part.rotate, cs = Math.cos(a), sn = Math.sin(a), d = x * c[0] + y * c[1] + z * c[2];
-    const cr = [y * c[2] - z * c[1], z * c[0] - x * c[2], x * c[1] - y * c[0]];
-    c = c.map((v, i) => v * cs + cr[i] * sn + [x, y, z][i] * d * (1 - cs));
-  }
+  if (part.rotate) c = rotate(fromAxisAngle(part.rotate.axis, part.rotate.radians), c);
   return c.map((v, i) => v + part.translate[i]);
 }
 

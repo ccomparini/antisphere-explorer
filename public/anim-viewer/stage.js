@@ -33,6 +33,7 @@
 
 import { poseModel, partMotions, partsOf, boneMatrices, bonePose } from '../figure.js';
 import { movePrim } from '../antisphere-scene.js';
+import { fromAxisAngle, rotate as turnBy } from '../quat.js';
 import { graftMover } from '../movers.js';
 import { boundingSpheroidOfPoints } from '../mesh-import.js';
 
@@ -164,11 +165,8 @@ export function emptyStage(model, { materials = [] } = {}) {
 // a spheroid's extent along each world axis is
 // sqrt(a^2 n_i^2 + r^2 (1 - n_i^2)), for half-height a, radius r, axis n.
 function cornersOf(def, { rotate, translate }) {
-  const turn = (v) => {
-    if (!rotate) return v;
-    const { axis: [x, y, z], radians: a } = rotate, cs = Math.cos(a), sn = Math.sin(a), d = x * v[0] + y * v[1] + z * v[2];
-    return [0, 1, 2].map((i) => v[i] * cs + [y * v[2] - z * v[1], z * v[0] - x * v[2], x * v[1] - y * v[0]][i] * sn + [x, y, z][i] * d * (1 - cs));
-  };
+  const q = rotate ? fromAxisAngle(rotate.axis, rotate.radians) : null;
+  const turn = (v) => (q ? turnBy(q, v) : v);
   const shape = def.sphere ?? def.spheroid;
   const c = turn(shape.center ?? [0, 0, 0]).map((v, i) => v + translate[i]);
   let half;

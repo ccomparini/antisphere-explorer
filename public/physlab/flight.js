@@ -15,7 +15,7 @@
 // Kinematic for now: keys set a velocity, and letting go stops. No DOM
 // here - flight-input.js turns keys and the mouse into calls on this.
 
-import { fromBasis } from './quat.js';
+import { fromBasis } from '../quat.js';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];

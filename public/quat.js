@@ -1,4 +1,6 @@
-// Quaternions, as [x, y, z, w] arrays, for orientations.
+// Quaternions, as [x, y, z, w] arrays, for orientations: the one place a
+// turn is worked out, for physlab's bodies, the compiler's "rotate", glTF's
+// nodes and the keyframes that move them.
 //
 // A unit quaternion q turns a vector v by q v q*. Composition reads like
 // matrices: multiply(a, b) turns by b first, then by a.
@@ -48,6 +50,12 @@ export function axes(q) {
   return { x: rotate(q, [1, 0, 0]), y: rotate(q, [0, 1, 0]), z: rotate(q, [0, 0, 1]) };
 }
 
+/** q's rotation matrix, as rows: rows(q)[r] . v is the r'th coordinate of v turned by q. */
+export function rows(q) {
+  const { x, y, z } = axes(q);           // the matrix's columns
+  return [[x[0], y[0], z[0]], [x[1], y[1], z[1]], [x[2], y[2], z[2]]];
+}
+
 /**
  * The rotation taking the unit axes to x, y and z, which must be
  * orthonormal and right-handed (x = y cross z). The inverse of axes().
@@ -63,8 +71,16 @@ export function fromBasis(x, y, z) {
       Math.abs(dot(x, y)) > 1e-6 || Math.abs(dot(y, z)) > 1e-6 || Math.abs(dot(z, x)) > 1e-6) {
     throw new Error('fromBasis needs orthonormal, right-handed axes (x = y cross z)');
   }
-  // The rotation matrix has x, y, z as its columns; this is the usual
-  // conversion, branching on the largest diagonal term to stay accurate.
+  return fromColumns(x, y, z);
+}
+
+/**
+ * A rotation matrix's columns x, y and z to a quaternion, unchecked: for
+ * one known to be a rotation, give or take rounding (a glTF node's matrix,
+ * its scale divided out). The usual conversion (Shepperd's), branching on
+ * the largest diagonal term to stay accurate. fromBasis() checks first.
+ */
+export function fromColumns(x, y, z) {
   const [m00, m10, m20] = x, [m01, m11, m21] = y, [m02, m12, m22] = z;
   const trace = m00 + m11 + m22;
   let q;
@@ -104,4 +120,20 @@ export function fromTo(a, b) {
   }
   const w = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   return normalize([w[0], w[1], w[2], 1 + c]);
+}
+
+/** Spherical interpolation from a to b, the short way round, u from 0 to 1. */
+export function slerp(a, b, u) {
+  let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+  if (d < 0) { b = b.map((v) => -v); d = -d; }
+  if (d > 0.9995) return normalize(a.map((v, c) => v + (b[c] - v) * u));
+  const th = Math.acos(d), s = Math.sin(th);
+  const wa = Math.sin((1 - u) * th) / s, wb = Math.sin(u * th) / s;
+  return a.map((v, c) => wa * v + wb * b[c]);
+}
+
+/** The angle, in radians, of the turn from a to b. */
+export function angleBetween(a, b) {
+  const d = Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]);
+  return 2 * Math.acos(Math.min(1, d));
 }

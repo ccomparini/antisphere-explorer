@@ -21,6 +21,7 @@
 
 import { compose, multiply, decompose } from './gltf.js';
 import { sampleTrack, clipTime } from './keyframes.js';
+import { toAxisAngle } from './quat.js';
 
 // Clips asked for and not there, by clip set: warned of once each.
 const unknownClips = new WeakMap();
@@ -129,9 +130,8 @@ export function partMotions(model, clips, clipName = null, t = 0, { warn = conso
   for (const [name, bone] of partsOf(model, { warn })) {
     // The bone's motion since rest: posed, after undoing rest.
     const { translation, rotation } = decompose(multiply(posed[bone], invertRigid(rest[bone])));
-    const [x, y, z, w] = rotation;
-    const s = Math.hypot(x, y, z), angle = 2 * Math.atan2(s, w);
-    motions.push({ name, rotate: s > 1e-12 ? { axis: [x / s, y / s, z / s], radians: angle } : null, translate: translation });
+    const turn = toAxisAngle(rotation);
+    motions.push({ name, rotate: turn.radians > 0 ? turn : null, translate: translation });
   }
   return motions;
 }

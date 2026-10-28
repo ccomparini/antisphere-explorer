@@ -26,7 +26,7 @@ import { expandReferences, parseGravity, parseSpawn, readScene } from '../antisp
 import { AttachedCamera } from './camera.js';
 import { FlightControl, levelOrientation } from './flight.js';
 import { attachFlightInput } from './flight-input.js';
-import { fromBasis, fromAxisAngle, fromTo, multiply, rotate } from './quat.js';
+import { fromBasis, fromAxisAngle, fromTo, multiply, rotate } from '../quat.js';
 import { PhysicsWorld } from './physics-world.js';
 import { octahedron, octahedronBody } from './shapes.js';
 import { checkShader } from '../gpu-setup.js';

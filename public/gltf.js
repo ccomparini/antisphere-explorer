@@ -24,6 +24,7 @@
 // Quaternions are [x, y, z, w].
 
 import { sampleTrack } from './keyframes.js';
+import { axes, fromColumns } from './quat.js';
 
 const GLB_MAGIC = 0x46546c67;          // "glTF"
 const CHUNK_JSON = 0x4e4f534a;         // "JSON"
@@ -292,14 +293,13 @@ export function trianglesOf(gltf) {
 
 // -- maths -------------------------------------------------------------------------
 
-const normalize4 = (q) => { const l = Math.hypot(...q) || 1; return q.map((v) => v / l); };
-
-/** The matrix of a TRS: translate * rotate * scale. */
-export function compose({ translation: [tx, ty, tz] = [0, 0, 0], rotation: [x, y, z, w] = [0, 0, 0, 1], scale: [sx, sy, sz] = [1, 1, 1] }) {
+/** The matrix of a TRS: translate * rotate * scale. Column-major: each column the turned axis (quat.js), scaled. */
+export function compose({ translation: [tx, ty, tz] = [0, 0, 0], rotation = [0, 0, 0, 1], scale: [sx, sy, sz] = [1, 1, 1] }) {
+  const { x, y, z } = axes(rotation);
   const m = new Float64Array(16);
-  m[0] = (1 - 2 * (y * y + z * z)) * sx; m[1] = 2 * (x * y + z * w) * sx;       m[2] = 2 * (x * z - y * w) * sx;
-  m[4] = 2 * (x * y - z * w) * sy;       m[5] = (1 - 2 * (x * x + z * z)) * sy; m[6] = 2 * (y * z + x * w) * sy;
-  m[8] = 2 * (x * z + y * w) * sz;       m[9] = 2 * (y * z - x * w) * sz;       m[10] = (1 - 2 * (x * x + y * y)) * sz;
+  m[0] = x[0] * sx; m[1] = x[1] * sx; m[2] = x[2] * sx;
+  m[4] = y[0] * sy; m[5] = y[1] * sy; m[6] = y[2] * sy;
+  m[8] = z[0] * sz; m[9] = z[1] * sz; m[10] = z[2] * sz;
   m[12] = tx; m[13] = ty; m[14] = tz; m[15] = 1;
   return m;
 }
@@ -334,22 +334,6 @@ export function decompose(m) {
   const col = (c) => [m[c * 4], m[c * 4 + 1], m[c * 4 + 2]];
   const scale = [0, 1, 2].map((c) => Math.hypot(...col(c)));
   const [r0, r1, r2] = [0, 1, 2].map((c) => col(c).map((v) => v / scale[c]));
-  // The rotation matrix's columns r0, r1, r2, to a quaternion (Shepperd's method).
-  const [m00, m10, m20] = r0, [m01, m11, m21] = r1, [m02, m12, m22] = r2;
-  const tr = m00 + m11 + m22;
-  let q;
-  if (tr > 0) {
-    const s = 2 * Math.sqrt(tr + 1);
-    q = [(m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s, s / 4];
-  } else if (m00 > m11 && m00 > m22) {
-    const s = 2 * Math.sqrt(1 + m00 - m11 - m22);
-    q = [s / 4, (m01 + m10) / s, (m02 + m20) / s, (m21 - m12) / s];
-  } else if (m11 > m22) {
-    const s = 2 * Math.sqrt(1 + m11 - m00 - m22);
-    q = [(m01 + m10) / s, s / 4, (m12 + m21) / s, (m02 - m20) / s];
-  } else {
-    const s = 2 * Math.sqrt(1 + m22 - m00 - m11);
-    q = [(m02 + m20) / s, (m12 + m21) / s, s / 4, (m10 - m01) / s];
-  }
-  return { translation: [m[12], m[13], m[14]], rotation: normalize4(q), scale };
+  // The rotation matrix's columns, to a quaternion (quat.js).
+  return { translation: [m[12], m[13], m[14]], rotation: fromColumns(r0, r1, r2), scale };
 }

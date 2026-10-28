@@ -19,7 +19,7 @@
 // rebuilding the scene; moving objects' nodes in place comes later (see
 // DESIGN.md, "Moving objects").
 
-import { identity, normalize, axes, toAxisAngle } from './quat.js';
+import { identity, normalize, axes, toAxisAngle } from '../quat.js';
 
 export class WorldObject {
   /**

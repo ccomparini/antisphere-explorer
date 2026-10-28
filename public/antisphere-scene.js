@@ -47,6 +47,7 @@ import { quadricAt } from './quadric.js';
 import { readSTL } from './stl.js';
 import { meshToTree, boundsOf, boundingSpheroidOfPoints } from './mesh-import.js';
 import { loadText, loadBytes } from './load.js';
+import { fromAxisAngle, fromColumns, toAxisAngle, rows as quatRows, multiply as quatMultiply } from './quat.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -661,16 +662,10 @@ function scalePrim(prim, s) {
   };
 }
 
-// Rotation matrix for a turn about a unit axis, by Rodrigues' formula, as
-// rows so rotatePrim can dot with them.
+// Rotation matrix for a turn about an axis, as rows so rotatePrim can dot
+// with them (quat.js works it out).
 export function rotationRows(axis, radians) {
-  const [x, y, z] = unitVector(axis);
-  const c = Math.cos(radians), s = Math.sin(radians), t = 1 - c;
-  return [
-    [t * x * x + c,     t * x * y - s * z, t * x * z + s * y],
-    [t * x * y + s * z, t * y * y + c,     t * y * z - s * x],
-    [t * x * z - s * y, t * y * z + s * x, t * z * z + c],
-  ];
+  return quatRows(fromAxisAngle(unitVector(axis), radians));      // a zero axis: about z, as ever
 }
 
 /**
@@ -680,8 +675,7 @@ export function rotationRows(axis, radians) {
  * heading: tipped first, then turned to face.
  */
 export function eulerRows([x, y, z]) {
-  const mul = (A, B) => A.map((row) => [0, 1, 2].map((j) => row[0] * B[0][j] + row[1] * B[1][j] + row[2] * B[2][j]));
-  return mul(rotationRows([0, 0, 1], z), mul(rotationRows([0, 1, 0], y), rotationRows([1, 0, 0], x)));
+  return quatRows(quatMultiply(fromAxisAngle([0, 0, 1], z), quatMultiply(fromAxisAngle([0, 1, 0], y), fromAxisAngle([1, 0, 0], x))));
 }
 
 /**
@@ -690,16 +684,8 @@ export function eulerRows([x, y, z]) {
  * angle 0 and an axis of [0, 0, 1].
  */
 export function axisAngleOf(R) {
-  const angle = Math.acos(Math.max(-1, Math.min(1, (R[0][0] + R[1][1] + R[2][2] - 1) / 2)));
-  if (angle < 1e-9) return { axis: [0, 0, 1], radians: 0 };
-  if (Math.PI - angle < 1e-6) {
-    // A half turn: R = 2 a a^T - I, so a's largest part is on the largest diagonal.
-    const d = [R[0][0], R[1][1], R[2][2]], i = d.indexOf(Math.max(...d));
-    const a = [0, 1, 2].map((j) => (j === i ? Math.sqrt((R[i][i] + 1) / 2) : (R[i][j] + R[j][i]) / 4 / Math.sqrt((R[i][i] + 1) / 2)));
-    return { axis: a, radians: angle };
-  }
-  const s = 2 * Math.sin(angle);
-  return { axis: [(R[2][1] - R[1][2]) / s, (R[0][2] - R[2][0]) / s, (R[1][0] - R[0][1]) / s], radians: angle };
+  const column = (j) => [R[0][j], R[1][j], R[2][j]];
+  return toAxisAngle(fromColumns(column(0), column(1), column(2)));
 }
 
 // A transform's pivot, scale and rotation as a scene gives them, read with
