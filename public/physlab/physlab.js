@@ -338,28 +338,19 @@ async function main() {
   showStatus();
 
   const view = gpu.createRenderer(canvas, { scene, camera });
-  // The blit isn't timed: its work is a single full-screen triangle, and on
-  // macOS its timestamps took in waiting for the screen's image (40 ms, in
-  // 17 ms frames), which only misled.
-  const profiler = new FrameProfiler(gpu.device, gpu.canTimestamp, ['render', 'physics'],
+  // Times the compute and blit passes, as every page does (on macOS the
+  // blit's start is stamped before the compute pass it waits for has
+  // finished: the panel shows that as an overlap), and physics' own pass.
+  const profiler = new FrameProfiler(gpu.device, gpu.canTimestamp, ['compute', 'blit', 'physics'],
                                      document.getElementById('prof'));
 
-  // The frame loop, run here rather than by ASContext.start() so the
-  // profiler can time the render passes as they're encoded. Each frame:
-  // time moves on by dt, seconds since the last frame, clamped so a stall
-  // doesn't become a leap; the physics steps; if anything with geometry
-  // moved, the scene follows (a full rebuild, for now; see DESIGN.md on
-  // moving nodes in place), and with it which pairs physics tests; then
-  // the view is drawn.
-  let last = performance.now();
-  function frame(now) {
-    requestAnimationFrame(frame);
-    const frameMs = now - last;
-    const dt = Math.min(0.1, frameMs / 1000);
-    last = now;
-    const cpuStart = performance.now();
-    profiler.begin();
-
+  // The shared frame loop (ASContext.start()). Each frame: time moves on
+  // by dt, seconds since the last frame, clamped so a stall doesn't become
+  // a leap; the physics steps (its own pass, timed as 'physics'); if
+  // anything with geometry moved, the scene follows (a full rebuild, for
+  // now; see DESIGN.md on moving nodes in place), and with it which pairs
+  // physics tests; then the loop draws the view.
+  gpu.onFrame((dt, frame) => {
     // Flying a simulated body is thrust along its own axes; anything else
     // the controls move directly.
     for (const o of physics.bodies) {
@@ -373,17 +364,12 @@ async function main() {
       hole.radius = Math.min(HOLE_MAX, hole.radius + HOLE_GROWTH * dt);
       carve(hole.object);
     }
-    const substeps = physics.update(dt, profiler.pass('physics'));
-    if (substeps === 0) profiler.skipped('physics');
+    const substeps = physics.update(dt, frame.pass('physics'));
+    if (substeps === 0) frame.skipped('physics');
     if (world.geometryMoved()) {
       scene.update(sceneSpec());
       physics.setCandidates(world.overlappingPairs(scene.overlaps));
     }
-
-    const enc = gpu.device.createCommandEncoder();
-    if (!view.encode(enc, { computeTimestamps: profiler.pass('render') })) profiler.skipped('render');
-    profiler.resolve(enc);
-    gpu.device.queue.submit([enc.finish()]);
 
     profiler.extra = {
       bodies: String(physics.bodies.length),
@@ -391,9 +377,8 @@ async function main() {
       'substeps/frame': String(substeps),
       pixels: `${(view.pixelCount / 1e6).toFixed(2)} M`,
     };
-    profiler.end(frameMs, performance.now() - cpuStart);
-  }
-  requestAnimationFrame(frame);
+  });
+  gpu.start({ profiler });
 
   window.physlab = { world, camera, flight, scene, view, gpu, physics, profiler, carved };
 }

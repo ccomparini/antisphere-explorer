@@ -64,11 +64,9 @@
 
 <script type="module">
 // The profiling view: one renderer, one camera, the frame profiler
-// (frame-profiler.js) and the ablation ladder (ablation-ladder.js). It
-// drives its own frame loop rather than using ASContext.start(), because
-// profiling needs to inject timestampWrites into the encode and resolve the
-// query set before the submit. Everything else here is the library doing
-// the work.
+// (frame-profiler.js) and the ablation ladder (ablation-ladder.js), on the
+// shared frame loop (ASContext.start()). Everything else here is the
+// library doing the work.
 
 import { ASContext } from './as-context.js';
 import { ASRenderer, DEBUG_VIEWS } from './as-renderer.js';
@@ -274,48 +272,27 @@ async function main() {
 
   // -----------------------------------------------------------------------
   // Frame
+  //
+  // The shared loop (ASContext.start()): the profiler times the compute and
+  // blit passes; the ladder tags each frame with its rung and overrides the
+  // shadow flag, the ablation level and the debug view through the encode,
+  // rather than by mutating the renderer, so a run leaves the user's own
+  // settings alone.
   // -----------------------------------------------------------------------
 
-  let tLast = performance.now(), tStat = 0;
-
-  function frame() {
-    requestAnimationFrame(frame);
-
-    const now = performance.now();
-    const frameMs = now - tLast;
-    tLast = now;
-
-    controls.update(Math.min(0.1, frameMs / 1000));   // clamp after a stall
-
-    // Tagged with the rung it samples, if a ladder is running (-1 warming up).
-    profiler.begin(ladder.tag());
-    const cpuStart = performance.now();
-
-    // Direct output writes no blit pass: idle, so it shows no time.
-    if (view.directOut) profiler.idle('blit');
-    // The ladder drives the shadow flag, the ablation level and the debug view
-    // through the encode rather than by mutating the renderer, so a run leaves
-    // the user's own settings alone.
-    const enc = gpu.device.createCommandEncoder();
-    const drew = view.encode(enc, {
-      camera: ladder.override(),
-      computeTimestamps: profiler.pass('compute'),
-      blitTimestamps: view.directOut ? undefined : profiler.pass('blit'),
-    });
-    if (!drew) { profiler.skipped('compute'); profiler.skipped('blit'); }
-    profiler.resolve(enc);
-    gpu.device.queue.submit([enc.finish()]);
-
+  let tStat = 0;
+  gpu.onFrame((dt) => {
+    controls.update(dt);
     profiler.extra = {
       view: DEBUG_VIEWS[view.debugView],
       output: view.directOut ? 'direct' : 'blit',
       'rays/frame': `${(view.pixelCount / 1e6).toFixed(2)} M`,
     };
-    profiler.end(frameMs, performance.now() - cpuStart);
-
+  });
+  gpu.afterFrame(() => {
     ladder.frame();
     probeCentre();
-
+    const now = performance.now();
     if (now - tStat > 500) {
       tStat = now;
       const full = view.renderWidth === view.width && view.renderHeight === view.height;
@@ -326,8 +303,8 @@ async function main() {
         `${scene.nodes.length} nodes · ${scene.materials.length - 1} materials · ` +
         `${scene.lights.length} lights · ${res}`;
     }
-  }
-  requestAnimationFrame(frame);
+  });
+  gpu.start({ profiler, tag: () => ladder.tag(), options: () => ({ camera: ladder.override() }) });
 
   Object.assign(window, { gpu, scene, view, camera, controls, profiler, ladder });
 }

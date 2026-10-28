@@ -272,22 +272,14 @@ async function main() {
 
   // -- each frame ------------------------------------------------------------
 
-  // The frame loop, run here rather than by ASContext.start() so that the
-  // profiler (../frame-profiler.js) can time the render pass as it is
-  // encoded. Each frame: time moves on by dt, clamped so a stall isn't a
-  // leap; the pose, if it changed, is shown (its quadrics written, or the
-  // stage recompiled); the panel follows; the view is drawn. The pose and
-  // the panel are timed on the CPU, apart, among the profiler's figures.
-  const profiler = new FrameProfiler(gpu.device, gpu.canTimestamp, ['render'], el('prof'));
-  let poseMs = NaN, panelMs = NaN, last = performance.now();
-  function frame(now) {
-    requestAnimationFrame(frame);
-    const frameMs = now - last;
-    const dt = Math.min(0.1, frameMs / 1000);
-    last = now;
-    const cpuStart = performance.now();
-    profiler.begin();
-
+  // The shared frame loop (ASContext.start()), the profiler timing the
+  // compute and blit passes. Each frame: time moves on; the pose, if it
+  // changed, is shown (its quadrics written, or the stage recompiled); the
+  // panel follows; then the loop draws the view. The pose and the panel
+  // are timed on the CPU, apart, among the profiler's figures.
+  const profiler = new FrameProfiler(gpu.device, gpu.canTimestamp, ['compute', 'blit'], el('prof'));
+  let poseMs = NaN;
+  gpu.onFrame((dt) => {
     controls.update(dt);
     if (state.playing) setTime(state.t + dt * state.speed);
     if (state.dirty) {
@@ -302,13 +294,7 @@ async function main() {
     }
     const panelStart = performance.now();
     live.update();
-    panelMs = performance.now() - panelStart;
-
-    const enc = gpu.device.createCommandEncoder();
-    if (!view.encode(enc, { computeTimestamps: profiler.pass('render') })) profiler.skipped('render');
-    profiler.resolve(enc);
-    gpu.device.queue.submit([enc.finish()]);
-
+    const panelMs = performance.now() - panelStart;
     profiler.extra = {
       'pose by': posing.mode,
       'pose (cpu)': Number.isFinite(poseMs) ? `${poseMs.toFixed(2)} ms` : '-',
@@ -316,9 +302,8 @@ async function main() {
       nodes: String(scene.nodes.length - 1),
       pixels: `${(view.pixelCount / 1e6).toFixed(2)} M`,
     };
-    profiler.end(frameMs, performance.now() - cpuStart);
-  }
-  requestAnimationFrame(frame);
+  });
+  gpu.start({ profiler });
 
   Object.assign(window, { gpu, scene, view, camera, controls, model, clips, materials, state, panel, profiler });
 }

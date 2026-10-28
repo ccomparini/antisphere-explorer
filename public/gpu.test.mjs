@@ -1374,3 +1374,69 @@ gpuTest('through a glass box with a box-shaped hole, only its walls colour the l
   const want = Math.round(255 * 0.5 ** (1 / 2.2));      // two walls of 0.5: one unit of glass
   assert.ok(Math.abs(got[0] - want) <= 1 && got[1] === 0 && got[2] === 0, `red through the walls only: ${got}, not ${want}`);
 });
+
+// -- the frame loop every page runs ----------------------------------------------------
+
+gpuTest('start(): hooks before the encode and after the submit, encode options, the profiler timing compute and blit', async () => {
+  await import('./as-renderer.js');                  // registers ASRenderer
+  const { ASCamera } = await import('./as-camera.js');
+  const { FrameProfiler } = await import('./frame-profiler.js');
+  globalThis.window ??= { devicePixelRatio: 1 };
+  const sc = scene({ sphere: { center: [0, 0, 0], radius: 1 }, material: 'clay' });
+  const W = 64, H = 32;
+  let config, tex;
+  const surface = {
+    configure(c) { config = c; }, unconfigure() {},
+    getCurrentTexture() { tex ??= ctx.device.createTexture({ size: [W, H], format: config.format, usage: config.usage }); return tex; },
+  };
+  const camera = new ASCamera();
+  camera.aim({ focus: [0, 0, 0], direction: [0, 1, 0], distance: 4 });
+  const view = ctx.createRenderer({ clientWidth: W, clientHeight: H, width: W, height: H, getContext: () => surface },
+                                  { scene: sc, camera });
+  // What happens, in order, and what the encode was given.
+  const seen = [];
+  const encode = view.encode.bind(view);
+  view.encode = (enc, opts) => { seen.push(['encode', Object.keys(opts).sort().join()]); return encode(enc, opts); };
+  // A panel just good enough for the profiler.
+  const cells = {};
+  const panel = {
+    set innerHTML(html) { for (const [, k] of html.matchAll(/data-k="([^"]+)"/g)) cells[k] = { dataset: { k }, textContent: '' }; },
+    querySelectorAll: () => Object.values(cells),
+    querySelector: () => ({ textContent: '', innerHTML: '', getContext: () => null }),
+  };
+  const profiler = new FrameProfiler(ctx.device, ctx.canTimestamp, ['compute', 'blit'], panel);
+  let pending = new Map(), ids = 0;
+  globalThis.requestAnimationFrame = (fn) => { pending.set(++ids, fn); return ids; };
+  globalThis.cancelAnimationFrame = (id) => { pending.delete(id); };
+  const tick = async () => {
+    const run = [...pending.values()]; pending = new Map();
+    for (const fn of run) fn(performance.now());
+    await ctx.device.queue.onSubmittedWorkDone();
+    while (profiler.pending) await new Promise((r) => setTimeout(r, 1));
+  };
+  let physicsPass = 'unasked';
+  const offBefore = ctx.onFrame((dt, frame) => { seen.push(['before', typeof dt]); physicsPass = frame.pass('physics'); });
+  const offAfter = ctx.afterFrame(() => seen.push(['after']));
+  ctx.start({ profiler, options: () => ({ camera: { debugView: 0 } }) });
+  for (let f = 0; f < 6; f++) await tick();
+  ctx.stop();
+
+  assert.deepEqual(seen.slice(0, 3), [['before', 'number'],
+    ['encode', 'blitTimestamps,camera,computeTimestamps'], ['after']],
+    'onFrame, then the encode (with the options and the timestamps), then afterFrame');
+  assert.equal(physicsPass, undefined, 'a pass the profiler doesn\'t time: none');
+  if (ctx.canTimestamp) {
+    assert.ok(Number.isFinite(profiler.avg.compute()) && profiler.avg.compute() > 0, `compute timed: ${profiler.avg.compute()}`);
+    assert.ok(Number.isFinite(profiler.avg.blit()), 'blit timed');
+  }
+
+  // With no profiler, as it ever was: hooks, an encode, nothing timed.
+  seen.length = 0;
+  ctx.start();
+  await tick();
+  ctx.stop();
+  assert.deepEqual(seen.map(([what]) => what), ['before', 'encode', 'after']);
+  assert.equal(seen[1][1], '', 'no options, no timestamps');
+  offBefore(); offAfter();
+  view.destroy(); sc.destroy();
+});

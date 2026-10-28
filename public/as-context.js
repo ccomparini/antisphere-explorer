@@ -75,6 +75,7 @@ export class ASContext {
     this._raf = 0;
     this._lastFrame = performance.now();
     this._onFrame = new Set();
+    this._afterFrame = new Set();
   }
 
   /** Every shader's text: { compute, blit }. */
@@ -134,31 +135,78 @@ export class ASContext {
   /** Called by ASRenderer.destroy(). */
   _forget(renderer) { this.renderers.delete(renderer); }
 
-  /** Run something every frame, before the renderers encode. dt is seconds. */
+  /**
+   * Run something every frame, before the renderers encode: fn(dt, frame),
+   * dt in seconds (clamped after a stall), `frame` as start() says.
+   */
   onFrame(fn) { this._onFrame.add(fn); return () => this._onFrame.delete(fn); }
 
+  /** Run something every frame, after its submit: fn(frame). */
+  afterFrame(fn) { this._afterFrame.add(fn); return () => this._afterFrame.delete(fn); }
+
   /**
-   * One requestAnimationFrame for every view, and one submit.
+   * The frame loop every page runs: one requestAnimationFrame for every
+   * view, and one submit. Each frame:
    *
-   * Each renderer encodes into the same command encoder, so a four-pane editor
-   * costs one submit per frame rather than four.
+   *   1. the profiler, if any, begins the frame (begin(), with tag()'s tag);
+   *   2. onFrame hooks: fn(dt, frame) - time moves on, things move, the
+   *      page's own GPU work runs, timed by frame.pass(name);
+   *   3. every ready renderer encodes into one encoder, with options(r)
+   *      merged into its encode options (a ladder's camera override). The
+   *      first is timed: its compute pass as 'compute', its blit as 'blit',
+   *      or the blit idle while it writes the canvas directly;
+   *   4. the profiler's timestamps resolved, the submit, the profiler's
+   *      end() with the frame's time and the CPU time spent on it;
+   *   5. afterFrame hooks: fn(frame) - what reads the frame just sent (a
+   *      ladder moving on, a probe, a stat line).
+   *
+   * `frame` is { dt, frameMs, pass(name), skipped(name) }: pass() is the
+   * profiler's timestampWrites for a pass of that name (undefined without
+   * a profiler, or not timing), skipped() says a pass asked for didn't run.
+   * Each renderer encodes into the same command encoder, so a four-pane
+   * editor costs one submit per frame rather than four.
+   *
+   * @param {object} [opts]
+   * @param {FrameProfiler} [opts.profiler]   times the frames (frame-profiler.js)
+   * @param {() => any} [opts.tag]            each frame's tag for the profiler
+   * @param {(renderer) => object} [opts.options]  extra encode options per renderer
    */
-  start() {
+  start({ profiler = null, tag = null, options = null } = {}) {
     if (this._raf) return;
+    this._lastFrame = performance.now();
     const tick = () => {
       this._raf = requestAnimationFrame(tick);
       const now = performance.now();
-      const dt = Math.min(0.1, (now - this._lastFrame) / 1000);   // clamp after a stall
+      const frameMs = now - this._lastFrame;
+      const dt = Math.min(0.1, frameMs / 1000);                     // clamp after a stall
       this._lastFrame = now;
+      const cpuStart = performance.now();
+      profiler?.begin(tag?.());
+      const frame = {
+        dt, frameMs,
+        pass: (name) => profiler?.pass(name),
+        skipped: (name) => profiler?.skipped(name),
+      };
 
-      for (const fn of this._onFrame) fn(dt);
+      for (const fn of this._onFrame) fn(dt, frame);
 
       const active = [...this.renderers].filter((r) => r.ready);
-      if (!active.length) return;
-
       const enc = this.device.createCommandEncoder();
-      for (const r of active) r.encode(enc);
+      active.forEach((r, i) => {
+        const timed = i === 0 && profiler;
+        if (timed && r.directOut) profiler.idle('blit');
+        const drew = r.encode(enc, {
+          ...(options?.(r) ?? {}),
+          ...(timed ? { computeTimestamps: frame.pass('compute'),
+                        blitTimestamps: r.directOut ? undefined : frame.pass('blit') } : {}),
+        });
+        if (timed && !drew) { frame.skipped('compute'); frame.skipped('blit'); }
+      });
+      profiler?.resolve(enc);
       this.device.queue.submit([enc.finish()]);
+      profiler?.end(frameMs, performance.now() - cpuStart);
+
+      for (const fn of this._afterFrame) fn(frame);
     };
     this._raf = requestAnimationFrame(tick);
   }

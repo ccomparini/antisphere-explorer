@@ -116,8 +116,9 @@ export class FrameProfiler {
   /** Call fn(tag, { pass: ms }) with each timed frame's times, as they come back. */
   onTimes(fn) { this.listeners.push(fn); }
 
-  /** timestampWrites for pass `name` this frame, or undefined when not timing. */
+  /** timestampWrites for pass `name` this frame, or undefined when not timing it (or a pass it doesn't time). */
   pass(name) {
+    if (!this.passes.includes(name)) return undefined;
     this.idlePasses.delete(name);
     if (!this.timing) return undefined;
     const i = this.passes.indexOf(name);
@@ -134,6 +135,7 @@ export class FrameProfiler {
    * their way back from before are dropped.
    */
   idle(name) {
+    if (!this.passes.includes(name)) return;
     this.idlePasses.add(name);
     this.written.delete(name);
     this.avg[name].clear();
