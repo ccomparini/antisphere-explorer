@@ -2116,7 +2116,10 @@ export function parseSpawn(def, at = (path, msg) => { throw new Error(`${path}: 
 }
 
 export function compileScene(rawSpec, options = {}) {
-  const at = (path, msg) => { throw new Error(`scene compilation: ${path}: ${msg}`); };
+  // Messages name the file being compiled, where there is one (its last
+  // part: "scene-ambient.json"), and where in it.
+  const file = options.path ? `${String(options.path).split(/[?#]/)[0].split('/').pop()} ` : '';
+  const at = (path, msg) => { throw new Error(`scene compilation: ${file}${path}: ${msg}`); };
 
   // References are replaced by what they name before anything else looks
   // at the spec, so everything below sees one ordinary scene - some of
@@ -2131,7 +2134,7 @@ export function compileScene(rawSpec, options = {}) {
   // without it, rather than not loading at all. options.warn(path, msg)
   // hears the warnings instead of the console (a tool's check, failing on
   // them); options.quiet silences them.
-  const quietly = options.warn ?? ((path, msg) => { if (!options.quiet) console.warn(`warning: ${path}: ${msg}`); });
+  const quietly = options.warn ?? ((path, msg) => { if (!options.quiet) console.warn(`warning: ${file}${path}: ${msg}`); });
   const { spec, missing } = expandReferences(rawSpec, options.files ?? {}, { from: options.path ?? '' });
   if (missing.size) {
     quietly([...missing].join(', '), 'not loaded, so what refers to it is left out (see loadReferences())');
@@ -2245,7 +2248,7 @@ export function compileScene(rawSpec, options = {}) {
     if (def.material === null) return NO_MATERIAL;
     if (def.material !== undefined) return substrate(def.material, `${path}.material`);
     if (def.paint === undefined) return INHERIT_MATERIAL;
-    console.warn(`scene.json ${path}.paint: "paint" is deprecated - use "material" instead.`);
+    quietly(`${path}.paint`, '"paint" is deprecated - use "material" instead');
     if (def.paint === 'inherit') return INHERIT_MATERIAL;
     if (def.paint === 'partition' || def.paint === 'bare') return NO_MATERIAL;
     return substrate(def.paint, `${path}.paint`);
@@ -2423,8 +2426,7 @@ export function compileScene(rawSpec, options = {}) {
       const key = JSON.stringify(def);
       const twin = instanceBodies.get(key);
       if (twin) {
-        console.warn(`scene.json objects.${name}: identical to objects.${twin} ` +
-                     '(same prototype, placed alike)');
+        quietly(`objects.${name}`, `identical to objects.${twin} (same prototype, placed alike)`);
       } else {
         instanceBodies.set(key, name);
       }
