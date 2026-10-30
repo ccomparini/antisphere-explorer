@@ -276,7 +276,7 @@ $$
 where $\vec c_a$ and $d_a$ are the linear and constant terms about the anchor, worked
 out in f64 by `packNodes()`.
 
-**`material_id`.** The low 26 bits index the material; the high bits are its
+**`material_id`.** The low 25 bits index the material; the high bits are its
 trace flags, so `trace()` reads what a ray does in a region without looking
 the material up. They come from the material's `flags`; without a material
 table (`packNodes(nodes)`, as physics packs), only the index. Bit 26 is the
@@ -287,14 +287,16 @@ at its hits).
 | bits  | mask | flag | scene key |
 |---|---|---|---|
 | 31    | `0x80000000` | `MATERIAL_SOLID`: there, physically (walk camera, physics, `castRays()`) | `solid` |
-| 30    | `0x40000000` | `MATERIAL_OPTICAL`: camera and shadow rays stop there | `optical` |
+| 30    | `0x40000000` | `MATERIAL_OPTICAL`: camera rays stop there | `optical` |
 | 28–29 | `0x30000000` | `MATERIAL_IOR`: glass `0x20000000` (1.5), water `0x10000000` (1.333), both (2.42) | `iorGlass`, `iorWater` |
 | 27    | `0x08000000` | `MATERIAL_REFLECTIVE`: a mirror | `reflective` |
 | 26    | `0x04000000` | `NODE_ENV`: the node starts an env (the node's, not the material's) | |
-| 0–25  | `0x03ffffff` | `MATERIAL_INDEX`: the material's index | |
+| 25    | `0x02000000` | `MATERIAL_CASTS_SHADOW`: shadow rays stop there; set with `OPTICAL` unless the material says | `castsShadow` |
+| 0–24  | `0x01ffffff` | `MATERIAL_INDEX`: the material's index | |
 
 A material that is neither an ambient nor a glow region has `SOLID` and
-`OPTICAL` by default; each scene key sets or clears its own bit.
+`OPTICAL` by default; each scene key sets or clears its own bit, and
+`CASTS_SHADOW` follows `OPTICAL` unless `castsShadow` is given.
 
 ### `surfaces`
 

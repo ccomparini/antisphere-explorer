@@ -570,7 +570,8 @@ test('packSurfaces: copies and complements of a surface share an id, other surfa
 });
 
 test('a material\'s flag keys are the single-bit MATERIAL_ constants', () => {
-  assert.deepEqual(Object.keys(MATERIAL_FLAG_KEYS).sort(), ['iorGlass', 'iorWater', 'optical', 'reflective', 'solid']);
+  assert.deepEqual(Object.keys(MATERIAL_FLAG_KEYS).sort(), ['castsShadow', 'iorGlass', 'iorWater', 'optical', 'reflective', 'solid']);
+  assert.equal(MATERIAL_FLAG_KEYS.castsShadow, layouts.MATERIAL_CASTS_SHADOW);
   assert.equal(MATERIAL_FLAG_KEYS.solid, layouts.MATERIAL_SOLID >>> 0);
   assert.equal(MATERIAL_FLAG_KEYS.iorGlass, layouts.MATERIAL_IOR_GLASS);
   // Masks are more than one bit, so no keys: not INDEX, not IOR.
@@ -581,8 +582,10 @@ test('a material\'s flag keys are the single-bit MATERIAL_ constants', () => {
 });
 
 test('a node\'s material id carries its material\'s trace flags over the index', () => {
-  const { MATERIAL_SOLID: SOLID, MATERIAL_OPTICAL: OPTICAL, MATERIAL_IOR_GLASS: GLASS,
-          MATERIAL_IOR_WATER: WATER, MATERIAL_REFLECTIVE: REFLECTIVE, MATERIAL_INDEX } = layouts;
+  const { MATERIAL_SOLID: SOLID, MATERIAL_IOR_GLASS: GLASS, MATERIAL_IOR_WATER: WATER,
+          MATERIAL_REFLECTIVE: REFLECTIVE, MATERIAL_CASTS_SHADOW: SHADOW, MATERIAL_INDEX } = layouts;
+  // What is seen casts a shadow, unless it says otherwise.
+  const OPTICAL = layouts.MATERIAL_OPTICAL | SHADOW;
   const u32 = (v) => v >>> 0;     // as a u32, not JS's signed int
   const materials = {
     stone:  {},                                         // solid and seen, by default
@@ -594,11 +597,14 @@ test('a node\'s material id carries its material\'s trace flags over the index',
     odd:    { optical: false, iorGlass: true, iorWater: true },   // compiled as written
     level:  { kind: 'ambient' },                        // a region's surroundings: no flags
     lit:    { kind: 'ambient', optical: true },         // unless it says so
+    backdrop: { castsShadow: false },                   // seen, casting no shadow
+    stand:  { optical: false, castsShadow: true },      // unseen, casting one
   };
   const want = {
     stone: SOLID | OPTICAL, ghost: OPTICAL, fence: SOLID, glass: SOLID | OPTICAL | GLASS,
     water: OPTICAL | WATER, mirror: SOLID | OPTICAL | REFLECTIVE, odd: SOLID | GLASS | WATER,
     level: 0, lit: OPTICAL,
+    backdrop: SOLID | layouts.MATERIAL_OPTICAL, stand: SOLID | SHADOW,
   };
   // Each material fills one ball, nested; the outermost is a pure division.
   let root = null;

@@ -127,7 +127,8 @@ and behave. The name `inherit` is reserved (left over from the deprecated
 | `pattern`  | `"flat"` \| `"checker"`                        | `"flat"`         | how `albedo`/`albedo2` are combined across the surface |
 | `scale`    | number                                          | `1`              | checker pattern tile size: larger is bigger tiles |
 | `solid`    | boolean                                         | `true`           | there physically: the walk camera, physics and picking stop at it |
-| `optical`  | boolean                                         | `true`           | meets light: camera and shadow rays stop at it (`false`: invisible, and casts no shadow) |
+| `optical`  | boolean                                         | `true`           | meets light: camera rays stop at it (`false`: invisible) |
+| `castsShadow` | boolean                                      | as `optical`     | shadow rays stop at it: it shadows what is behind it from a light. `false` on a seen material: no shadow (a backdrop); `true` on an unseen one: a shadow, and nothing seen (a stand-in) |
 | `iorGlass` | boolean                                         | `false`          | glass, index 1.5: no shading of its own; it shows what a camera ray refracted through it sees, coloured by how far the ray went through it: its `albedo` is the colour of light after one unit of it |
 | `iorWater` | boolean                                         | `false`          | the same, index 1.333 (both `iorGlass` and `iorWater`: 2.42, diamond) |
 | `opacity`  | number ≥ 0                                      | `1`              | glass and water: how fast light through it takes on its `albedo` - after `d` units, `albedo`^(`d` × `opacity`). `0` is clear; see below for values |
@@ -137,9 +138,11 @@ The boolean fields are the material's **trace flags**: every single-bit
 `MATERIAL_` constant in `shaders/node.wgsls`, named without `MATERIAL_` and
 camelCased, so a flag added there is a field here at once. Each sets or
 clears its own bit and no combination is refused: `"solid": false` alone is
-seen but walked through, `"optical": false` alone is there but unseen, and
-an odd combination may render oddly, or be just what is wanted. A material
-with neither `solid` nor `optical` has no interaction at all, like vacuum.
+seen but walked through, `"optical": false` alone is there but unseen (and,
+`castsShadow` following `optical` unless given, casts no shadow), and an
+odd combination may render oddly, or be just what is wanted. A material
+with neither `solid`, `optical` nor `castsShadow` has no interaction at
+all, like vacuum.
 `"ambient"` and `"glowRegion"` materials default to no flags.
 
 How much glass colours what is seen through it goes by how much of it the

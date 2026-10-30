@@ -84,9 +84,9 @@ struct Node {
 //
 //   bit 31     SOLID: there, physically - for the walk camera, physics,
 //              and castRays()
-//   bit 30     OPTICAL: interacts with light - camera and shadow rays stop
-//              there. The bits below say whether a camera ray goes on, and
-//              how (main()).
+//   bit 30     OPTICAL: interacts with light - camera rays stop there. The
+//              bits below say whether a camera ray goes on, and how
+//              (main()). Whether shadow rays stop is CASTS_SHADOW's.
 //   bits 28-29 IOR: glass - a camera ray refracts in, and out where the
 //              material ends, the hit showing what it sees, times its
 //              albedo. IOR_GLASS 1.5, IOR_WATER 1.333, both 2.42
@@ -100,7 +100,11 @@ struct Node {
 //              own), which a hit within its inside is lit by (see
 //              envAt()). Set on node 0 if any node has it. NODE_, not
 //              MATERIAL_, so no scene key
-//   bits 0-25  the material's index (materialIndex())
+//   bit 25     CASTS_SHADOW: shadow rays stop there - the material shadows
+//              what is behind it from a light. Set with OPTICAL unless a
+//              scene says otherwise ("castsShadow"): seen and shadowless (a
+//              backdrop), or unseen and shadowing (a shadow's stand-in)
+//   bits 0-24  the material's index (materialIndex())
 const MATERIAL_SOLID      : u32 = 0x80000000u;
 const MATERIAL_OPTICAL    : u32 = 0x40000000u;
 const MATERIAL_IOR        : u32 = 0x30000000u;
@@ -108,7 +112,8 @@ const MATERIAL_IOR_GLASS  : u32 = 0x20000000u;
 const MATERIAL_IOR_WATER  : u32 = 0x10000000u;
 const MATERIAL_REFLECTIVE : u32 = 0x08000000u;
 const NODE_ENV            : u32 = 0x04000000u;
-const MATERIAL_INDEX      : u32 = 0x03ffffffu;
+const MATERIAL_CASTS_SHADOW : u32 = 0x02000000u;
+const MATERIAL_INDEX      : u32 = 0x01ffffffu;
 fn materialIndex(id : u32) -> u32 { return id & MATERIAL_INDEX; }
 
 // The implicit function at an arbitrary point. trace() no longer calls this:
@@ -1567,4 +1572,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":139},{"path":"shaders/overlap.wgsls","offset":141,"lines":257},{"path":"shaders/collision.wgsls","offset":398,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":949,"lines":620}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":144},{"path":"shaders/overlap.wgsls","offset":146,"lines":257},{"path":"shaders/collision.wgsls","offset":403,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":954,"lines":620}]
