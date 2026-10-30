@@ -38,7 +38,7 @@ import {
   Light, Material, Node,
   KIND_LAMBERT, KIND_GLOSSY, KIND_EMISSIVE, KIND_UNLIT, KIND_AMBIENT, KIND_GLOW_REGION,
   PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, MATERIAL_SOLID, MATERIAL_OPTICAL,
-  MATERIAL_INDEX, NODE_ENV,
+  MATERIAL_INDEX, NODE_ENV, MATERIAL_CASTS_SHADOW,
 } from './gen/layouts.js';
 import * as layouts from './gen/layouts.js';
 import { regionsDisjoint, interiorPaths } from './overlap.js';
@@ -2184,12 +2184,16 @@ export function compileScene(rawSpec, options = {}) {
     }
     // Solid and seen, unless an ambient (a region's surroundings, not a
     // substance) or the keys say otherwise; each key sets or clears its own
-    // bit, and no combination is refused.
+    // bit, and no combination is refused. What is seen casts a shadow,
+    // unless "castsShadow" says otherwise.
     let flags = isRegionKind(kind.id) ? 0 : MATERIAL_SOLID | MATERIAL_OPTICAL;
     for (const [key, bit] of Object.entries(MATERIAL_FLAG_KEYS)) {
       if (def[key] === undefined) continue;
       if (typeof def[key] !== 'boolean') at(`materials.${name}.${key}`, `must be true or false, got ${JSON.stringify(def[key])}`);
       flags = def[key] ? flags | bit : flags & ~bit;
+    }
+    if (def.castsShadow === undefined) {
+      flags = flags & MATERIAL_OPTICAL ? flags | MATERIAL_CASTS_SHADOW : flags & ~MATERIAL_CASTS_SHADOW;
     }
     table.push({
       name,                                      // for display (what a ray hit); not packed
@@ -2221,7 +2225,8 @@ export function compileScene(rawSpec, options = {}) {
     if (m === undefined) {
       quietly(path, `unknown material "${name}": shown as a stand-in, flat magenta`);
       table.push({ name, missing: true, albedo: [1, 0, 1], albedo2: [1, 0, 1], scale: 1, opacity: 1,
-                   kind: KIND_UNLIT, params: [0, 0], pattern: 0, flags: (MATERIAL_SOLID | MATERIAL_OPTICAL) >>> 0 });
+                   kind: KIND_UNLIT, params: [0, 0], pattern: 0,
+                   flags: (MATERIAL_SOLID | MATERIAL_OPTICAL | MATERIAL_CASTS_SHADOW) >>> 0 });
       m = table.length - 1;
       matIndex.set(name, m);
     }

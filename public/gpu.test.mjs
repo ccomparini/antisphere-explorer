@@ -1440,3 +1440,44 @@ gpuTest('start(): hooks before the encode and after the submit, encode options, 
   offBefore(); offAfter();
   view.destroy(); sc.destroy();
 });
+
+// -- casting shadows ---------------------------------------------------------------------
+
+gpuTest('castsShadow: a material seen may cast no shadow, and one unseen may cast one', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A red ball above a grey floor, lit from the side: its shadow falls to
+  // +x of it. Looked at from above.
+  const shoot = (ball) => renderPixels({
+    materials: { floor: { albedo: [0.6, 0.6, 0.6] }, red: { albedo: [0.9, 0.1, 0.1] }, ball },
+    lights: [{ direction: [1, 0, -1], color: [2, 2, 2] }],
+    root: { plane: { normal: [0, 0, 1], offset: 0 }, material: 'floor',
+            outside: { sphere: { center: [0, 0, 1], radius: 0.5 }, material: 'ball' } },
+  }, (() => { const c = new ASCamera(); c.aim({ focus: [0.5, 0, 0], direction: [0, 0.2, -1], distance: 6 }); return c; })(), 120, 60);
+  // How much of the picture is the red ball, and the darkest of the floor
+  // to its right, where its shadow falls (red pixels, the ball's own, aside),
+  // against the lit floor far from both.
+  const read = ({ at, W, H }) => {
+    const lum = (p) => p[0] + p[1] + p[2], red = (p) => p[0] > 12 && p[0] > 1.5 * p[1] && p[0] > 1.5 * p[2];   // red by hue, lit or not
+    let ball = 0, shadow = Infinity;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const p = at(x, y);
+        if (red(p)) ball++;
+        else if (x > W * 0.45 && y > H * 0.25 && y < H * 0.75) shadow = Math.min(shadow, lum(p));
+      }
+    }
+    return { ball, shadow, far: lum(at(W - 2, H - 2)) };
+  };
+  const seen = read(await shoot({ albedo: [0.9, 0.1, 0.1] }));
+  const shadowless = read(await shoot({ albedo: [0.9, 0.1, 0.1], castsShadow: false }));
+  const stand = read(await shoot({ albedo: [0.9, 0.1, 0.1], optical: false, castsShadow: true }));
+  // The ball is seen (red), and shadows the floor beside it.
+  assert.ok(seen.ball > 20, `the ball, red: ${seen.ball} pixels`);
+  assert.ok(seen.shadow < 0.6 * seen.far, `its shadow: ${seen.shadow} against lit floor ${seen.far}`);
+  // castsShadow false: seen still, no shadow.
+  assert.equal(shadowless.ball, seen.ball, 'still seen, the same');
+  assert.ok(shadowless.shadow > 0.9 * shadowless.far, `no shadow: ${shadowless.shadow} against ${shadowless.far}`);
+  // optical false, castsShadow true: unseen, and the shadow is there.
+  assert.equal(stand.ball, 0, 'unseen');
+  assert.ok(stand.shadow < 0.6 * stand.far, `but it shadows: ${stand.shadow} against ${stand.far}`);
+});

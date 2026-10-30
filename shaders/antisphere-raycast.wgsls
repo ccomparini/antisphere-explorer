@@ -206,8 +206,8 @@ var<storage, read> surfaces : array<u32>;
 //
 // `stop_flags` says what this ray stops at: a region whose material id has
 // any of these trace flags (see Node.material_id): MATERIAL_OPTICAL for a
-// ray that is light (camera rays, shadow rays), MATERIAL_SOLID for one that
-// wants what is physically there (castRays()).
+// camera ray, MATERIAL_CASTS_SHADOW for a shadow ray, MATERIAL_SOLID for
+// one that wants what is physically there (castRays()).
 //
 // `extend_flags` is for a ray inside a medium (glass, water): it wants
 // where the medium ends, not where it starts. 0 is no extending; otherwise
@@ -654,14 +654,15 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
   if (cam.shadows != 0u) {
     shadowRays = shadowRays + 1u; // (profiling; shown via ablation)
 
-    // Any solid between the surface and the light occludes the light.
+    // Anything that casts a shadow between the surface and the light
+    // occludes it (MATERIAL_CASTS_SHADOW: by default whatever is seen).
     // We trace from the point on the surface toward the light so that
     // directional lights can work. 
     // From inside the light's env: it sees only what that env holds, so
     // a room's lamp is shadowed by the room alone (and its rays take the
     // room's subtree, not the scene's). Env 0's lights see everything.
     let start = select(ROOT, lt.env | DEFAULT_INSIDE_BIT, lt.env != 0u);
-    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start, MATERIAL_OPTICAL, 0u);
+    let blocker = trace(hit.position, L, 0.0, select(FAR, dist, lt.pos_w != 0.0), surfaces[hit.node], start, MATERIAL_CASTS_SHADOW, 0u);
     if (blocker.node != 0u) {
       // the ray hit something between us and the light,
       // so we're in shadow:
