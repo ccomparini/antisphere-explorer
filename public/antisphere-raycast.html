@@ -69,6 +69,7 @@
 // library doing the work.
 
 import { ASContext } from './as-context.js';
+import { runPage, noteIn } from './page.js';
 import { ASRenderer, DEBUG_VIEWS } from './as-renderer.js';
 import { ASCamera, attachCameraControls } from './as-camera.js';
 import { loadText, loadBytes } from './load.js';
@@ -79,21 +80,9 @@ import { loadReferences } from './antisphere-scene.js';
 const canvas = document.getElementById('c');
 const el = (id) => document.getElementById(id);
 
-function fail(msg) {
-  el('err').style.display = 'grid';
-  el('err').textContent = msg;
-  canvas.style.display = 'none';
-}
+const note = noteIn(el('note'));
 
-let noteTimer = 0;
-function note(text, bad) {
-  el('note').textContent = text;
-  el('note').style.color = bad ? '#f87171' : '#4ade80';
-  clearTimeout(noteTimer);
-  noteTimer = setTimeout(() => { el('note').textContent = ''; }, bad ? 6000 : 1600);
-}
-
-main().catch((e) => { fail(e.message); throw e; });
+runPage(main, { hide: canvas });
 
 async function main() {
   // ?scene=other.json picks a different scene, so a benchmark setup is a

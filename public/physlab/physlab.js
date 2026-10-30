@@ -19,6 +19,7 @@
 // Distances are in meters.
 
 import { ASContext } from '../as-context.js';
+import { runPage } from '../page.js';
 import '../as-renderer.js';           // registers the renderer ASContext.createRenderer makes
 import { World, WorldObject } from './world.js';
 import { gravityOf } from './gravity.js';
@@ -185,14 +186,7 @@ function thrustOf(flight) {
 
 const canvas = document.getElementById('c');
 
-main().catch((e) => {
-  const err = document.getElementById('err');
-  err.textContent = e.message;
-  err.hidden = false;
-  err.style.display = 'grid';
-  canvas.style.display = 'none';
-  throw e;
-});
+runPage(main, { hide: canvas });
 
 async function main() {
   // The page is one directory below public/, like the editor.

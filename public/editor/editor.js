@@ -10,6 +10,7 @@
 // opens one at startup, and Revert reloads the current one from there.
 
 import { ASContext } from '../as-context.js';
+import { runPage, noteIn } from '../page.js';
 import { readScene, withReferences } from '../antisphere-scene.js';
 import { DEBUG_VIEWS } from '../as-renderer.js';
 import { ASCamera, attachCameraControls } from '../as-camera.js';
@@ -45,19 +46,7 @@ const NEW_SCENE = {
 
 const el = (id) => document.getElementById(id);
 
-function fail(msg) {
-  el('err').style.display = 'grid';
-  el('err').textContent = msg;
-  el('app').style.display = 'none';
-}
-
-let noteTimer = 0;
-function note(text, bad) {
-  el('note').textContent = text;
-  el('note').style.color = bad ? '#f87171' : '#4ade80';
-  clearTimeout(noteTimer);
-  noteTimer = setTimeout(() => { el('note').textContent = ''; }, bad ? 6000 : 1600);
-}
+const note = noteIn(el('note'));
 
 
 // Shortcuts and arrow-key flying are global listeners, so they stand down
@@ -66,7 +55,7 @@ function note(text, bad) {
 const editingPanel = () =>
   el('panel').contains(document.activeElement) && isTextEntry(document.activeElement);
 
-main().catch((e) => { fail(e.message); throw e; });
+runPage(main, { hide: el('app') });
 
 async function main() {
   // One device, one set of pipelines, one scene — shared by every pane.

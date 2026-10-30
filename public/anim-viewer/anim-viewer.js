@@ -27,6 +27,7 @@
 // viewer plays on: at rest, or magenta.
 
 import { ASContext } from '../as-context.js';
+import { runPage, noteIn } from '../page.js';
 import '../as-renderer.js';                        // registers ASRenderer
 import { ASCamera, attachCameraControls } from '../as-camera.js';
 import { FrameProfiler } from '../frame-profiler.js';
@@ -47,19 +48,7 @@ const el = (id) => document.getElementById(id);
 const isURL = (name) => /^[a-z][a-z0-9+.-]*:\/\//i.test(name);
 const located = (name) => (isURL(name) ? name : SCENE_DIR + name);
 
-function fail(msg) {
-  el('err').style.display = 'grid';
-  el('err').textContent = msg;
-  el('app').style.display = 'none';
-}
-
-let noteTimer = 0;
-function note(text, bad) {
-  el('note').textContent = text;
-  el('note').style.color = bad ? '#f87171' : '#4ade80';
-  clearTimeout(noteTimer);
-  noteTimer = setTimeout(() => { el('note').textContent = ''; }, bad ? 6000 : 1600);
-}
+const note = noteIn(el('note'));
 
 // Warnings, each listed once: a pose is recompiled every frame, and would
 // say the same thing every time. The panel shows the list.
@@ -76,7 +65,7 @@ async function readJSON(url) {
   return JSON.parse(text);
 }
 
-main().catch((e) => { fail(e.message); throw e; });
+runPage(main, { hide: el('app') });
 
 async function main() {
   // The mannequin's clips and materials are the defaults only for the
