@@ -47,11 +47,12 @@
     "shininess": 90,
     "specular": 1.1
   },
-  "brass-4": {
+  "brass-reflective": {
     "kind": "glossy",
     "albedo": [ 0.66, 0.58, 0.22 ],
-    "shininess": 70,
-    "specular": 1.1
+    "shininess": 120,
+    "specular": 1.1,
+    "reflective": true
   },
   "brass-5": {
     "kind": "glossy",
@@ -178,6 +179,13 @@
   "floor-14": {
     "albedo": [ 0.5, 0.5, 0.5 ]
   },
+  "glass": {
+    "iorGlass": true,
+    "albedo": [ 0.82, 0.94, 0.9 ],
+    "kind": "glossy",
+    "shininess": 120,
+    "specular": 1
+  },
   "gold": {
     "albedo": [ 0.72, 0.58, 0.32 ],
     "kind": "glossy",
@@ -245,6 +253,13 @@
     "reflective": true,
     "albedo": [ 0.9, 0.9, 0.9 ]
   },
+  "mirror-dark": {
+    "kind": "glossy",
+    "shininess": 60,
+    "specular": 20,
+    "reflective": true,
+    "albedo": [ 0.25, 0.25, 0.25 ]
+  },
   "moss": {
     "albedo": [ 0.35, 0.52, 0.32 ]
   },
@@ -270,6 +285,7 @@
     "pattern": "noise"
   },
   "rose": {
+    "_comment": "this one looks like terra cotta clay",
     "albedo": [ 0.62, 0.34, 0.36 ]
   },
   "shell": {
@@ -287,14 +303,17 @@
     "albedo": [ 0.3, 0.31, 0.35 ]
   },
   "sky": {
+    "castsShadow": false,
     "albedo": [ 0.07, 0.09, 0.14 ],
     "kind": "unlit"
   },
   "sky-2": {
+    "castsShadow": false,
     "kind": "unlit",
     "albedo": [ 0.32, 0.4, 0.55 ]
   },
   "sky-3": {
+    "castsShadow": false,
     "kind": "unlit",
     "albedo": [ 0.43, 0.66, 0.98 ]
   },

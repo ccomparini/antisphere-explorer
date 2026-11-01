@@ -1,0 +1,140 @@
+{
+  "materials": [
+    "@lib/materials.json",
+    {
+      "glass-noshadow": {
+        "iorGlass": true,
+        "albedo": [ 0.82, 0.94, 0.9 ],
+        "kind": "glossy",
+        "shininess": 120,
+        "specular": 1,
+        "castsShadow": false
+      }
+    }
+  ],
+  "lights": [
+    {
+      "direction": [ -10, -7.9, -8.2 ],
+      "color": [ 1.5, 1.2, 0.8 ]
+    }
+  ],
+  "camera": {
+    "position": [ 0, 8, 3.8 ],
+    "target": [ -1.35, 0, 0.65 ],
+    "minDistance": 0.75,
+    "maxDistance": 23
+  },
+  "objects": {
+    "bitten": {
+      "scale": 1.9,
+      "sphere": {
+        "center": [ -1.35, 0, 0.25 ],
+        "radius": 1.15
+      },
+      "material": "jade",
+      "inside": {
+        "plane": {
+          "normal": [ 0, 0, 1 ],
+          "offset": 0.95
+        },
+        "material": "mirror-dark",
+        "inside": {
+          "material": "jade",
+          "sphere": {
+            "center": [ -0.75, 0.8, 0.85 ],
+            "radius": 0.8,
+            "complement": true
+          },
+          "inside": {
+            "material": "rose",
+            "sphere": {
+              "center": [ -1.35, 0, 0.25 ],
+              "radius": 0.8,
+              "complement": true
+            }
+          }
+        }
+      }
+    },
+    "lens": {
+      "sphere": {
+        "center": [ 0, 3.6, 0.15 ],
+        "radius": 4.0
+      },
+      "material": "glass-noshadow",
+      "inside": {
+        "sphere": {
+          "center": [ 0, -3.6, 0.15 ],
+          "radius": 4.0
+        }
+      }
+    },
+    "marbles": {
+      "group": [
+        {
+          "sphere": {
+            "center": [ -5.4, -3.25, 2.7 ],
+            "radius": 0.38
+          },
+          "material": "rose"
+        },
+        {
+          "sphere": {
+            "center": [ -3.2, -4, 3.5 ],
+            "radius": 0.38
+          },
+          "material": "core-2"
+        },
+        {
+          "sphere": {
+            "center": [ 1.6, 2, 3.4 ],
+            "radius": 0.38
+          },
+          "material": "brass-reflective"
+        },
+        {
+          "sphere": {
+            "center": [ 1.55, -2.5, 1 ],
+            "radius": 0.38
+          },
+          "material": "jade"
+        },
+        {
+          "sphere": {
+            "center": [ 0.55, -1.75, -0.62 ],
+            "radius": 0.38
+          },
+          "material": "chalk-3"
+        }
+      ]
+    }
+  },
+  "root": {
+    "sphere": {
+      "complement": true,
+      "radius": 25
+    },
+    "material": "sky-3",
+    "outside": {
+      "plane": {
+        "offset": -1
+      },
+      "material": "floor-12",
+      "outside": {
+        "group": [
+          "bitten",
+          {
+            "use": "lens",
+            "translate": [ 1.7, 3.8, 3.1 ],
+            "scale": 0.25,
+            "rotate": {
+              "axis": [ 0, 1, 1 ],
+              "degrees": -65
+            }
+          },
+          "marbles"
+        ]
+      }
+    }
+  }
+}

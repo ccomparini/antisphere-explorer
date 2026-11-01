@@ -1,29 +1,44 @@
 {
   "materials": "@lib/materials.json",
-
   "lights": [
-    { "pos": [-2.2,  2.4, 3.0], "color": [26, 17, 10] },
-    { "pos": [ 2.6, -2.4, 2.0], "color": [ 7, 14, 26] },
-    { "pos": [ 0.0, -3.2, 0.5], "color": [ 9,  9, 10] }
+    {
+      "pos": [ -2.2, 2.4, 3 ],
+      "color": [ 26, 17, 10 ]
+    },
+    {
+      "pos": [ 2.6, -2.4, 2 ],
+      "color": [ 7, 14, 26 ]
+    },
+    {
+      "pos": [ 0, -3.2, 0.5 ],
+      "color": [ 9, 9, 10 ]
+    }
   ],
-
   "objects": {
     "bitten": {
       "scale": 1.9,
-      "sphere": { "center": [-1.35, 0, 0.25], "radius": 1.15 },
+      "sphere": {
+        "center": [ -1.35, 0, 0.25 ],
+        "radius": 1.15
+      },
       "material": "jade-4",
       "inside": {
-        "plane": { "normal": [0, 0, 1], "offset": 0.95 },
+        "plane": {
+          "normal": [ 0, 0, 1 ],
+          "offset": 0.95
+        },
         "material": "stone-7",
         "inside": {
           "sphere": {
-            "center": [-0.75, 0.8, 0.85], "radius": 0.8,
+            "center": [ -0.75, 0.8, 0.85 ],
+            "radius": 0.8,
             "complement": true
           },
-          "material": "brass-4",
+          "material": "brass-reflective",
           "inside": {
             "sphere": {
-              "center": [-1.35, 0.0, 0.25], "radius": 0.8,
+              "center": [ -1.35, 0, 0.25 ],
+              "radius": 0.8,
               "complement": true
             },
             "material": "jade-4"
@@ -31,38 +46,53 @@
         }
       }
     },
-
     "lens": {
-      "sphere": { "center": [0.95, 0, 0.15], "radius": 1.15 },
-      "material": "brass-4",
+      "sphere": {
+        "center": [ 0.95, 0, 0.15 ],
+        "radius": 1.15
+      },
+      "material": "brass-reflective",
       "inside": {
-        "sphere": { "center": [1.85, 0, 0.15], "radius": 1.15 },
+        "sphere": {
+          "center": [ 1.85, 0, 0.15 ],
+          "radius": 1.15
+        },
         "material": "stone-7"
       }
     },
-
     "marbles": {
       "group": [
         {
-          "sphere": { "center": [-0.4, -2.6, -0.62], "radius": 0.38 },
+          "sphere": {
+            "center": [ -0.4, -2.6, -0.62 ],
+            "radius": 0.38
+          },
           "material": "core-2"
         },
         {
-          "sphere": { "center": [0.6, -2.9, -0.62], "radius": 0.38},
-          "material": "brass-4"
+          "sphere": {
+            "center": [ 0.6, -2.9, -0.62 ],
+            "radius": 0.38
+          },
+          "material": "brass-reflective"
         },
         {
-          "sphere": { "center": [1.55, -2.5, -0.62], "radius": 0.38 },
+          "sphere": {
+            "center": [ 1.55, -2.5, -0.62 ],
+            "radius": 0.38
+          },
           "material": "jade-4"
         },
         {
-          "sphere": { "center": [0.55, -1.75, -0.62], "radius": 0.38 },
+          "sphere": {
+            "center": [ 0.55, -1.75, -0.62 ],
+            "radius": 0.38
+          },
           "material": "chalk-3"
         }
       ]
     }
   },
-
   "root": {
     "sphere": {
       "complement": true,
@@ -70,9 +100,13 @@
     },
     "material": "shell-4",
     "outside": {
-      "plane": { "offset": -1.0 },
+      "plane": {
+        "offset": -1
+      },
       "material": "floor-12",
-      "outside": { "group": ["bitten", "lens", "marbles"] }
+      "outside": {
+        "group": [ "bitten", "lens", "marbles" ]
+      }
     }
   }
 }
