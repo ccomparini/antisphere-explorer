@@ -374,7 +374,7 @@ fn trace(
       // by the same range test below. No count to keep or check.
       var r0 = 1e30;
       var r1 = 1e30;
-      let disc = B * B - 4.0 * A * C;
+      let disc = B * B - 4.0 * A * C;  // (discriminant)
       // Cylinders, cones and hyperboloids of one sheet are ruled: they
       // contain whole straight lines, and a ray along one makes A, B and C
       // vanish together - H is zero the length of the ray, not at two points
@@ -430,6 +430,7 @@ fn trace(
         if ((A * mid + B) * mid + C < 0.0) {
           child = descent_node | DEFAULT_INSIDE_BIT;
         }
+        // (push to the trace stack)
         traceStack[sp] = Seg(child, sa, sb);
         sp = sp + 1;
         peakDepth = max(peakDepth, u32(sp));

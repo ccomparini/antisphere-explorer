@@ -4,9 +4,25 @@
 // that reads the scene's nodes (#import "node.wgsls"). The JS side packs
 // it with the Node class that tools/build-shaders.mjs generates from this
 // declaration, so this is the one definition of its layout.
+//
+// In the broadest sense, each node is 2 things:  a division of its subspace
+// into "inside" and "outside" subspaces, and an "opinion" about what is
+// "inside" (a "material").
+//
+// The spacial subdivision part is presently expressed as a quadric surface
+// in terms of curvature along and perpendicular to an axis.  The "outside"
+// of the surface is the direction in which the normal points (see gradAt()).
+// Various surfaces (including planes, spheres, cylinders, and slabs) and
+// their complements can be represented (see hyperconic.md).
+// 
+// The term "antisphere" comes from earlier revisions, where subspace divisions
+// were all spherical, with planes represented as spheres with infinite radius
+// (or 0 curvature). The "anti" part of the term referred to the ability to
+// complement the "interior" of the subspace.
+//
 
 struct Node {
-  // A revolution quadric:
+  // The subspace division is a revolution quadric:
   //
   //   H(R) = curvature_perp (R.R) + curvature_delta (R.axis)^2
   //          + linear . R + const_term
@@ -68,11 +84,19 @@ struct Node {
   // part of; the origin for a plane. packNodes() chooses it.
   anchor          : vec3<f32>,
 
-  // On a node that starts an env (NODE_ENV): the env enclosing it - the
-  // node that starts that one, or 0 - so following env from env node to
-  // env node walks outward to 0. On any other node, 0: the env a hit is in
-  // is found by where it is (envAt()), not read from its node. Precomputed
-  // (bakeScopes()).
+  // env is the root Node of the "enviroment" this node is within.
+  // An "environment" can be used to scope lights or "fill" a region
+  // with a material (eg water).
+  // 
+  // The applicable envs are evaluated by location using a top-down
+  // tree traversal.  One way to conceptualize the difference betweed the
+  // env and the trace() type cases is that trace() deals with surfaces,
+  // which are the boundaries between regions defined by the nodes, while
+  // the env applies to the spaces within the regions.
+  //
+  // The envs may be nested, so for example when evaluating lights at
+  // a point on a surface, lights from any ancestral node.envs are each
+  // also applied.
   env             : u32,
 };
 
@@ -556,7 +580,7 @@ fn trace(
       // by the same range test below. No count to keep or check.
       var r0 = 1e30;
       var r1 = 1e30;
-      let disc = B * B - 4.0 * A * C;
+      let disc = B * B - 4.0 * A * C;  // (discriminant)
       // Cylinders, cones and hyperboloids of one sheet are ruled: they
       // contain whole straight lines, and a ray along one makes A, B and C
       // vanish together - H is zero the length of the ray, not at two points
@@ -612,6 +636,7 @@ fn trace(
         if ((A * mid + B) * mid + C < 0.0) {
           child = descent_node | DEFAULT_INSIDE_BIT;
         }
+        // (push to the trace stack)
         traceStack[sp] = Seg(child, sa, sb);
         sp = sp + 1;
         peakDepth = max(peakDepth, u32(sp));
@@ -1331,4 +1356,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1151}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":173},{"path":"shaders/random.wgsls","offset":175,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":206,"lines":1152}]

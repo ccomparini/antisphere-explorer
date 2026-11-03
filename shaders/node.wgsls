@@ -2,9 +2,25 @@
 // that reads the scene's nodes (#import "node.wgsls"). The JS side packs
 // it with the Node class that tools/build-shaders.mjs generates from this
 // declaration, so this is the one definition of its layout.
+//
+// In the broadest sense, each node is 2 things:  a division of its subspace
+// into "inside" and "outside" subspaces, and an "opinion" about what is
+// "inside" (a "material").
+//
+// The spacial subdivision part is presently expressed as a quadric surface
+// in terms of curvature along and perpendicular to an axis.  The "outside"
+// of the surface is the direction in which the normal points (see gradAt()).
+// Various surfaces (including planes, spheres, cylinders, and slabs) and
+// their complements can be represented (see hyperconic.md).
+// 
+// The term "antisphere" comes from earlier revisions, where subspace divisions
+// were all spherical, with planes represented as spheres with infinite radius
+// (or 0 curvature). The "anti" part of the term referred to the ability to
+// complement the "interior" of the subspace.
+//
 
 struct Node {
-  // A revolution quadric:
+  // The subspace division is a revolution quadric:
   //
   //   H(R) = curvature_perp (R.R) + curvature_delta (R.axis)^2
   //          + linear . R + const_term
@@ -66,11 +82,19 @@ struct Node {
   // part of; the origin for a plane. packNodes() chooses it.
   anchor          : vec3<f32>,
 
-  // On a node that starts an env (NODE_ENV): the env enclosing it - the
-  // node that starts that one, or 0 - so following env from env node to
-  // env node walks outward to 0. On any other node, 0: the env a hit is in
-  // is found by where it is (envAt()), not read from its node. Precomputed
-  // (bakeScopes()).
+  // env is the root Node of the "enviroment" this node is within.
+  // An "environment" can be used to scope lights or "fill" a region
+  // with a material (eg water).
+  // 
+  // The applicable envs are evaluated by location using a top-down
+  // tree traversal.  One way to conceptualize the difference betweed the
+  // env and the trace() type cases is that trace() deals with surfaces,
+  // which are the boundaries between regions defined by the nodes, while
+  // the env applies to the spaces within the regions.
+  //
+  // The envs may be nested, so for example when evaluating lights at
+  // a point on a surface, lights from any ancestral node.envs are each
+  // also applied.
   env             : u32,
 };
 
