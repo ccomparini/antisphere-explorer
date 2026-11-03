@@ -17,9 +17,9 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deflateSync } from 'node:zlib';
 import { parseOptions } from './args.mjs';
 import { sceneURL } from './scene-url.mjs';
+import { encodePNG } from '../public/png.js';
 
 const PUBLIC = fileURLToPath(new URL('../public/', import.meta.url));
 
@@ -62,44 +62,6 @@ function parseArguments(argv) {
     scene: positionals[0], out: values.out, width: +size[1], height: +size[2],
     eye: point('eye'), target: point('target'), shadows: !values['no-shadows'], view: values.view, help: values.help,
   };
-}
-
-// -- PNG ------------------------------------------------------------------------
-
-const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
-});
-const crc32 = (bytes) => {
-  let c = 0xffffffff;
-  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-};
-function chunk(type, data) {
-  const out = Buffer.alloc(12 + data.length);
-  out.writeUInt32BE(data.length, 0);
-  out.write(type, 4, 'ascii');
-  data.copy(out, 8);
-  out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
-  return out;
-}
-
-/** An 8-bit RGB PNG from rows of RGBA pixels (alpha dropped). */
-export function encodePNG(rgba, width, height) {
-  const raw = Buffer.alloc((width * 3 + 1) * height);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4, o = y * (width * 3 + 1) + 1 + x * 3;
-      raw[o] = rgba[i]; raw[o + 1] = rgba[i + 1]; raw[o + 2] = rgba[i + 2];
-    }
-  }
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(width, 0);
-  header.writeUInt32BE(height, 4);
-  header[8] = 8; header[9] = 2;                         // 8 bits, RGB
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-                        chunk('IHDR', header), chunk('IDAT', deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
 }
 
 // -- rendering ------------------------------------------------------------------
@@ -180,7 +142,7 @@ async function main(argv) {
   const out = options.out ?? `${path.basename(options.scene.split(/[?#]/)[0]).replace(/\.(json|stl)(\.gz)?$/i, '')}.png`;
   const started = performance.now();
   const { rgba, nodes, lights } = await render(options);
-  await writeFile(out, encodePNG(rgba, options.width, options.height));
+  await writeFile(out, await encodePNG(rgba, options.width, options.height));
   console.error(`${options.scene}: ${nodes} nodes, ${lights} lights, ${options.width}x${options.height}` +
                 `${options.view !== 'shaded' ? `, ${options.view}` : ''}${options.shadows ? '' : ', no shadows'}` +
                 ` -> ${out} (${((performance.now() - started) / 1000).toFixed(1)}s)`);
