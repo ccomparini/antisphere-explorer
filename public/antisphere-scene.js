@@ -442,6 +442,27 @@ export function envAt(built, P) {
 }
 
 /**
+ * What a material named `name` in `materials` (a scene's, merged) is an
+ * alias of: a material given as a name - a string, not a reference - is
+ * that material ("figure-joints": "figure-main"), through any chain of
+ * them. { target } for the material it comes to, or { error } if the chain
+ * names no material or goes round in a circle. A material that is no alias
+ * is its own target.
+ */
+export function materialAlias(materials, name) {
+  const seen = [name];
+  let at = name;
+  while (typeof materials?.[at] === 'string') {
+    const next = materials[at];
+    if (seen.includes(next)) return { error: `an alias going round in a circle: ${[...seen, next].join(' -> ')}` };
+    if (!(next in materials)) return { error: `an alias of "${next}", which no material is` };
+    seen.push(next);
+    at = next;
+  }
+  return { target: at };
+}
+
+/**
  * Whether a compiled node starts an env: names an ambient or glow-region
  * material, or carries lights. Its pack sets NODE_ENV, which trace() keeps
  * as a ray goes into its inside.
@@ -2157,11 +2178,20 @@ export function compileScene(rawSpec, options = {}) {
   const table = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0],
                    pattern: 0, scale: 1, kind: 0, params: [0, 0], flags: 0 }];
   const matIndex = new Map();
+  const aliases = [];
   for (const [name, def] of Object.entries(spec.materials || {})) {
     // A reference to a material in a file that wasn't loaded comes to
     // nothing (warned of above): left out, so what uses it gets a stand-in.
     if (def === undefined) continue;
     if (LEGACY_PAINT_WORDS.includes(name)) at(`materials.${name}`, 'name is reserved');
+    // A name is an alias of that material (materialAlias()), resolved once
+    // every material has its place. Anything else not an object is a slip:
+    // left out, so what uses it gets a stand-in.
+    if (typeof def === 'string') { aliases.push(name); continue; }
+    if (def === null || typeof def !== 'object' || Array.isArray(def)) {
+      quietly(`materials.${name}`, `${JSON.stringify(def)} isn't a material: an object, a reference ("@..."), or another material's name - left out`);
+      continue;
+    }
     const pattern = PATTERNS[def.pattern ?? 'flat'];
     if (pattern === undefined) at(`materials.${name}`, `unknown pattern "${def.pattern}"`);
     const kind = KINDS[def.kind ?? 'lambert'];
@@ -2207,6 +2237,12 @@ export function compileScene(rawSpec, options = {}) {
       flags:   flags >>> 0,
     });
     matIndex.set(name, table.length - 1);
+  }
+  // Aliases: the very material they name, sharing its place in the table.
+  for (const name of aliases) {
+    const { target, error } = materialAlias(spec.materials, name);
+    if (error) quietly(`materials.${name}`, `${error} - left out`);
+    else if (matIndex.has(target)) matIndex.set(name, matIndex.get(target));
   }
 
   // A list of lights, the scene's or a node's (see compileLight()).

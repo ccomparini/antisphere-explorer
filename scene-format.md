@@ -119,6 +119,17 @@ Each key is a material name; the value describes how surfaces using it look
 and behave. The name `inherit` is reserved (left over from the deprecated
 `paint` field) and can't be used as a material name.
 
+A value may instead be another material's name, which makes this one an
+**alias**: that very material, by another name -
+`"figure-joints": "figure-main"`, or `"wall": "stone"` for a library's
+stone. Aliases may name aliases; the name is looked up among all the
+scene's materials, its libraries' included, after they are merged. An
+alias of a name no material has, or a chain of them that goes round in a
+circle, is warned of and left out, so what uses it gets the magenta
+stand-in - as does a value that is neither an object, a reference
+(`"@..."`) nor a name. In the editor, an alias shows the material it names,
+and editing it edits that material.
+
 | field      | type                                          | default          | meaning |
 |------------|-----------------------------------------------|------------------|---------|
 | `kind`     | `"lambert"` \| `"glossy"` \| `"emissive"` \| `"unlit"` \| `"ambient"` \| `"glowRegion"` | `"lambert"` | shading model, see below |

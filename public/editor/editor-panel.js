@@ -23,7 +23,7 @@ import { DEBUG_VIEWS } from '../as-renderer.js';
 import { CAMERA_MODES } from '../as-camera.js';
 import { ROOT, joinPath } from './scene-document.js';
 import { SHAPES } from './editor-commands.js';
-import { eulerRows, axisAngleOf } from '../antisphere-scene.js';
+import { eulerRows, axisAngleOf, materialAlias } from '../antisphere-scene.js';
 
 /**
  * True for controls that consume ordinary keystrokes. The editor's shortcuts
@@ -614,21 +614,24 @@ export function createPanel(root, ctx) {
   // A library material shows as such until edited, when it becomes the
   // scene's own copy.
   function materialView(name) {
-    const def = () => doc.materials[name] ?? {};
+    // An alias ("figure-joints": "figure-main") shows the material it names,
+    // and editing it edits that one: it is that material.
+    const target = () => materialAlias(doc.materials, name).target ?? name;
+    const def = () => { const d = doc.materials[target()]; return d && typeof d === 'object' ? d : {}; };
     const kind = def().kind ?? 'lambert';
     const colour = (key, fallback) => ({
       enumerable: true,
       get: () => toHex(def()[key] ?? fallback),
-      set: (v) => doc.setMaterial(name, { [key]: fromHex(v) }),
+      set: (v) => doc.setMaterial(target(), { [key]: fromHex(v) }),
     });
     const scalar = (key, fallback) => ({
       enumerable: true,
       get: () => def()[key] ?? fallback,
-      set: (v) => doc.setMaterial(name, { [key]: v }),
+      set: (v) => doc.setMaterial(target(), { [key]: v }),
     });
     return Object.defineProperties({
       name, kind,
-      source: doc.isOwnMaterial(name) ? '' : 'library',
+      source: target() !== name ? `= ${target()}` : doc.isOwnMaterial(name) ? '' : 'library',
       albedoLabel: kind === 'ambient' ? 'level' : kind === 'glowRegion' ? 'glow' : 'albedo',
       isChecker: def().pattern === 'checker',
       isGlossy: kind === 'glossy',
