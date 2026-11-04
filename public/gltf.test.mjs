@@ -5,8 +5,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { readGLTF, transformPoint, trianglesOf, sample, clipRange } from './gltf.js';
-import { fixture, toGLB, toGLTFText } from './gltf-fixture.mjs';
+import { readGLTF, transformPoint, trianglesOf, baseColorOf, sample, clipRange } from './gltf.js';
+import { fixture, toGLB, toGLTFText, texturedCube } from './gltf-fixture.mjs';
+import { encodePNG } from './png.js';
 
 const near = (got, want, what, tol = 1e-6) => {
   [want].flat().forEach((w, i) => assert.ok(Math.abs([got].flat()[i] - w) <= tol, `${what}: ${JSON.stringify(got)}, not ${JSON.stringify(want)}`));
@@ -159,4 +160,24 @@ test('SimpleSkin: four buffers beside it, a two-joint skin at rest, and a clip t
   // (The file's rotations are written to three places: 0.383 for sin 22.5.)
   near(sample(skin, clip, 0.75).get(2).rotation, turn(67.5), 'between keys, by slerp', 1e-3);
   near(sample(skin, clip, 4).get(2).rotation, turn(-90), 'at 4 s, the other way', 1e-3);
+});
+
+test('trianglesOf(): UVs (v up the image) and materials; baseColorOf() and imageBytes(): the image as embedded', async () => {
+  const png = await encodePNG(new Uint8Array([10, 20, 30, 255]), 1, 1);
+  const cube = texturedCube(png, { factor: [0.5, 1, 1, 1] });
+  const gltf = await readGLTF(toGLB(cube));
+  const { triangles, uvs, materials } = trianglesOf(gltf);
+  assert.equal(triangles.length, 12);
+  triangles.forEach((tri, k) => near(tri.flat(), cube.triangles[k].flat(), `triangle ${k}`));
+  uvs.forEach((tri, k) => near(tri.flat(), cube.uvs[k].flat(), `triangle ${k}'s UVs`));
+  assert.deepEqual(materials, new Array(12).fill(0));
+  const base = baseColorOf(gltf, 0);
+  assert.deepEqual(base, { factor: [0.5, 1, 1, 1], image: 0, texCoord: 0, wrap: [10497, 10497], transform: null });
+  const image = await gltf.imageBytes(0);
+  assert.equal(image.mimeType, 'image/png');
+  assert.deepEqual([...image.bytes], [...png]);
+  // No TEXCOORD_0: no UVs. No material: glTF's default, white.
+  const bare = trianglesOf(await readGLTF(toGLB(texturedCube(png, { uvs: false }))));
+  assert.ok(bare.uvs.every((uv) => uv === null));
+  assert.deepEqual(baseColorOf(gltf, null).factor, [1, 1, 1, 1]);
 });
