@@ -102,7 +102,7 @@
       "center": [ 0, 0, -500 ],
       "radius": 500
     },
-    "material": "shell-3",
+    "material": "sand",
     "outside": {
       "group": [
         {
