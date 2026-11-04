@@ -348,3 +348,27 @@ test('whole triangles overfill a torus, which is why cutting is the default', ()
             'if this ever passes, passing triangles whole has been made sound - ' +
             'check why, and make it the default');
 });
+
+test('onFace: each plane node hears the triangles in it, pieces knowing their source, every triangle\'s area accounted for', () => {
+  const area = (tri) => Math.hypot(...cross(sub(tri[1], tri[0]), sub(tri[2], tri[0]))) / 2;
+  for (const [name, mesh] of [['L prism', lPrismMesh()], ['torus', torusMesh()]]) {
+    const faces = [];
+    const tree = meshToTree(mesh, { onFace: (node, tris) => faces.push({ node, tris }) });
+    const nodes = [];
+    const walk = (t) => { if (!t) return; if (t.plane) nodes.push(t); walk(t.inside); walk(t.outside); };
+    walk(tree);
+    assert.deepEqual(new Set(faces.map((f) => f.node)), new Set(nodes), `${name}: every plane node, once`);
+    const covered = new Array(mesh.length).fill(0);
+    for (const { node, tris } of faces) {
+      for (const tri of tris) {
+        assert.ok(Number.isInteger(tri.source), `${name}: a source`);
+        const d = tri.map((p) => dot(node.plane.normal, p) - node.plane.offset);
+        assert.ok(d.every((x) => Math.abs(x) < 1e-6), `${name}: in the node's plane`);
+        covered[tri.source] += area(tri);
+      }
+    }
+    mesh.forEach((tri, i) => assert.ok(Math.abs(covered[i] - area(tri)) < 1e-9 * Math.max(1, area(tri)),
+                                       `${name}: triangle ${i}, ${covered[i]} of ${area(tri)}`));
+    assert.ok(mesh.every((tri) => tri.source === undefined), 'the caller\'s triangles untouched');
+  }
+});
