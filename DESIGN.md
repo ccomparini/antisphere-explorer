@@ -170,6 +170,27 @@ bet that they stay there.
   about. A mover in solid geometry is simply shown there; in water, that
   is right.
 
+## Textures
+
+- **Planar, drawn as a pattern.** A material's image lies over a node's
+  surface coordinates (`frame()`), once per `scale`, repeated, filtered
+  bilinearly from one storage buffer of texels.
+- **A model's textures, pre-distorted** (Chris's idea). A model's UV
+  layout is its artist's, so a point on it can't say where its colour is
+  in the image; something per face must. Rather than give every node UVs,
+  the importer resamples each face's texels into a patch of one atlas laid
+  out in that face's own surface coordinates (`public/atlas.js`), so a face
+  needs only where its patch is: its `textureOffset`. That rides in a copy
+  of its material (`albedo2` and `scale`), as env levels do, so there is
+  nothing per node on the GPU, and coplanar triangles from different UV
+  islands just share their face's patch. Placing the model turns, moves
+  and scales its faces' frames; the compiler follows with each copy
+  (`textureTurns()`).
+- **A textured hit finds its face.** A mesh's solid cell is entered through
+  any of its faces, but `trace()` names the node the cell ends at, so a
+  textured hit walks to the face the ray crossed (`surfaceAt()`), as a
+  mirror's and glass's do - for its patch, and its normal.
+
 ## Planned (agreed, not yet built)
 
 - **Material properties as bitfields** (solid, opaque, ...), with `trace()`
