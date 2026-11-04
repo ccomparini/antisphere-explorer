@@ -14,7 +14,7 @@
 // the archive holds only one mesh, that one. A glTF is read as a viewer
 // shows it: its default scene's meshes, each placed by its node, a skinned
 // one at rest; y up, as glTF is, unless --up says otherwise. Its materials
-// are not kept, as PLY's and STL's colours aren't. The Stanford
+// are kept only as a texture (below), as PLY's and STL's colours aren't. The Stanford
 // 3D Scanning Repository's models come as such archives:
 //
 //   bunny   http://graphics.stanford.edu/pub/3Dscanrep/bunny.tar.gz#bunny/reconstruction/bun_zipper.ply
@@ -37,6 +37,23 @@
 // in the scene names - jade, there - unless --material names one for it,
 // which the scene then defines. An output name ending .gz is gzipped,
 // which the loaders unzip.
+//
+// A glTF with a base colour texture (PNG) keeps its colours, pre-distorted
+// into an atlas (public/atlas.js): each face of the tree gets a patch of
+// one image laid out in its own surface coordinates, painted from the
+// source texture by its UVs (times each material's baseColorFactor), and a
+// "textureOffset" saying where its patch is. The atlas is written beside
+// the model, <out>-atlas.png (so it needs -o: on stdout, a model is
+// imported untextured), and the model is made of one material,
+// <name>-texture (or --material's), which needs
+//
+//   { "texture": "@<the atlas, from where the material is>", "scale": s }
+//
+// - said on stderr, or written by --material-template. Not read yet, and
+// said: JPEG and other images, a texCoord other than 0,
+// KHR_texture_transform, and the normal, occlusion, emissive and
+// metallic-roughness maps; a clamped or mirrored sampler is taken as
+// repeat.
 //
 // --skeleton <mode>, on a glTF with a skin, writes a model with a skeleton
 // instead, for clips (tools/import-animations.mjs) to pose:
@@ -90,7 +107,9 @@ import { readSTL } from '../public/stl.js';
 import { readPLY } from '../public/ply.js';
 import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-import.js';
 import { compileScene } from '../public/antisphere-scene.js';
-import { readGLTF, trianglesOf } from '../public/gltf.js';
+import { readGLTF, trianglesOf, baseColorOf } from '../public/gltf.js';
+import { decodePNG, encodePNG } from '../public/png.js';
+import { buildAtlas } from '../public/atlas.js';
 import { skinOf, meshParts, fitToMeshParts, alongBonesParts, fitToMeshMaterial } from '../public/skin.js';
 import { openSource } from './sources.mjs';
 import { stringifyJSON } from '../public/fbm-json.js';
@@ -202,8 +221,8 @@ async function readSource(source, say) {
   if (format === 'glb' || format === 'gltf') {
     // A .gltf's buffers may be files beside it, read from the same place.
     const gltf = await readGLTF(bytes, { readBytes: besideIt, base: '' });
-    const { triangles, skipped } = trianglesOf(gltf);
-    return { name: file.replace(MESH, ''), gltf, triangles, skipped, up: 'y', degenerate: 0, flipped: 0, openEdges: 0 };
+    const { triangles, uvs, materials, skipped } = trianglesOf(gltf);
+    return { name: file.replace(MESH, ''), gltf, triangles, uvs, materials, skipped, up: 'y', degenerate: 0, flipped: 0, openEdges: 0 };
   }
   const read = format === 'ply' ? readPLY(bytes) : readSTL(bytes);
   return { name: file.replace(MESH, ''), ...read };
@@ -250,8 +269,16 @@ async function main(argv) {
   const upright = up !== 'z' ? read.triangles.map((tri) => tri.map(UP[up])) : read.triangles;
   const placed = placeTriangles(upright, { fit: options.fit });
 
+  // A glTF's base colours, textured or not, as the colours of an atlas
+  // (public/atlas.js) - if it has a texture to show.
+  let colours = read.gltf ? await baseColours(read, say) : null;
+  if (colours && !options.out) {
+    say('  textured: its atlas is written beside the model, so give -o to keep its texture; imported untextured');
+    colours = null;
+  }
+  const faces = [];
   const started = Date.now();
-  const model = meshToTree(placed);
+  const model = meshToTree(placed, colours ? { onFace: (node, tris) => faces.push({ node, tris }) } : {});
   if (!model) throw new Error('the mesh produced no geometry');
   const stats = treeStats(model);
   say(`  ${stats.nodes} nodes, depth ${stats.depth}, ${stats.solidLeaves} solid regions`
@@ -271,11 +298,79 @@ async function main(argv) {
     ...model,
   };
 
-  write(options, say, read.name, { out, scene: {
-    materials: options.material ? { [options.material]: {} } : {},
+  let textured = null;
+  if (colours) {
+    const material = options.material ?? `${read.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-texture`;
+    out.material ??= material;
+    textured = writeAtlas(options, say, read, placed, faces, colours, material);
+  }
+
+  await write(options, say, read.name, { out, textured, scene: {
+    materials: out.material ? { [out.material]: {} } : {},
     lights: [],
     root: structuredClone(out),
   } });
+}
+
+const PNG_MIME = 'image/png';
+const SAMPLER_WRAP = { 10497: 'repeat', 33071: 'clamp to edge', 33648: 'mirrored repeat' };
+
+/**
+ * Each of a glTF's materials' base colour, as an atlas paints it: { image
+ * (decoded, or null), factor (linear rgb) } by material index (null: the
+ * default, white) - or null if none has an image it can show, when the
+ * model is imported untextured, as before. What it can't use is said.
+ */
+async function baseColours(read, say) {
+  const { gltf } = read;
+  const used = [...new Set(read.materials)];
+  const out = new Map();
+  let images = 0;
+  const unused = new Set();
+  for (const m of used) {
+    const base = baseColorOf(gltf, m), name = m === null ? 'the default material' : `material ${gltf.json.materials?.[m]?.name ?? m}`;
+    let image = null;
+    if (base.image !== null) {
+      const { bytes, mimeType } = await gltf.imageBytes(base.image);
+      if (mimeType !== PNG_MIME) say(`  ${name}: its base colour image is ${mimeType ?? 'of no known type'}, which isn't read yet (PNG is): its colour alone`);
+      else if (base.texCoord !== 0) say(`  ${name}: its texture uses texCoord ${base.texCoord}; only 0 is read: its colour alone`);
+      else if (!read.uvs.some((uv, i) => uv && read.materials[i] === m)) say(`  ${name}: textured, but its mesh has no UVs: its colour alone`);
+      else image = await decodePNG(bytes, { name: `${name}'s image` });
+      if (base.transform) say(`  ${name}: KHR_texture_transform isn't applied yet`);
+      const wraps = base.wrap.filter((w) => w !== 10497).map((w) => SAMPLER_WRAP[w] ?? w);
+      if (image && wraps.length) say(`  ${name}: its sampler's ${wraps.join(', ')} is taken as repeat`);
+    }
+    if (image) images++;
+    const material = m === null ? {} : gltf.json.materials?.[m] ?? {};
+    for (const key of ['normalTexture', 'occlusionTexture', 'emissiveTexture']) if (material[key]) unused.add(key);
+    if (material.pbrMetallicRoughness?.metallicRoughnessTexture) unused.add('metallicRoughnessTexture');
+    out.set(m, { image, factor: base.factor.slice(0, 3) });
+  }
+  if (unused.size) say(`  not used yet: ${[...unused].join(', ')}`);
+  return images ? out : null;
+}
+
+/**
+ * The atlas of a textured glTF: painted from its faces, written beside the
+ * model as <out>-atlas.png, each face node given its textureOffset. Returns
+ * what its material needs: { material, file, scale }.
+ */
+function writeAtlas(options, say, read, placed, faces, colours, material) {
+  const sources = placed.map((tri, i) => {
+    const { image, factor } = colours.get(read.materials[i]);
+    return { tri, uv: read.uvs[i], image, factor };
+  });
+  const started = Date.now();
+  const atlas = buildAtlas(faces, sources);
+  for (const [node, offset] of atlas.offsets) node.textureOffset = offset;
+  const file = `${options.out.replace(/\.json(\.gz)?$/i, '')}-atlas.png`;
+  mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+  return encodePNG(atlas.rgba, atlas.size, atlas.size).then((png) => {
+    writeFileSync(file, png);
+    say(`  atlas: ${atlas.size} x ${atlas.size} texels, ${atlas.offsets.size} faces, a texel ${+atlas.texel.toPrecision(3)} across`
+        + ` (${((Date.now() - started) / 1000).toFixed(1)}s), written to ${file}`);
+    return { material, file, scale: atlas.scale };
+  });
 }
 
 /**
@@ -350,7 +445,8 @@ function skinnedModel(read, options, name, say, argv) {
  * file nobody wrote by hand. The materials it names are said, and with
  * --material-template written.
  */
-function write(options, say, source, { out, scene, colours = new Map() }) {
+async function write(options, say, source, { out, scene, colours = new Map(), textured = null }) {
+  textured = await textured;
   const built = compileScene(scene);
   say(`  compiles to ${built.nodes.length - 1} nodes`);
   const names = Object.keys(scene.materials);
@@ -363,7 +459,11 @@ function write(options, say, source, { out, scene, colours = new Map() }) {
   } else if (file && options.out && path.resolve(file) === path.resolve(options.out)) {
     say(`  --material-template ${file}: that is the model's own file, so no template is written`);
   } else if (file) {
-    template = materialTemplate(file, names, colours, source);
+    template = materialTemplate(file, names, colours, source, textured);
+  }
+  if (textured && !template) {
+    say(`  ${textured.material} is the atlas: { "texture": "@${textured.file}", "scale": ${+textured.scale.toPrecision(6)} },`
+        + ' the reference from where the material is');
   }
 
   const filter = options.float32 ? float32Converter : undefined;
@@ -391,7 +491,7 @@ const GREY = [0.7, 0.7, 0.7];               // scene-format's default albedo
  * grey. { library, added, kept }. A file there that isn't a library is an
  * error, before anything is written, rather than written over.
  */
-function materialTemplate(file, names, colours, source) {
+function materialTemplate(file, names, colours, source, textured = null) {
   let library = {};
   if (existsSync(file)) {
     try { library = JSON.parse(readFileSync(file, 'utf8')); } catch (error) {
@@ -408,7 +508,11 @@ function materialTemplate(file, names, colours, source) {
     ...library,
   };
   for (const name of added) {
-    out[name] = { kind: 'lambert', albedo: (colours.get(name) ?? GREY).map((v) => +v.toPrecision(4)) };
+    out[name] = name === textured?.material
+      // The atlas, found from the template: a reference is from the file it is in.
+      ? { kind: 'lambert', texture: `@${path.relative(path.dirname(path.resolve(file)), path.resolve(textured.file)).split(path.sep).join('/')}`,
+          scale: +textured.scale.toPrecision(6) }
+      : { kind: 'lambert', albedo: (colours.get(name) ?? GREY).map((v) => +v.toPrecision(4)) };
   }
   return { library: out, added, kept: names.length - added.length };
 }

@@ -14,7 +14,9 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { writeSTL } from '../public/stl.js';
 import { compileScene, isSolid } from '../public/antisphere-scene.js';
 import { quadricAt as H } from '../public/quadric.js';
-import { fixture, toGLB, toGLTFText } from '../public/gltf-fixture.mjs';
+import { fixture, toGLB, toGLTFText, texturedCube } from '../public/gltf-fixture.mjs';
+import { encodePNG } from '../public/png.js';
+import { readScene } from '../public/antisphere-scene.js';
 
 const script = fileURLToPath(new URL('./import-model.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'import-model-'));
@@ -383,4 +385,40 @@ test('--skeleton on the real skins in test_models: SimpleSkin, the Fox and the m
   const host = { materials: { 'figure-main': {}, 'figure-joints': {} }, lights: [], root: { use: '@mannequin.json#/objects/mannequin' } };
   const built = compileScene(host, { files: { [join(scratch, 'mannequin.json')]: written }, path: join(scratch, 'host.json') });
   assert.ok(built.nodes.length > 200, `${built.nodes.length} nodes: all of it`);
+});
+
+test('a textured glTF: an atlas beside the model, each face its textureOffset, the material its texture and scale', async () => {
+  const W = 8, H = 6, rgba = new Uint8Array(W * H * 4);
+  for (let p = 0; p < W * H; p++) rgba.set([30 * (p % W), 40 * Math.floor(p / W), 100, 255], 4 * p);
+  const glb = join(scratch, 'painted-cube.glb');
+  writeFileSync(glb, toGLB(texturedCube(await encodePNG(rgba, W, H))));
+  const out = join(scratch, 'parts', 'cube.json'), library = join(scratch, 'cube-materials.json');
+  const got = await run([glb, '-o', out, '--material-template', library]);
+  assert.equal(got.status, 0, got.stderr);
+  assert.match(got.stderr, /atlas: \d+ x \d+ texels, 6 faces/);
+  assert.ok(existsSync(join(scratch, 'parts', 'cube-atlas.png')), 'the atlas, beside the model');
+  const written = JSON.parse(readFileSync(out, 'utf8'));
+  assert.equal(written.material, 'painted-cube-texture');
+  const offsets = [];
+  const walk = (t) => { if (!t) return; if (t.plane) offsets.push(t.textureOffset); walk(t.inside); walk(t.outside); };
+  walk(written);
+  assert.equal(offsets.length, 6);
+  assert.ok(offsets.every((o) => o.length === 2 && o.every((v) => v >= 0 && v < 1)), JSON.stringify(offsets));
+  const template = JSON.parse(readFileSync(library, 'utf8'));
+  assert.equal(template['painted-cube-texture'].texture, '@parts/cube-atlas.png', 'from where the template is');
+  assert.ok(template['painted-cube-texture'].scale > 0);
+  // A scene using it finds the atlas, and its faces textured, each placed.
+  writeFileSync(join(scratch, 'cube-scene.json'), JSON.stringify({
+    materials: ['@cube-materials.json'], lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 50 }, material: null, inside: { use: '@parts/cube.json', translate: [1, 2, 0] } },
+  }));
+  const read = await readScene(pathToFileURL(join(scratch, 'cube-scene.json')).href);
+  const warned = [];
+  const built = compileScene(read.spec, { ...read, warn: (where, msg) => warned.push(`${where}: ${msg}`) });
+  assert.deepEqual(warned, []);
+  assert.equal(built.textures.length, 1);
+  // (The bounding spheroid carries the material too, as a model's root does, but is no face.)
+  const faces = built.nodes.filter((nd) => built.materials[nd.material]?.texture && nd.prim.k_par === 0 && nd.prim.k_perp === 0);
+  assert.equal(faces.length, 6, 'six textured faces');
+  assert.equal(new Set(faces.map((nd) => nd.material)).size, 6, 'each its own placement');
 });
