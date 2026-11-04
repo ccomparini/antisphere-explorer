@@ -417,13 +417,13 @@
       "radius": 60,
       "complement": true
     },
-    "material": "sky-2",
+    "material": "sky-3",
     "outside": {
       "plane": {
         "normal": [ 0, 0, 1 ],
         "offset": 0
       },
-      "material": "floor-5",
+      "material": "carpet-ornate",
       "outside": {
         "group": [
           {

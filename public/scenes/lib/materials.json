@@ -67,7 +67,8 @@
     "specular": 1.3
   },
   "carpet-ornate": {
-    "texture": "@Ornate-Crimson-Persian-Carpet-Pattern.png"
+    "texture": "@Ornate-Crimson-Persian-Carpet-Pattern.png",
+    "scale": 64
   },
   "chalk": {
     "albedo": [ 0.78, 0.76, 0.7 ],
@@ -321,8 +322,7 @@
   },
   "sky-3": {
     "castsShadow": false,
-    "kind": "unlit",
-    "albedo": [ 0.43, 0.66, 0.98 ]
+    "texture": "@fractal_cloud.png"
   },
   "sky-ornate-carpet": {
     "texture": "@Ornate-Crimson-Persian-Carpet-Pattern.png",
