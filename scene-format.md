@@ -335,7 +335,8 @@ Anywhere a subtree is expected, one of the following is valid:
 
 Any subtree object may also carry `"translate"`, `"rotate"`, `"scale"`,
 `"drop"`, `"wrap"` and/or `"bounds"` (below), regardless of which of the
-forms above it uses; a node with a shape, `"tangentTo"` too.
+forms above it uses; a node with a shape, `"tangentTo"` and
+`"textureOffset"` too.
 
 ### Primitives
 
@@ -453,6 +454,23 @@ true` it is the same shape turned inside out.
 - `"paint"`: deprecated alias for `"material"`; using it prints a console
   warning. Its old value `"inherit"` now just means the same as omitting a
   material, which already inherits by default.
+
+### `"textureOffset"`
+
+```
+{ "plane": { "normal": [0, 0, 1], "offset": 0 }, "material": "tiles", "textureOffset": [0.25, 0] }
+```
+
+Slides the node's texture on it: its texture coordinates - its surface
+coordinates in units of the material's `scale` - plus `[du, dv]`, in
+images (`0.5` is half the image). On a plane it stays on the surface
+however the node is placed: turned, moved or scaled, the texture turns,
+moves and scales with it, so a textured part keeps its picture wherever it
+is put. (A plane scaled unevenly, or turned inside out by `"complement"`,
+is followed only approximately, and warned of.) On other shapes the offset
+is added as written. It is how an imported model's textures are laid on
+its faces: each face's patch of one image, at its offset. An offset that
+isn't two numbers is warned of and ignored.
 
 ### `"lights"`
 

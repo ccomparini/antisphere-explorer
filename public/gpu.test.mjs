@@ -1490,11 +1490,11 @@ gpuTest('a planar texture: the image on the floor, once per scale, repeated; tin
   const four = { width: 2, height: 2, rgba: new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255]) };
   // A floor in white ambient light and no other, so a pixel is the texel
   // as the image has it (made light, then back to sRGB for the screen).
-  const spec = (tiles) => ({
+  const spec = (tiles, floor = {}) => ({
     materials: { tiles: { texture: '@four.png', scale: 2, ...tiles }, white: { kind: 'ambient', albedo: [1, 1, 1] } },
     lights: [],
     root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'white', inside: {
-      plane: { normal: [0, 0, 1], offset: 0 }, material: 'tiles' } },
+      plane: { normal: [0, 0, 1], offset: 0 }, material: 'tiles', ...floor } },
   });
   const options = { files: { '/t/four.png': four }, path: '/t/s.json' };
   // Looking straight down, orthographic, 10 pixels a unit: x to the left,
@@ -1519,4 +1519,18 @@ gpuTest('a planar texture: the image on the floor, once per scale, repeated; tin
   // An albedo tints it: half the light.
   const tinted = await renderPixels(spec({ albedo: [0.5, 1, 1] }), c, 160, 80, options);
   near(tinted.at(85, 54), [0.5 ** (1 / 2.2) * 255, 255, 255], 'white, tinted');
+  // Slid by textureOffset: half the image along u (along y here), one
+  // texel, so red and green change places.
+  const slid = await renderPixels(spec({}, { textureOffset: [0.5, 0] }), c, 160, 80, options);
+  const slidAt = (x, y) => slid.at(Math.round(80 - 10 * x), Math.round(39 + 10 * y));
+  near(slidAt(-1.5, 0.5), [0, 255, 0], 'slid: green where red was');
+  near(slidAt(-1.5, 1.5), [255, 0, 0], 'slid: red where green was');
+  // The floor turned a quarter about z: the texture turns with it, (x, y)
+  // to (-y, x) - the JS frame() textureTurns() works with and the shader's
+  // agreeing.
+  const turned = await renderPixels(spec({}, { textureOffset: [0, 0], rotate: { axis: [0, 0, 1], degrees: 90 } }), c, 160, 80, options);
+  const turnedAt = (x, y) => turned.at(Math.round(80 - 10 * x), Math.round(39 + 10 * y));
+  near(turnedAt(-0.5, -1.5), [255, 0, 0], 'turned: red');
+  near(turnedAt(-1.5, -1.5), [0, 255, 0], 'turned: green');
+  near(turnedAt(-0.5, -0.5), [0, 0, 255], 'turned: blue');
 });

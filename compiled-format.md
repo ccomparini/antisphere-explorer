@@ -174,7 +174,7 @@ Index 0 is vacuum. Each entry:
 | `kind`    | the shading function: `KIND_LAMBERT` 0, `GLOSSY` 1, `EMISSIVE` 2, `UNLIT` 3, `AMBIENT` 4, `GLOW_REGION` 5 |
 | `params`  | `[x, y]`, the kind's own: glossy `[shininess, specular]`, emissive `[emission, 0]`, ambient `[transmit, 0]`, glow region `[transmit, fill]` |
 | `albedo`  | `[r, g, b]`; for an ambient material its level, for a glow region the light at its centre |
-| `albedo2` | the pattern's second colour |
+| `albedo2` | the pattern's second colour; for a textured material, where its texture lies instead: `[du, dv, sin turn]`, added to its surface coordinates after turning them by `turn` (whose cosine is never negative: a half turn is a negative `scale`) - 0 unless a node's `textureOffset` places it, on a copy (below) |
 | `pattern` | `PATTERN_` flat 0, `CHECKER` 1, `NOISE` 2, `INDUSTRIALCARPET` 3 |
 | `scale`   | the pattern's tile size |
 | `opacity` | for glass and water: after distance $s$ through it, light is filtered by $\mathrm{albedo}^{s\cdot\mathrm{opacity}}$ |
@@ -189,6 +189,9 @@ Planned). After them come materials the compiler adds:
 - **an env's level.** An env node's material is a copy of the material it
   names, with `ambient` set to the level there - its own plus `transmit`
   times the level around it - one copy per level it comes to.
+- **a texture placed.** A node with a `textureOffset` gets a copy of its
+  textured material with `albedo2` and `scale` placing the texture where
+  the node's placing took it (`textureTurns()`), one copy per placement.
 - **a pass-through region.** A node carrying lights but naming no material
   gets an ambient material of level 0 and `transmit` 1, so lighting a region
   leaves its ambient level alone.
@@ -281,13 +284,15 @@ $$
 where $\vec c_a$ and $d_a$ are the linear and constant terms about the anchor, worked
 out in f64 by `packNodes()`.
 
-**`material_id`.** The low 25 bits index the material; the high bits are its
+**`material_id`.** The low 24 bits index the material; the high bits are its
 trace flags, so `trace()` reads what a ray does in a region without looking
 the material up. They come from the material's `flags`; without a material
 table (`packNodes(nodes)`, as physics packs), only the index. Bit 26 is the
 node's own, not its material's: `NODE_ENV`, set on a node that starts an
 env, and on node 0 if any node does (so a scene with none looks for no env
-at its hits).
+at its hits). Bit 24, `NODE_FACE`, is the compiler's: on the copies placing
+a node's texture (`textureTurns()`), so a hit there finds the face the ray
+crossed (`surfaceAt()`), whose patch of the texture it is.
 
 | bits  | mask | flag | scene key |
 |---|---|---|---|
@@ -297,7 +302,8 @@ at its hits).
 | 27    | `0x08000000` | `MATERIAL_REFLECTIVE`: a mirror | `reflective` |
 | 26    | `0x04000000` | `NODE_ENV`: the node starts an env (the node's, not the material's) | |
 | 25    | `0x02000000` | `MATERIAL_CASTS_SHADOW`: shadow rays stop there; set with `OPTICAL` unless the material says | `castsShadow` |
-| 0–24  | `0x01ffffff` | `MATERIAL_INDEX`: the material's index | |
+| 24    | `0x01000000` | `NODE_FACE`: a texture placed face by face (the compiler's) | |
+| 0–23  | `0x00ffffff` | `MATERIAL_INDEX`: the material's index | |
 
 A material that is neither an ambient nor a glow region has `SOLID` and
 `OPTICAL` by default; each scene key sets or clears its own bit, and
