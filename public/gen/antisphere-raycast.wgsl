@@ -215,6 +215,10 @@ struct Material {
   // bakeScopes() in antisphere-scene.js, one copy of the material for each
   // level. 0 for any other material.
   ambient : vec3<f32>,
+  // Its texture, an index into textures (from 1; 0 for none), laid on
+  // planar: the image over the surface coordinates (frame()), once per
+  // scale, repeated. (Planar is the one projection so far.)
+  texture : u32,
 };
 
 const KIND_LAMBERT  : u32 = 0u;
@@ -236,6 +240,7 @@ const KIND_GLOW_REGION : u32 = 5u;
 const PATTERN_CHECKER          : u32 = 1u;
 const PATTERN_NOISE            : u32 = 2u;
 const PATTERN_INDUSTRIALCARPET : u32 = 3u;
+const PATTERN_PLANAR_TEXTURE   : u32 = 4u;
 
 // Debug views. Traversal cost is counted per invocation rather than timed,
 // since timestamps can only be written at pass boundaries.
@@ -314,6 +319,19 @@ const FAR : f32 = 1e4;
 @group(0) @binding(3) var<storage, read> lights : array<Light>;
 @group(0) @binding(4) var<storage, read> materials : array<Material>;
 
+// The images materials are textured with (packTextures() in
+// antisphere-scene.js): each one's place in texels and its size, indexed
+// from 1, as materials name them. Texels are RGBA8, one u32 each, sRGB as
+// the image has them.
+struct TextureInfo {
+  offset : u32,
+  width  : u32,
+  height : u32,
+  _pad   : u32,
+};
+@group(0) @binding(5) var<storage, read> textures : array<TextureInfo>;
+@group(0) @binding(6) var<storage, read> texels : array<u32>;
+
 // A stack entry is a piece of work not yet done: an interval of the ray and
 // the node that interval still has to be tested against. Plain fields
 // rather than packed words: the array is per-invocation, so this costs more
@@ -364,7 +382,7 @@ const DEGENERATE : f32 = 1e-12;
 
 // Which nodes are the same surface: an id per node, the same for all the
 // copies and complements of one (packSurfaces() in antisphere-scene.js).
-@group(0) @binding(5) var<storage, read> surfaces : array<u32>;
+@group(0) @binding(7) var<storage, read> surfaces : array<u32>;
 
 // The first solid thing along a ray, as a Seg: node is the node whose
 // region the ray entered (never tagged), t0 how far along the ray it
@@ -628,8 +646,8 @@ struct RayQuery {
   fromNode  : u32,         // if != 0, the node we're tracing -from-
 };
 
-@group(0) @binding(6) var<storage, read> rayQueries : array<RayQuery>;
-@group(0) @binding(7) var<storage, read_write> rayResults : array<Seg>;
+@group(0) @binding(8) var<storage, read> rayQueries : array<RayQuery>;
+@group(0) @binding(9) var<storage, read_write> rayResults : array<Seg>;
 
 @compute @workgroup_size(64)
 fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
@@ -735,6 +753,31 @@ fn surfaceMaterial(hit : Hit) -> Material {
   return materials[materialIndex(nodes[hit.node].material_id)];
 }
 
+// A texel, as light: its RGBA8 sRGB made linear, as albedo is (the output's
+// pow(1/2.2) undoes it).
+fn texel(info : TextureInfo, x : u32, y : u32) -> vec3<f32> {
+  let c = unpack4x8unorm(texels[info.offset + y * info.width + x]);
+  return pow(c.rgb, vec3<f32>(2.2));
+}
+
+// A planar texture at surface coordinates uv: the image once per unit,
+// repeated, the image's top at v = 1; bilinear between the four nearest
+// texels, wrapping round its edges.
+fn planarTexture(info : TextureInfo, uv : vec2<f32>) -> vec3<f32> {
+  let size = vec2<f32>(f32(info.width), f32(info.height));
+  let p = vec2<f32>(fract(uv.x), 1.0 - fract(uv.y)) * size - 0.5;
+  let base = floor(p);
+  let f = p - base;
+  let x0 = u32((i32(base.x) + i32(info.width)) % i32(info.width));
+  let y0 = u32((i32(base.y) + i32(info.height)) % i32(info.height));
+  let x1 = (x0 + 1u) % info.width;
+  let y1 = (y0 + 1u) % info.height;
+  return mix(mix(texel(info, x0, y0), texel(info, x1, y0), f.x),
+             mix(texel(info, x0, y1), texel(info, x1, y1), f.x), f.y);
+}
+
+// A hit's colour: its material's albedo, varied by its pattern - or, a
+// texture being drawn as one, times its texture.
 fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
   var ck = 0.0;
   switch m.pattern {
@@ -747,6 +790,10 @@ fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
     }
     case PATTERN_INDUSTRIALCARPET: {
       ck = randFloat(u32(abs(hit.surfaceCoords.x)) ^ u32(abs(hit.surfaceCoords.y)));
+    }
+    case PATTERN_PLANAR_TEXTURE: {
+      // A colour, not a mix of the two: the texel, tinted by albedo.
+      return m.albedo * planarTexture(textures[m.texture], hit.surfaceCoords);
     }
     default {
       // ck = 0.0 -> use plain albedo
@@ -1220,4 +1267,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":144},{"path":"shaders/random.wgsls","offset":146,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":177,"lines":1045}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":144},{"path":"shaders/random.wgsls","offset":146,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":177,"lines":1092}]

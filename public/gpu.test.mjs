@@ -861,10 +861,10 @@ gpuTest('a maze shows each face its own material: tops, doorways and walls', asy
 
 // -- lights scoped by env, as rendered --------------------------------------------------
 
-/** Render `spec` from `camera` onto a W x H stand-in canvas; the pixels, RGBA. */
-async function renderPixels(spec, camera, W = 160, H = 80) {
+/** Render `spec` from `camera` onto a W x H stand-in canvas; the pixels, RGBA. `options` are createScene()'s. */
+async function renderPixels(spec, camera, W = 160, H = 80, options = {}) {
   await import('./as-renderer.js');                  // registers ASRenderer
-  const sc = ctx.createScene(spec);
+  const sc = ctx.createScene(spec, options);
   let config, tex;
   const surface = {
     configure(c) { config = c; }, unconfigure() {},
@@ -1480,4 +1480,43 @@ gpuTest('castsShadow: a material seen may cast no shadow, and one unseen may cas
   // optical false, castsShadow true: unseen, and the shadow is there.
   assert.equal(stand.ball, 0, 'unseen');
   assert.ok(stand.shadow < 0.6 * stand.far, `but it shadows: ${stand.shadow} against ${stand.far}`);
+});
+
+// -- textures --------------------------------------------------------------------------
+
+gpuTest('a planar texture: the image on the floor, once per scale, repeated; tinted by albedo', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A 2x2 image, as decodePNG() gives one: red, green / blue, white.
+  const four = { width: 2, height: 2, rgba: new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255]) };
+  // A floor in white ambient light and no other, so a pixel is the texel
+  // as the image has it (made light, then back to sRGB for the screen).
+  const spec = (tiles) => ({
+    materials: { tiles: { texture: '@four.png', scale: 2, ...tiles }, white: { kind: 'ambient', albedo: [1, 1, 1] } },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'white', inside: {
+      plane: { normal: [0, 0, 1], offset: 0 }, material: 'tiles' } },
+  });
+  const options = { files: { '/t/four.png': four }, path: '/t/s.json' };
+  // Looking straight down, orthographic, 10 pixels a unit: x to the left,
+  // y down the picture, moved half a pixel so pixels' centres fall on
+  // texels' (a texel's neighbour 5% in shows up strongly, once sRGB).
+  const c = new ASCamera({ position: [0.05, 0.05, 10], direction: [0, 0, -1], projection: 'orthographic' });
+  c.orthoHeight = 4;
+  const img = await renderPixels(spec({}), c, 160, 80, options);
+  // The floor's surface coordinates (frame()): u along y, v along -x, so
+  // over a tile 2 across, x -2 to 0 and y 0 to 2, the image's top row - v
+  // 1 - is at x -2. Each texel's centre, and again a tile over in x and y.
+  const at = (x, y) => img.at(Math.round(80 - 10 * x), Math.round(39 + 10 * y));
+  const near = (got, want, say) => assert.ok(got.every((v, i) => Math.abs(v - want[i]) <= 3), `${say}: ${got}, not ${want}`);
+  for (const [dx, dy] of [[0, 0], [2, 0], [0, -2], [-2, 2]]) {
+    near(at(-1.5 + dx, 0.5 + dy), [255, 0, 0], `red, tile ${dx}, ${dy}`);
+    near(at(-1.5 + dx, 1.5 + dy), [0, 255, 0], `green, tile ${dx}, ${dy}`);
+    near(at(-0.5 + dx, 0.5 + dy), [0, 0, 255], `blue, tile ${dx}, ${dy}`);
+    near(at(-0.5 + dx, 1.5 + dy), [255, 255, 255], `white, tile ${dx}, ${dy}`);
+  }
+  // Between two texels, bilinear: half red, half green, as light.
+  near(at(-1.5, 1), [255 * 0.5 ** (1 / 2.2), 255 * 0.5 ** (1 / 2.2), 0], 'between red and green');
+  // An albedo tints it: half the light.
+  const tinted = await renderPixels(spec({ albedo: [0.5, 1, 1] }), c, 160, 80, options);
+  near(tinted.at(85, 54), [0.5 ** (1 / 2.2) * 255, 255, 255], 'white, tinted');
 });

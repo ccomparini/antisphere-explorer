@@ -61,6 +61,7 @@ The spec it was given is not changed.
 | `gravity`    | `parseGravity()`'s reading of `"gravity"` |
 | `spawn`      | `parseSpawn()`'s reading of `"spawn"`, or `null` |
 | `overlaps`   | the group members that may overlap |
+| `textures`   | the images materials are textured with, one per file however many name it: `{ file, width, height, rgba }`, as `decodePNG()` gives them; a material's `texture` is an index into it from 1 |
 
 ### `nodes`
 
@@ -179,6 +180,8 @@ Index 0 is vacuum. Each entry:
 | `opacity` | for glass and water: after distance $s$ through it, light is filtered by $\mathrm{albedo}^{s\cdot\mathrm{opacity}}$ |
 | `flags`   | the trace flags, the `MATERIAL_` bits below; 0 for an ambient or glow region unless the spec sets some |
 | `ambient` | on the compiler's copies only (below): the env's ambient level |
+| `texture` | its image, an index into `textures` from 1; 0 for none |
+| `projection` | how the image is laid on: 0, planar, the one so far |
 
 Every material in the spec is in the table, used or not (`DESIGN.md`,
 Planned). After them come materials the compiler adds:
@@ -222,8 +225,8 @@ env.
 
 ## On the GPU
 
-`ASScene` packs the compiled scene into four storage buffers, each an array
-of one struct. These are the four packing functions in `antisphere-scene.js`:
+`ASScene` packs the compiled scene into six storage buffers, each an array
+of one struct. These are the packing functions in `antisphere-scene.js`:
 
 | buffer      | struct, stride   | packed by | binding in the raycast shader |
 |---|---|---|---|
@@ -231,9 +234,11 @@ of one struct. These are the four packing functions in `antisphere-scene.js`:
 | surfaces    | `u32`, 4 bytes    | `packSurfaces(nodes)` | `surfaces` |
 | lights      | `Light`, 32 bytes | `packLights(lights)` | `lights` |
 | materials   | `Material`, 64 bytes | `packMaterials(materials)` | `materials` |
+| textures    | `TextureInfo`, 16 bytes | `packTextures(textures)` | `textures` |
+| texels      | `u32`, 4 bytes    | `packTextures(textures)` | `texels` |
 
-Index $i$ in each array is entry $i$ of the compiled scene's list. All values
-are 32-bit, little-endian.
+Index $i$ in each array is entry $i$ of the compiled scene's list (texels
+apart: see `textures`). All values are 32-bit, little-endian.
 
 ### `Node`
 
@@ -319,9 +324,26 @@ Planned, "Rays that continue from a hit").
 | 32 | `albedo2` | `vec3<f32>` | `albedo2` |
 | 44 | `opacity` | `f32`       | `opacity`, default 1 |
 | 48 | `ambient` | `vec3<f32>` | `ambient`, default 0 |
+| 60 | `texture` | `u32`       | `texture`, default 0 |
 
 `flags` and `name` aren't here: the flags travel in each node's
-`material_id`.
+`material_id`. Nor is `projection`, while planar is the only one.
+
+### `textures` and `texels`
+
+A `TextureInfo` per texture, entry 0 a stand-in, as materials index them:
+
+| offset | field | type |
+|---|---|---|
+| 0  | `offset` | `u32`, its first texel in `texels` |
+| 4  | `width`  | `u32` |
+| 8  | `height` | `u32` |
+| 12 | `_pad`   | `u32` |
+
+`texels` is every texture's pixels, one after another, rows top to bottom,
+one `u32` each: the image's RGBA bytes as they are (sRGB; the shader makes
+them light, `unpack4x8unorm()` then $c^{2.2}$). With no textures, each is
+one entry of zeros.
 
 ### `Light`
 

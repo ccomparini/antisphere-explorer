@@ -5,7 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { compileScene, expandReferences, loadReferences, isReference, isSolid, readScene, withReferences } from './antisphere-scene.js';
+import { compileScene, expandReferences, loadReferences, isReference, isSolid, packTextures, readScene, withReferences } from './antisphere-scene.js';
+import { TextureInfo, viewsOf } from './gen/layouts.js';
 import { loadText, loadBytes } from './load.js';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -165,8 +166,9 @@ test('relative to the file that names them, and to a URL', () => {
 test('what is missing is warned of and left out; a cycle, and "import", are each said plainly', () => {
   const warned = [];
   const built = compileScene(host(), { path: 'scenes/host.json', warn: (path, msg) => warned.push(`${path}: ${msg}`) });
-  assert.match(warned.join('\n'), /scenes\/parts\/bolt.json: not loaded, so what refers to it is left out \(see loadReferences\(\)\)/);
-  assert.match(warned.join('\n'), /unknown object "scenes\/parts\/bolt.json#\/objects\/bolt": left out|unknown object "@parts\/bolt.json#\/objects\/bolt": left out/);
+  // Named from the scene's own directory: parts/bolt.json, not scenes/parts/bolt.json.
+  assert.match(warned.join('\n'), /(^|\n)parts\/bolt.json: not loaded, so what refers to it is left out \(see loadReferences\(\)\)/);
+  assert.match(warned.join('\n'), /unknown object "@parts\/bolt.json#\/objects\/bolt": left out/);
   assert.ok(built.nodes.length >= 2, 'the scene still compiles, without the bolts');
   // A file that is itself a reference is followed - round, here.
   const loop = { 'scenes/a.json': '@b.json', 'scenes/b.json': '@a.json' };
@@ -345,4 +347,102 @@ test('readScene(): a reference that can\'t be read is warned of and left out', a
   assert.equal(warned.length, 1);
   assert.match(warned[0], /lib\/m\.json.*no such file.*left out/);
   assert.ok(compileScene(read.spec, { ...read, quiet: true }), 'and the scene plays on');
+});
+
+test('a whole file used as a subtree, where its root was meant: the error says to add "#/root"', async () => {
+  const part = { _comment: 'a part', root: { slab: { center: [0, 0, 0.2], thickness: 0.4 }, material: 'cheese',
+                                           inside: { cylinder: { radius: 0.1 } } } };
+  const scene = (use) => JSON.stringify({ materials: { cheese: { albedo: [0.2, 0.2, 0.8] } }, lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 50 }, material: null, inside: { use } } });
+  const base = onDisk({ 'whole.json': scene('@parts/cheese.json'), 'rooted.json': scene('@parts/cheese.json#/root'),
+                        'parts/cheese.json': JSON.stringify(part) });
+  const whole = await readScene(`${base}whole.json`);
+  assert.throws(() => compileScene(whole.spec, whole), /parts\/cheese\.json: needs a shape.*a whole file, with a "root".*add "#\/root"/);
+  const rooted = await readScene(`${base}rooted.json`);
+  assert.ok(compileScene(rooted.spec, rooted).nodes.length > 2, 'with #/root, the part');
+});
+
+// -- textures: a material's image, by reference --------------------------------------
+
+test('a texture: a reference to a PNG, read decoded, one table entry however many name it, from a library too', async () => {
+  const { encodePNG } = await import('./png.js');
+  // A 2x2 image: red, green / blue, white.
+  const four = await encodePNG(new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255]), 2, 2);
+  const base = onDisk({
+    'scenes/s.json': JSON.stringify({
+      materials: ['@lib/painted.json', { tiles: { texture: '@textures/four.png' }, tinted: { texture: '@textures/four.png', albedo: [0.5, 0.5, 0.5] } }],
+      lights: [],
+      root: { sphere: { center: [0, 0, 0], radius: 5 }, material: 'tiles', inside: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'tinted' } },
+    }),
+    // A library naming the same image, from where it is: ../textures.
+    'scenes/lib/painted.json': JSON.stringify({ wall: { texture: '@../textures/four.png', scale: 2 } }),
+    'scenes/textures/four.png': four,
+  });
+  const read = await readScene(`${base}scenes/s.json`);
+  const image = read.files[`${base}scenes/textures/four.png`];
+  assert.deepEqual([image.width, image.height], [2, 2], 'loaded, decoded');
+  assert.deepEqual([...image.rgba.subarray(0, 4)], [255, 0, 0, 255]);
+  const built = compileScene(read.spec, read);
+  assert.equal(built.textures.length, 1, 'three materials, one image: one entry');
+  assert.equal(built.textures[0].file, `${base}scenes/textures/four.png`);
+  const byName = Object.fromEntries(built.materials.filter((m) => m.name).map((m) => [m.name, m]));
+  for (const name of ['tiles', 'tinted', 'wall']) assert.equal(byName[name].texture, 1, `${name}: the image`);
+  assert.deepEqual(byName.tiles.albedo, [1, 1, 1], 'textured, albedo white unless given');
+  assert.deepEqual(byName.tinted.albedo, [0.5, 0.5, 0.5], 'a given albedo tints it');
+  assert.equal(byName.tiles.projection, 0, 'planar');
+});
+
+test('a texture on a material a node names by reference: found from the material\'s file, and loaded', async () => {
+  const { encodePNG } = await import('./png.js');
+  const one = await encodePNG(new Uint8Array([10, 20, 30, 255]), 1, 1);
+  const base = onDisk({
+    's.json': JSON.stringify({ materials: {}, lights: [],
+      root: { sphere: { center: [0, 0, 0], radius: 5 }, material: null,
+              inside: { use: '@parts/cheese.json#/objects/wheel', material: '@parts/cheese.json#/materials/blue' } } }),
+    'parts/cheese.json': JSON.stringify({ materials: { blue: { texture: '@cheese.png' } },
+                                          objects: { wheel: { sphere: { center: [0, 0, 0], radius: 1 } } } }),
+    'parts/cheese.png': one,
+  });
+  const warned = [];
+  const read = await readScene(`${base}s.json`, { warn: (msg) => warned.push(msg) });
+  const built = compileScene(read.spec, { ...read, warn: (where, msg) => warned.push(`${where}: ${msg}`) });
+  assert.deepEqual(warned, []);
+  assert.deepEqual(built.textures.map((t) => t.file), [`${base}parts/cheese.png`], 'beside the part, as the part says');
+  assert.ok(built.materials.some((m) => m.texture === 1), 'and the material textured');
+});
+
+test('a texture missing, not a reference, or an unknown projection: warned of, and the material plays on', async () => {
+  const base = onDisk({
+    's.json': JSON.stringify({
+      materials: { gone: { texture: '@nowhere.png' }, plain: { texture: 'four.png' }, round: { projection: 'spherical' } },
+      lights: [],
+      root: { sphere: { center: [0, 0, 0], radius: 5 }, material: 'gone', inside: { sphere: { center: [0, 0, 0], radius: 2 }, material: 'plain',
+        inside: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'round' } } },
+    }),
+  });
+  const loading = [], compiling = [];
+  const read = await readScene(`${base}s.json`, { warn: (msg) => loading.push(msg) });
+  assert.match(loading.join('\n'), /nowhere\.png.*no such file.*left out/);
+  const built = compileScene(read.spec, { ...read, warn: (where, msg) => compiling.push(`${where}: ${msg}`) });
+  assert.equal(built.textures.length, 0);
+  assert.ok(compiling.some((w) => /materials\.gone\.texture: No such image: "nowhere\.png"/.test(w)), compiling.join('\n'));
+  assert.ok(compiling.some((w) => /materials\.plain\.texture: No such image: "four\.png"/.test(w)), compiling.join('\n'));
+  assert.ok(compiling.some((w) => /materials\.round\.projection: "spherical" isn't a projection there is yet/.test(w)), compiling.join('\n'));
+  assert.ok(built.materials.filter((m) => m.name).every((m) => m.texture === 0), 'all untextured');
+});
+
+test('packTextures(): each texture\'s place among the texels and its size, from 1; with none, stand-ins', () => {
+  // A subarray, as an image may be, of a bigger buffer.
+  const big = new Uint8Array(4 * 7).map((_, i) => i);
+  const a = { width: 2, height: 1, rgba: big.subarray(4, 12) };
+  const b = { width: 1, height: 3, rgba: big.subarray(12, 24) };
+  const { infos, texels } = packTextures([a, b]);
+  const info = (k) => TextureInfo.read(viewsOf(infos), k);
+  assert.equal(infos.byteLength, 3 * TextureInfo.STRIDE, 'a stand-in and the two');
+  assert.deepEqual([info(1).offset, info(1).width, info(1).height], [0, 2, 1]);
+  assert.deepEqual([info(2).offset, info(2).width, info(2).height], [2, 1, 3]);
+  assert.deepEqual([...new Uint8Array(texels.buffer)], [...big.subarray(4, 24)], 'the texels, RGBA as they are');
+  const none = packTextures([]);
+  assert.equal(none.infos.byteLength, TextureInfo.STRIDE);
+  assert.equal(none.texels.length, 1);
 });

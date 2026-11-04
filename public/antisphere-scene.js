@@ -35,9 +35,9 @@
 // ---------------------------------------------------------------------------
 
 import {
-  Light, Material, Node,
+  Light, Material, Node, TextureInfo,
   KIND_LAMBERT, KIND_GLOSSY, KIND_EMISSIVE, KIND_UNLIT, KIND_AMBIENT, KIND_GLOW_REGION,
-  PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, MATERIAL_SOLID, MATERIAL_OPTICAL,
+  PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, PATTERN_PLANAR_TEXTURE, MATERIAL_SOLID, MATERIAL_OPTICAL,
   MATERIAL_INDEX, NODE_ENV, MATERIAL_CASTS_SHADOW,
 } from './gen/layouts.js';
 import * as layouts from './gen/layouts.js';
@@ -47,6 +47,7 @@ import { quadricAt } from './quadric.js';
 import { readSTL } from './stl.js';
 import { meshToTree, boundsOf, boundingSpheroidOfPoints } from './mesh-import.js';
 import { loadText, loadBytes } from './load.js';
+import { decodePNG } from './png.js';
 import { fromAxisAngle, fromColumns, toAxisAngle, rows as quatRows, multiply as quatMultiply } from './quat.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -440,6 +441,29 @@ export function envAt(built, P) {
   }
   return env;
 }
+
+/**
+ * The textures as the GPU takes them: { infos, texels } - each texture's
+ * place among the texels and its size (TextureInfo), indexed from 1 as
+ * materials name them, and every texel, RGBA8 as one u32, sRGB as the image
+ * has it (the shader makes it light). With none, one stand-in of each.
+ */
+export function packTextures(textures) {
+  const infos = TextureInfo.allocate(textures.length + 1);
+  const texels = new Uint32Array(Math.max(1, textures.reduce((n, t) => n + t.width * t.height, 0)));
+  let offset = 0;
+  textures.forEach((t, k) => {
+    TextureInfo.write(infos, k + 1, { offset, width: t.width, height: t.height });
+    texels.set(new Uint32Array(t.rgba.buffer, t.rgba.byteOffset, t.width * t.height), offset);
+    offset += t.width * t.height;
+  });
+  return { infos: infos.buffer, texels };
+}
+
+// How a material's texture is laid on its surfaces (scene-format.md):
+// planar, by its surface coordinates in units of its scale, the image
+// repeated. The one so far; spherical (geodesic) is to come.
+const PROJECTIONS = Object.freeze({ planar: 0 });
 
 /**
  * What a material named `name` in `materials` (a scene's, merged) is an
@@ -1740,6 +1764,9 @@ export const isGzip = (path) => /\.gz$/i.test(String(path).split(/[?#]/)[0]);
 /** Whether a path or URL names an STL file, which is read as a mesh. */
 export const isSTL = (path) => /\.stl$/i.test(fileOf(path));
 
+/** Whether a path or URL names a PNG image: a texture, read decoded (png.js). */
+export const isPNG = (path) => /\.png$/i.test(fileOf(path));
+
 /** Gzipped bytes, unzipped (DecompressionStream: browsers, and Node 18+). */
 export async function gunzip(bytes) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
@@ -1841,7 +1868,14 @@ export function expandReferences(spec, files = {}, { from = '' } = {}) {
     return found ? inline(found.value, found.path, [...trail, found.key], expand) : undefined;
   };
 
-  const material = (def, from, trail) => inline(def, from, trail, (v) => v);
+  // A material, and its texture: a reference to an image, resolved from
+  // where the material is, and missing until it is loaded.
+  const material = (def, from, trail) => inline(def, from, trail, (v, from) => {
+    if (!v || typeof v !== 'object' || !isReference(v.texture)) return v;
+    const path = resolvePath(from, v.texture.slice(1).split('#')[0]);
+    if (!(path in own)) missing.add(path);
+    return { ...v, texture: path };
+  });
 
   const subtreeReference = (reference, from, trail) => {
     const found = lookUp(reference, from, []);
@@ -1861,7 +1895,8 @@ export function expandReferences(spec, files = {}, { from = '' } = {}) {
     if (isReference(def.material)) {
       const found = lookUp(def.material, from, []);
       if (found) {
-        if (!materials.has(found.key)) materials.set(found.key, found.value);
+        // As a material in "materials" is: its texture found from its file.
+        if (!materials.has(found.key)) materials.set(found.key, material(found.value, found.path, [found.key]));
         out.material = found.key;
       }
     }
@@ -1937,6 +1972,10 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
   const failed = new Set();          // warned of, and left out: compileScene() goes on without them
   const load = async (path) => {
     try {
+      if (isPNG(path)) {
+        if (!readBytes) throw new Error('a PNG needs loadReferences() given readBytes');
+        return await decodePNG(new Uint8Array(await readBytes(path)), { name: path });
+      }
       if (isSTL(path) || isGzip(path)) {
         if (!readBytes) throw new Error('an STL or a .gz needs loadReferences() given readBytes');
         let bytes = new Uint8Array(await readBytes(path));
@@ -2140,7 +2179,12 @@ export function compileScene(rawSpec, options = {}) {
   // Messages name the file being compiled, where there is one (its last
   // part: "scene-ambient.json"), and where in it.
   const file = options.path ? `${String(options.path).split(/[?#]/)[0].split('/').pop()} ` : '';
-  const at = (path, msg) => { throw new Error(`scene compilation: ${file}${path}: ${msg}`); };
+  // What came from a reference is named for its file, from the scene's own
+  // directory: "materials.parts/cheese.json#/materials/blue-cheese", not
+  // the whole URL.
+  const dir = String(options.path ?? '').split(/[?#]/)[0].replace(/[^/]*$/, '');
+  const shown = (path) => (dir ? String(path).split(dir).join('') : path);
+  const at = (path, msg) => { throw new Error(`scene compilation: ${file}${shown(path)}: ${shown(msg)}`); };
 
   // References are replaced by what they name before anything else looks
   // at the spec, so everything below sees one ordinary scene - some of
@@ -2155,7 +2199,8 @@ export function compileScene(rawSpec, options = {}) {
   // without it, rather than not loading at all. options.warn(path, msg)
   // hears the warnings instead of the console (a tool's check, failing on
   // them); options.quiet silences them.
-  const quietly = options.warn ?? ((path, msg) => { if (!options.quiet) console.warn(`warning: ${file}${path}: ${msg}`); });
+  const told = options.warn ?? ((path, msg) => { if (!options.quiet) console.warn(`warning: ${file}${path}: ${msg}`); });
+  const quietly = (path, msg) => told(shown(path), shown(msg));
   const { spec, missing } = expandReferences(rawSpec, options.files ?? {}, { from: options.path ?? '' });
   if (missing.size) {
     quietly([...missing].join(', '), 'not loaded, so what refers to it is left out (see loadReferences())');
@@ -2175,6 +2220,33 @@ export function compileScene(rawSpec, options = {}) {
   // every node it fills (packNodes()), which is what trace() reads: an
   // author-set "solid": false, or "optical": false, is exactly what keeps
   // a ray of that sort from stopping in the region.
+  // Textures: each image a material names, once however many name it, by
+  // its place in options.files - loaded and decoded (loadReferences()). A
+  // material's texture is an index into them, from 1; 0 is none. One that
+  // wasn't loaded or isn't an image is warned of, and the material plays
+  // on untextured. Planar is the one projection so far (PROJECTIONS).
+  const textures = [];
+  const textureIndex = new Map();
+  function textureOf(def, path) {
+    let projection = PROJECTIONS[def.projection ?? 'planar'];
+    if (projection === undefined) {
+      quietly(`${path}.projection`, `"${def.projection}" isn't a projection there is yet (${Object.keys(PROJECTIONS).join(', ')}) - planar`);
+      projection = PROJECTIONS.planar;
+    }
+    const none = { texture: 0, projection };
+    if (def.texture === undefined) return none;
+    const image = typeof def.texture === 'string' ? options.files?.[def.texture] : undefined;
+    if (!image?.rgba) {
+      quietly(`${path}.texture`, `No such image: ${JSON.stringify(def.texture)}`);
+      return none;
+    }
+    if (!textureIndex.has(def.texture)) {
+      textures.push({ file: def.texture, width: image.width, height: image.height, rgba: image.rgba });
+      textureIndex.set(def.texture, textures.length);
+    }
+    return { texture: textureIndex.get(def.texture), projection };
+  }
+
   const table = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0],
                    pattern: 0, scale: 1, kind: 0, params: [0, 0], flags: 0 }];
   const matIndex = new Map();
@@ -2225,16 +2297,21 @@ export function compileScene(rawSpec, options = {}) {
     if (def.castsShadow === undefined) {
       flags = flags & MATERIAL_OPTICAL ? flags | MATERIAL_CASTS_SHADOW : flags & ~MATERIAL_CASTS_SHADOW;
     }
+    const { texture, projection } = textureOf(def, `materials.${name}`);
     table.push({
       name,                                      // for display (what a ray hit); not packed
-      albedo:  def.albedo  ?? [0.7, 0.7, 0.7],
+      // Textured, its colour is the texel times albedo, white unless given.
+      albedo:  def.albedo  ?? (texture ? [1, 1, 1] : [0.7, 0.7, 0.7]),
       albedo2: def.albedo2 ?? [0.3, 0.3, 0.3],
       scale,
       opacity,
       kind:    kind.id,
       params:  kind.params(def),
-      pattern,
+      // A texture is drawn as a pattern is, in place of one.
+      pattern: texture ? PATTERN_PLANAR_TEXTURE : pattern,
       flags:   flags >>> 0,
+      texture,                                   // index into textures, from 1; 0 for none
+      projection,
     });
     matIndex.set(name, table.length - 1);
   }
@@ -2412,7 +2489,12 @@ export function compileScene(rawSpec, options = {}) {
   function primOf(def, path) {
     const named = Object.keys(SHAPES).filter((shape) => def[shape] !== undefined);
     if (named.length === 0) {
-      at(path, `needs a shape: one of ${Object.keys(SHAPES).join(', ')}`);
+      // A file's "root" and no shape: a reference to a whole scene or part
+      // file, which is no subtree, where its root was meant.
+      const whole = def.root !== undefined
+        ? ' - this is a whole file, with a "root": to use that, add "#/root" to the reference'
+        : '';
+      at(path, `needs a shape: one of ${Object.keys(SHAPES).join(', ')}${whole}`);
     }
     if (named.length > 1) at(path, `has more than one shape: ${named.join(' and ')}`);
     const shape = named[0];
@@ -3110,6 +3192,7 @@ export function compileScene(rawSpec, options = {}) {
     // node 0 and for nodes the compiler invented.
     provenance: nodes.map((n) => n.prov),
     materials: table,
+    textures,                              // the images materials name: { file, width, height, rgba }
     lights: lightList,
     topLights: topLights.length,           // the first this many are the scene's own
     camera: spec.camera || null,
@@ -3137,6 +3220,7 @@ export function packMaterials(list) {
       albedo2: m.albedo2,
       opacity: m.opacity ?? 1,
       ambient: m.ambient ?? [0, 0, 0],
+      texture: m.texture ?? 0,
     });
   });
   return views.buffer;

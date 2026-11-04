@@ -184,6 +184,8 @@ export class ASRenderer {
         outTex: view,
         lights: this.scene.lightBuf,
         materials: this.scene.matBuf,
+        textures: this.scene.textureBuf,
+        texels: this.scene.texelBuf,
       }
     );
   }

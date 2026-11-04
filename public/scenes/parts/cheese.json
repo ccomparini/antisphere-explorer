@@ -1,0 +1,55 @@
+{
+  "_comment": "cheese texture (and, later, bump) map test object",
+  "materials": {
+    "blue-cheese": {
+      "_texture as I would hope it would work, since blue_cheese.png is in the same dir as this file": "@blue_cheese.png",
+      "_texture I see no reason why this shouldn't work, either alternately, or as well": "@blue_cheese.png",
+      "_texture this also does not work": "@parts/blue_cheese.png",
+      "_texture I should not have to do this, but it should work, and it does not": "@https://fbmstudios.net/chris/antisphere-explorer/public/scenes/parts/blue_cheese.png",
+      "texture": "@https://fbmstudios.net/chris/antisphere-explorer/public/scenes/parts/blue_cheese.png"
+    }
+  },
+  "objects": {
+    "cheese-wheel": {
+      "plane": {
+        "normal": [ 0, 0, 1 ],
+        "offset": 0.4
+      },
+      "inside": {
+        "plane": {
+          "normal": [ 0, 0, -1 ],
+          "offset": 0
+        },
+        "inside": {
+          "cylinder": {
+            "radius": 1
+          }
+        }
+      }
+    },
+    "wedge": {
+      "plane" : {
+        "normal": [ -1, 0, 0 ]
+      },
+        "inside": {
+          "plane" : {
+            "normal": [ 0.866, 0.5, 0 ]
+          }
+        }
+    },
+    "cheese-wedge": {
+      "intersection": [
+        { "use": "@#/objects/cheese-wheel" },
+        { "use": "@#/objects/wedge" }
+      ]
+    }
+  },
+  "root": {
+    "cheese-wedge": {
+      "intersection": [
+        { "use": "cheese-wheel" },
+        { "use": "wedge" }
+      ]
+    }
+  }
+}

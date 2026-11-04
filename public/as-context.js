@@ -15,7 +15,7 @@ import {
 } from './gpu-setup.js';
 import { loadText } from './load.js';
 import {
-  compileScene, compileLight, packNodes, packSurfaces, packMaterials, packLights, readScene,
+  compileScene, compileLight, packNodes, packSurfaces, packMaterials, packLights, packTextures, readScene,
 } from './antisphere-scene.js';
 import { BINDINGS, Node, RayQuery, Seg, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
@@ -279,11 +279,16 @@ export class ASScene {
     this.surfaces = packSurfaces(built.nodes);
     const lightData = packLights(built.lights);
     const matData = packMaterials(built.materials);
+    // The images materials name: where each is, and every texel.
+    this.textures = built.textures ?? [];
+    const { infos, texels } = packTextures(this.textures);
+    this.textureBuf = uploadStorage(device, infos);
+    this.texelBuf = uploadStorage(device, texels);
     this.nodeBuf = uploadStorage(device, nodeData);
     this.surfaceBuf = uploadStorage(device, this.surfaces);
     this.lightBuf = uploadStorage(device, lightData);
     this.matBuf = uploadStorage(device, matData);
-    this.bytes = nodeData.byteLength + this.surfaces.byteLength + lightData.byteLength + matData.byteLength;
+    this.bytes = nodeData.byteLength + infos.byteLength + texels.byteLength + this.surfaces.byteLength + lightData.byteLength + matData.byteLength;
     this.generation++;
   }
 
@@ -447,6 +452,8 @@ export class ASScene {
     const buffers = [
       'surfaceBuf',
       'nodeBuf',
+      'textureBuf',
+      'texelBuf',
       'lightBuf',
       'matBuf'
     ]

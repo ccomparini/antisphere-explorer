@@ -144,6 +144,8 @@ and editing it edits that material.
 | `iorWater` | boolean                                         | `false`          | the same, index 1.333 (both `iorGlass` and `iorWater`: 2.42, diamond) |
 | `opacity`  | number ≥ 0                                      | `1`              | glass and water: how fast light through it takes on its `albedo` - after `d` units, `albedo`^(`d` × `opacity`). `0` is clear; see below for values |
 | `reflective` | boolean                                       | `false`          | a mirror: no shading of its own; it shows what a camera ray reflected from it sees, times its `albedo` |
+| `texture`  | a reference to a PNG, `"@textures/bricks.png"` | none            | an image to colour it by: each point the image's colour there, times `albedo` (which defaults to white with a texture). Laid on as `projection` says, filtered bilinearly; its colours are sRGB, as a PNG's are, and made light as `albedo` is |
+| `projection` | `"planar"`                                  | `"planar"`       | how the texture is laid on: `"planar"`, by the surface's coordinates in units of `scale` - the image once per `scale` across, repeated. Spherical (geodesic) is to come |
 
 The boolean fields are the material's **trace flags**: every single-bit
 `MATERIAL_` constant in `shaders/node.wgsls`, named without `MATERIAL_` and
@@ -265,6 +267,7 @@ Where a reference may go:
 | `lights` (the scene's, or a node's) | an array, or a reference to one; an item may be a light, a reference to one, or a reference to an array, spliced in |
 | a subtree — `root`, `inside`, `outside`, a member of `group`/`union`/`intersection`/`difference`, `use` | a subtree, or a reference (an `.stl` gives the mesh's tree) |
 | `material` on a node | a name, or a reference to a material |
+| `texture` in a material | a reference to a PNG, found from the file the material is in |
 
 **What a reference brings is the scene's.** It is copied in where it is
 named, and the names inside it then mean this scene's: a referenced bolt

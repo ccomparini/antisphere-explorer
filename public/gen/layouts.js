@@ -233,6 +233,7 @@ export class Material {
     albedo2: Object.freeze({ offset: 32, type: 'vec3<f32>' }),
     opacity: Object.freeze({ offset: 44, type: 'f32' }),
     ambient: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
+    texture: Object.freeze({ offset: 60, type: 'u32' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Material.STRIDE)); }
@@ -272,6 +273,9 @@ export class Material {
       f32[w + 13] = values.ambient[1];
       f32[w + 14] = values.ambient[2];
     }
+    if (values.texture !== undefined) {
+      u32[w + 15] = values.texture;
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -285,6 +289,49 @@ export class Material {
       albedo2: [f32[w + 8], f32[w + 9], f32[w + 10]],
       opacity: f32[w + 11],
       ambient: [f32[w + 12], f32[w + 13], f32[w + 14]],
+      texture: u32[w + 15],
+    };
+  }
+}
+
+export class TextureInfo {
+  static SIZE = 16;
+  static ALIGN = 4;
+  static STRIDE = 16;
+  static FIELDS = Object.freeze({
+    offset: Object.freeze({ offset: 0, type: 'u32' }),
+    width: Object.freeze({ offset: 4, type: 'u32' }),
+    height: Object.freeze({ offset: 8, type: 'u32' }),
+    _pad: Object.freeze({ offset: 12, type: 'u32' }),
+  });
+
+  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * TextureInfo.STRIDE)); }
+  static write(views, index, values) { TextureInfo.writeAt(views, index * TextureInfo.STRIDE, values); }
+  static read(views, index) { return TextureInfo.readAt(views, index * TextureInfo.STRIDE); }
+
+  static writeAt(views, byteOffset, values) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    if (values.offset !== undefined) {
+      u32[w] = values.offset;
+    }
+    if (values.width !== undefined) {
+      u32[w + 1] = values.width;
+    }
+    if (values.height !== undefined) {
+      u32[w + 2] = values.height;
+    }
+    if (values._pad !== undefined) {
+      u32[w + 3] = values._pad;
+    }
+  }
+
+  static readAt(views, byteOffset) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    return {
+      offset: u32[w],
+      width: u32[w + 1],
+      height: u32[w + 2],
+      _pad: u32[w + 3],
     };
   }
 }
@@ -976,10 +1023,10 @@ export class PathPair {
 /** Each shader's resources: their bindings, and which each entry point uses. */
 export const BINDINGS = Object.freeze({
   "antisphere-raycast": Object.freeze({
-    slots: Object.freeze({"cam":0,"nodes":1,"outTex":2,"lights":3,"materials":4,"surfaces":5,"rayQueries":6,"rayResults":7}),
+    slots: Object.freeze({"cam":0,"nodes":1,"outTex":2,"lights":3,"materials":4,"textures":5,"texels":6,"surfaces":7,"rayQueries":8,"rayResults":9}),
     entries: Object.freeze({
       "traceFrom": Object.freeze(["nodes","surfaces","rayQueries","rayResults"]),
-      "main": Object.freeze(["cam","nodes","outTex","lights","materials","surfaces"]),
+      "main": Object.freeze(["cam","nodes","outTex","lights","materials","textures","texels","surfaces"]),
     }),
   }),
   "physics-2pt": Object.freeze({
@@ -1027,6 +1074,7 @@ export const KIND_GLOW_REGION = 5;
 export const PATTERN_CHECKER = 1;
 export const PATTERN_NOISE = 2;
 export const PATTERN_INDUSTRIALCARPET = 3;
+export const PATTERN_PLANAR_TEXTURE = 4;
 export const DEBUG_OFF = 0;
 export const DEBUG_VISITS = 1;
 export const DEBUG_SHADOW = 2;

@@ -33,7 +33,7 @@ async function chain() {
 
 /** Compile a stage, its model given as the file `modelRef` names, the rest read from scenes/. */
 async function compile(spec, model, modelRef) {
-  const files = await loadReferences(spec, { from: STAGE, readText: (p) => readFileSync(p, 'utf8'), warn: () => {} });
+  const files = await loadReferences(spec, { from: STAGE, readText: (p) => readFileSync(p, 'utf8'), readBytes: (p) => readFileSync(p), warn: () => {} });
   files[join(SCENES, modelRef.slice(1))] = model;
   const warned = [];
   const built = compileScene(spec, { files, path: STAGE, warn: (path, msg) => warned.push(`${path}: ${msg}`) });
@@ -167,7 +167,7 @@ test('grafted into the stage for its reach, the mannequin is right in every pose
   // Its lowest point: the extent along z of a spheroid of that axis.
   const nz = reach.axis[2] / Math.hypot(...reach.axis), a = reach.height / 2;
   assert.ok(reach.center[2] - Math.sqrt(a * a * nz * nz + reach.radius ** 2 * (1 - nz * nz)) < 0, 'some clip takes it below the floor (Swim)');
-  const files = await loadReferences(chainSpec(model, chain, { materials }), { from: STAGE, readText: (p) => readFileSync(p, 'utf8'), warn: () => {} });
+  const files = await loadReferences(chainSpec(model, chain, { materials }), { from: STAGE, readText: (p) => readFileSync(p, 'utf8'), readBytes: (p) => readFileSync(p), warn: () => {} });
   const compileSpec = (spec) => compileScene(spec, { files, path: STAGE, quiet: true });
   const grafted = graftedStage(model, chain, compileSpec, { materials, reach });
   assert.equal(grafted.copies.length, 2, 'above the floor and below it');

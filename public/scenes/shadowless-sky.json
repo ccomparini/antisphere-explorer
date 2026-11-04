@@ -25,19 +25,22 @@
     "maxDistance": 23
   },
   "objects": {
+    "cheese": {
+      "use": "@parts/cheese.json#/objects/cheese-wedge",
+      "material": "@parts/cheese.json#/materials/blue-cheese"
+    },
     "bitten": {
       "scale": 1.9,
       "sphere": {
         "center": [ -1.35, 0, 0.25 ],
         "radius": 1.15
       },
-      "material": "jade",
+      "material": "mirror-dark",
       "inside": {
         "plane": {
           "normal": [ 0, 0, 1 ],
           "offset": 0.95
         },
-        "material": "mirror-dark",
         "inside": {
           "material": "jade",
           "sphere": {
@@ -114,16 +117,20 @@
       "complement": true,
       "radius": 25
     },
-    "material": "sky-3",
+    "material": "sky-ornate-carpet",
     "outside": {
       "plane": {
       },
-      "material": "floor-12",
+      "material": "tiles-1",
       "outside": {
         "group": [
           {
             "use": "bitten",
             "translate": [ 0, 0, 1 ]
+          },
+          {
+            "use": "cheese",
+            "translate": [ 2.3, 0, 0 ]
           },
           {
             "use": "lens",

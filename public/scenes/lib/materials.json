@@ -66,6 +66,9 @@
     "shininess": 120,
     "specular": 1.3
   },
+  "carpet-ornate": {
+    "texture": "@Ornate-Crimson-Persian-Carpet-Pattern.png"
+  },
   "chalk": {
     "albedo": [ 0.78, 0.76, 0.7 ],
     "kind": "unlit"
@@ -317,6 +320,10 @@
     "kind": "unlit",
     "albedo": [ 0.43, 0.66, 0.98 ]
   },
+  "sky-ornate-carpet": {
+    "texture": "@Ornate-Crimson-Persian-Carpet-Pattern.png",
+    "castsShadow": false
+  },
   "slate": {
     "kind": "glossy",
     "albedo": [ 0.28, 0.31, 0.36 ],
@@ -386,6 +393,10 @@
     "kind": "glossy",
     "shininess": 60,
     "specular": 0.5
+  },
+  "tiles-1": {
+    "texture": "@parkes-inspired-tiles.png",
+    "scale": 20
   },
   "violet": {
     "kind": "glossy",
