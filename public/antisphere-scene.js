@@ -368,7 +368,7 @@ export function planeFrame(prim) {
 
 /**
  * Give each node whose prim carries a texture offset a copy of its
- * (textured) material placing the texture: in albedo2, the offset and the
+ * (textured) material placing the texture: in patternParams, the offset and the
  * sine of the turn the shader gives frame(P) / scale, and in scale, the
  * material's scaled as the node was (negated for a half turn). Copies are shared by nodes placing it alike. `warn(path,
  * msg)` hears of what can't be followed exactly.
@@ -419,7 +419,7 @@ function textureTurns(nodes, table, warn) {
     const key = `${nd.material} ${du} ${dv} ${turn} ${grow}`;
     if (!copies.has(key)) {
       // NODE_FACE: a hit finds its face, whose patch this is.
-      table.push({ ...m, albedo2: [du, dv, Math.sin(turn)], scale: m.scale * grow, flags: (m.flags | NODE_FACE) >>> 0 });
+      table.push({ ...m, patternParams: [du, dv, Math.sin(turn)], scale: m.scale * grow, flags: (m.flags | NODE_FACE) >>> 0 });
       copies.set(key, table.length - 1);
     }
     nd.material = copies.get(key);
@@ -2345,7 +2345,7 @@ export function compileScene(rawSpec, options = {}) {
     return { texture: textureIndex.get(def.texture), projection };
   }
 
-  const table = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0],
+  const table = [{ albedo: [0, 0, 0], patternParams: [0, 0, 0],
                    pattern: 0, scale: 1, kind: 0, params: [0, 0], flags: 0 }];
   const matIndex = new Map();
   const aliases = [];
@@ -2400,9 +2400,10 @@ export function compileScene(rawSpec, options = {}) {
       name,                                      // for display (what a ray hit); not packed
       // Textured, its colour is the texel times albedo, white unless given.
       albedo:  def.albedo  ?? (texture ? [1, 1, 1] : [0.7, 0.7, 0.7]),
-      // Textured, albedo2 is where the texture lies instead (textureTurns()):
-      // its offset, and its turn.
-      albedo2: texture ? [0, 0, 0] : (def.albedo2 ?? [0.3, 0.3, 0.3]),
+      // The pattern's own numbers, as params are the kind's: its second
+      // colour (albedo2); textured, where the texture lies instead
+      // (textureTurns()): its offset, and its turn.
+      patternParams: texture ? [0, 0, 0] : (def.albedo2 ?? [0.3, 0.3, 0.3]),
       scale,
       opacity,
       kind:    kind.id,
@@ -2437,7 +2438,7 @@ export function compileScene(rawSpec, options = {}) {
     let m = matIndex.get(name);
     if (m === undefined) {
       quietly(path, `unknown material "${name}": shown as a stand-in, flat magenta`);
-      table.push({ name, missing: true, albedo: [1, 0, 1], albedo2: [1, 0, 1], scale: 1, opacity: 1,
+      table.push({ name, missing: true, albedo: [1, 0, 1], patternParams: [1, 0, 1], scale: 1, opacity: 1,
                    kind: KIND_UNLIT, params: [0, 0], pattern: 0,
                    flags: (MATERIAL_SOLID | MATERIAL_OPTICAL | MATERIAL_CASTS_SHADOW) >>> 0 });
       m = table.length - 1;
@@ -3330,7 +3331,7 @@ export function packMaterials(list) {
       params: m.params,
       albedo: m.albedo,
       scale: m.scale,
-      albedo2: m.albedo2,
+      pattern_params: m.patternParams,
       opacity: m.opacity ?? 1,
       ambient: m.ambient ?? [0, 0, 0],
       texture: m.texture ?? 0,

@@ -174,7 +174,7 @@ Index 0 is vacuum. Each entry:
 | `kind`    | the shading function: `KIND_LAMBERT` 0, `GLOSSY` 1, `EMISSIVE` 2, `UNLIT` 3, `AMBIENT` 4, `GLOW_REGION` 5 |
 | `params`  | `[x, y]`, the kind's own: glossy `[shininess, specular]`, emissive `[emission, 0]`, ambient `[transmit, 0]`, glow region `[transmit, fill]` |
 | `albedo`  | `[r, g, b]`; for an ambient material its level, for a glow region the light at its centre |
-| `albedo2` | the pattern's second colour; for a textured material, where its texture lies instead: `[du, dv, sin turn]`, added to its surface coordinates after turning them by `turn` (whose cosine is never negative: a half turn is a negative `scale`) - 0 unless a node's `textureOffset` places it, on a copy (below) |
+| `patternParams` | the pattern's own numbers, as `params` are the kind's: its second colour (the scene's `albedo2`); for a textured material, where its texture lies instead: `[du, dv, sin turn]`, added to its surface coordinates after turning them by `turn` (whose cosine is never negative: a half turn is a negative `scale`) - 0 unless a node's `textureOffset` places it, on a copy (below) |
 | `pattern` | `PATTERN_` flat 0, `CHECKER` 1, `NOISE` 2, `INDUSTRIALCARPET` 3 |
 | `scale`   | the pattern's tile size |
 | `opacity` | for glass and water: after distance $s$ through it, light is filtered by $\mathrm{albedo}^{s\cdot\mathrm{opacity}}$ |
@@ -190,7 +190,7 @@ Planned). After them come materials the compiler adds:
   names, with `ambient` set to the level there - its own plus `transmit`
   times the level around it - one copy per level it comes to.
 - **a texture placed.** A node with a `textureOffset` gets a copy of its
-  textured material with `albedo2` and `scale` placing the texture where
+  textured material with `patternParams` and `scale` placing the texture where
   the node's placing took it (`textureTurns()`), one copy per placement.
 - **a pass-through region.** A node carrying lights but naming no material
   gets an ambient material of level 0 and `transmit` 1, so lighting a region
@@ -327,7 +327,7 @@ Planned, "Rays that continue from a hit").
 | 8  | `params`  | `vec2<f32>` | `params` |
 | 16 | `albedo`  | `vec3<f32>` | `albedo` |
 | 28 | `scale`   | `f32`       | `scale` |
-| 32 | `albedo2` | `vec3<f32>` | `albedo2` |
+| 32 | `pattern_params` | `vec3<f32>` | `patternParams` |
 | 44 | `opacity` | `f32`       | `opacity`, default 1 |
 | 48 | `ambient` | `vec3<f32>` | `ambient`, default 0 |
 | 60 | `texture` | `u32`       | `texture`, default 0 |

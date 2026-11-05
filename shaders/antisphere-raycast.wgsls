@@ -20,8 +20,11 @@
 #import "random.wgsls"
 
 // Ordered so the two scalars and the vec2 fill the 16 bytes ahead of the
-// first vec3, which has to start on a 16-byte boundary anyway: 64 bytes,
-// with 4 free after albedo2. What a ray does in a material - its trace
+// first vec3, which has to start on a 16-byte boundary anyway: 64 bytes.
+// As params are the kind's, pattern_params are the pattern's: the second
+// colour a checker, noise or carpet mixes towards (a scene's "albedo2"),
+// and for a texture, where it lies (textureTurns() in antisphere-scene.js:
+// its offset, xy, and the sine of its turn, z). What a ray does in a material - its trace
 // flags - is not here but in each node's material id (Node.material_id).
 struct Material {
   kind    : u32,       // selects the shading function
@@ -29,7 +32,7 @@ struct Material {
   params  : vec2<f32>, // kind-specific
   albedo  : vec3<f32>,
   scale   : f32,       // pattern tile size: larger is bigger tiles
-  albedo2 : vec3<f32>,
+  pattern_params : vec3<f32>,
   // Glass and water (MATERIAL_IOR): how fast light through it takes on its
   // albedo - after d units, albedo^(d * opacity). 1 by default.
   opacity : f32,
@@ -616,20 +619,20 @@ fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
     }
     case PATTERN_PLANAR_TEXTURE: {
       // A colour, not a mix of the two: the texel, tinted by albedo. Where
-      // the texture lies is in albedo2 (textureTurns() in
+      // the texture lies is in pattern_params (textureTurns() in
       // antisphere-scene.js): turned by the angle whose sine is z (its
       // cosine not negative: a half turn is a negative scale), slid by xy.
-      let s = m.albedo2.z;
+      let s = m.pattern_params.z;
       let c = sqrt(max(0.0, 1.0 - s * s));
       let f = hit.surfaceCoords;
-      let uv = vec2<f32>(c * f.x - s * f.y, s * f.x + c * f.y) + m.albedo2.xy;
+      let uv = vec2<f32>(c * f.x - s * f.y, s * f.x + c * f.y) + m.pattern_params.xy;
       return m.albedo * planarTexture(textures[m.texture], uv);
     }
     default {
       // ck = 0.0 -> use plain albedo
     }
   }
-  return mix(m.albedo, m.albedo2, ck);
+  return mix(m.albedo, m.pattern_params, ck);
 }
 
 // The first light of env `env`. The lights are in order of env - the

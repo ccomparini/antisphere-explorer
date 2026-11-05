@@ -28,7 +28,7 @@ function compiled(normal, place = {}, warn = () => {}, textureOffset = [0.25, 0.
 function uvAt({ nd, m }, P) {
   const { t, b } = planeFrame(nd.prim);
   const f = [dot(P, t) / m.scale, dot(P, b) / m.scale];
-  const [du, dv, s] = m.albedo2, c = Math.sqrt(1 - s * s);
+  const [du, dv, s] = m.patternParams, c = Math.sqrt(1 - s * s);
   return [c * f[0] - s * f[1] + du, s * f[0] + c * f[1] + dv];
 }
 
@@ -43,7 +43,7 @@ const near = (got, want, say) =>
 
 test('textureOffset, unplaced: frame(P) / scale + the offset, no turn', () => {
   const unplaced = compiled([0, 0, 1]);
-  assert.deepEqual(unplaced.m.albedo2, [0.25, 0.1, 0]);
+  assert.deepEqual(unplaced.m.patternParams, [0.25, 0.1, 0]);
   for (const P of pointsOn([0, 0, 1])) {
     const { t, b } = planeFrame({ linear: [0, 0, 0.5] });
     near(uvAt(unplaced, P), [dot(P, t) / 2 + 0.25, dot(P, b) / 2 + 0.1], `at ${P}`);
@@ -94,7 +94,7 @@ test('textureOffset that isn\'t [du, dv]: warned of, and ignored', () => {
     root: { plane: { normal: [0, 0, 1], offset: 0 }, material: 'tiles', textureOffset: [1, 'x'] },
   }, { files: FILES, path: '/t/s.json', warn: (where, msg) => warned.push(`${where}: ${msg}`) });
   assert.match(warned.join('\n'), /root\.textureOffset: must be \[du, dv\] or \[du, dv, degrees\]/);
-  assert.ok(built.materials.filter((m) => m.texture).every((m) => m.albedo2.every((v) => v === 0)), 'no offset');
+  assert.ok(built.materials.filter((m) => m.texture).every((m) => m.patternParams.every((v) => v === 0)), 'no offset');
 });
 
 test('textureOffset on a plane turned inside out: warned of, its texture following unmirrored', () => {
