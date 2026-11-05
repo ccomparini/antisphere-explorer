@@ -380,37 +380,42 @@ function textureTurns(nodes, table, warn) {
     const tex = nd.prim?.tex;
     const m = table[nd.material];
     if (!tex || m?.pattern !== PATTERN_PLANAR_TEXTURE) continue;
-    let [du, dv] = tex.offset, turn = 0, grow = 1;
+    let [du, dv] = tex.offset;
+    // L: from frame coordinates now back to as written - none, but on a
+    // plane placed. A is where the origin as written is now.
+    let L = [[1, 0], [0, 1]], A = [0, 0];
     if (tex.points && isPlanePrim(nd.prim)) {
       // The plane's frame now, at the points as they were written: from
-      // the differences, the linear map L from frame coordinates now back
-      // to as written (where the axes gave (|t|^2, 0) and (0, |b|^2)).
+      // the differences, L (where the axes gave (|t|^2, 0) and (0, |b|^2)).
       const { t, b } = planeFrame(nd.prim);
       const f = (p) => [dot3(p, t), dot3(p, b)];
-      const [A, B, C] = tex.points.map(f);
+      const [fA, B, C] = tex.points.map(f);
+      A = fA;
       const e1 = [B[0] - A[0], B[1] - A[1]], e2 = [C[0] - A[0], C[1] - A[1]];
       const det = e1[0] * e2[1] - e2[0] * e1[1];
       const D = tex.lengths;
       // L = diag(D) . [e1 e2]^-1
-      const L = [[D[0] * e2[1] / det, -D[0] * e2[0] / det], [-D[1] * e1[1] / det, D[1] * e1[0] / det]];
-      // Its nearest turn-and-scale, which is all the shader does.
-      const a = (L[0][0] + L[1][1]) / 2, c = (L[1][0] - L[0][1]) / 2;
-      const size = Math.hypot(a, c);
+      L = [[D[0] * e2[1] / det, -D[0] * e2[0] / det], [-D[1] * e1[1] / det, D[1] * e1[0] / det]];
       if (Math.hypot(L[0][0] - L[1][1], L[1][0] + L[0][1]) > 1e-6 * Math.hypot(...L[0], ...L[1])) {
         if (det * D[0] * D[1] < 0) mirrored++; else uneven++;
       }
-      turn = Math.atan2(c, a);
-      grow = 1 / size;
-      // A turn past a quarter is a half turn and less: the half turn is the
-      // scale negated (frame(P) / scale, both coordinates), so the shader
-      // needs only the turn's sine, its cosine never negative.
-      if (Math.cos(turn) < 0) { turn -= Math.sign(turn) * Math.PI; grow = -grow; }
-      // The offset, for frame(P) / (scale * grow) turned, to give what it
-      // gave as written: less the turned, scaled frame of the origin.
-      const s = m.scale * grow, cos = Math.cos(turn), sin = Math.sin(turn);
-      du -= (cos * A[0] - sin * A[1]) / s;
-      dv -= (sin * A[0] + cos * A[1]) / s;
     }
+    // Then turned as written: R(turn) . L.
+    const tc = Math.cos(tex.turn), ts = Math.sin(tex.turn);
+    L = [[tc * L[0][0] - ts * L[1][0], tc * L[0][1] - ts * L[1][1]],
+         [ts * L[0][0] + tc * L[1][0], ts * L[0][1] + tc * L[1][1]]];
+    // Its nearest turn-and-scale, which is all the shader does.
+    const a = (L[0][0] + L[1][1]) / 2, c = (L[1][0] - L[0][1]) / 2;
+    let turn = Math.atan2(c, a), grow = 1 / Math.hypot(a, c);
+    // A turn past a quarter is a half turn and less: the half turn is the
+    // scale negated (frame(P) / scale, both coordinates), so the shader
+    // needs only the turn's sine, its cosine never negative.
+    if (Math.cos(turn) < 0) { turn -= Math.sign(turn) * Math.PI; grow = -grow; }
+    // The offset, for frame(P) / (scale * grow) turned, to give what it
+    // gave as written: less the turned, scaled frame of the origin.
+    const s = m.scale * grow, cos = Math.cos(turn), sin = Math.sin(turn);
+    du -= (cos * A[0] - sin * A[1]) / s;
+    dv -= (sin * A[0] + cos * A[1]) / s;
     const key = `${nd.material} ${du} ${dv} ${turn} ${grow}`;
     if (!copies.has(key)) {
       // NODE_FACE: a hit finds its face, whose patch this is.
@@ -2601,12 +2606,13 @@ export function compileScene(rawSpec, options = {}) {
     }
     if (def.textureOffset !== undefined) {
       const o = def.textureOffset;
-      if (!Array.isArray(o) || o.length !== 2 || !o.every(Number.isFinite)) {
-        quietly(`${path}.textureOffset`, `must be [du, dv], got ${JSON.stringify(o)} - ignored`);
+      if (!Array.isArray(o) || (o.length !== 2 && o.length !== 3) || !o.every(Number.isFinite)) {
+        quietly(`${path}.textureOffset`, `must be [du, dv] or [du, dv, degrees], got ${JSON.stringify(o)} - ignored`);
       } else {
         const frame = isPlanePrim(prim) ? planeFrame(prim) : null;
         // The points, and the squared lengths of the axes they started as.
-        prim.tex = { offset: o.slice(), points: frame ? [[0, 0, 0], frame.t, frame.b] : null,
+        prim.tex = { offset: o.slice(0, 2), turn: ((o[2] ?? 0) * Math.PI) / 180,
+                     points: frame ? [[0, 0, 0], frame.t, frame.b] : null,
                      lengths: frame ? [dot3(frame.t, frame.t), dot3(frame.b, frame.b)] : null };
       }
     }
