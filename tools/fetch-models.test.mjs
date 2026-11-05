@@ -6,11 +6,13 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeSTL } from '../public/stl.js';
-import { ensureModels, isFetched, MODELS } from './fetch-models.mjs';
+import { cleanModels, ensureModels, isFetched, MODELS } from './fetch-models.mjs';
 
 // A tetrahedron, as an STL, and a file of text.
 const TET = new Uint8Array(writeSTL([[[0, 0, 0], [0, 1, 0], [1, 0, 0]], [[0, 0, 0], [1, 0, 0], [0, 0, 1]],
@@ -35,15 +37,43 @@ const models = [
     import: ['sources/tet.stl', '--fit', '2', '-o', 'parts/tet.json'], outputs: ['parts/tet.json'] },
 ];
 
-test('fetched where it goes, checked; there already, not fetched again', async () => {
+test('fetched where it goes, checked; there already, not fetched again; cleaned, fetched afresh', async () => {
   const root = mkdtempSync(join(tmpdir(), 'fetch-models-'));
   assert.equal(await ensureModels(['note'], { models, root }), null);
   assert.equal(readFileSync(join(root, 'models/note.txt'), 'utf8'), 'a model\n');
   asked.length = 0;
   assert.equal(await ensureModels(['note'], { models, root }), null);
   assert.deepEqual(asked, [], 'not asked for again');
-  assert.equal(await ensureModels(['note'], { models, root, force: true }), null);
-  assert.deepEqual(asked, ['/note.txt'], '--force: again');
+  assert.deepEqual(cleanModels(['note'], { models, root }), ['models/note.txt']);
+  assert.ok(!existsSync(join(root, 'models/note.txt')));
+  assert.equal(await ensureModels(['note'], { models, root }), null);
+  assert.deepEqual(asked, ['/note.txt'], 'cleaned: fetched afresh');
+  assert.throws(() => cleanModels(['nothing'], { models, root }), /no model "nothing"/);
+});
+
+test('cleaned, every one: their files, what they made, downloads kept as .unverified, and all of parts/fetched/', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fetch-models-'));
+  for (const name of ['note', 'changed', 'tet']) await ensureModels([name], { models, root });     // changed fails, as it should
+  const stray = join(root, 'public/scenes/parts/fetched/old-atlas.png');
+  mkdirSync(join(root, 'public/scenes/parts/fetched'), { recursive: true });
+  writeFileSync(stray, 'stale');
+  const deleted = cleanModels([], { models, root });
+  assert.deepEqual(deleted.sort(), ['models/changed.txt.unverified', 'models/note.txt', 'parts/tet.json',
+                                    'public/scenes/parts/fetched', 'sources/tet.stl'].sort());
+  assert.ok(!existsSync(stray) && !existsSync(join(root, 'parts/tet.json')));
+});
+
+test('the command line: --list fetches nothing; what it doesn\'t know, it says', () => {
+  const script = fileURLToPath(new URL('./fetch-models.mjs', import.meta.url));
+  const list = spawnSync(process.execPath, [script, '--list'], { encoding: 'utf8' });
+  assert.equal(list.status, 0, list.stderr);
+  assert.equal(list.stdout.trim().split('\n').length, MODELS.length);
+  assert.match(list.stdout, /^ {2}(fetched|missing) {2}box /m);
+  const bad = spawnSync(process.execPath, [script, '--all'], { encoding: 'utf8' });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /--all\? \(--help\)/);
+  const nobody = spawnSync(process.execPath, [script, 'nothing'], { encoding: 'utf8' });
+  assert.match(nobody.stderr, /no model "nothing"/);
 });
 
 test('a sum not as recorded: an error naming both, the file kept as .unverified to look at', async () => {

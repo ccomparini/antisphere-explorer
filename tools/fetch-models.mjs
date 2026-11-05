@@ -4,10 +4,15 @@
 // SHA-256 - and, for a scene model, converts it with tools/import-model.mjs,
 // exactly as a person would run it.
 //
-//   node tools/fetch-models.mjs                    the models, and which are missing
-//   node tools/fetch-models.mjs barramundi teapot  fetch these, if missing
-//   node tools/fetch-models.mjs --all              every one
-//   node tools/fetch-models.mjs --force fox        again, whether there or not
+//   node tools/fetch-models.mjs                    every model that's missing
+//   node tools/fetch-models.mjs barramundi teapot  these, if missing
+//   node tools/fetch-models.mjs --list             which are there and which missing
+//   node tools/fetch-models.mjs --clean [name ...] deleted first, then fetched afresh:
+//                                                  every one (and all of parts/fetched/),
+//                                                  or those named
+//
+// Only what is missing is downloaded, so the dragon's couple of minutes
+// are paid once.
 //
 // A scene model's sources go to public/scenes/parts/fetched/sources/ and
 // what it is converted to beside them, in public/scenes/parts/fetched/,
@@ -19,7 +24,7 @@
 // the source may have changed, or moved.
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -150,21 +155,38 @@ function runImport(args, root, say) {
   });
 }
 
+const modelNamed = (name, models) => models.find((m) => m.name === name);
+const noModel = (name, models) => `no model "${name}" (${models.map((m) => m.name).join(', ')})`;
+
 /**
- * Fetch the models named (and convert them) where they aren't all there -
- * or, with `force`, anyway. Null if they are all there now, or why not,
- * the first failure, with how to try again. `models` and `root` are for
- * the tests of this.
+ * Delete the models named - their files, what they were converted to, and
+ * any download kept as .unverified - so the next fetch is afresh. Every
+ * model, if none are named, and all of public/scenes/parts/fetched/ with
+ * them, whatever else is in it. What was deleted, as paths from the root.
  */
-export async function ensureModels(names, { force = false, say = () => {}, models = MODELS, root = ROOT } = {}) {
+export function cleanModels(names = [], { models = MODELS, root = ROOT } = {}) {
+  const chosen = names.length ? names.map((n) => modelNamed(n, models) ?? (() => { throw new Error(noModel(n, models)); })()) : models;
+  const paths = chosen.flatMap((m) => [...m.files.flatMap((f) => [f.to, `${f.to}.unverified`]), ...(m.outputs ?? [])]);
+  if (!names.length) paths.push(FETCHED);
+  const deleted = paths.filter((p) => existsSync(path.join(root, p)));
+  for (const p of deleted) rmSync(path.join(root, p), { recursive: true, force: true });
+  return deleted;
+}
+
+/**
+ * Fetch the models named (and convert them) where they aren't all there.
+ * Null if they are all there now, or why not, the first failure, with how
+ * to try again. `models` and `root` are for the tests of this.
+ */
+export async function ensureModels(names, { say = () => {}, models = MODELS, root = ROOT } = {}) {
   for (const name of names) {
-    const model = models.find((m) => m.name === name);
-    if (!model) return `no model "${name}" (${models.map((m) => m.name).join(', ')})`;
-    if (!force && isFetched(model, root)) continue;
+    const model = modelNamed(name, models);
+    if (!model) return noModel(name, models);
+    if (isFetched(model, root)) continue;
     say(`${name}: ${model.about}`);
     try {
       for (const file of model.files) {
-        if (force || !existsSync(path.join(root, file.to))) await download(file, root, say);
+        if (!existsSync(path.join(root, file.to))) await download(file, root, say);
       }
       if (model.import) say((await runImport(model.import, root, say)).trim().split('\n').map((l) => `    ${l}`).join('\n'));
     } catch (error) {
@@ -174,19 +196,41 @@ export async function ensureModels(names, { force = false, say = () => {}, model
   return null;
 }
 
+const USAGE = `
+fetch-models - models with a public source, fetched and converted, not kept in git
+
+  node tools/fetch-models.mjs [name ...]     fetch the models named, or every one,
+                                             where missing
+      --list                                 which are there and which missing;
+                                             fetch nothing
+      --clean                                delete them first (no names: every
+                                             one, and all of parts/fetched/),
+                                             then fetch them afresh
+
+  models: ${MODELS.map((m) => m.name).join(', ')}
+`.trim();
+
 async function main(argv) {
-  const force = argv.includes('--force'), all = argv.includes('--all');
-  if (argv.includes('-h') || argv.includes('--help')) {
-    console.log('node tools/fetch-models.mjs [--all | <name> ...] [--force]  (no names: the models, and which are missing)');
-    return;
-  }
-  const names = all ? MODELS.map((m) => m.name) : argv.filter((a) => !a.startsWith('-'));
-  if (!names.length) {
+  const known = ['--list', '--clean', '-h', '--help'];
+  const unknown = argv.filter((a) => a.startsWith('-') && !known.includes(a));
+  if (unknown.length) throw new Error(`${unknown.join(', ')}? (--help)`);
+  if (argv.includes('-h') || argv.includes('--help')) { console.log(USAGE); return; }
+  const named = argv.filter((a) => !a.startsWith('-'));
+  for (const n of named) if (!modelNamed(n, MODELS)) throw new Error(noModel(n, MODELS));
+  if (argv.includes('--list')) {
     for (const m of MODELS) console.log(`${isFetched(m) ? '  fetched' : '  missing'}  ${m.name.padEnd(12)} ${m.about}`);
     return;
   }
-  const failed = await ensureModels(names, { force, say: (...s) => console.error(...s) });
+  if (argv.includes('--clean')) {
+    const deleted = cleanModels(named);
+    console.error(deleted.length ? `deleted: ${deleted.join(', ')}` : 'nothing to delete');
+  }
+  const names = named.length ? named : MODELS.map((m) => m.name);
+  const missing = names.filter((n) => !isFetched(modelNamed(n, MODELS)));
+  if (!missing.length) { console.error(`all there: ${names.join(', ')} (--list; --clean to fetch afresh)`); return; }
+  const failed = await ensureModels(missing, { say: (...s) => console.error(...s) });
   if (failed) throw new Error(failed);
+  console.error(`fetched: ${missing.join(', ')}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

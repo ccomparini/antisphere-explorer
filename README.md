@@ -49,9 +49,11 @@ with `tools/import-model.mjs` into `public/scenes/parts/fetched/`, which
 git ignores. The scenes using them (`barramundi.json`, `teapots.json`,
 `dragon.json`) warn of one that isn't there, saying so.
 
-    node tools/fetch-models.mjs                    the models, and which are missing
-    node tools/fetch-models.mjs barramundi teapot  fetch these
-    node tools/fetch-models.mjs --all              every one (the dragon takes minutes)
+    node tools/fetch-models.mjs                    every model that's missing (the
+                                                   dragon takes a couple of minutes, once)
+    node tools/fetch-models.mjs barramundi teapot  these, if missing
+    node tools/fetch-models.mjs --list             which are there, which missing
+    node tools/fetch-models.mjs --clean [name ...] deleted first, then fetched afresh
 
 ## Shaders
 
