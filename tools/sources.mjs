@@ -20,7 +20,7 @@ const isGzipped = (bytes) => bytes[0] === 0x1f && bytes[1] === 0x8b;
 const isTar = (bytes) => new TextDecoder().decode(bytes.subarray(257, 262)) === 'ustar';
 
 /** The files in a tar archive, as a Map of name to bytes. */
-function untar(bytes) {
+export function untar(bytes) {
   const files = new Map();
   const text = (at, length) => {
     const field = bytes.subarray(at, at + length);
@@ -39,6 +39,44 @@ function untar(bytes) {
     at += 512 + Math.ceil(size / 512) * 512;
   }
   return files;
+}
+
+/**
+ * A tar archive (ustar) of `entries`, [{ name, bytes, mtime (seconds) }]:
+ * plain files, read and written back by untar(), and by tar itself. A name
+ * longer than 100 characters is split at a / into ustar's prefix.
+ */
+export function tar(entries) {
+  const blocks = [];
+  const field = (header, at, length, text) => header.set(new TextEncoder().encode(text).subarray(0, length), at);
+  for (const { name, bytes, mtime = 0 } of entries) {
+    let prefix = '', base = name;
+    if (name.length > 100) {
+      const at = [...name.matchAll(/\//g)].map((m) => m.index).find((i) => name.length - i - 1 <= 100 && i <= 155);
+      if (at === undefined) throw new Error(`tar: ${name} is too long for a ustar archive`);
+      prefix = name.slice(0, at); base = name.slice(at + 1);
+    }
+    const header = new Uint8Array(512);
+    field(header, 0, 100, base);
+    field(header, 100, 8, '0000644\0');
+    field(header, 108, 8, '0000000\0');
+    field(header, 116, 8, '0000000\0');
+    field(header, 124, 12, `${bytes.length.toString(8).padStart(11, '0')}\0`);
+    field(header, 136, 12, `${Math.floor(mtime).toString(8).padStart(11, '0')}\0`);
+    field(header, 148, 8, '        ');                          // the checksum's own bytes count as spaces
+    field(header, 156, 1, '0');
+    field(header, 257, 6, 'ustar\0');
+    field(header, 263, 2, '00');
+    field(header, 345, 155, prefix);
+    const sum = header.reduce((n, b) => n + b, 0);
+    field(header, 148, 8, `${sum.toString(8).padStart(6, '0')}\0 `);
+    blocks.push(header, bytes, new Uint8Array((512 - (bytes.length % 512)) % 512));
+  }
+  blocks.push(new Uint8Array(1024));                            // the end: two empty blocks
+  const out = new Uint8Array(blocks.reduce((n, b) => n + b.length, 0));
+  let at = 0;
+  for (const b of blocks) { out.set(b, at); at += b.length; }
+  return out;
 }
 
 async function fetchBytes(url) {

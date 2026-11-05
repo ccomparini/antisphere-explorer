@@ -10,6 +10,15 @@
 //   node tools/fetch-models.mjs --clean [name ...] deleted, not fetched: every one (and
 //                                                  all of parts/fetched/), or those
 //                                                  named - the next fetch is afresh
+//   node tools/fetch-models.mjs --archive models.tar.gz [name ...]
+//                                                  fetched where missing, then every
+//                                                  one's files (or those named), as
+//                                                  converted, in one archive
+//
+// An archive holds each model's downloads and what they were converted to,
+// named from the repository's root, so `tar xzf models.tar.gz` in another
+// checkout's root puts them where this script and the scenes look: models
+// converted where that is quick, copied to where it is slow.
 //
 // Only what is missing is downloaded, so the dragon's couple of minutes
 // are paid once.
@@ -24,10 +33,12 @@
 // the source may have changed, or moved.
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tar } from './sources.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const IMPORT_MODEL = fileURLToPath(new URL('./import-model.mjs', import.meta.url));
@@ -174,6 +185,25 @@ export function cleanModels(names = [], { models = MODELS, root = ROOT } = {}) {
 }
 
 /**
+ * The models named (or every one) - their downloads and what they were
+ * converted to, all of which must be there - as a .tar.gz at `file`, named
+ * from the root. Returns the paths in it.
+ */
+export function archiveModels(names, file, { models = MODELS, root = ROOT } = {}) {
+  const chosen = names.length ? names.map((n) => modelNamed(n, models) ?? (() => { throw new Error(noModel(n, models)); })()) : models;
+  const missing = chosen.filter((m) => !isFetched(m, root)).map((m) => m.name);
+  if (missing.length) throw new Error(`not fetched, so not archived: ${missing.join(', ')}`);
+  const paths = [...new Set(chosen.flatMap((m) => [...m.files.map((f) => f.to), ...(m.outputs ?? [])]))];
+  const entries = paths.map((p) => {
+    const where = path.join(root, p);
+    return { name: p, bytes: new Uint8Array(readFileSync(where)), mtime: statSync(where).mtimeMs / 1000 };
+  });
+  mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+  writeFileSync(file, gzipSync(tar(entries)));
+  return paths;
+}
+
+/**
  * Fetch the models named (and convert them) where they aren't all there.
  * Null if they are all there now, or why not, the first failure, with how
  * to try again. `models` and `root` are for the tests of this.
@@ -207,11 +237,25 @@ fetch-models - models with a public source, fetched and converted, not kept in g
                                              names: every one, and all of
                                              parts/fetched/); the next fetch is
                                              afresh
+      --archive <file.tar.gz>                fetch them where missing, then write
+                                             their files, as converted, to one
+                                             archive, named from the repository's
+                                             root: tar xzf it in another checkout
 
   models: ${MODELS.map((m) => m.name).join(', ')}
 `.trim();
 
 async function main(argv) {
+  // --archive <file>, or --archive=<file>.
+  let archive = null;
+  const rest = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i].startsWith('--archive=')) archive = argv[i].slice('--archive='.length);
+    else if (argv[i] === '--archive') archive = argv[++i] ?? '';
+    else rest.push(argv[i]);
+  }
+  argv = rest;
+  if (archive !== null && !/\.(tar\.gz|tgz)$/i.test(archive)) throw new Error(`--archive ${archive}: a .tar.gz (or .tgz) to write`);
   const known = ['--list', '--clean', '-h', '--help'];
   const unknown = argv.filter((a) => a.startsWith('-') && !known.includes(a));
   if (unknown.length) throw new Error(`${unknown.join(', ')}? (--help)`);
@@ -229,10 +273,18 @@ async function main(argv) {
   }
   const names = named.length ? named : MODELS.map((m) => m.name);
   const missing = names.filter((n) => !isFetched(modelNamed(n, MODELS)));
-  if (!missing.length) { console.error(`all there: ${names.join(', ')} (--list; --clean, then fetch, for afresh)`); return; }
-  const failed = await ensureModels(missing, { say: (...s) => console.error(...s) });
-  if (failed) throw new Error(failed);
-  console.error(`fetched: ${missing.join(', ')}`);
+  if (missing.length) {
+    const failed = await ensureModels(missing, { say: (...s) => console.error(...s) });
+    if (failed) throw new Error(failed);
+    console.error(`fetched: ${missing.join(', ')}`);
+  } else if (archive === null) {
+    console.error(`all there: ${names.join(', ')} (--list; --clean, then fetch, for afresh)`);
+  }
+  if (archive !== null) {
+    const paths = archiveModels(named, archive);
+    console.error(`archived ${names.join(', ')} - ${paths.length} files, ${(statSync(archive).size / 1e6).toFixed(1)} MB - to ${archive};`
+                  + ' in another checkout\'s root: tar xzf it');
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -18,6 +18,7 @@ import { fixture, toGLB, toGLTFText, texturedCube } from '../public/gltf-fixture
 import { encodePNG } from '../public/png.js';
 import { readScene } from '../public/antisphere-scene.js';
 import { ensureModels } from './fetch-models.mjs';
+import { tar as writeTar } from './sources.mjs';
 
 const script = fileURLToPath(new URL('./import-model.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'import-model-'));
@@ -55,26 +56,8 @@ ${FACES.map((f) => `3 ${f.join(' ')}`).join('\n')}
 `;
 const STL = Buffer.from(writeSTL(FACES.map((f) => f.map((i) => VERTICES[i]))));
 
-/** A ustar archive of { name: bytes or text } files. */
-function tar(files) {
-  const blocks = [];
-  for (const [name, content] of Object.entries(files)) {
-    const body = Buffer.from(content);
-    const header = Buffer.alloc(512);
-    header.write(name, 0);
-    header.write('0000644\0', 100);
-    header.write(body.length.toString(8).padStart(11, '0') + '\0', 124);
-    header.write('0', 156);
-    header.write('ustar\0' + '00', 257);
-    header.write('        ', 148);
-    let sum = 0;
-    for (const byte of header) sum += byte;
-    header.write(sum.toString(8).padStart(6, '0') + '\0 ', 148);
-    blocks.push(header, body, Buffer.alloc((512 - (body.length % 512)) % 512));
-  }
-  blocks.push(Buffer.alloc(1024));
-  return Buffer.concat(blocks);
-}
+/** A ustar archive of { name: bytes or text } files (sources.mjs's tar()). */
+const tar = (files) => Buffer.from(writeTar(Object.entries(files).map(([name, content]) => ({ name, bytes: new Uint8Array(Buffer.from(content)) }))));
 
 const file = (name, content) => { const path = join(scratch, name); writeFileSync(path, content); return path; };
 

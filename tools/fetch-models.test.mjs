@@ -12,7 +12,9 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeSTL } from '../public/stl.js';
-import { cleanModels, ensureModels, isFetched, MODELS } from './fetch-models.mjs';
+import { gunzipSync } from 'node:zlib';
+import { archiveModels, cleanModels, ensureModels, isFetched, MODELS } from './fetch-models.mjs';
+import { tar, untar } from './sources.mjs';
 
 // A tetrahedron, as an STL, and a file of text.
 const TET = new Uint8Array(writeSTL([[[0, 0, 0], [0, 1, 0], [1, 0, 0]], [[0, 0, 0], [1, 0, 0], [0, 0, 1]],
@@ -63,6 +65,37 @@ test('cleaned, every one: their files, what they made, downloads kept as .unveri
   assert.ok(!existsSync(stray) && !existsSync(join(root, 'parts/tet.json')));
 });
 
+test('an archive: the models\' downloads and what they were converted to, named from the root, as tar reads them', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fetch-models-'));
+  for (const name of ['note', 'tet']) assert.equal(await ensureModels([name], { models, root }), null);
+  const file = join(root, 'out', 'models.tar.gz');
+  const paths = archiveModels(['note', 'tet'], file, { models, root });
+  assert.deepEqual(paths, ['models/note.txt', 'sources/tet.stl', 'parts/tet.json']);
+  const read = untar(new Uint8Array(gunzipSync(readFileSync(file))));
+  assert.deepEqual([...read.keys()], paths);
+  for (const p of paths) assert.deepEqual([...read.get(p)], [...readFileSync(join(root, p))], p);
+  // GNU tar reads it too: unpacked elsewhere, the same files.
+  const there = mkdtempSync(join(tmpdir(), 'fetch-models-'));
+  const unpacked = spawnSync('tar', ['xzf', file, '-C', there]);
+  if (unpacked.error?.code !== 'ENOENT') {
+    assert.equal(unpacked.status, 0, String(unpacked.stderr));
+    for (const p of paths) assert.deepEqual([...readFileSync(join(there, p))], [...readFileSync(join(root, p))], `tar: ${p}`);
+    assert.ok(isFetched(models[3], there), 'fetched, there, as far as the script can tell');
+  }
+  assert.throws(() => archiveModels(['changed'], file, { models, root }), /not fetched, so not archived: changed/);
+});
+
+test('tar(): a name past 100 characters goes in ustar\'s prefix', () => {
+  const name = `public/scenes/parts/fetched/${'deep/'.repeat(20)}model.json`;
+  const bytes = new TextEncoder().encode('{}');
+  const read = untar(tar([{ name, bytes }]));
+  assert.deepEqual([...read.keys()], [name]);
+  const where = mkdtempSync(join(tmpdir(), 'fetch-models-'));
+  writeFileSync(join(where, 'long.tar'), tar([{ name, bytes }]));
+  const listed = spawnSync('tar', ['tf', join(where, 'long.tar')], { encoding: 'utf8' });
+  if (listed.error?.code !== 'ENOENT') assert.equal(listed.stdout.trim(), name);
+});
+
 test('the command line: --list fetches nothing; what it doesn\'t know, it says', () => {
   const script = fileURLToPath(new URL('./fetch-models.mjs', import.meta.url));
   const list = spawnSync(process.execPath, [script, '--list'], { encoding: 'utf8' });
@@ -72,6 +105,10 @@ test('the command line: --list fetches nothing; what it doesn\'t know, it says',
   const bad = spawnSync(process.execPath, [script, '--all'], { encoding: 'utf8' });
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /--all\? \(--help\)/);
+  const zip = spawnSync(process.execPath, [script, '--archive=models.zip'], { encoding: 'utf8' });
+  assert.match(zip.stderr, /--archive models\.zip: a \.tar\.gz/);
+  const spaced = spawnSync(process.execPath, [script, '--archive', 'models.zip', 'box'], { encoding: 'utf8' });
+  assert.match(spaced.stderr, /--archive models\.zip: a \.tar\.gz/, 'or with a space');
   const nobody = spawnSync(process.execPath, [script, 'nothing'], { encoding: 'utf8' });
   assert.match(nobody.stderr, /no model "nothing"/);
 });

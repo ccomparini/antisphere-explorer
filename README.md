@@ -55,6 +55,14 @@ git ignores. The scenes using them (`barramundi.json`, `teapots.json`,
     node tools/fetch-models.mjs --list             which are there, which missing
     node tools/fetch-models.mjs --clean [name ...] deleted (all of parts/fetched/ with no
                                                    names), not fetched: the next fetch is afresh
+    node tools/fetch-models.mjs --archive models.tar.gz [name ...]
+                                                   fetched where missing, then archived, as
+                                                   converted, named from the repository's root
+
+Converting where it is quick and copying the result where it is slow: an
+archive unpacked in another checkout's root (`tar xzf models.tar.gz`) puts
+every model where the script and the scenes look, and the script there
+counts them as fetched.
 
 ## Shaders
 
