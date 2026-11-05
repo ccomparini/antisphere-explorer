@@ -49,7 +49,9 @@
 //
 //   { "texture": "@<the atlas, from where the material is>", "scale": s }
 //
-// - said on stderr, or written by --material-template. Not read yet, and
+// - said on stderr, or written by --material-template. --atlas-density sets
+// its texels per unit, by default the source's own: lower, for a smaller
+// atlas and a coarser texture. Not read yet, and
 // said: JPEG and other images, a texCoord other than 0,
 // KHR_texture_transform, and the normal, occlusion, emissive and
 // metallic-roughness maps; a clamped or mirrored sampler is taken as
@@ -140,7 +142,12 @@ import-model - convert a mesh, from a file or a URL, into a model for scenes
       --material-template <file>
                        write the materials the model names to this file, a
                        library to fill in; one already there gains only
-                       what it lacks
+                       what it lacks (and an atlas's texture and scale)
+      --atlas-density <n>
+                       a textured glTF: its atlas's texels per unit, in the
+                       model's units (after --fit) - lower for a smaller
+                       atlas, coarser; default, the source's own density,
+                       which it says
 
   A glTF with a skin, as a model with a skeleton:
       --skeleton <mode>
@@ -172,6 +179,7 @@ function parseArguments(argv) {
     float32: { type: 'boolean' },
     pretty: { type: 'boolean' },
     'material-template': { type: 'string' },
+    'atlas-density': { type: 'number' },
     skeleton: { type: 'string' },
     overlap: { type: 'number' },
     'min-thickness': { type: 'number', default: 0.06 },
@@ -182,6 +190,7 @@ function parseArguments(argv) {
     help: { type: 'boolean', short: 'h' },
   }, { positionals: true });
   if (values.fit !== undefined && !(values.fit > 0)) throw new Error('--fit needs a positive number');
+  if (values['atlas-density'] !== undefined && !(values['atlas-density'] > 0)) throw new Error('--atlas-density needs a positive number: texels per unit');
   if (values.up !== undefined && !UP[values.up]) throw new Error(`--up ${values.up}: x, y, z, -x, -y or -z`);
   if (positionals.length > 1) throw new Error(`one source at a time, not ${positionals.length}`);
   if (values.skeleton !== undefined && !SKELETON_MODES.includes(values.skeleton)) {
@@ -361,13 +370,14 @@ function writeAtlas(options, say, read, placed, faces, colours, material) {
     return { tri, uv: read.uvs[i], image, factor };
   });
   const started = Date.now();
-  const atlas = buildAtlas(faces, sources);
+  const atlas = buildAtlas(faces, sources, { density: options['atlas-density'] ?? null });
   for (const [node, offset] of atlas.offsets) node.textureOffset = offset;
   const file = `${options.out.replace(/\.json(\.gz)?$/i, '')}-atlas.png`;
   mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   return encodePNG(atlas.rgba, atlas.size, atlas.size).then((png) => {
     writeFileSync(file, png);
-    say(`  atlas: ${atlas.size} x ${atlas.size} texels, ${atlas.offsets.size} faces, a texel ${+atlas.texel.toPrecision(3)} across`
+    say(`  atlas: ${atlas.size} x ${atlas.size} texels, ${atlas.offsets.size} faces, ${Math.round(1 / atlas.texel)} texels a unit`
+        + `${options['atlas-density'] ? '' : ' (the source\'s; --atlas-density sets it)'}`
         + ` (${((Date.now() - started) / 1000).toFixed(1)}s), written to ${file}`);
     return { material, file, scale: atlas.scale };
   });

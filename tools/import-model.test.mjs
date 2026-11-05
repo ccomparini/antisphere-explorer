@@ -395,7 +395,7 @@ test('a textured glTF: an atlas beside the model, each face its textureOffset, t
   const out = join(scratch, 'parts', 'cube.json'), library = join(scratch, 'cube-materials.json');
   const got = await run([glb, '-o', out, '--material-template', library]);
   assert.equal(got.status, 0, got.stderr);
-  assert.match(got.stderr, /atlas: \d+ x \d+ texels, 6 faces/);
+  assert.match(got.stderr, /atlas: \d+ x \d+ texels, 6 faces, \d+ texels a unit \(the source's/);
   assert.ok(existsSync(join(scratch, 'parts', 'cube-atlas.png')), 'the atlas, beside the model');
   const written = JSON.parse(readFileSync(out, 'utf8'));
   assert.equal(written.material, 'painted-cube-texture');
@@ -417,6 +417,16 @@ test('a textured glTF: an atlas beside the model, each face its textureOffset, t
   assert.equal(updated.kind, 'glossy', 'what the author set, kept');
   assert.ok(Math.abs(updated.scale - 3 * template['painted-cube-texture'].scale) < 0.01 * updated.scale,     // a cube 1 across, made 3
             `the scale, for the new atlas: ${updated.scale}, ${template['painted-cube-texture'].scale}`);
+  // --atlas-density: half the texels a unit, about half the atlas's side.
+  const side = async (density) => {
+    const at = await run([glb, '-o', join(scratch, 'dense.json'), '--atlas-density', String(density)]);
+    assert.equal(at.status, 0, at.stderr);
+    assert.match(at.stderr, new RegExp(`${density} texels a unit \\(`));
+    return Number(/atlas: (\d+) x/.exec(at.stderr)[1]);
+  };
+  const [fine, coarse] = [await side(200), await side(100)];
+  assert.ok(coarse > 0.4 * fine && coarse < 0.6 * fine, `${coarse} against ${fine}`);
+  assert.equal((await run([glb, '-o', out, '--atlas-density', '0'])).status, 1, 'a density must be positive');
   await run([glb, '-o', out, '--material-template', library]);
   // A scene using it finds the atlas, and its faces textured, each placed.
   writeFileSync(join(scratch, 'cube-scene.json'), JSON.stringify({
