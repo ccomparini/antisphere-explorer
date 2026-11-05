@@ -1,2 +1,10 @@
 node_modules/
+# Where the Stanford models used to be put by hand: now in parts/fetched/.
 public/scenes/parts/stanford/
+# Fetched by tools/fetch-models.mjs, not kept in git: scene models, and the
+# test models the tests fetch when missing.
+public/scenes/parts/fetched/
+test_models/Box/
+test_models/Fox.glb
+test_models/SimpleSkin/
+*.unverified

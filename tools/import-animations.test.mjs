@@ -17,6 +17,7 @@ import { sampleTrack } from '../public/keyframes.js';
 import { angleBetween } from '../public/quat.js';
 import { fixture, toGLB } from '../public/gltf-fixture.mjs';
 import { clipsFromGLTF } from './import-animations.mjs';
+import { ensureModels } from './fetch-models.mjs';
 
 const script = fileURLToPath(new URL('./import-animations.mjs', import.meta.url));
 const clipsOf = async (options = {}) => clipsFromGLTF(await readGLTF(toGLB(fixture())), options);
@@ -61,6 +62,9 @@ test('from the command line: clips alone, no skeleton; how they were made record
 // -- real files: test_models/Fox.glb (Khronos) and UAL1_Standard.glb (Quaternius) --
 
 const MODELS = new URL('../test_models/', import.meta.url);
+// Fetched when missing (tools/fetch-models.mjs), then read offline; a test
+// needing one that couldn't be fetched is skipped, saying why.
+const notFetched = (await ensureModels(['fox', 'simple-skin'])) ?? false;
 const ROTATION = 0.1 * Math.PI / 180, TRANSLATION = 0.0005;
 
 /**
@@ -85,7 +89,7 @@ function worstAgainstSource(gltf, animation, clip) {
   return { angle, distance };
 }
 
-test('the Fox: three clips, by its joints\' names, each source key kept within the tolerances; --loop names the loops', async () => {
+test('the Fox: three clips, by its joints\' names, each source key kept within the tolerances; --loop names the loops', { skip: notFetched }, async () => {
   const gltf = await readGLTF(readFileSync(new URL('Fox.glb', MODELS)));
   const clips = clipsFromGLTF(gltf, { loop: ['Walk', 'Run'] });
   assert.deepEqual(Object.keys(clips), ['Survey', 'Walk', 'Run']);
@@ -177,7 +181,7 @@ function tar(files) {
   return Buffer.concat(blocks);
 }
 
-test('SimpleSkin: an unnamed joint\'s channel by its node; keys halfway along a slerp dropped, and still there', async () => {
+test('SimpleSkin: an unnamed joint\'s channel by its node; keys halfway along a slerp dropped, and still there', { skip: notFetched }, async () => {
   const dir = new URL('SimpleSkin/', MODELS);
   const gltf = await readGLTF(readFileSync(new URL('SimpleSkin.gltf', dir)), {
     base: '', readBytes: async (path) => readFileSync(new URL(path, dir)),

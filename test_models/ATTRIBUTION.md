@@ -1,6 +1,8 @@
-Models in this directory are from the following sources:
+Models in this directory are from the following sources. Those with a
+public source - Box, Fox and SimpleSkin - aren't kept in git: the tests
+fetch them when missing (tools/fetch-models.mjs, pinned and checksummed;
+`node tools/fetch-models.mjs box fox simple-skin` fetches them by hand).
 
-  - StanfordBunny.stl: https://commons.wikimedia.org/wiki/File:Stanford\_Bunny.stl
   - as-test-split-surfaces-2.stl: Chris Comparini fbmstudios.net
   - as-test-split-surfaces.stl: Chris Comparini fbmstudios.net
   - Box/ (Box.gltf, Box0.bin): from the Khronos Group's glTF-Sample-Assets,

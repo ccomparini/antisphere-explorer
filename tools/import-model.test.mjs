@@ -17,6 +17,7 @@ import { quadricAt as H } from '../public/quadric.js';
 import { fixture, toGLB, toGLTFText, texturedCube } from '../public/gltf-fixture.mjs';
 import { encodePNG } from '../public/png.js';
 import { readScene } from '../public/antisphere-scene.js';
+import { ensureModels } from './fetch-models.mjs';
 
 const script = fileURLToPath(new URL('./import-model.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'import-model-'));
@@ -249,7 +250,11 @@ test('glTF: --up z keeps the file\'s own axes - the tubes lying along y - and wh
   assert.match((await run([file('lines.glb', toGLB(lines))])).stderr, /192 triangles, and 1 primitives that aren't triangles \(skipped\)/);
 });
 
-test('real glTFs from test_models: Box beside its buffer, the Fox at rest', async () => {
+// Fetched when missing (tools/fetch-models.mjs), then read offline; a test
+// needing one that couldn't be fetched is skipped, saying why.
+const notFetched = (await ensureModels(['box', 'fox', 'simple-skin'])) ?? false;
+
+test('real glTFs from test_models: Box beside its buffer, the Fox at rest', { skip: notFetched }, async () => {
   const models = fileURLToPath(new URL('../test_models/', import.meta.url));
   const box = await model([join(models, 'Box/Box.gltf')]);
   assert.deepEqual(box._meta.dimensions, [1, 1, 1]);
@@ -370,7 +375,7 @@ test('without --skeleton, a skin is ignored; with it, a file without one is conv
   assert.ok(JSON.parse(stl.stdout).spheroid);
 });
 
-test('--skeleton on the real skins in test_models: SimpleSkin, the Fox and the mannequin', async () => {
+test('--skeleton on the real skins in test_models: SimpleSkin, the Fox and the mannequin', { skip: notFetched }, async () => {
   const models = fileURLToPath(new URL('../test_models/', import.meta.url));
   const simple = await model([join(models, 'SimpleSkin/SimpleSkin.gltf'), '--skeleton', 'along-bones']);
   assert.equal(simple.skeleton.bones.length, 2);

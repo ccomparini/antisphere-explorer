@@ -19,7 +19,7 @@
 // the source may have changed, or moved.
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -133,7 +133,10 @@ async function download({ url, sha256, to }, root, say) {
     writeFileSync(`${where}.unverified`, bytes);
     throw new Error(`${url}: its SHA-256 is ${sum}, not ${sha256} as recorded - kept as ${to}.unverified, to look at`);
   }
-  writeFileSync(where, bytes);
+  // Written aside, then renamed into place - at once - so tests fetching
+  // the same file side by side never read half of it.
+  writeFileSync(`${where}.${process.pid}.part`, bytes);
+  renameSync(`${where}.${process.pid}.part`, where);
 }
 
 // import-model, as a person would run it, from the repository's root.

@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { readGLTF, transformPoint, trianglesOf, baseColorOf, sample, clipRange } from './gltf.js';
 import { fixture, toGLB, toGLTFText, texturedCube } from './gltf-fixture.mjs';
 import { encodePNG } from './png.js';
+import { ensureModels } from '../tools/fetch-models.mjs';
 
 const near = (got, want, what, tol = 1e-6) => {
   [want].flat().forEach((w, i) => assert.ok(Math.abs([got].flat()[i] - w) <= tol, `${what}: ${JSON.stringify(got)}, not ${JSON.stringify(want)}`));
@@ -117,8 +118,11 @@ test('trianglesOf(): a skinned mesh as its skin holds it; a mesh once per node u
 // -- real files, from Khronos's glTF-Sample-Assets (test_models/ATTRIBUTION.md) ----
 
 const MODELS = new URL('../test_models/', import.meta.url);
+// Fetched when missing (tools/fetch-models.mjs), then read offline; a test
+// needing one that couldn't be fetched is skipped, saying why.
+const notFetched = (await ensureModels(['box', 'fox', 'simple-skin'])) ?? false;
 
-test('Box: a .gltf with its buffer in a file beside it, its node placed by a matrix', async () => {
+test('Box: a .gltf with its buffer in a file beside it, its node placed by a matrix', { skip: notFetched }, async () => {
   const box = await readGLTF(readFileSync(new URL('Box/Box.gltf', MODELS)), {
     base: 'Box/', readBytes: async (path) => readFileSync(new URL(path, MODELS)),
   });
@@ -132,7 +136,7 @@ test('Box: a .gltf with its buffer in a file beside it, its node placed by a mat
   }
 });
 
-test('Fox: a real skin - 24 joints, at rest, its three clips left in the JSON', async () => {
+test('Fox: a real skin - 24 joints, at rest, its three clips left in the JSON', { skip: notFetched }, async () => {
   const fox = await readGLTF(readFileSync(new URL('Fox.glb', MODELS)));
   assert.equal(fox.json.skins[0].joints.length, 24);
   assert.deepEqual(fox.json.animations.map((a) => a.name), ['Survey', 'Walk', 'Run']);
@@ -142,7 +146,7 @@ test('Fox: a real skin - 24 joints, at rest, its three clips left in the JSON', 
   assert.ok(Math.max(...ys) - Math.min(...ys) > 70, 'standing up glTF\'s y, its legs under it');
 });
 
-test('SimpleSkin: four buffers beside it, a two-joint skin at rest, and a clip turning its second joint', async () => {
+test('SimpleSkin: four buffers beside it, a two-joint skin at rest, and a clip turning its second joint', { skip: notFetched }, async () => {
   const dir = new URL('SimpleSkin/', MODELS);
   const skin = await readGLTF(readFileSync(new URL('SimpleSkin.gltf', dir)), {
     base: '', readBytes: async (path) => readFileSync(new URL(path, dir)),
