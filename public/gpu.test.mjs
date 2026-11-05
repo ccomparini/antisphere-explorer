@@ -1539,7 +1539,7 @@ gpuTest('a textured model: its atlas on its faces, placed turned and moved, show
   const { ASCamera } = await import('./as-camera.js');
   const { texturedCube } = await import('./gltf-fixture.mjs');
   const { meshToTree } = await import('./mesh-import.js');
-  const { buildAtlas, sample } = await import('./atlas.js');
+  const { buildTextureAtlas, sample } = await import('./texture-atlas.js');
   // The source: smooth, so resampling it into the atlas changes little.
   const W = 48, H = 36, rgba = new Uint8Array(W * H * 4);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) rgba.set([40 + (200 * x) / W, 40 + (200 * y) / H, 120, 255], (y * W + x) * 4);
@@ -1567,7 +1567,7 @@ gpuTest('a textured model: its atlas on its faces, placed turned and moved, show
   for (const [name, mesh, fwd] of [['cube', texturedCube(new Uint8Array(0)), [-1, 1.3, -0.9]], ['torus', torus, [-0.4, 1, -0.7]]]) {
     const faces = [];
     const tree = meshToTree(mesh.triangles, { onFace: (node, tris) => faces.push({ node, tris }) });
-    const atlas = buildAtlas(faces, mesh.triangles.map((tri, i) => ({ tri, uv: mesh.uvs[i], image, factor: [1, 1, 1] })), { density: 160 });
+    const atlas = buildTextureAtlas(faces, mesh.triangles.map((tri, i) => ({ tri, uv: mesh.uvs[i], image, factor: [1, 1, 1] })), { density: 160 });
     for (const [node, offset] of atlas.offsets) node.textureOffset = offset;
     // Placed a third of a turn about z and moved, seen from a corner, in
     // white ambient light, so a pixel is the texel as the image has it.

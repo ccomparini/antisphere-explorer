@@ -305,7 +305,7 @@ function choosePlane(triangles, eps, sampleSize, box) {
  * `onFace(node, triangles)`, if given, hears each plane node with the
  * triangles lying in it - the face it is - each, or each piece of one cut
  * by the tree, with `source`, its index in `triangles`: what an atlas needs
- * to paint each node (atlas.js).
+ * to paint each node (texture-atlas.js).
  */
 export function meshToTree(triangles, options = {}) {
   const {

@@ -14,7 +14,7 @@
 // exactly where the shader's planar texture puts it, and coplanar triangles
 // from different UV islands simply share their face's patch.
 //
-//   const { size, rgba, scale, offsets } = buildAtlas(faces, sources);
+//   const { size, rgba, scale, offsets } = buildTextureAtlas(faces, sources);
 //
 // Colours are mixed as light (sRGB made linear, as the shader does: power
 // 2.2), times each material's factor, and written back as sRGB.
@@ -227,7 +227,7 @@ function pack(options, size) {
  * sources (their total texel area over their total area, so the atlas
  * keeps about the detail they had).
  */
-export function buildAtlas(faces, sources, { maxSize = 4096, density = null } = {}) {
+export function buildTextureAtlas(faces, sources, { maxSize = 4096, density = null } = {}) {
   faces = faces.filter((f) => f.tris.length);
   // Texels per unit, from the textured sources.
   if (density === null) {

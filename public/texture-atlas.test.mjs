@@ -1,10 +1,10 @@
-// Tests for atlas.js: a textured cube, every triangle its own UV island,
+// Tests for texture-atlas.js: a textured cube, every triangle its own UV island,
 // pre-distorted into an atlas. Run with:
-//   node --test public/atlas.test.mjs
+//   node --test public/texture-atlas.test.mjs
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAtlas, faceFrame, sample } from './atlas.js';
+import { buildTextureAtlas, faceFrame, sample } from './texture-atlas.js';
 import { meshToTree } from './mesh-import.js';
 import { texturedCube } from './gltf-fixture.mjs';
 
@@ -21,7 +21,7 @@ function cubeAtlas(options = {}) {
   const faces = [];
   meshToTree(triangles, { onFace: (node, tris) => faces.push({ node, tris }) });
   const sources = triangles.map((tri, i) => ({ tri, uv: uvs[i], image, factor: [1, 1, 1] }));
-  return { image, triangles, uvs, faces, atlas: buildAtlas(faces, sources, options) };
+  return { image, triangles, uvs, faces, atlas: buildTextureAtlas(faces, sources, options) };
 }
 
 test('the atlas: at points of every triangle, what frame(P) / scale, turned and slid by the face\'s offset, finds is the source at its UV', () => {
@@ -53,7 +53,7 @@ test('the atlas: capped in size, its texels coarsened to fit; a factor tints it;
   const { triangles } = texturedCube(new Uint8Array(0));
   const faces = [];
   meshToTree(triangles, { onFace: (node, tris) => faces.push({ node, tris }) });
-  const flat = buildAtlas(faces, triangles.map((tri) => ({ tri, uv: null, image: null, factor: [0.5, 0.25, 1] })));
+  const flat = buildTextureAtlas(faces, triangles.map((tri) => ({ tri, uv: null, image: null, factor: [0.5, 0.25, 1] })));
   const want = [0.5, 0.25, 1].map((x) => Math.round(255 * x ** (1 / 2.2)));
   for (let p = 0; p < flat.size * flat.size; p++) {
     const px = [...flat.rgba.subarray(4 * p, 4 * p + 3)];

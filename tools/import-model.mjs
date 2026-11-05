@@ -39,17 +39,17 @@
 // which the loaders unzip.
 //
 // A glTF with a base colour texture (PNG) keeps its colours, pre-distorted
-// into an atlas (public/atlas.js): each face of the tree gets a patch of
+// into a texture atlas (public/texture-atlas.js): each face of the tree gets a patch of
 // one image laid out in its own surface coordinates, painted from the
 // source texture by its UVs (times each material's baseColorFactor), and a
 // "textureOffset" saying where its patch is. The atlas is written beside
-// the model, <out>-atlas.png (so it needs -o: on stdout, a model is
+// the model, <out>-texture-atlas.png (so it needs -o: on stdout, a model is
 // imported untextured), and the model is made of one material,
 // <name>-texture (or --material's), which needs
 //
 //   { "texture": "@<the atlas, from where the material is>", "scale": s }
 //
-// - said on stderr, or written by --material-template. --atlas-density sets
+// - said on stderr, or written by --material-template. --texture-density sets
 // its texels per unit, by default the source's own: lower, for a smaller
 // atlas and a coarser texture. Not read yet, and
 // said: JPEG and other images, a texCoord other than 0,
@@ -111,7 +111,7 @@ import { meshToTree, treeStats, boundsOf, placeTriangles } from '../public/mesh-
 import { compileScene } from '../public/antisphere-scene.js';
 import { readGLTF, trianglesOf, baseColorOf } from '../public/gltf.js';
 import { decodePNG, encodePNG } from '../public/png.js';
-import { buildAtlas } from '../public/atlas.js';
+import { buildTextureAtlas } from '../public/texture-atlas.js';
 import { skinOf, meshParts, fitToMeshParts, alongBonesParts, fitToMeshMaterial } from '../public/skin.js';
 import { openSource } from './sources.mjs';
 import { stringifyJSON } from '../public/fbm-json.js';
@@ -143,7 +143,7 @@ import-model - convert a mesh, from a file or a URL, into a model for scenes
                        write the materials the model names to this file, a
                        library to fill in; one already there gains only
                        what it lacks (and an atlas's texture and scale)
-      --atlas-density <n>
+      --texture-density <n>
                        a textured glTF: its atlas's texels per unit, in the
                        model's units (after --fit) - lower for a smaller
                        atlas, coarser; default, the source's own density,
@@ -179,7 +179,7 @@ function parseArguments(argv) {
     float32: { type: 'boolean' },
     pretty: { type: 'boolean' },
     'material-template': { type: 'string' },
-    'atlas-density': { type: 'number' },
+    'texture-density': { type: 'number' },
     skeleton: { type: 'string' },
     overlap: { type: 'number' },
     'min-thickness': { type: 'number', default: 0.06 },
@@ -190,7 +190,7 @@ function parseArguments(argv) {
     help: { type: 'boolean', short: 'h' },
   }, { positionals: true });
   if (values.fit !== undefined && !(values.fit > 0)) throw new Error('--fit needs a positive number');
-  if (values['atlas-density'] !== undefined && !(values['atlas-density'] > 0)) throw new Error('--atlas-density needs a positive number: texels per unit');
+  if (values['texture-density'] !== undefined && !(values['texture-density'] > 0)) throw new Error('--texture-density needs a positive number: texels per unit');
   if (values.up !== undefined && !UP[values.up]) throw new Error(`--up ${values.up}: x, y, z, -x, -y or -z`);
   if (positionals.length > 1) throw new Error(`one source at a time, not ${positionals.length}`);
   if (values.skeleton !== undefined && !SKELETON_MODES.includes(values.skeleton)) {
@@ -279,7 +279,7 @@ async function main(argv) {
   const placed = placeTriangles(upright, { fit: options.fit });
 
   // A glTF's base colours, textured or not, as the colours of an atlas
-  // (public/atlas.js) - if it has a texture to show.
+  // (public/texture-atlas.js) - if it has a texture to show.
   let colours = read.gltf ? await baseColours(read, say) : null;
   if (colours && !options.out) {
     say('  textured: its atlas is written beside the model, so give -o to keep its texture; imported untextured');
@@ -361,7 +361,7 @@ async function baseColours(read, say) {
 
 /**
  * The atlas of a textured glTF: painted from its faces, written beside the
- * model as <out>-atlas.png, each face node given its textureOffset. Returns
+ * model as <out>-texture-atlas.png, each face node given its textureOffset. Returns
  * what its material needs: { material, file, scale }.
  */
 function writeAtlas(options, say, read, placed, faces, colours, material) {
@@ -370,14 +370,14 @@ function writeAtlas(options, say, read, placed, faces, colours, material) {
     return { tri, uv: read.uvs[i], image, factor };
   });
   const started = Date.now();
-  const atlas = buildAtlas(faces, sources, { density: options['atlas-density'] ?? null });
+  const atlas = buildTextureAtlas(faces, sources, { density: options['texture-density'] ?? null });
   for (const [node, offset] of atlas.offsets) node.textureOffset = offset;
-  const file = `${options.out.replace(/\.json(\.gz)?$/i, '')}-atlas.png`;
+  const file = `${options.out.replace(/\.json(\.gz)?$/i, '')}-texture-atlas.png`;
   mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   return encodePNG(atlas.rgba, atlas.size, atlas.size).then((png) => {
     writeFileSync(file, png);
-    say(`  atlas: ${atlas.size} x ${atlas.size} texels, ${atlas.offsets.size} faces, ${Math.round(1 / atlas.texel)} texels a unit`
-        + `${options['atlas-density'] ? '' : ' (the source\'s; --atlas-density sets it)'}`
+    say(`  texture atlas: ${atlas.size} x ${atlas.size} texels, ${atlas.offsets.size} faces, ${Math.round(1 / atlas.texel)} texels a unit`
+        + `${options['texture-density'] ? '' : ' (the source\'s; --texture-density sets it)'}`
         + ` (${((Date.now() - started) / 1000).toFixed(1)}s), written to ${file}`);
     return { material, file, scale: atlas.scale };
   });
