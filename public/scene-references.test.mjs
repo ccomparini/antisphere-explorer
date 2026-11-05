@@ -340,6 +340,13 @@ test('readScene(): gzipped, the scene and what it references; an STL on its own,
   assert.ok(compileScene(alone.spec, alone).nodes.length > 3);
 });
 
+test('a fetched model that isn\'t there: warned of, saying how to fetch it', async () => {
+  const base = onDisk({ 's.json': JSON.stringify({ materials: {}, lights: [], root: { use: '@parts/fetched/teapot.json' } }) });
+  const warned = [];
+  await readScene(`${base}s.json`, { warn: (msg) => warned.push(msg) });
+  assert.match(warned.join('\n'), /parts\/fetched\/teapot\.json.*left out \(fetched, not kept in git: node tools\/fetch-models\.mjs\)/);
+});
+
 test('readScene(): a reference that can\'t be read is warned of and left out', async () => {
   const base = onDisk({ 's.json': JSON.stringify(SCENE), 'parts/tet.stl': TET_STL });
   const warned = [];

@@ -1,0 +1,20 @@
+{
+  "_comment": "Khronos' Barramundi Fish (CC0), its base colour texture as a texture atlas, over sand. The fish is fetched, not kept in git: node tools/fetch-models.mjs barramundi.",
+  "materials": [ "@lib/materials.json", "@parts/fetched/barramundi-materials.json" ],
+  "lights": [
+    { "direction": [ -0.4, 0.6, -1 ], "color": [ 1.1, 1.0, 0.9 ] }
+  ],
+  "camera": {
+    "position": [ 0.9, -1.5, 0.75 ],
+    "target": [ 0, 0, 0.4 ]
+  },
+  "root": {
+    "sphere": { "complement": true, "radius": 60 },
+    "material": "sky-2",
+    "outside": {
+      "plane": { "normal": [ 0, 0, 1 ], "offset": 0 },
+      "material": "sand",
+      "outside": { "use": "@parts/fetched/barramundi.json", "translate": [ 0, 0, 0.1 ], "rotate": { "axis": [ 0, 0, 1 ], "degrees": 20 } }
+    }
+  }
+}

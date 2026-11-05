@@ -2100,7 +2100,9 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
       try {
         files[path] = await load(path);
       } catch (error) {
-        warn(`${error.message}: left out`);
+        // What tools/fetch-models.mjs fetches isn't kept in git: say so.
+        const fetch = /\/parts\/fetched\//.test(path) ? ' (fetched, not kept in git: node tools/fetch-models.mjs)' : '';
+        warn(`${error.message}: left out${fetch}`);
         failed.add(path);
       }
     }));

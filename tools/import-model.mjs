@@ -6,7 +6,7 @@
 //   node tools/import-model.mjs https://example.com/teapot.ply.gz --fit 2 --material brass -o teapot.json
 //   node tools/import-model.mjs \
 //     'http://graphics.stanford.edu/pub/3Dscanrep/dragon/dragon_recon.tar.gz#dragon_recon/dragon_vrip.ply' \
-//     --up y --float32 -o public/scenes/parts/stanford/dragon.json.gz
+//     --up y --float32 -o public/scenes/parts/fetched/stanford/dragon.json.gz
 //
 // Reads PLY (ascii or binary), STL (ascii or binary) and glTF (.glb, or
 // .gltf with its buffers in it or beside it), any of them gzipped, or in a
@@ -22,8 +22,8 @@
 //
 // They are y up, hence --up y. They are stress tests, taken at full
 // resolution, and big - the dragon is 871,414 triangles and takes a couple
-// of minutes - so they are not in git: public/scenes/parts/stanford/ is
-// gitignored, for converting them into.
+// of minutes - so they are not in git: tools/fetch-models.mjs fetches and
+// converts them, into public/scenes/parts/fetched/, which git ignores.
 //
 // What it writes is the model alone: a subtree, the mesh's planes inside
 // its bounding spheroid (meshToTree()), turned so that --up is up, centred
@@ -31,7 +31,7 @@
 // places it by reference wherever a subtree goes:
 //
 //   { "sphere": { ... }, "material": "jade",
-//     "inside": { "use": "@parts/stanford/dragon.json.gz", "scale": 4 } }
+//     "inside": { "use": "@parts/fetched/stanford/dragon.json.gz", "scale": 4 } }
 //
 // A mesh names no material, so it is made of whatever the node around it
 // in the scene names - jade, there - unless --material names one for it,
