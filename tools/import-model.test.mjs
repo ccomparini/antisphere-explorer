@@ -403,10 +403,21 @@ test('a textured glTF: an atlas beside the model, each face its textureOffset, t
   const walk = (t) => { if (!t) return; if (t.plane) offsets.push(t.textureOffset); walk(t.inside); walk(t.outside); };
   walk(written);
   assert.equal(offsets.length, 6);
-  assert.ok(offsets.every((o) => o.length === 2 && o.every((v) => v >= 0 && v < 1)), JSON.stringify(offsets));
+  assert.ok(offsets.every((o) => o.length === 3 && o.slice(0, 2).every((v) => v >= 0 && v < 1) && Number.isFinite(o[2])), JSON.stringify(offsets));
   const template = JSON.parse(readFileSync(library, 'utf8'));
   assert.equal(template['painted-cube-texture'].texture, '@parts/cube-atlas.png', 'from where the template is');
   assert.ok(template['painted-cube-texture'].scale > 0);
+  // Imported again, at another fit: the atlas's scale changes, and the
+  // template follows it, keeping what else the material has.
+  writeFileSync(library, JSON.stringify({ ...template, 'painted-cube-texture': { ...template['painted-cube-texture'], kind: 'glossy' } }));
+  const again = await run([glb, '-o', out, '--material-template', library, '--fit', '3']);
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stderr, /painted-cube-texture's texture and scale updated/);
+  const updated = JSON.parse(readFileSync(library, 'utf8'))['painted-cube-texture'];
+  assert.equal(updated.kind, 'glossy', 'what the author set, kept');
+  assert.ok(Math.abs(updated.scale - 3 * template['painted-cube-texture'].scale) < 0.01 * updated.scale,     // a cube 1 across, made 3
+            `the scale, for the new atlas: ${updated.scale}, ${template['painted-cube-texture'].scale}`);
+  await run([glb, '-o', out, '--material-template', library]);
   // A scene using it finds the atlas, and its faces textured, each placed.
   writeFileSync(join(scratch, 'cube-scene.json'), JSON.stringify({
     materials: ['@cube-materials.json'], lights: [],

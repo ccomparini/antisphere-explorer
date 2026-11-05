@@ -180,7 +180,10 @@ bet that they stay there.
   in the image; something per face must. Rather than give every node UVs,
   the importer resamples each face's texels into a patch of one atlas laid
   out in that face's own surface coordinates (`public/atlas.js`), so a face
-  needs only where its patch is: its `textureOffset`. That rides in a copy
+  needs only where its patch is: its `textureOffset`, a slide and a turn.
+  Each patch is turned to its tightest rectangle, and packed by the texels
+  it actually needs, so triangles interlock: the fish's atlas has about
+  as many texels as its source. That rides in a copy
   of its material (`albedo2` and `scale`), as env levels do, so there is
   nothing per node on the GPU, and coplanar triangles from different UV
   islands just share their face's patch. Placing the model turns, moves

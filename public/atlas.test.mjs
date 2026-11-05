@@ -24,19 +24,21 @@ function cubeAtlas(options = {}) {
   return { image, triangles, uvs, faces, atlas: buildAtlas(faces, sources, options) };
 }
 
-test('the atlas: at points of every triangle, what frame(P) / scale + the face\'s offset finds is the source at its UV', () => {
+test('the atlas: at points of every triangle, what frame(P) / scale, turned and slid by the face\'s offset, finds is the source at its UV', () => {
   const { image, triangles, uvs, faces, atlas } = cubeAtlas({ density: 200 });
   assert.equal(faces.length, 6, 'a face node a side');
   const picture = { width: atlas.size, height: atlas.size, rgba: atlas.rgba };
   let worst = 0;
   triangles.forEach((tri, k) => {
     const face = faces.find((f) => f.tris.some((t) => t.source === k));
-    const frame = faceFrame(face.node.plane), [du, dv] = atlas.offsets.get(face.node);
+    const frame = faceFrame(face.node.plane), [du, dv, degrees] = atlas.offsets.get(face.node);
+    const c = Math.cos((degrees * Math.PI) / 180), s = Math.sin((degrees * Math.PI) / 180);
     for (const w of [[1 / 3, 1 / 3, 1 / 3], [0.6, 0.2, 0.2], [0.1, 0.8, 0.1], [0.15, 0.15, 0.7]]) {
       const P = [0, 1, 2].map((c) => w[0] * tri[0][c] + w[1] * tri[1][c] + w[2] * tri[2][c]);
       const uv = [0, 1].map((c) => w[0] * uvs[k][0][c] + w[1] * uvs[k][1][c] + w[2] * uvs[k][2][c]);
       const [fx, fy] = frame.at(P);
-      const got = sample(picture, [fx / atlas.scale + du, fy / atlas.scale + dv]), want = sample(image, uv);
+      const f = [fx / atlas.scale, fy / atlas.scale];
+      const got = sample(picture, [c * f[0] - s * f[1] + du, s * f[0] + c * f[1] + dv]), want = sample(image, uv);
       worst = Math.max(worst, ...got.map((v, c) => Math.abs(v - want[c])));
     }
   });

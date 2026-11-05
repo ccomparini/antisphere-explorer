@@ -479,7 +479,8 @@ async function write(options, say, source, { out, scene, colours = new Map(), te
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, stringifyJSON(template.library, undefined, 2) + '\n');
     say(`  material template ${file}: ` + (template.added.length ? `${template.added.join(', ')} added` : 'nothing to add')
-        + (template.kept ? `, ${template.kept} already there` : ''));
+        + (template.kept ? `, ${template.kept} already there` : '')
+        + (template.updated ? `; ${template.updated}'s texture and scale updated for the new atlas` : ''));
   }
 }
 
@@ -507,14 +508,22 @@ function materialTemplate(file, names, colours, source, textured = null) {
             + 'A scene lists them after its library: "materials": ["@lib/materials.json", "@<this file>"].',
     ...library,
   };
+  // The atlas, found from the template (a reference is from the file it is
+  // in), and its scale: the atlas just written's, whatever was there - a
+  // stale scale puts every face's patch in the wrong place.
+  const atlas = textured && {
+    texture: `@${path.relative(path.dirname(path.resolve(file)), path.resolve(textured.file)).split(path.sep).join('/')}`,
+    scale: +textured.scale.toPrecision(6),
+  };
   for (const name of added) {
     out[name] = name === textured?.material
-      // The atlas, found from the template: a reference is from the file it is in.
-      ? { kind: 'lambert', texture: `@${path.relative(path.dirname(path.resolve(file)), path.resolve(textured.file)).split(path.sep).join('/')}`,
-          scale: +textured.scale.toPrecision(6) }
+      ? { kind: 'lambert', ...atlas }
       : { kind: 'lambert', albedo: (colours.get(name) ?? GREY).map((v) => +v.toPrecision(4)) };
   }
-  return { library: out, added, kept: names.length - added.length };
+  const updated = atlas && !added.includes(textured.material) && out[textured.material]
+    && (out[textured.material].texture !== atlas.texture || out[textured.material].scale !== atlas.scale);
+  if (updated) out[textured.material] = { ...out[textured.material], ...atlas };
+  return { library: out, added, kept: names.length - added.length, updated: updated ? textured.material : null };
 }
 
 main(process.argv.slice(2)).catch((error) => {
