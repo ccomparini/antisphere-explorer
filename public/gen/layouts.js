@@ -230,7 +230,7 @@ export class Material {
     params: Object.freeze({ offset: 8, type: 'vec2<f32>' }),
     albedo: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
     scale: Object.freeze({ offset: 28, type: 'f32' }),
-    albedo2: Object.freeze({ offset: 32, type: 'vec3<f32>' }),
+    pattern_params: Object.freeze({ offset: 32, type: 'vec3<f32>' }),
     opacity: Object.freeze({ offset: 44, type: 'f32' }),
     ambient: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
     texture: Object.freeze({ offset: 60, type: 'u32' }),
@@ -260,10 +260,10 @@ export class Material {
     if (values.scale !== undefined) {
       f32[w + 7] = values.scale;
     }
-    if (values.albedo2 !== undefined) {
-      f32[w + 8] = values.albedo2[0];
-      f32[w + 9] = values.albedo2[1];
-      f32[w + 10] = values.albedo2[2];
+    if (values.pattern_params !== undefined) {
+      f32[w + 8] = values.pattern_params[0];
+      f32[w + 9] = values.pattern_params[1];
+      f32[w + 10] = values.pattern_params[2];
     }
     if (values.opacity !== undefined) {
       f32[w + 11] = values.opacity;
@@ -286,7 +286,7 @@ export class Material {
       params: [f32[w + 2], f32[w + 3]],
       albedo: [f32[w + 4], f32[w + 5], f32[w + 6]],
       scale: f32[w + 7],
-      albedo2: [f32[w + 8], f32[w + 9], f32[w + 10]],
+      pattern_params: [f32[w + 8], f32[w + 9], f32[w + 10]],
       opacity: f32[w + 11],
       ambient: [f32[w + 12], f32[w + 13], f32[w + 14]],
       texture: u32[w + 15],
@@ -1064,7 +1064,8 @@ export const MATERIAL_IOR_WATER = 0x10000000;
 export const MATERIAL_REFLECTIVE = 0x08000000;
 export const NODE_ENV = 0x04000000;
 export const MATERIAL_CASTS_SHADOW = 0x02000000;
-export const MATERIAL_INDEX = 0x01ffffff;
+export const NODE_FACE = 0x01000000;
+export const MATERIAL_INDEX = 0x00ffffff;
 export const KIND_LAMBERT = 0;
 export const KIND_GLOSSY = 1;
 export const KIND_EMISSIVE = 2;

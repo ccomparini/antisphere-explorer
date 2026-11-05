@@ -1,5 +1,5 @@
 {
-   "_comment" : "The Stanford Dragon at full resolution (871,414 triangles), a stress test. Its parts file is generated, not in git: run node tools/stanford-model.mjs dragon first (a minute or so).",
+   "_comment" : "Three Utah teapots on a floor: jade, and two golds that mirror. The teapot is fetched, not kept in git: node tools/fetch-models.mjs teapot.",
    "lights" : [
       {
         "direction": [ 0.25, -0.4, -0.35 ],
@@ -17,7 +17,7 @@
       "teapot" : {
         "material" : "jade",
         "_scale" : 10,
-        "use" : "@parts/teapot.json"
+        "use" : "@parts/fetched/teapot.json"
       }
    },
    "root" : {

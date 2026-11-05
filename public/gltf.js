@@ -4,8 +4,8 @@
 // It reads what a model needs - the node hierarchy, skins, mesh
 // attributes and animations - and nothing it can't read correctly: an
 // extension the file requires, or a sparse accessor, is refused rather
-// than half read. Materials, textures and cameras are left in `json` for
-// whoever wants them.
+// than half read. Of materials, the base colour is read (baseColorOf());
+// the rest, and cameras, are left in `json` for whoever wants them.
 //
 //   const gltf = await readGLTF(bytes, { readBytes, base });
 //   gltf.json                    the file's JSON
@@ -15,7 +15,11 @@
 //   gltf.rest(i)                 node i's own { translation, rotation, scale }
 //   gltf.worldMatrices(trs)      every node's world matrix, from each node's
 //                                TRS (trs(i), default its rest)
-//   trianglesOf(gltf)            every triangle of its default scene, at rest
+//   trianglesOf(gltf)            every triangle of its default scene, at rest,
+//                                with its UVs and material
+//   gltf.imageBytes(i)           image i's file: { bytes, mimeType } (async)
+//   baseColorOf(gltf, m)         material m's base colour: its factor, and
+//                                the image, if it has one, and how it's laid on
 //   sample(gltf, animation, t)   the animated nodes' TRS at time t
 //   trackOf(gltf, sampler)       a channel's keys as a track (keyframes.js)
 //   clipRange(gltf, animation)   [start, end] of its keys
@@ -74,12 +78,13 @@ export async function readGLTF(data, { readBytes, base = '' } = {}) {
     }
     if (buffer.uri.startsWith('data:')) return dataURI(buffer.uri);
     if (!readBytes) throw new Error(`glTF: buffer ${i} is a file, ${buffer.uri}; give readBytes to read it`);
-    const dir = base.endsWith('/') ? base : base.slice(0, base.lastIndexOf('/') + 1);
-    return bytesOf(await readBytes(dir + decodeURIComponent(buffer.uri)));
+    return bytesOf(await readBytes(dirOf(base) + decodeURIComponent(buffer.uri)));
   }));
 
-  return new GLTF(json, buffers);
+  return new GLTF(json, buffers, { readBytes, base });
 }
+
+const dirOf = (base) => (base.endsWith('/') ? base : base.slice(0, base.lastIndexOf('/') + 1));
 
 function readGLB(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -108,9 +113,11 @@ function dataURI(uri) {
 }
 
 class GLTF {
-  constructor(json, buffers) {
+  constructor(json, buffers, { readBytes, base = '' } = {}) {
     this.json = json;
     this.buffers = buffers;
+    this.readBytes = readBytes;
+    this.base = base;
     this.nodes = json.nodes ?? [];
     this.parents = this.nodes.map(() => -1);
     this.nodes.forEach((node, i) => (node.children ?? []).forEach((c) => { this.parents[c] = i; }));
@@ -152,6 +159,29 @@ class GLTF {
     out.size = size;
     this.cache.set(i, out);
     return out;
+  }
+
+  /**
+   * Image i's file, as it is in the glTF - { bytes, mimeType } - from its
+   * buffer view, a data: URI, or a file beside the glTF (readBytes).
+   * mimeType as the glTF says, or, for a file, by its name.
+   */
+  async imageBytes(i) {
+    const image = this.json.images?.[i];
+    if (!image) throw new Error(`glTF: no image ${i}`);
+    if (image.bufferView !== undefined) {
+      const view = this.json.bufferViews[image.bufferView];
+      const bytes = this.buffers[view.buffer];
+      return { bytes: bytes.subarray(view.byteOffset ?? 0, (view.byteOffset ?? 0) + view.byteLength), mimeType: image.mimeType };
+    }
+    if (image.uri === undefined) throw new Error(`glTF: image ${i} has neither a bufferView nor a uri`);
+    if (image.uri.startsWith('data:')) {
+      return { bytes: dataURI(image.uri), mimeType: image.mimeType ?? image.uri.slice(5, image.uri.search(/[;,]/)) };
+    }
+    if (!this.readBytes) throw new Error(`glTF: image ${i} is a file, ${image.uri}; give readBytes to read it`);
+    const bytes = bytesOf(await this.readBytes(dirOf(this.base) + decodeURIComponent(image.uri)));
+    const byName = /\.png$/i.test(image.uri) ? 'image/png' : /\.jpe?g$/i.test(image.uri) ? 'image/jpeg' : undefined;
+    return { bytes, mimeType: image.mimeType ?? byName };
   }
 
   /** Node i's own transform: { translation, rotation, scale }, from its TRS or its matrix. */
@@ -248,7 +278,7 @@ export function trianglesOf(gltf) {
   const walk = (i) => { nodes.push(i); for (const c of gltf.nodes[i].children ?? []) walk(c); };
   roots.forEach(walk);
 
-  const triangles = [];
+  const triangles = [], uvs = [], materials = [];
   let skipped = 0;
   for (const n of nodes) {
     const node = gltf.nodes[n];
@@ -280,15 +310,41 @@ export function trianglesOf(gltf) {
         }
         points[v] = total > 0 ? at.map((x) => x / total) : transformPoint(world[n], p);
       }
+      // UVs, texCoord 0, with v running up the image (glTF's runs down).
+      const st = prim.attributes.TEXCOORD_0 === undefined ? null : gltf.accessor(prim.attributes.TEXCOORD_0);
+      const uvOf = (v) => [st[2 * v], 1 - st[2 * v + 1]];
       const order = prim.indices === undefined ? null : gltf.accessor(prim.indices);
       const corners = order ? order.length : count;
       for (let i = 0; i + 2 < corners; i += 3) {
         const [a, b, c] = order ? [order[i], order[i + 1], order[i + 2]] : [i, i + 1, i + 2];
         triangles.push([points[a], points[b], points[c]]);
+        uvs.push(st ? [uvOf(a), uvOf(b), uvOf(c)] : null);
+        materials.push(prim.material ?? null);
       }
     }
   }
-  return { triangles, skipped };
+  return { triangles, uvs, materials, skipped };
+}
+
+/**
+ * Material m's base colour (pbrMetallicRoughness): { factor: [r, g, b, a]
+ * (linear, default white), image (an index into images, or null), texCoord,
+ * wrap: [s, t] (the sampler's: 10497 repeat, 33071 clamp, 33648 mirrored
+ * repeat), transform (KHR_texture_transform, or null) }. m null: glTF's
+ * default material, white.
+ */
+export function baseColorOf(gltf, m) {
+  const pbr = m === null || m === undefined ? {} : gltf.json.materials?.[m]?.pbrMetallicRoughness ?? {};
+  const info = pbr.baseColorTexture;
+  const texture = info === undefined ? null : gltf.json.textures?.[info.index];
+  const sampler = texture?.sampler === undefined ? {} : gltf.json.samplers?.[texture.sampler] ?? {};
+  return {
+    factor: pbr.baseColorFactor ?? [1, 1, 1, 1],
+    image: texture?.source ?? null,
+    texCoord: info?.texCoord ?? 0,
+    wrap: [sampler.wrapS ?? 10497, sampler.wrapT ?? 10497],
+    transform: info?.extensions?.KHR_texture_transform ?? null,
+  };
 }
 
 // -- maths -------------------------------------------------------------------------

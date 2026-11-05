@@ -32,6 +32,11 @@ machine, documentation and maths notation - is in the workspace's own
     node tools/bench-compare.mjs [-r rev ...] scene ...
                              scenes x revisions, one table, with work counts
     node tools/shader-stats.mjs [file.wgsl] [entry ...] [--dump DIR]
+    node tools/fetch-models.mjs [name ...] [--list | --clean]
+                             models with a public source, fetched (and
+                             converted) where missing, not kept in git;
+                             --clean deletes them; --archive x.tar.gz packs
+                             them, as converted, for another checkout
 
 Shader sources are `shaders/*.wgsls`; `public/gen/` is generated but
 committed (see the README). The JS never spells out a struct offset: use

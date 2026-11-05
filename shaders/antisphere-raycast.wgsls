@@ -20,8 +20,11 @@
 #import "random.wgsls"
 
 // Ordered so the two scalars and the vec2 fill the 16 bytes ahead of the
-// first vec3, which has to start on a 16-byte boundary anyway: 64 bytes,
-// with 4 free after albedo2. What a ray does in a material - its trace
+// first vec3, which has to start on a 16-byte boundary anyway: 64 bytes.
+// As params are the kind's, pattern_params are the pattern's: the second
+// colour a checker, noise or carpet mixes towards (a scene's "albedo2"),
+// and for a texture, where it lies (textureTurns() in antisphere-scene.js:
+// its offset, xy, and the sine of its turn, z). What a ray does in a material - its trace
 // flags - is not here but in each node's material id (Node.material_id).
 struct Material {
   kind    : u32,       // selects the shading function
@@ -29,7 +32,7 @@ struct Material {
   params  : vec2<f32>, // kind-specific
   albedo  : vec3<f32>,
   scale   : f32,       // pattern tile size: larger is bigger tiles
-  albedo2 : vec3<f32>,
+  pattern_params : vec3<f32>,
   // Glass and water (MATERIAL_IOR): how fast light through it takes on its
   // albedo - after d units, albedo^(d * opacity). 1 by default.
   opacity : f32,
@@ -615,14 +618,21 @@ fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
       ck = randFloat(u32(abs(hit.surfaceCoords.x)) ^ u32(abs(hit.surfaceCoords.y)));
     }
     case PATTERN_PLANAR_TEXTURE: {
-      // A colour, not a mix of the two: the texel, tinted by albedo.
-      return m.albedo * planarTexture(textures[m.texture], hit.surfaceCoords);
+      // A colour, not a mix of the two: the texel, tinted by albedo. Where
+      // the texture lies is in pattern_params (textureTurns() in
+      // antisphere-scene.js): turned by the angle whose sine is z (its
+      // cosine not negative: a half turn is a negative scale), slid by xy.
+      let s = m.pattern_params.z;
+      let c = sqrt(max(0.0, 1.0 - s * s));
+      let f = hit.surfaceCoords;
+      let uv = vec2<f32>(c * f.x - s * f.y, s * f.x + c * f.y) + m.pattern_params.xy;
+      return m.albedo * planarTexture(textures[m.texture], uv);
     }
     default {
       // ck = 0.0 -> use plain albedo
     }
   }
-  return mix(m.albedo, m.albedo2, ck);
+  return mix(m.albedo, m.pattern_params, ck);
 }
 
 // The first light of env `env`. The lights are in order of env - the
@@ -816,15 +826,16 @@ fn highlight(hit : Hit, shininess : f32) -> vec3<f32> {
 // The node whose surface P is on: walking down from the root as P lies -
 // inside or outside each node by the sign of H(P) - the node on the way
 // that P is nearest to (|H| / |grad H|). Exactly one node on that path has P
-// on its surface, if P is on any; the walk visits the nodes over P only, a
-// handful, and runs only where a ray leaves glass. (The last node a ray in
+// on its surface, if P is on any; the walk visits the nodes over P only - a
+// handful, or a mesh's depth - and runs only where a ray leaves glass, at a
+// mirror, or on a texture. (The last node a ray in
 // glass was inside is not it: a slab of glass bounded by a sphere within
 // it is left by the slab's faces, from the sphere's inside.)
 fn surfaceAt(P : vec3<f32>) -> u32 {
   var node = ROOT;
   var best = ROOT;
   var bestDistance = 1e30;
-  for (var depth = 0; depth < 64; depth = depth + 1) {
+  for (var depth = 0; depth < 512; depth = depth + 1) {
     let nd = nodes[node];
     let h = fAt(nd, P);
     let distance = abs(h) / max(length(gradAt(nd, P)), 1e-20);
@@ -996,7 +1007,12 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       let into = select(seg.t0 + min(1e-3, 0.5 * (seg.t1 - seg.t0)), seg.t1 + 1e-3, inMedium);
       hit.env = envAt(origin + into * dir, select(seg.node, bitcast<u32>(seg.t0), inMedium));
     }
-    if (inMedium || (nodes[seg.node].material_id & (MATERIAL_REFLECTIVE | MATERIAL_IOR)) != 0u) {
+    // The face the ray crossed, where it matters which: leaving glass, at
+    // a mirror, and on a texture placed face by face (NODE_FACE) - a
+    // mesh's solid cell is entered through any of its faces,
+    // but trace() names the node it ends at, and each face has its own
+    // patch of the texture.
+    if (inMedium || (nodes[seg.node].material_id & (MATERIAL_REFLECTIVE | MATERIAL_IOR | NODE_FACE)) != 0u) {
       hit.node = surfaceAt(hit.position);
     }
     let nd = nodes[hit.node];

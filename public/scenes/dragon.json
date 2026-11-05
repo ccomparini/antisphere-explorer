@@ -1,5 +1,5 @@
 {
-   "_comment" : "The Stanford Dragon at full resolution (871,414 triangles), a stress test. Its parts file is generated, not in git: run node tools/stanford-model.mjs dragon first (a minute or so).",
+   "_comment" : "The Stanford Dragon at full resolution (871,414 triangles), a stress test. It is fetched, not kept in git: node tools/fetch-models.mjs dragon (a couple of minutes).",
    "lights" : [
       {
         "direction": [ 0.25, -0.4, -0.35 ],
@@ -18,8 +18,8 @@
         },
         "scale" : 10,
         "_translate" : [ 0, 0, -0.527 ],
-         "use" : "@https://fbmstudios.net/chris/dragon.json.gz",
-         "_use" : "@https://fbmstudios.net/chris/teapot.json"
+         "use" : "@parts/fetched/stanford/dragon.json.gz",
+         "_use" : "@parts/fetched/teapot.json"
       }
    },
    "root" : {

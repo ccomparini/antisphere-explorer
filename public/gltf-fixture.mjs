@@ -141,3 +141,63 @@ export function toGLTFText({ json, bin }) {
   for (const b of bin) s += String.fromCharCode(b);
   return JSON.stringify({ ...json, buffers: [{ byteLength: bin.length, uri: `data:application/octet-stream;base64,${btoa(s)}` }] });
 }
+
+/**
+ * A unit cube about the origin, textured, as a .glb's parts ({ json, bin }):
+ * 12 triangles, outward, each with its own three vertices and its own UV
+ * island - triangle k in cell k of a 4 x 3 grid over the image, the two of
+ * a face in different cells, turned differently - so a mapping that mixes
+ * them up shows. `png` is the image's bytes, embedded (a bufferView,
+ * image/png); its material's baseColorFactor is `factor`. With `uvs:
+ * false`, no TEXCOORD_0. The triangles and their UVs (v up the image, as
+ * trianglesOf() gives them) come back too, for checking.
+ */
+export function texturedCube(png, { factor = [1, 1, 1, 1], uvs = true } = {}) {
+  const triangles = [], islands = [];
+  let k = 0;
+  for (let axis = 0; axis < 3; axis++) {
+    for (const sign of [1, -1]) {
+      // The face's corners, counter-clockwise seen from outside.
+      const [u, v] = [(axis + 1) % 3, (axis + 2) % 3];
+      const corner = (a, b) => { const p = [0, 0, 0]; p[axis] = 0.5 * sign; p[u] = a; p[v] = b; return p; };
+      const quad = sign > 0
+        ? [corner(-0.5, -0.5), corner(0.5, -0.5), corner(0.5, 0.5), corner(-0.5, 0.5)]
+        : [corner(-0.5, -0.5), corner(-0.5, 0.5), corner(0.5, 0.5), corner(0.5, -0.5)];
+      for (const tri of [[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]]) {
+        // Cell k of the grid, the island a right triangle inset in it, turned by k.
+        const cx = (k % 4) / 4, cy = Math.floor(k / 4) / 3, w = 1 / 4, h = 1 / 3;
+        const corners = [[0.15, 0.15], [0.85, 0.15], [0.15, 0.85]];
+        const turned = corners.map((_, i) => corners[(i + k) % 3]);
+        islands.push(turned.map(([a, b]) => [cx + a * w, cy + b * h]));
+        triangles.push(tri);
+        k++;
+      }
+    }
+  }
+  const positions = new Float32Array(triangles.flat(2));
+  // glTF's v runs down the image.
+  const texcoords = new Float32Array(islands.flatMap((tri) => tri.flatMap(([s, t]) => [s, 1 - t])));
+  const parts = [positions, texcoords, png];
+  const views = [];
+  let offset = 0;
+  for (const p of parts) {
+    views.push({ buffer: 0, byteOffset: offset, byteLength: p.byteLength });
+    offset += p.byteLength + ((4 - (p.byteLength % 4)) % 4);
+  }
+  const bin = new Uint8Array(offset);
+  parts.forEach((p, i) => bin.set(new Uint8Array(p.buffer, p.byteOffset, p.byteLength), views[i].byteOffset));
+  const json = {
+    asset: { version: '2.0', generator: 'gltf-fixture' },
+    scene: 0, scenes: [{ nodes: [0] }], nodes: [{ name: 'cube', mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, ...(uvs ? { TEXCOORD_0: 1 } : {}) }, material: 0 }] }],
+    materials: [{ name: 'Painted', pbrMetallicRoughness: { baseColorFactor: factor, baseColorTexture: { index: 0 } } }],
+    textures: [{ source: 0, sampler: 0 }], samplers: [{}],
+    images: [{ bufferView: 2, mimeType: 'image/png' }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 36, type: 'VEC3' },
+      { bufferView: 1, componentType: 5126, count: 36, type: 'VEC2' },
+    ],
+    bufferViews: views, buffers: [{ byteLength: bin.byteLength }],
+  };
+  return { json, bin, triangles, uvs: islands };
+}

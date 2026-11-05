@@ -1490,11 +1490,11 @@ gpuTest('a planar texture: the image on the floor, once per scale, repeated; tin
   const four = { width: 2, height: 2, rgba: new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255]) };
   // A floor in white ambient light and no other, so a pixel is the texel
   // as the image has it (made light, then back to sRGB for the screen).
-  const spec = (tiles) => ({
+  const spec = (tiles, floor = {}) => ({
     materials: { tiles: { texture: '@four.png', scale: 2, ...tiles }, white: { kind: 'ambient', albedo: [1, 1, 1] } },
     lights: [],
     root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'white', inside: {
-      plane: { normal: [0, 0, 1], offset: 0 }, material: 'tiles' } },
+      plane: { normal: [0, 0, 1], offset: 0 }, material: 'tiles', ...floor } },
   });
   const options = { files: { '/t/four.png': four }, path: '/t/s.json' };
   // Looking straight down, orthographic, 10 pixels a unit: x to the left,
@@ -1519,4 +1519,96 @@ gpuTest('a planar texture: the image on the floor, once per scale, repeated; tin
   // An albedo tints it: half the light.
   const tinted = await renderPixels(spec({ albedo: [0.5, 1, 1] }), c, 160, 80, options);
   near(tinted.at(85, 54), [0.5 ** (1 / 2.2) * 255, 255, 255], 'white, tinted');
+  // Slid by textureOffset: half the image along u (along y here), one
+  // texel, so red and green change places.
+  const slid = await renderPixels(spec({}, { textureOffset: [0.5, 0] }), c, 160, 80, options);
+  const slidAt = (x, y) => slid.at(Math.round(80 - 10 * x), Math.round(39 + 10 * y));
+  near(slidAt(-1.5, 0.5), [0, 255, 0], 'slid: green where red was');
+  near(slidAt(-1.5, 1.5), [255, 0, 0], 'slid: red where green was');
+  // The floor turned a quarter about z: the texture turns with it, (x, y)
+  // to (-y, x) - the JS frame() textureTurns() works with and the shader's
+  // agreeing.
+  const turned = await renderPixels(spec({}, { textureOffset: [0, 0], rotate: { axis: [0, 0, 1], degrees: 90 } }), c, 160, 80, options);
+  const turnedAt = (x, y) => turned.at(Math.round(80 - 10 * x), Math.round(39 + 10 * y));
+  near(turnedAt(-0.5, -1.5), [255, 0, 0], 'turned: red');
+  near(turnedAt(-1.5, -1.5), [0, 255, 0], 'turned: green');
+  near(turnedAt(-0.5, -0.5), [0, 0, 255], 'turned: blue');
+});
+
+gpuTest('a textured model: its atlas on its faces, placed turned and moved, shows the source where its UVs put it', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  const { texturedCube } = await import('./gltf-fixture.mjs');
+  const { meshToTree } = await import('./mesh-import.js');
+  const { buildTextureAtlas, sample } = await import('./texture-atlas.js');
+  // The source: smooth, so resampling it into the atlas changes little.
+  const W = 48, H = 36, rgba = new Uint8Array(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) rgba.set([40 + (200 * x) / W, 40 + (200 * y) / H, 120, 255], (y * W + x) * 4);
+  const image = { width: W, height: H, rgba };
+  // A torus too, its UVs round it each way: not convex, so a ray enters a
+  // solid cell of its tree through a face other than the node trace()
+  // names, and the hit must find its own face (surfaceAt()).
+  const torus = { triangles: [], uvs: [] };
+  const nu = 24, nv = 12, at3 = (i, j) => {
+    const a = (2 * Math.PI * i) / nu, b = (2 * Math.PI * j) / nv, r = 0.6 + 0.25 * Math.cos(b);
+    return [r * Math.cos(a), r * Math.sin(a), 0.25 * Math.sin(b)];
+  };
+  for (let i = 0; i < nu; i++) {
+    for (let j = 0; j < nv; j++) {
+      const q = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]];
+      for (const tri of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) {
+        torus.triangles.push(tri.map(([a, b]) => at3(a, b)));
+        torus.uvs.push(tri.map(([a, b]) => [a / nu, b / nv]));
+      }
+    }
+  }
+  const unit = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
+  const sub = (a, b) => a.map((v, i) => v - b[i]), dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  for (const [name, mesh, fwd] of [['cube', texturedCube(new Uint8Array(0)), [-1, 1.3, -0.9]], ['torus', torus, [-0.4, 1, -0.7]]]) {
+    const faces = [];
+    const tree = meshToTree(mesh.triangles, { onFace: (node, tris) => faces.push({ node, tris }) });
+    const atlas = buildTextureAtlas(faces, mesh.triangles.map((tri, i) => ({ tri, uv: mesh.uvs[i], image, factor: [1, 1, 1] })), { density: 160 });
+    for (const [node, offset] of atlas.offsets) node.textureOffset = offset;
+    // Placed a third of a turn about z and moved, seen from a corner, in
+    // white ambient light, so a pixel is the texel as the image has it.
+    const turn = 2 * Math.PI / 3, at = [1, 2, 0];
+    const place = (p) => [Math.cos(turn) * p[0] - Math.sin(turn) * p[1] + at[0], Math.sin(turn) * p[0] + Math.cos(turn) * p[1] + at[1], p[2] + at[2]];
+    const spec = {
+      materials: { painted: { texture: '@atlas.png', scale: atlas.scale }, white: { kind: 'ambient', albedo: [1, 1, 1] } },
+      lights: [],
+      root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'white', inside: {
+        ...tree, material: 'painted', rotate: { axis: [0, 0, 1], radians: turn }, translate: at } },
+    };
+    const files = { '/t/atlas.png': { width: atlas.size, height: atlas.size, rgba: atlas.rgba } };
+    const f = unit(fwd);
+    const c = new ASCamera({ position: at.map((v, i) => v - 10 * f[i]), direction: f, projection: 'orthographic' });
+    c.orthoHeight = 1;
+    const img = await renderPixels(spec, c, 160, 80, { files, path: '/t/s.json' });
+    // Each pixel's ray as the shader casts it (orthographic: from the eye
+    // plane along fwd; as-camera.js's basis), against the placed triangles.
+    const right = unit([f[1], -f[0], 0]), up = cross(right, f);
+    const placed = mesh.triangles.map((tri) => tri.map(place));
+    let checked = 0, worst = 0;
+    for (let row = 1; row < 80; row += 2) {
+      for (let col = 1; col < 160; col += 2) {
+        const nx = ((col + 0.5) / 160) * 2 - 1, ny = 1 - ((row + 0.5) / 80) * 2;
+        const O = c.position.map((v, i) => v + right[i] * nx * 2 + up[i] * ny);
+        let near = null;
+        placed.forEach((tri, k) => {                     // Moller-Trumbore
+          const e1 = sub(tri[1], tri[0]), e2 = sub(tri[2], tri[0]), p = cross(f, e2), det = dot(e1, p);
+          if (Math.abs(det) < 1e-12) return;
+          const s = sub(O, tri[0]), u = dot(s, p) / det, q = cross(s, e1), v = dot(f, q) / det, t = dot(e2, q) / det;
+          if (u < 0 || v < 0 || u + v > 1 || t <= 0) return;
+          if (!near || t < near.t) near = { t, k, w: [1 - u - v, u, v] };
+        });
+        if (!near || !near.w.every((x) => x > 0.06)) continue;   // clear of edges and outlines
+        const uv = [0, 1].map((i) => near.w[0] * mesh.uvs[near.k][0][i] + near.w[1] * mesh.uvs[near.k][1][i] + near.w[2] * mesh.uvs[near.k][2][i]);
+        const want = sample(image, uv).map((x) => 255 * x ** (1 / 2.2));
+        worst = Math.max(worst, ...img.at(col, row).map((x, i) => Math.abs(x - want[i])));
+        checked++;
+      }
+    }
+    assert.ok(checked > 100, `${name}: ${checked} pixels checked`);
+    assert.ok(worst <= 6, `${name}: worst ${worst.toFixed(1)} of 255`);
+  }
 });

@@ -14,7 +14,11 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { writeSTL } from '../public/stl.js';
 import { compileScene, isSolid } from '../public/antisphere-scene.js';
 import { quadricAt as H } from '../public/quadric.js';
-import { fixture, toGLB, toGLTFText } from '../public/gltf-fixture.mjs';
+import { fixture, toGLB, toGLTFText, texturedCube } from '../public/gltf-fixture.mjs';
+import { encodePNG } from '../public/png.js';
+import { readScene } from '../public/antisphere-scene.js';
+import { ensureModels } from './fetch-models.mjs';
+import { tar as writeTar } from './sources.mjs';
 
 const script = fileURLToPath(new URL('./import-model.mjs', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'import-model-'));
@@ -52,26 +56,8 @@ ${FACES.map((f) => `3 ${f.join(' ')}`).join('\n')}
 `;
 const STL = Buffer.from(writeSTL(FACES.map((f) => f.map((i) => VERTICES[i]))));
 
-/** A ustar archive of { name: bytes or text } files. */
-function tar(files) {
-  const blocks = [];
-  for (const [name, content] of Object.entries(files)) {
-    const body = Buffer.from(content);
-    const header = Buffer.alloc(512);
-    header.write(name, 0);
-    header.write('0000644\0', 100);
-    header.write(body.length.toString(8).padStart(11, '0') + '\0', 124);
-    header.write('0', 156);
-    header.write('ustar\0' + '00', 257);
-    header.write('        ', 148);
-    let sum = 0;
-    for (const byte of header) sum += byte;
-    header.write(sum.toString(8).padStart(6, '0') + '\0 ', 148);
-    blocks.push(header, body, Buffer.alloc((512 - (body.length % 512)) % 512));
-  }
-  blocks.push(Buffer.alloc(1024));
-  return Buffer.concat(blocks);
-}
+/** A ustar archive of { name: bytes or text } files (sources.mjs's tar()). */
+const tar = (files) => Buffer.from(writeTar(Object.entries(files).map(([name, content]) => ({ name, bytes: new Uint8Array(Buffer.from(content)) }))));
 
 const file = (name, content) => { const path = join(scratch, name); writeFileSync(path, content); return path; };
 
@@ -247,7 +233,11 @@ test('glTF: --up z keeps the file\'s own axes - the tubes lying along y - and wh
   assert.match((await run([file('lines.glb', toGLB(lines))])).stderr, /192 triangles, and 1 primitives that aren't triangles \(skipped\)/);
 });
 
-test('real glTFs from test_models: Box beside its buffer, the Fox at rest', async () => {
+// Fetched when missing (tools/fetch-models.mjs), then read offline; a test
+// needing one that couldn't be fetched is skipped, saying why.
+const notFetched = (await ensureModels(['box', 'fox', 'simple-skin'])) ?? false;
+
+test('real glTFs from test_models: Box beside its buffer, the Fox at rest', { skip: notFetched }, async () => {
   const models = fileURLToPath(new URL('../test_models/', import.meta.url));
   const box = await model([join(models, 'Box/Box.gltf')]);
   assert.deepEqual(box._meta.dimensions, [1, 1, 1]);
@@ -368,7 +358,7 @@ test('without --skeleton, a skin is ignored; with it, a file without one is conv
   assert.ok(JSON.parse(stl.stdout).spheroid);
 });
 
-test('--skeleton on the real skins in test_models: SimpleSkin, the Fox and the mannequin', async () => {
+test('--skeleton on the real skins in test_models: SimpleSkin, the Fox and the mannequin', { skip: notFetched }, async () => {
   const models = fileURLToPath(new URL('../test_models/', import.meta.url));
   const simple = await model([join(models, 'SimpleSkin/SimpleSkin.gltf'), '--skeleton', 'along-bones']);
   assert.equal(simple.skeleton.bones.length, 2);
@@ -383,4 +373,61 @@ test('--skeleton on the real skins in test_models: SimpleSkin, the Fox and the m
   const host = { materials: { 'figure-main': {}, 'figure-joints': {} }, lights: [], root: { use: '@mannequin.json#/objects/mannequin' } };
   const built = compileScene(host, { files: { [join(scratch, 'mannequin.json')]: written }, path: join(scratch, 'host.json') });
   assert.ok(built.nodes.length > 200, `${built.nodes.length} nodes: all of it`);
+});
+
+test('a textured glTF: an atlas beside the model, each face its textureOffset, the material its texture and scale', async () => {
+  const W = 8, H = 6, rgba = new Uint8Array(W * H * 4);
+  for (let p = 0; p < W * H; p++) rgba.set([30 * (p % W), 40 * Math.floor(p / W), 100, 255], 4 * p);
+  const glb = join(scratch, 'painted-cube.glb');
+  writeFileSync(glb, toGLB(texturedCube(await encodePNG(rgba, W, H))));
+  const out = join(scratch, 'parts', 'cube.json'), library = join(scratch, 'cube-materials.json');
+  const got = await run([glb, '-o', out, '--material-template', library]);
+  assert.equal(got.status, 0, got.stderr);
+  assert.match(got.stderr, /texture atlas: \d+ x \d+ texels, 6 faces, \d+ texels a unit \(the source's/);
+  assert.ok(existsSync(join(scratch, 'parts', 'cube-texture-atlas.png')), 'the atlas, beside the model');
+  const written = JSON.parse(readFileSync(out, 'utf8'));
+  assert.equal(written.material, 'painted-cube-texture');
+  const offsets = [];
+  const walk = (t) => { if (!t) return; if (t.plane) offsets.push(t.textureOffset); walk(t.inside); walk(t.outside); };
+  walk(written);
+  assert.equal(offsets.length, 6);
+  assert.ok(offsets.every((o) => o.length === 3 && o.slice(0, 2).every((v) => v >= 0 && v < 1) && Number.isFinite(o[2])), JSON.stringify(offsets));
+  const template = JSON.parse(readFileSync(library, 'utf8'));
+  assert.equal(template['painted-cube-texture'].texture, '@parts/cube-texture-atlas.png', 'from where the template is');
+  assert.ok(template['painted-cube-texture'].scale > 0);
+  // Imported again, at another fit: the atlas's scale changes, and the
+  // template follows it, keeping what else the material has.
+  writeFileSync(library, JSON.stringify({ ...template, 'painted-cube-texture': { ...template['painted-cube-texture'], kind: 'glossy' } }));
+  const again = await run([glb, '-o', out, '--material-template', library, '--fit', '3']);
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stderr, /painted-cube-texture's texture and scale updated/);
+  const updated = JSON.parse(readFileSync(library, 'utf8'))['painted-cube-texture'];
+  assert.equal(updated.kind, 'glossy', 'what the author set, kept');
+  assert.ok(Math.abs(updated.scale - 3 * template['painted-cube-texture'].scale) < 0.01 * updated.scale,     // a cube 1 across, made 3
+            `the scale, for the new atlas: ${updated.scale}, ${template['painted-cube-texture'].scale}`);
+  // --texture-density: half the texels a unit, about half the atlas's side.
+  const side = async (density) => {
+    const at = await run([glb, '-o', join(scratch, 'dense.json'), '--texture-density', String(density)]);
+    assert.equal(at.status, 0, at.stderr);
+    assert.match(at.stderr, new RegExp(`${density} texels a unit \\(`));
+    return Number(/texture atlas: (\d+) x/.exec(at.stderr)[1]);
+  };
+  const [fine, coarse] = [await side(200), await side(100)];
+  assert.ok(coarse > 0.4 * fine && coarse < 0.6 * fine, `${coarse} against ${fine}`);
+  assert.equal((await run([glb, '-o', out, '--texture-density', '0'])).status, 1, 'a density must be positive');
+  await run([glb, '-o', out, '--material-template', library]);
+  // A scene using it finds the atlas, and its faces textured, each placed.
+  writeFileSync(join(scratch, 'cube-scene.json'), JSON.stringify({
+    materials: ['@cube-materials.json'], lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 50 }, material: null, inside: { use: '@parts/cube.json', translate: [1, 2, 0] } },
+  }));
+  const read = await readScene(pathToFileURL(join(scratch, 'cube-scene.json')).href);
+  const warned = [];
+  const built = compileScene(read.spec, { ...read, warn: (where, msg) => warned.push(`${where}: ${msg}`) });
+  assert.deepEqual(warned, []);
+  assert.equal(built.textures.length, 1);
+  // (The bounding spheroid carries the material too, as a model's root does, but is no face.)
+  const faces = built.nodes.filter((nd) => built.materials[nd.material]?.texture && nd.prim.k_par === 0 && nd.prim.k_perp === 0);
+  assert.equal(faces.length, 6, 'six textured faces');
+  assert.equal(new Set(faces.map((nd) => nd.material)).size, 6, 'each its own placement');
 });

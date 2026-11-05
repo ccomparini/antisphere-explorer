@@ -41,6 +41,29 @@ in the URL:
 those from a skinned glTF. Every frame the pose changes is compiled afresh,
 for now.
 
+### Fetched models
+
+Models with a public source aren't kept in git: `tools/fetch-models.mjs`
+downloads each - pinned, and checked against its SHA-256 - and converts it
+with `tools/import-model.mjs` into `public/scenes/parts/fetched/`, which
+git ignores. The scenes using them (`barramundi.json`, `teapots.json`,
+`dragon.json`) warn of one that isn't there, saying so.
+
+    node tools/fetch-models.mjs                    every model that's missing (the
+                                                   dragon takes a couple of minutes, once)
+    node tools/fetch-models.mjs barramundi teapot  these, if missing
+    node tools/fetch-models.mjs --list             which are there, which missing
+    node tools/fetch-models.mjs --clean [name ...] deleted (all of parts/fetched/ with no
+                                                   names), not fetched: the next fetch is afresh
+    node tools/fetch-models.mjs --archive models.tar.gz [name ...]
+                                                   fetched where missing, then archived, as
+                                                   converted, named from the repository's root
+
+Converting where it is quick and copying the result where it is slow: an
+archive unpacked in another checkout's root (`tar xzf models.tar.gz`) puts
+every model where the script and the scenes look, and the script there
+counts them as fetched.
+
 ## Shaders
 
 The shader sources live in `shaders/` as `.wgsls` files ("WGSL source"):
@@ -101,6 +124,11 @@ runs the shaders themselves, headless, through Dawn (the `webgpu` package),
 and checks every generated struct layout against the one Dawn actually uses.
 It needs a Vulkan-capable GPU (a software one like llvmpipe works too) and
 skips itself when there isn't one. `npm run test:gpu` runs just that file.
+
+The test models with a public source (`test_models/ATTRIBUTION.md`) are
+fetched by the tests that read them, the first time, with
+`tools/fetch-models.mjs`; after that the tests run offline. Without a
+network, those tests skip, saying why.
 
 Alternately:
 

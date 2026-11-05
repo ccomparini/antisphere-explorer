@@ -226,6 +226,8 @@ function sortTriangle(tri, plane, eps, tiny, front, back, split = true) {
   const behind = clipPolygon(tri, plane, false, eps);
   const aheadTris = ahead ? fanOf(ahead, tiny) : [];
   const behindTris = behind ? fanOf(behind, tiny) : [];
+  // Each piece knows the triangle it was cut from (meshToTree()'s onFace).
+  if (tri.source !== undefined) for (const t of [...aheadTris, ...behindTris]) t.source = tri.source;
 
   // If one side came out as nothing, the triangle belongs wholly to the
   // other: splitting it would lose the piece that vanished.
@@ -299,6 +301,11 @@ function choosePlane(triangles, eps, sampleSize, box) {
  * mesh says nothing about what fills it, so it is spatial division only,
  * and whatever uses it says what it is made of (a "material" on the use,
  * or one in scope around it).
+ *
+ * `onFace(node, triangles)`, if given, hears each plane node with the
+ * triangles lying in it - the face it is - each, or each piece of one cut
+ * by the tree, with `source`, its index in `triangles`: what an atlas needs
+ * to paint each node (texture-atlas.js).
  */
 export function meshToTree(triangles, options = {}) {
   const {
@@ -306,9 +313,11 @@ export function meshToTree(triangles, options = {}) {
     maxDepth = 5000,
     split = true,               // cut straddling triangles, or pass them whole
     bound = true,               // wrap the tree in a bounding spheroid
+    onFace = null,
   } = options;
 
-  const usable = triangles.filter((tri) => planeOfTriangle(tri));
+  const tagged = onFace ? triangles.map((tri, i) => Object.assign(tri.slice(), { source: i })) : triangles;
+  const usable = tagged.filter((tri) => planeOfTriangle(tri));
   if (!usable.length) return null;
 
   // Tolerances scaled to the model: an absolute epsilon is meaningless when
@@ -331,10 +340,13 @@ export function meshToTree(triangles, options = {}) {
     const plane = choosePlane(tris, eps, sampleSize, boundsOf(tris));
     if (!plane) return null;
 
-    const front = [], back = [];
-    for (const tri of tris) sortTriangle(tri, plane, eps, tiny, front, back, split);
+    const front = [], back = [], on = [];
+    for (const tri of tris) {
+      if (sortTriangle(tri, plane, eps, tiny, front, back, split) === 'coplanar') on.push(tri);
+    }
 
     const node = { plane: { normal: plane.normal, offset: plane.offset } };
+    if (onFace) onFace(node, on);
     // Whole triangles can leave a child with everything its parent had,
     // apart from the one consumed as coplanar. That still ends, since one
     // goes each time, but it can get deep, so the depth cap matters here.

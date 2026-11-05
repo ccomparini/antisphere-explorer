@@ -38,7 +38,7 @@ import {
   Light, Material, Node, TextureInfo,
   KIND_LAMBERT, KIND_GLOSSY, KIND_EMISSIVE, KIND_UNLIT, KIND_AMBIENT, KIND_GLOW_REGION,
   PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, PATTERN_PLANAR_TEXTURE, MATERIAL_SOLID, MATERIAL_OPTICAL,
-  MATERIAL_INDEX, NODE_ENV, MATERIAL_CASTS_SHADOW,
+  MATERIAL_INDEX, NODE_ENV, NODE_FACE, MATERIAL_CASTS_SHADOW,
 } from './gen/layouts.js';
 import * as layouts from './gen/layouts.js';
 import { regionsDisjoint, interiorPaths } from './overlap.js';
@@ -321,13 +321,111 @@ export function fromHyperboloid(axis, k_par, k_perp, linear, constant) {
 // is what turns a whole region inside out, and is what a scene file's
 // "complement" means.
 function complementSurface(prim) {
-  return {
+  return withTexture({
     axis: prim.axis,
     k_par: -prim.k_par,
     k_perp: -prim.k_perp,
     linear: prim.linear.map((v) => -v),
     constant: -prim.constant,
-  };
+  }, prim, (p) => p);
+}
+
+// -- a node's texture offset ------------------------------------------------
+//
+// A node's "textureOffset" slides its material's texture on it: its texture
+// coordinates are frame(P) / scale + offset (frame() in the shader). On a
+// plane they are meant to stay on the surface however the node is placed,
+// but frame()'s basis comes from the plane's normal alone, so turning,
+// sliding or scaling the plane changes them. So a prim with an offset
+// carries `tex`: the offset, and three points - the origin and the plane's
+// frame axes, as it was written - which every transform of the prim moves
+// as it moves the surface (withTexture()). Once the tree is placed,
+// textureTurns() compares the plane's frame at the moved points with the
+// frame it was written in, and gives the node a copy of its material that
+// turns, scales and slides its texture to match.
+
+// A transformed prim, carrying `from`'s texture points moved by `move`.
+function withTexture(prim, from, move) {
+  if (from.tex) prim.tex = { ...from.tex, points: from.tex.points?.map(move) ?? null };
+  return prim;
+}
+
+const isPlanePrim = (prim) => prim.k_par === 0 && prim.k_perp === 0;
+
+/**
+ * A plane's frame axes, as the shader's frame() takes them: from its
+ * normal - the node's linear term as packed, 2c (packNodes()), a plane's
+ * unit normal - and a helper axis away from it. frame(P) is (P . t, P . b),
+ * a plane's anchor being the origin.
+ */
+export function planeFrame(prim) {
+  const axis = prim.linear.map((v) => 2 * v);
+  const helper = Math.abs(axis[2]) > 0.9 ? [1, 0, 0] : [0, 0, 1];
+  const c = cross3(axis, helper), l = Math.hypot(...c);
+  const t = c.map((v) => v / l);
+  return { t, b: cross3(axis, t) };
+}
+
+/**
+ * Give each node whose prim carries a texture offset a copy of its
+ * (textured) material placing the texture: in patternParams, the offset and the
+ * sine of the turn the shader gives frame(P) / scale, and in scale, the
+ * material's scaled as the node was (negated for a half turn). Copies are shared by nodes placing it alike. `warn(path,
+ * msg)` hears of what can't be followed exactly.
+ */
+function textureTurns(nodes, table, warn) {
+  const copies = new Map();
+  let uneven = 0, mirrored = 0;
+  for (const nd of nodes) {
+    const tex = nd.prim?.tex;
+    const m = table[nd.material];
+    if (!tex || m?.pattern !== PATTERN_PLANAR_TEXTURE) continue;
+    let [du, dv] = tex.offset;
+    // L: from frame coordinates now back to as written - none, but on a
+    // plane placed. A is where the origin as written is now.
+    let L = [[1, 0], [0, 1]], A = [0, 0];
+    if (tex.points && isPlanePrim(nd.prim)) {
+      // The plane's frame now, at the points as they were written: from
+      // the differences, L (where the axes gave (|t|^2, 0) and (0, |b|^2)).
+      const { t, b } = planeFrame(nd.prim);
+      const f = (p) => [dot3(p, t), dot3(p, b)];
+      const [fA, B, C] = tex.points.map(f);
+      A = fA;
+      const e1 = [B[0] - A[0], B[1] - A[1]], e2 = [C[0] - A[0], C[1] - A[1]];
+      const det = e1[0] * e2[1] - e2[0] * e1[1];
+      const D = tex.lengths;
+      // L = diag(D) . [e1 e2]^-1
+      L = [[D[0] * e2[1] / det, -D[0] * e2[0] / det], [-D[1] * e1[1] / det, D[1] * e1[0] / det]];
+      if (Math.hypot(L[0][0] - L[1][1], L[1][0] + L[0][1]) > 1e-6 * Math.hypot(...L[0], ...L[1])) {
+        if (det * D[0] * D[1] < 0) mirrored++; else uneven++;
+      }
+    }
+    // Then turned as written: R(turn) . L.
+    const tc = Math.cos(tex.turn), ts = Math.sin(tex.turn);
+    L = [[tc * L[0][0] - ts * L[1][0], tc * L[0][1] - ts * L[1][1]],
+         [ts * L[0][0] + tc * L[1][0], ts * L[0][1] + tc * L[1][1]]];
+    // Its nearest turn-and-scale, which is all the shader does.
+    const a = (L[0][0] + L[1][1]) / 2, c = (L[1][0] - L[0][1]) / 2;
+    let turn = Math.atan2(c, a), grow = 1 / Math.hypot(a, c);
+    // A turn past a quarter is a half turn and less: the half turn is the
+    // scale negated (frame(P) / scale, both coordinates), so the shader
+    // needs only the turn's sine, its cosine never negative.
+    if (Math.cos(turn) < 0) { turn -= Math.sign(turn) * Math.PI; grow = -grow; }
+    // The offset, for frame(P) / (scale * grow) turned, to give what it
+    // gave as written: less the turned, scaled frame of the origin.
+    const s = m.scale * grow, cos = Math.cos(turn), sin = Math.sin(turn);
+    du -= (cos * A[0] - sin * A[1]) / s;
+    dv -= (sin * A[0] + cos * A[1]) / s;
+    const key = `${nd.material} ${du} ${dv} ${turn} ${grow}`;
+    if (!copies.has(key)) {
+      // NODE_FACE: a hit finds its face, whose patch this is.
+      table.push({ ...m, patternParams: [du, dv, Math.sin(turn)], scale: m.scale * grow, flags: (m.flags | NODE_FACE) >>> 0 });
+      copies.set(key, table.length - 1);
+    }
+    nd.material = copies.get(key);
+  }
+  if (uneven) warn('textureOffset', `${uneven} plane(s) scaled unevenly or skewed: their textures only follow approximately`);
+  if (mirrored) warn('textureOffset', `${mirrored} plane(s) turned inside out (complemented): their textures follow, unmirrored`);
 }
 
 // ---------------------------------------------------------------------------
@@ -658,13 +756,13 @@ function difference(t, other) {
 // stops working once a primitive has an axis of its own.
 export function translatePrim(prim, t) {
   const Kt = applyCurvature(prim, t);
-  return {
+  return withTexture({
     axis: prim.axis,
     k_par: prim.k_par,
     k_perp: prim.k_perp,
     linear: prim.linear.map((v, i) => v - Kt[i]),
     constant: prim.constant - 2 * dot3(prim.linear, t) + dot3(t, Kt),
-  };
+  }, prim, (p) => p.map((v, i) => v + t[i]));
 }
 
 // Rotation by a 3x3 matrix, as rows. Only the two vectors turn: curvature
@@ -672,13 +770,13 @@ export function translatePrim(prim, t) {
 // is about the origin, which rotation fixes.
 export function rotatePrim(prim, rows) {
   const turn = (v) => rows.map((row) => dot3(row, v));
-  return {
+  return withTexture({
     axis: turn(prim.axis),
     k_par: prim.k_par,
     k_perp: prim.k_perp,
     linear: turn(prim.linear),
     constant: prim.constant,
-  };
+  }, prim, turn);
 }
 
 /**
@@ -698,13 +796,13 @@ export function movePrim(prim, { rotate = null, translate = [0, 0, 0] } = {}) {
 // only scales H itself - the surface, being where H is zero, would not
 // move at all.)
 function scalePrim(prim, s) {
-  return {
+  return withTexture({
     axis: prim.axis,
     k_par: prim.k_par / s,
     k_perp: prim.k_perp / s,
     linear: prim.linear,
     constant: prim.constant * s,
-  };
+  }, prim, (p) => p.map((v) => v * s));
 }
 
 // Rotation matrix for a turn about an axis, as rows so rotatePrim can dot
@@ -2002,7 +2100,9 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
       try {
         files[path] = await load(path);
       } catch (error) {
-        warn(`${error.message}: left out`);
+        // What tools/fetch-models.mjs fetches isn't kept in git: say so.
+        const fetch = /\/parts\/fetched\//.test(path) ? ' (fetched, not kept in git: node tools/fetch-models.mjs)' : '';
+        warn(`${error.message}: left out${fetch}`);
         failed.add(path);
       }
     }));
@@ -2247,7 +2347,7 @@ export function compileScene(rawSpec, options = {}) {
     return { texture: textureIndex.get(def.texture), projection };
   }
 
-  const table = [{ albedo: [0, 0, 0], albedo2: [0, 0, 0],
+  const table = [{ albedo: [0, 0, 0], patternParams: [0, 0, 0],
                    pattern: 0, scale: 1, kind: 0, params: [0, 0], flags: 0 }];
   const matIndex = new Map();
   const aliases = [];
@@ -2302,7 +2402,10 @@ export function compileScene(rawSpec, options = {}) {
       name,                                      // for display (what a ray hit); not packed
       // Textured, its colour is the texel times albedo, white unless given.
       albedo:  def.albedo  ?? (texture ? [1, 1, 1] : [0.7, 0.7, 0.7]),
-      albedo2: def.albedo2 ?? [0.3, 0.3, 0.3],
+      // The pattern's own numbers, as params are the kind's: its second
+      // colour (albedo2); textured, where the texture lies instead
+      // (textureTurns()): its offset, and its turn.
+      patternParams: texture ? [0, 0, 0] : (def.albedo2 ?? [0.3, 0.3, 0.3]),
       scale,
       opacity,
       kind:    kind.id,
@@ -2337,7 +2440,7 @@ export function compileScene(rawSpec, options = {}) {
     let m = matIndex.get(name);
     if (m === undefined) {
       quietly(path, `unknown material "${name}": shown as a stand-in, flat magenta`);
-      table.push({ name, missing: true, albedo: [1, 0, 1], albedo2: [1, 0, 1], scale: 1, opacity: 1,
+      table.push({ name, missing: true, albedo: [1, 0, 1], patternParams: [1, 0, 1], scale: 1, opacity: 1,
                    kind: KIND_UNLIT, params: [0, 0], pattern: 0,
                    flags: (MATERIAL_SOLID | MATERIAL_OPTICAL | MATERIAL_CASTS_SHADOW) >>> 0 });
       m = table.length - 1;
@@ -2503,6 +2606,18 @@ export function compileScene(rawSpec, options = {}) {
     if (def[shape].complement) {
       // "complement" specified within the shape complements just the shape
       prim = complementSurface(prim);
+    }
+    if (def.textureOffset !== undefined) {
+      const o = def.textureOffset;
+      if (!Array.isArray(o) || (o.length !== 2 && o.length !== 3) || !o.every(Number.isFinite)) {
+        quietly(`${path}.textureOffset`, `must be [du, dv] or [du, dv, degrees], got ${JSON.stringify(o)} - ignored`);
+      } else {
+        const frame = isPlanePrim(prim) ? planeFrame(prim) : null;
+        // The points, and the squared lengths of the axes they started as.
+        prim.tex = { offset: o.slice(0, 2), turn: ((o[2] ?? 0) * Math.PI) / 180,
+                     points: frame ? [[0, 0, 0], frame.t, frame.b] : null,
+                     lengths: frame ? [dot3(frame.t, frame.t), dot3(frame.b, frame.b)] : null };
+      }
     }
     return prim;
   }
@@ -3169,6 +3284,7 @@ export function compileScene(rawSpec, options = {}) {
   const rootTree = tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] })
     ?? node({ axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: 1 }, null, null, NO_MATERIAL);
   const nodes = flatten(bakeScopes(rootTree, table));
+  textureTurns(nodes, table, quietly);
 
   // Every light, with the env it belongs to: the scene's (env 0) first, in
   // order, so the editor can replace just those; then each node's, its env
@@ -3217,7 +3333,7 @@ export function packMaterials(list) {
       params: m.params,
       albedo: m.albedo,
       scale: m.scale,
-      albedo2: m.albedo2,
+      pattern_params: m.patternParams,
       opacity: m.opacity ?? 1,
       ambient: m.ambient ?? [0, 0, 0],
       texture: m.texture ?? 0,

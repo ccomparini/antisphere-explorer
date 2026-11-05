@@ -104,7 +104,11 @@ struct Node {
 //              what is behind it from a light. Set with OPTICAL unless a
 //              scene says otherwise ("castsShadow"): seen and shadowless (a
 //              backdrop), or unseen and shadowing (a shadow's stand-in)
-//   bits 0-24  the material's index (materialIndex())
+//   bit 24     NODE_FACE: a texture placed face by face (textureTurns()'s
+//              copies, a node's textureOffset), so a hit on it finds the
+//              face the ray crossed (surfaceAt()), for its own patch.
+//              NODE_, not MATERIAL_, so no scene key: the compiler's
+//   bits 0-23  the material's index (materialIndex())
 const MATERIAL_SOLID      : u32 = 0x80000000u;
 const MATERIAL_OPTICAL    : u32 = 0x40000000u;
 const MATERIAL_IOR        : u32 = 0x30000000u;
@@ -113,7 +117,8 @@ const MATERIAL_IOR_WATER  : u32 = 0x10000000u;
 const MATERIAL_REFLECTIVE : u32 = 0x08000000u;
 const NODE_ENV            : u32 = 0x04000000u;
 const MATERIAL_CASTS_SHADOW : u32 = 0x02000000u;
-const MATERIAL_INDEX      : u32 = 0x01ffffffu;
+const NODE_FACE           : u32 = 0x01000000u;
+const MATERIAL_INDEX      : u32 = 0x00ffffffu;
 fn materialIndex(id : u32) -> u32 { return id & MATERIAL_INDEX; }
 
 // The implicit function at an arbitrary point. trace() no longer calls this:
@@ -1572,4 +1577,4 @@ fn applyVelocityCorrections(@builtin(global_invocation_id) gid : vec3<u32>) {
   particles[i].vel = particles[i].vel + takeCorrection(i);
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":144},{"path":"shaders/overlap.wgsls","offset":146,"lines":257},{"path":"shaders/collision.wgsls","offset":403,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":954,"lines":620}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/overlap.wgsls","offset":151,"lines":257},{"path":"shaders/collision.wgsls","offset":408,"lines":551},{"path":"shaders/physics-2pt.wgsls","offset":959,"lines":620}]
