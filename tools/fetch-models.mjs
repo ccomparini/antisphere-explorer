@@ -7,9 +7,9 @@
 //   node tools/fetch-models.mjs                    every model that's missing
 //   node tools/fetch-models.mjs barramundi teapot  these, if missing
 //   node tools/fetch-models.mjs --list             which are there and which missing
-//   node tools/fetch-models.mjs --clean [name ...] deleted first, then fetched afresh:
-//                                                  every one (and all of parts/fetched/),
-//                                                  or those named
+//   node tools/fetch-models.mjs --clean [name ...] deleted, not fetched: every one (and
+//                                                  all of parts/fetched/), or those
+//                                                  named - the next fetch is afresh
 //
 // Only what is missing is downloaded, so the dragon's couple of minutes
 // are paid once.
@@ -203,9 +203,10 @@ fetch-models - models with a public source, fetched and converted, not kept in g
                                              where missing
       --list                                 which are there and which missing;
                                              fetch nothing
-      --clean                                delete them first (no names: every
-                                             one, and all of parts/fetched/),
-                                             then fetch them afresh
+      --clean                                delete them, fetching nothing (no
+                                             names: every one, and all of
+                                             parts/fetched/); the next fetch is
+                                             afresh
 
   models: ${MODELS.map((m) => m.name).join(', ')}
 `.trim();
@@ -224,10 +225,11 @@ async function main(argv) {
   if (argv.includes('--clean')) {
     const deleted = cleanModels(named);
     console.error(deleted.length ? `deleted: ${deleted.join(', ')}` : 'nothing to delete');
+    return;
   }
   const names = named.length ? named : MODELS.map((m) => m.name);
   const missing = names.filter((n) => !isFetched(modelNamed(n, MODELS)));
-  if (!missing.length) { console.error(`all there: ${names.join(', ')} (--list; --clean to fetch afresh)`); return; }
+  if (!missing.length) { console.error(`all there: ${names.join(', ')} (--list; --clean, then fetch, for afresh)`); return; }
   const failed = await ensureModels(missing, { say: (...s) => console.error(...s) });
   if (failed) throw new Error(failed);
   console.error(`fetched: ${missing.join(', ')}`);

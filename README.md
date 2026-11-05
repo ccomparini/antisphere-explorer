@@ -53,7 +53,8 @@ git ignores. The scenes using them (`barramundi.json`, `teapots.json`,
                                                    dragon takes a couple of minutes, once)
     node tools/fetch-models.mjs barramundi teapot  these, if missing
     node tools/fetch-models.mjs --list             which are there, which missing
-    node tools/fetch-models.mjs --clean [name ...] deleted first, then fetched afresh
+    node tools/fetch-models.mjs --clean [name ...] deleted (all of parts/fetched/ with no
+                                                   names), not fetched: the next fetch is afresh
 
 ## Shaders
 
