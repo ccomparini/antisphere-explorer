@@ -34,6 +34,9 @@
 // { ... }]). `materials` is the merged view, what the compiler sees; the
 // scene's own map is the last map in the list, and is what gets edited. A
 // library material, edited, is copied into it first, as an override.
+// Libraries are added before the scene's own map (addLibrary()), so it still
+// overrides them, and removed (removeLibrary()); what uses a material only
+// a removed library had plays on in magenta, as ever.
 //
 // Undo is by snapshot: the spec is tens of kilobytes, so a clone per step is
 // cheap, and restoring a snapshot is correct by construction. Rapid edits
@@ -314,7 +317,9 @@ export class SceneDocument {
 
   #compile() {
     try {
-      this.#scene.update(clone(this.#spec));
+      // With what the spec references: a library added since it was loaded
+      // brings files the scene hasn't seen.
+      this.#scene.update(clone(this.#spec), this.#references);
       return null;
     } catch (e) {
       return e.message ?? String(e);
@@ -989,6 +994,41 @@ export class SceneDocument {
     }, { kind: 'materials', coalesce: coalesce === undefined ? `material:${name}` : coalesce });
   }
 
+  /** The libraries of materials the scene draws on: its references ("@lib/materials.json"), in order. */
+  get libraries() { return libraryRefs(this.#spec); }
+
+  /**
+   * Draw on a library of materials: `ref` ("@lib/metal.json", from the
+   * scene's file), its file and what that references already read, in
+   * `files` (loadReferences()'s). It goes after the libraries there are and
+   * before the scene's own map, which still overrides it.
+   */
+  addLibrary(ref, files = {}) {
+    if (this.libraries.includes(ref)) return { ok: false, error: `${ref} is already one of the scene's libraries` };
+    this.#references = { ...this.#references, files: Object.assign(this.#references.files ?? {}, files) };
+    return this.edit(`Add materials ${ref}`, (spec) => {
+      const m = spec.materials;
+      if (m === undefined) spec.materials = [ref];
+      else if (!Array.isArray(m)) spec.materials = isMap(m) ? [ref, m] : [m, ref];
+      else {
+        const own = isMap(m.at(-1)) ? m.length - 1 : m.length;
+        m.splice(own, 0, ref);
+      }
+    }, { kind: 'materials' });
+  }
+
+  /** Stop drawing on a library of materials (`ref`, as libraries lists it). */
+  removeLibrary(ref) {
+    if (!this.libraries.includes(ref)) return { ok: false, error: `${ref} isn't one of the scene's libraries` };
+    return this.edit(`Remove materials ${ref}`, (spec) => {
+      const m = spec.materials;
+      if (!Array.isArray(m)) { delete spec.materials; return; }
+      m.splice(m.indexOf(ref), 1);
+      if (m.length === 1 && isMap(m[0])) spec.materials = m[0];
+      else if (!m.length) delete spec.materials;
+    }, { kind: 'materials' });
+  }
+
   /** Add a material to the scene's own map, under a name no material has yet. Returns the name. */
   addMaterial(base, def) {
     const taken = this.materials;
@@ -1002,6 +1042,12 @@ export class SceneDocument {
 // -- materials -------------------------------------------------------------------
 
 const isMap = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+// The references in a spec's materials: "@..." strings, alone or in its list.
+function libraryRefs(spec) {
+  const m = spec.materials;
+  return (Array.isArray(m) ? m : [m]).filter((v) => typeof v === 'string' && v.startsWith('@'));
+}
 
 // The scene's own map of materials: the spec's map, or the last map in its
 // list. With `create`, one is made if there isn't one (after any

@@ -8,10 +8,14 @@
 //
 // Scene files are read from SCENE_DIR, relative to this page; ?scene=name
 // opens one at startup, and Revert reloads the current one from there.
+// Under Materials, the scene's libraries of materials are listed, and one is
+// added by its path from the scene (LIBRARIES are suggested) or a URL, read
+// before it is added, its materials then there to choose for any node.
 
 import { ASContext } from '../as-context.js';
 import { runPage, noteIn } from '../page.js';
-import { readScene, withReferences } from '../antisphere-scene.js';
+import { readScene, withReferences, loadReferences } from '../antisphere-scene.js';
+import { loadText, loadBytes } from '../load.js';
 import { DEBUG_VIEWS } from '../as-renderer.js';
 import { ASCamera, attachCameraControls } from '../as-camera.js';
 import { SceneDocument } from './scene-document.js';
@@ -20,6 +24,14 @@ import { createCommands } from './editor-commands.js';
 import { rayThroughPixel, selectionForHit } from './editor-pick.js';
 
 const SCENE_DIR = '../scenes/';
+
+// Materials files to suggest adding to a scene, under scenes/. Any other,
+// or a URL, can be typed in.
+const LIBRARIES = [
+  'lib/materials.json',
+  'parts/quaternius/mannequin-materials.json',
+  'parts/fetched/barramundi-materials.json',
+];
 
 // A starting point for New: shell, floor, one object, one light.
 const NEW_SCENE = {
@@ -262,6 +274,20 @@ async function main() {
     extra: {
       new() { if (discardOk()) loadSpec(structuredClone(NEW_SCENE), 'untitled.json'); },
       open() { el('panel-file').click(); },
+      // A materials file, from the scene's folder or a URL: read (and what
+      // it references - textures) first; one that can't be read is said,
+      // and changes nothing.
+      async 'add-library'(given) {
+        if (!given) { note('type a materials file to add (lib/materials.json, say)', true); return; }
+        const ref = given.startsWith('@') ? given : `@${given}`;
+        const problems = [];
+        const path = scene.path ?? SCENE_DIR + doc.fileName;
+        const files = await loadReferences({ materials: [ref] }, { from: path, readText: loadText, readBytes: loadBytes,
+                                                                  warn: (msg) => problems.push(msg) });
+        if (problems.length) { note(`add ${given}: ${problems[0]}`, true); return; }
+        const result = doc.addLibrary(ref, files);
+        note(result.ok ? `materials from ${given} added` : `add ${given}: ${result.error}`, !result.ok);
+      },
       save,
       revert() {
         if (discardOk('Discard unsaved changes and reload from the server?')) revert();
@@ -285,6 +311,7 @@ async function main() {
     getActive: () => active,
     getCameraView: () => cameraView,
     command: run,
+    libraries: LIBRARIES,
   });
 
   // -- shortcuts ---------------------------------------------------------------
