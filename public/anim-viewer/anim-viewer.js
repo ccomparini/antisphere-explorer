@@ -47,7 +47,7 @@ const MANNEQUIN = {
 };
 const STEP = 1 / 30;                               // , and . step this far
 const REST = '(rest)';                             // the clip list's "no clip"
-const OWN = '(its own)';                           // a model material's "as the model has it"
+const OWN = '(from model)';                        // a model material's "as the model has it"
 
 const el = (id) => document.getElementById(id);
 const isURL = (name) => /^[a-z][a-z0-9+.-]*:\/\//i.test(name);
