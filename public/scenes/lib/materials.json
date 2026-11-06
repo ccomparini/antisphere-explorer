@@ -295,8 +295,8 @@
   },
   "mirror-dark": {
     "kind": "glossy",
-    "shininess": 60,
-    "specular": 20,
+    "shininess": 40,
+    "specular": 1.4,
     "reflective": true,
     "albedo": [ 0.25, 0.25, 0.25 ]
   },
