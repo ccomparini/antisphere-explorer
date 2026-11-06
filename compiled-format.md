@@ -134,8 +134,9 @@ operators follow the same rules.
   and the compiler's own divisions have all been baked (`bakeScopes()`), so
   it is the material of the region this node's inside is, where nothing
   further divides it. 0 is vacuum.
-- **`env`**, on a node that starts an env - one naming an ambient or
-  glow-region material, or carrying lights - is the env enclosing it: the
+- **`env`**, on a node that starts an env - one naming a material with an
+  ambient level (`ownAmbient`) or a glow region, or carrying lights - is
+  the env enclosing it: the
   node that starts that one, or 0. On any other node it is 0. Which env a
   point is in is found by where it is, not read from a node: walking down
   from the root as the point lies, the last node on the way that starts an
@@ -172,8 +173,10 @@ Index 0 is vacuum. Each entry:
 |---|---|
 | `name`    | the name it was defined under (absent for 0 and for the compiler's own); for display only |
 | `kind`    | the shading function: `KIND_LAMBERT` 0, `GLOSSY` 1, `EMISSIVE` 2, `UNLIT` 3, `AMBIENT` 4, `GLOW_REGION` 5 |
-| `params`  | `[x, y]`, the kind's own: glossy `[shininess, specular]`, emissive `[emission, 0]`, ambient `[transmit, 0]`, glow region `[transmit, fill]` |
-| `albedo`  | `[r, g, b]`; for an ambient material its level, for a glow region the light at its centre |
+| `params`  | `[x, y]`, the kind's own: glossy `[shininess, specular]`, emissive `[emission, 0]`, glow region `[0, fill]` |
+| `albedo`  | `[r, g, b]`; for a glow region the light at its centre |
+| `ownAmbient` | its region's own ambient level, if it has one - the spec's `ambient`, or an ambient-kind material's `albedo` - which makes a node naming it start an env, whatever its kind; not packed |
+| `transmit` | how much of the level round its region it lets in, 0 to 1: the spec's (outside that, clamped), or 0 (a glow region 1) |
 | `patternParams` | the pattern's own numbers, as `params` are the kind's: its second colour (the scene's `albedo2`); for a textured material, where its texture lies instead: `[du, dv, sin turn]`, added to its surface coordinates after turning them by `turn` (whose cosine is never negative: a half turn is a negative `scale`) - 0 unless a node's `textureOffset` places it, on a copy (below) |
 | `pattern` | `PATTERN_` flat 0, `CHECKER` 1, `NOISE` 2, `INDUSTRIALCARPET` 3 |
 | `scale`   | the pattern's tile size |
@@ -323,7 +326,7 @@ Planned, "Rays that continue from a hit").
 | offset | field | type | from the compiled material |
 |---|---|---|---|
 | 0  | `kind`    | `u32`       | `kind` |
-| 4  | `pattern` | `u32`       | `pattern` |
+| 4  | `pattern` | `u32`       | two halves: low 16 bits `pattern`, high 16 `transmit` in 65535ths - by which the shader lets a glow region's fill through each env. So Material stays 64 bytes (80 cost a textured scene 5%), and transmit sits in the first 16 bytes with `kind` and `params`, all the walk out through envs reads (a field further in cost even a scene with no env 7%) |
 | 8  | `params`  | `vec2<f32>` | `params` |
 | 16 | `albedo`  | `vec3<f32>` | `albedo` |
 | 28 | `scale`   | `f32`       | `scale` |

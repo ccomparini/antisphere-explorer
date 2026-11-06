@@ -500,11 +500,11 @@ const KINDS = {
   glossy:   { id: KIND_GLOSSY, params: (d) => [d.shininess ?? 32, d.specular ?? 0.6] },
   emissive: { id: KIND_EMISSIVE, params: (d) => [d.emission ?? 1, 0] },
   unlit:    { id: KIND_UNLIT, params: () => [0, 0] },
-  // An ambient material never shades, and is not solid by default. A node
-  // that names one starts an env (bakeScopes()): its albedo is the ambient
-  // level for everything inside it, added to `transmit` (default 0) times
-  // the level around it.
-  ambient:  { id: KIND_AMBIENT, params: (d) => [d.transmit ?? 0, 0] },
+  // An ambient material never shades, and is neither solid nor seen by
+  // default: shorthand for a region of air at an ambient level, its albedo
+  // - as though it were { "ambient": <its albedo> } and nothing else. Any
+  // material with an "ambient" level starts an env (bakeScopes()).
+  ambient:  { id: KIND_AMBIENT, params: () => [0, 0] },
   // A glow region: a region like an ambient one, not solid by default, and
   // a node that names one starts an env - but lit from within: its albedo
   // is the light at its node's centre, falling to nothing at the node's
@@ -512,11 +512,15 @@ const KINDS = {
   // the raycast shader). Its ambient is `transmit` (default 1) times the
   // level around it, and `fill` (default 0) times its glow, unshadowed:
   // light from its walls, roughly.
-  glowRegion: { id: KIND_GLOW_REGION, params: (d) => [d.transmit ?? 1, d.fill ?? 0] },
+  glowRegion: { id: KIND_GLOW_REGION, params: (d) => [0, d.fill ?? 0] },
 };
-// The kinds that make a region rather than a substance: a node naming one
-// starts an env (bakeScopes()).
+// The kinds that are a region rather than a substance, neither solid nor
+// seen by default.
 const isRegionKind = (kind) => kind === KIND_AMBIENT || kind === KIND_GLOW_REGION;
+// Whether a node naming material `m` (a table entry) starts an env: one
+// with an ambient level of its own ("ambient", or kind ambient), whatever
+// its kind - water, glossy and refracting, can be one - or a glow region.
+const isEnvMaterial = (m) => !!m && (m.ownAmbient !== undefined || m.kind === KIND_GLOW_REGION);
 
 /**
  * The env a point is in, in a compiled scene, as the shader finds a hit's
@@ -589,7 +593,7 @@ export function materialAlias(materials, name) {
  * material, or carries lights. Its pack sets NODE_ENV, which trace() keeps
  * as a ray goes into its inside.
  */
-export const startsEnv = (nd, materials) => !!nd.lights?.length || isRegionKind(materials[nd.material]?.kind);
+export const startsEnv = (nd, materials) => !!nd.lights?.length || isEnvMaterial(materials[nd.material]);
 
 /**
  * The trace flags a material can set, by the key a scene sets it with:
@@ -989,9 +993,9 @@ function bakeScopes(tree, table) {
   const memo = new Map();       // "material:env id" -> (subtree -> baked)
   const envIds = new Map();     // env node -> a number for the memo key
   // An env's ambient level, as it is there: its own, plus its material's
-  // transmit (params[0]) times the level around it - an ambient material's
-  // own is its albedo, a glow region's nothing (its fill varies from point
-  // to point, so the shader adds it). Each env node names a copy of its
+  // transmit times the level around it - its own its material's
+  // ownAmbient, a glow region's nothing (its fill varies from point to
+  // point, so the shader adds it). Each env node names a copy of its
   // material carrying that level (`ambient`), one per level it comes to.
   const levels = new Map();     // env node -> its level
   const copies = new Map();     // "material:level" -> the copy's index
@@ -1008,7 +1012,7 @@ function bakeScopes(tree, table) {
   let passing = 0;
   const passThrough = () => {
     if (!passing) {
-      table.push({ ...table[0], albedo: [0, 0, 0], kind: KIND_AMBIENT, params: [1, 0], flags: 0 });
+      table.push({ ...table[0], albedo: [0, 0, 0], kind: KIND_AMBIENT, params: [0, 0], flags: 0, ownAmbient: [0, 0, 0], transmit: 1 });
       passing = table.length - 1;
     }
     return passing;
@@ -1021,7 +1025,7 @@ function bakeScopes(tree, table) {
   // env nodes record the env round them (env), for the shader's walk
   // outward through enclosing envs, and their level.
   const startsEnvHere = (t) => t.lights?.length > 0
-    || (t.material !== INHERIT_MATERIAL && t.material !== PASS_MATERIAL && isRegionKind(table[t.material]?.kind));
+    || (t.material !== INHERIT_MATERIAL && t.material !== PASS_MATERIAL && isEnvMaterial(table[t.material]));
   const holdsEnv = new Map();
   const hasEnv = (t) => {
     if (!t) return false;
@@ -1059,13 +1063,13 @@ function bakeScopes(tree, table) {
     const lit = t.lights?.length > 0;
     let hereMat = named ? t.material : matScope;
     if (lit && !named) hereMat = passThrough();
-    const startsEnv = lit || (named && isRegionKind(table[t.material].kind));
+    const startsEnv = lit || (named && isEnvMaterial(table[t.material]));
     let level = null;
     if (startsEnv) {
       const m = table[hereMat];
       const around = envNode ? levels.get(envNode) : DEFAULT_AMBIENT;
-      const own = m.kind === KIND_AMBIENT ? m.albedo : [0, 0, 0];
-      level = own.map((v, i) => v + m.params[0] * around[i]);
+      const own = m.ownAmbient ?? [0, 0, 0];
+      level = own.map((v, i) => v + m.transmit * around[i]);
       hereMat = withLevel(hereMat, level);
     }
     const out = node(t.prim, null, null, passes ? NO_MATERIAL : hereMat, startsEnv ? envNode : null, t.prov, t.lights);
@@ -2402,6 +2406,14 @@ export function compileScene(rawSpec, options = {}) {
       flags = flags & MATERIAL_OPTICAL ? flags | MATERIAL_CASTS_SHADOW : flags & ~MATERIAL_CASTS_SHADOW;
     }
     const { texture, projection } = textureOf(def, `materials.${name}`);
+    // Its region's ambient level, if it has one - which makes a node naming
+    // it an env (isEnvMaterial()), whatever its kind: "ambient", or, for
+    // kind ambient, its albedo. Not [r, g, b]: warned of, and none.
+    let ownAmbient = kind.id === KIND_AMBIENT ? def.albedo ?? [0.7, 0.7, 0.7] : undefined;
+    if (def.ambient !== undefined) {
+      if (isVec3(def.ambient) && def.ambient.every(Number.isFinite)) ownAmbient = def.ambient.slice();
+      else quietly(`materials.${name}.ambient`, `must be a level, [r, g, b], got ${JSON.stringify(def.ambient)} - none`);
+    }
     table.push({
       name,                                      // for display (what a ray hit); not packed
       // Textured, its colour is the texel times albedo, white unless given.
@@ -2419,6 +2431,10 @@ export function compileScene(rawSpec, options = {}) {
       flags:   flags >>> 0,
       texture,                                   // index into textures, from 1; 0 for none
       projection,
+      ...(ownAmbient ? { ownAmbient } : {}),     // its region's own level (bakeScopes())
+      // How much of the level round it its region lets in: none, unless
+      // said - but a glow region all of it.
+      transmit: transmitOf(def, name),
     });
     matIndex.set(name, table.length - 1);
   }
@@ -2427,6 +2443,16 @@ export function compileScene(rawSpec, options = {}) {
     const { target, error } = materialAlias(spec.materials, name);
     if (error) quietly(`materials.${name}`, `${error} - left out`);
     else if (matIndex.has(target)) matIndex.set(name, matIndex.get(target));
+  }
+
+  // How much of the level round its region a material lets in: as given,
+  // 0 to 1 (more or less is warned of, and clamped), or none - but a glow
+  // region all of it.
+  function transmitOf(def, name) {
+    const t = def.transmit ?? (KINDS[def.kind ?? 'lambert']?.id === KIND_GLOW_REGION ? 1 : 0);
+    if (t >= 0 && t <= 1) return t;
+    quietly(`materials.${name}.transmit`, `${t} is past 0 to 1 - taken as ${t < 0 ? 0 : 1}`);
+    return t < 0 ? 0 : 1;
   }
 
   // A list of lights, the scene's or a node's (see compileLight()).
@@ -2789,7 +2815,7 @@ export function compileScene(rawSpec, options = {}) {
   // Whether a node starts an env (bakeScopes()): it carries lights, or
   // names an ambient material.
   const startsEnv = (t) => t.lights?.length > 0
-    || (t.material !== INHERIT_MATERIAL && isRegionKind(table[t.material]?.kind));
+    || (t.material !== INHERIT_MATERIAL && isEnvMaterial(table[t.material]));
 
   // `t` as it is within `region` ({ prim, sign }, with `ball` if it has
   // one): a copy without what lies on sides of its nodes proved clear of
@@ -3183,9 +3209,9 @@ export function compileScene(rawSpec, options = {}) {
       // Lights make the node a region (an env): what fills it is its
       // ambient level, if it names one, or the level around it.
       const lights = def.lights === undefined ? null : lightsOf(def.lights, `${path}.lights`);
-      if (lights && material !== INHERIT_MATERIAL && !isRegionKind(table[material].kind)) {
-        at(`${path}.material`, 'a node with lights is a region, lit, not a substance: name an ' +
-                               'ambient or glowRegion material, or none, to keep the level around it');
+      if (lights && material !== INHERIT_MATERIAL && !isEnvMaterial(table[material])) {
+        at(`${path}.material`, 'a node with lights is a region, lit: name a material with an "ambient" level ' +
+                               '(water, say, or kind ambient), a glowRegion, or none, to keep the level around it');
       }
       out = node(primOf(def, path), insideTree, outsideTree, material, 0, provOf(where), lights);
     }
@@ -3333,7 +3359,9 @@ export function packMaterials(list) {
   list.forEach((m, j) => {
     Material.write(views, j, {
       kind: m.kind,
-      pattern: m.pattern,
+      // Two halves (the shader's patternOf() and transmitOf()): the pattern,
+      // and an env's transmit, 0 to 1 in 65535ths.
+      pattern: (m.pattern | (Math.round((m.transmit ?? 0) * 65535) << 16)) >>> 0,
       params: m.params,
       albedo: m.albedo,
       scale: m.scale,

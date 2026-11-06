@@ -210,7 +210,7 @@ fn noise2d(x: f32, y: f32) -> f32 {
 // flags - is not here but in each node's material id (Node.material_id).
 struct Material {
   kind    : u32,       // selects the shading function
-  pattern : u32,       // albedo modulation, independent of kind
+  pattern : u32,       // albedo modulation, independent of kind; and transmit (patternOf())
   params  : vec2<f32>, // kind-specific
   albedo  : vec3<f32>,
   scale   : f32,       // pattern tile size: larger is bigger tiles
@@ -219,15 +219,27 @@ struct Material {
   // albedo - after d units, albedo^(d * opacity). 1 by default.
   opacity : f32,
   // An env node's material: the env's ambient level - its own and what it
-  // lets in of the level around it (transmit, params.x), baked by
-  // bakeScopes() in antisphere-scene.js, one copy of the material for each
-  // level. 0 for any other material.
+  // lets in of the level around it (transmit), baked by bakeScopes() in
+  // antisphere-scene.js, one copy of the material for each level. 0 for
+  // any other material.
   ambient : vec3<f32>,
   // Its texture, an index into textures (from 1; 0 for none), laid on
   // planar: the image over the surface coordinates (frame()), once per
   // scale, repeated. (Planar is the one projection so far.)
   texture : u32,
 };
+
+// pattern is two things, a half each, so that Material stays 64 bytes (80
+// cost a textured scene 5%) and an env's transmit is in its first 16 bytes
+// with kind and params, all the walk out through envs reads (anything
+// further in cost a scene with no env at all 7%):
+//   low 16 bits   the pattern (patternOf(): PATTERN_)
+//   high 16 bits  an env's transmit (transmitOf()): how much of the light
+//                 round it it lets in, 0 to 1 in 65535ths - a glow region's
+//                 fill, from envs outside it (directLighting()). Any
+//                 material's, so a glossy, refracting water is an env too.
+fn patternOf(m : Material) -> u32 { return m.pattern & 0xffffu; }
+fn transmitOf(m : Material) -> f32 { return f32(m.pattern >> 16u) / 65535.0; }
 
 const KIND_LAMBERT  : u32 = 0u;
 const KIND_GLOSSY   : u32 = 1u;
@@ -788,7 +800,7 @@ fn planarTexture(info : TextureInfo, uv : vec2<f32>) -> vec3<f32> {
 // texture being drawn as one, times its texture.
 fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
   var ck = 0.0;
-  switch m.pattern {
+  switch patternOf(m) {
     case PATTERN_CHECKER: {
       ck = fract((floor(hit.surfaceCoords.x) + floor(hit.surfaceCoords.y)) * 0.5);
       ck = step(0.25, ck);
@@ -924,7 +936,7 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
 // of every env enclosing it, and the glow of each that is a glow region -
 // following env from node to node walks outward, to 0, whose lights
 // reach everything. A glow region's fill comes in here too (addGlow()),
-// let in by the transmit (params.x) of the envs between. So a room's torch lights
+// let in by the transmit of the envs between. So a room's torch lights
 // the room and not the hall it opens off, and the hall's lamps light into
 // the room; and a hit costs its own env chain's lights, not the scene's.
 // A shininess of zero skips the specular term entirely.
@@ -943,7 +955,7 @@ fn directLighting(hit : Hit, shininess : f32) -> Direct {
     if (env == 0u) { break; }
     let m = materials[materialIndex(nodes[env].material_id)];
     if (m.kind == KIND_GLOW_REGION) { addGlow(env, through, hit, shininess, &out); }
-    through = through * m.params.x;
+    through = through * transmitOf(m);
     env = nodes[env].env;
   }
   return out;
@@ -1209,9 +1221,21 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       // surface), to where it ends: what follows is in seg.t0 (trace()).
       // Out into the air or into another medium - glass into water - or,
       // past the critical angle (refract() gives zero), reflected back in.
+      // Or the medium ends at something seen that is no medium - a stone in
+      // the water: the ray meets it there, and it is shaded, seen through
+      // the water (a mirror reflects, the ray staying in the water).
       weight = weight * pow(mediumAlbedo, vec3<f32>(seg.t1 * mediumOpacity));
       let nextId = nodes[bitcast<u32>(seg.t0)].material_id;
       let next = iorCode(nextId);
+      if (next == 0u && (nextId & MATERIAL_OPTICAL) != 0u) {
+        if ((nextId & MATERIAL_REFLECTIVE) == 0u || bounce == MAX_BOUNCES) { shadeHit = true; break; }
+        weight = weight * albedoAt(hit, surfaceMaterial(hit));
+        dir = reflect(dir, hit.normal);
+        origin = hit.position;
+        fromSurface = surfaces[hit.node];
+        tMin = 0.0;
+        continue;
+      }
       let out = refract(dir, hit.normal, ratios[medium * 4u + next]);
       if (dot(out, out) == 0.0) {
         dir = reflect(dir, hit.normal);
@@ -1288,4 +1312,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1108}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1132}]

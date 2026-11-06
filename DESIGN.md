@@ -221,7 +221,10 @@ bet that they stay there.
   not be the face (a slab bounded by a sphere inside it). What follows the
   glass comes back from trace() too, so glass into water bends by the
   ratio of their indices (IOR_RATIO, by the two IOR codes) and goes on
-  inside; each medium colours the ray by the distance through it.
+  inside; each medium colours the ray by the distance through it. Glass or
+  water ending at something seen that is no medium - a stone in a pool, a
+  vase's pedestal - is where the ray meets it: it is shaded there, seen
+  through the medium (a mirror reflects, the ray staying in).
 - **Lights scoped by env.** An env node is a scope, and its lights belong
   to it: a hit is lit only by the lights of its env and those enclosing it,
   each shadow ray traced from that env node rather than the root (a node's
@@ -230,8 +233,9 @@ bet that they stay there.
   is the scoping: torches light their own room. A maze with many torches
   then tests each hit against its room's few. Built so far: a hit's env
   is found by where it is - walking down from the root as the hit lies, the
-  last node starting an env (an ambient material's region, or a node
-  carrying `"lights"`) that holds it (`envAt()`) - not read from its node,
+  last node starting an env (one whose material has an ambient level -
+  water, glossy and refracting, or an ambient-kind air - a glow region, or
+  a node carrying `"lights"`) that holds it (`envAt()`) - not read from its node,
   so a subtree is the same in every env and compiled once, and one linked
   into several envs is lit by the one each hit is in. An env node's own
   `env` is the one enclosing it, and every light belongs to an env - a
