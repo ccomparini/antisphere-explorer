@@ -29,6 +29,13 @@
     "shininess": 40,
     "specular": 0.7
   },
+  "blue-shiny": {
+    "albedo": [ 0.0, 0.0, 0.95 ],
+    "kind": "glossy",
+    "reflective": true,
+    "shininess": 95,
+    "specular": 1.1
+  },
   "brass": {
     "albedo": [ 0.72, 0.58, 0.25 ],
     "kind": "glossy",
@@ -94,6 +101,14 @@
     "kind": "emissive",
     "albedo": [ 0.74, 0.44, 0.16 ],
     "emission": 0.55
+  },
+  "diamond": {
+    "iorGlass": true,
+    "iorWater": true,
+    "albedo": [ 0.82, 0.94, 0.9 ],
+    "kind": "glossy",
+    "shininess": 200,
+    "specular": 0.2
   },
   "ember": {
     "kind": "emissive",
@@ -188,6 +203,27 @@
     "albedo": [ 0.82, 0.94, 0.9 ],
     "kind": "glossy",
     "shininess": 120,
+    "specular": 1
+  },
+  "glass-green": {
+    "iorGlass": true,
+    "albedo": [ 0.0, 0.94, 0.0 ],
+    "kind": "glossy",
+    "shininess": 100,
+    "specular": 1
+  },
+  "glass-purple": {
+    "iorGlass": true,
+    "albedo": [ 0.29, 0.00, 0.34 ],
+    "kind": "glossy",
+    "shininess": 100,
+    "specular": 1
+  },
+  "glass-violet": {
+    "iorGlass": true,
+    "albedo": [ 0.89, 0.20, 0.78 ],
+    "kind": "glossy",
+    "shininess": 100,
     "specular": 1
   },
   "gold": {
@@ -411,6 +447,26 @@
   "warmair": {
     "kind": "ambient",
     "albedo": [ 0.32, 0.2, 0.12 ]
+  },
+  "water": {
+    "_kind": "glossy",
+    "_comment": "this actually wants to be both ambient and glossy",
+    "kind": "ambient",
+    "iorWater": true,
+    "albedo": [ 0.5, 0.94, 0.9 ],
+    "solid": false,
+    "shininess": 80,
+    "specular": 0.7
+  },
+  "water-murky": {
+    "_kind": "glossy",
+    "kind": "ambient",
+    "ambient": true,
+    "iorWater": true,
+    "albedo": [ 0.0, 0.25, 0.25 ],
+    "solid": false,
+    "shininess": 67,
+    "specular": 0.5
   },
   "wax": {
     "albedo": [ 0.92, 0.88, 0.78 ]
