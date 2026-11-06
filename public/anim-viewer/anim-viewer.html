@@ -47,6 +47,7 @@
   .file { color: var(--bright); word-break: break-all; }
   .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
   .row > span:first-child { width: 4.5em; flex: none; }
+  .paint > span:first-child { width: 9.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   select, button {
     font: inherit; color: var(--bright); background: var(--field);
     border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px;
@@ -90,6 +91,20 @@
           <option data-expands="clipNames" value="@key" data-shows="@key"></option>
         </select></div>
       </div>
+    </div>
+    <div class="sec" id="sec-materials">
+      <h2>Materials</h2>
+      <div class="row"><span>floor</span><select data-controls="floor">
+        <option data-expands="floorOptions" value="@key" data-shows="@key"></option>
+      </select></div>
+      <div data-shows-if="hasPaints">
+        <div class="quiet">the model's, swapped for:</div>
+        <div id="paints"></div>
+      </div>
+      <!-- A row for each material the model names, made by anim-viewer.js. -->
+      <template id="paint-row"><div class="row paint"><span></span><select>
+        <option data-expands="paintOptions" value="@key" data-shows="@key"></option>
+      </select></div></template>
     </div>
     <div class="sec" id="sec-play" data-shows-if="hasClip">
       <div class="row"><span></span><button id="play"><span data-shows="playLabel"></span></button>

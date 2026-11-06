@@ -37,7 +37,9 @@ in the URL:
 
     anim-viewer/anim-viewer.html?model=parts/quaternius/mannequin.json&clips=anim/quaternius/ual.json&materials=parts/quaternius/mannequin-materials.json
 
-`tools/import-model.mjs --skeleton` and `tools/import-animations.mjs` make
+Under Materials, the floor's material, and each one the model names, can be
+swapped for any the libraries have (`&floor=tiles-1` sets the floor's from
+the URL). `tools/import-model.mjs --skeleton` and `tools/import-animations.mjs` make
 those from a skinned glTF. Every frame the pose changes is compiled afresh,
 for now.
 

@@ -63,8 +63,8 @@ export function frameOf(model) {
   return { focus: lo.map((v, k) => (v + hi[k]) / 2), distance: 2.2 * size };
 }
 
-/** The stage round `shown`: a checker floor, one light, a camera on `model`. */
-function stage(model, shown, materials) {
+/** The stage round `shown`: a floor of `floor` (a material's name), one light, a camera on `model`. */
+function stage(model, shown, materials, floor = 'floor') {
   const { focus, distance } = frameOf(model);
   const direction = [-0.45, 0.85, -0.28];
   const length = Math.hypot(...direction);
@@ -72,8 +72,21 @@ function stage(model, shown, materials) {
     camera: { position: focus.map((v, k) => v - direction[k] / length * distance), direction, distance },
     materials: ['@lib/materials.json', ...materials],
     lights: [SUN],
-    root: { plane: { normal: [0, 0, 1], offset: 0 }, material: 'floor', outside: shown },
+    root: { plane: { normal: [0, 0, 1], offset: 0 }, material: floor, outside: shown },
   };
+}
+
+/**
+ * The materials a model names, by name (not references), sorted: what the
+ * viewer offers to change. Its parts' and shapes', its root's if a scene.
+ */
+export function materialNamesOf(model) {
+  const names = new Set();
+  JSON.stringify([model.objects ?? {}, model.root ?? {}], (key, value) => {
+    if (key === 'material' && typeof value === 'string' && !value.startsWith('@')) names.add(value);
+    return value;
+  });
+  return [...names].sort();
 }
 
 /**
@@ -82,14 +95,14 @@ function stage(model, shown, materials) {
  * parts referred to in its file, `modelRef`. A model with no skeleton is
  * shown as it is - a scene file, its root, with its objects. Materials:
  * lib/materials.json, the model file's own, then `materials` (more
- * references, or maps), a later one winning. `warn` hears of a clip not
- * there.
+ * references, or maps), a later one winning; the floor of `floor`. `warn`
+ * hears of a clip not there.
  */
-export function stageSpec(model, { modelRef, clips = null, clip = null, t = 0, materials = [], warn = console.warn } = {}) {
+export function stageSpec(model, { modelRef, clips = null, clip = null, t = 0, materials = [], floor, warn = console.warn } = {}) {
   const shown = model.skeleton
     ? poseModel(model, clips, clip, t, { refer: (name) => `${modelRef}#/objects/${name}`, warn })
     : { use: model.root !== undefined ? `${modelRef}#/root` : modelRef };
-  const spec = stage(model, shown, [...(model.materials ? [`${modelRef}#/materials`] : []), ...materials]);
+  const spec = stage(model, shown, [...(model.materials ? [`${modelRef}#/materials`] : []), ...materials], floor);
   if (!model.skeleton && model.objects) spec.objects = `${modelRef}#/objects`;
   return spec;
 }
@@ -127,10 +140,10 @@ export function chainOf(model, { warn = console.warn } = {}) {
  * The stage (as stageSpec()), the model as `chain` (chainOf()) at rest:
  * each shape in the outside of the one before.
  */
-export function chainSpec(model, chain, { materials = [] } = {}) {
+export function chainSpec(model, chain, { materials = [], floor } = {}) {
   let tree;
   for (let k = chain.length - 1; k >= 0; k--) tree = { ...chain[k].def, ...(tree ? { outside: tree } : {}) };
-  return stage(model, tree, materials);
+  return stage(model, tree, materials, floor);
 }
 
 /**
@@ -157,8 +170,8 @@ export function chainPrims(model, chain, rest, { clips = null, clip = null, t = 
 }
 
 /** The stage with nothing on it: the floor, the light, the camera on `model`. */
-export function emptyStage(model, { materials = [] } = {}) {
-  return stage(model, undefined, materials);
+export function emptyStage(model, { materials = [], floor } = {}) {
+  return stage(model, undefined, materials, floor);
 }
 
 // The corners of a box round a shape, as moved by `rotate` and `translate`:
@@ -210,9 +223,9 @@ export function reachOf(model, chain, clips, { samples = 24, margin = 0.05 } = {
  * for the empty stage and for the chain's shapes, so their materials are
  * the same table.
  */
-export function graftedStage(model, chain, compile, { materials = [], reach, budget, wrap } = {}) {
-  const empty = compile(emptyStage(model, { materials }));
-  const shapes = compile(chainSpec(model, chain, { materials }));
+export function graftedStage(model, chain, compile, { materials = [], floor, reach, budget, wrap } = {}) {
+  const empty = compile(emptyStage(model, { materials, floor }));
+  const shapes = compile(chainSpec(model, chain, { materials, floor }));
   const at = chainNodes(shapes.nodes, chain);
   if (!at) return null;
   // The same materials in both, but find each by name, to be sure.

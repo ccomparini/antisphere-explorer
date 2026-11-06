@@ -12,6 +12,7 @@
 //   clips      its clips (tools/import-animations.mjs); none, no clips
 //   materials  material libraries for it, after lib/materials.json, comma
 //              separated (import-model's --material-template writes one)
+//   floor      the floor's material, by name (default "floor")
 //   pose       how a pose is shown: "coefficients" (the default, for a
 //              model of spheres and spheroids) - the stage compiled once,
 //              the model's shapes grafted in wherever its clips take it
@@ -19,7 +20,10 @@
 //              "recompile", every pose compiled afresh (stage.js)
 //
 // The panel is uiulator markup (../vendor/uiulator.js, loaded by the page
-// before this), shown from one object, `panel` below.
+// before this), shown from one object, `panel` below. Under Materials, the
+// floor's, and each one the model names, can be swapped for any material
+// the libraries have: the model's by a bare-name alias after its own
+// library ({ "figure-main": "jade" }), so its file stays as it is.
 //
 // Names are files under scenes/; full URLs load from anywhere that allows
 // it; .gz is unzipped. With no parameters it opens on the mannequin. A
@@ -33,7 +37,7 @@ import { ASCamera, attachCameraControls } from '../as-camera.js';
 import { FrameProfiler } from '../frame-profiler.js';
 import { loadText, loadBytes } from '../load.js';
 import { loadReferences, compileScene, isGzip, gunzip } from '../antisphere-scene.js';
-import { stageSpec, STAGE_FILE, chainOf, chainSpec, chainPrims, reachOf, graftedStage } from './stage.js';
+import { stageSpec, STAGE_FILE, chainOf, chainSpec, chainPrims, reachOf, graftedStage, materialNamesOf } from './stage.js';
 
 const SCENE_DIR = '../scenes/';
 const MANNEQUIN = {
@@ -43,6 +47,7 @@ const MANNEQUIN = {
 };
 const STEP = 1 / 30;                               // , and . step this far
 const REST = '(rest)';                             // the clip list's "no clip"
+const OWN = '(its own)';                           // a model material's "as the model has it"
 
 const el = (id) => document.getElementById(id);
 const isURL = (name) => /^[a-z][a-z0-9+.-]*:\/\//i.test(name);
@@ -94,13 +99,17 @@ async function main() {
     }
   }
   const modelRef = `@${names.model}`;
-  const materials = names.materials.split(',').map((m) => m.trim()).filter(Boolean).map((m) => `@${m}`);
+  const libraries = names.materials.split(',').map((m) => m.trim()).filter(Boolean).map((m) => `@${m}`);
 
-  // What is shown: the clip (null, at rest), the time in it.
+  // What is shown: the clip (null, at rest), the time in it; the floor's
+  // material, and what the model's are swapped for (`paint`, name to name).
   // A model that won't compile at all is left off: the floor alone.
-  const state = { clip: null, t: 0, playing: false, speed: 1, dirty: true, broken: false };
+  const state = { clip: null, t: 0, playing: false, speed: 1, dirty: true, broken: false,
+                  floor: params.get('floor') || 'floor', paint: {} };
+  // The libraries, then the swaps, as aliases: a later entry wins.
+  const materials = () => (Object.keys(state.paint).length ? [...libraries, { ...state.paint }] : libraries);
   const spec = () => {
-    const stage = stageSpec(model, { modelRef, clips, clip: state.clip, t: state.t, materials, warn });
+    const stage = stageSpec(model, { modelRef, clips, clip: state.clip, t: state.t, materials: materials(), floor: state.floor, warn });
     if (state.broken) stage.root.outside = undefined;
     return stage;
   };
@@ -131,13 +140,13 @@ async function main() {
   const reach = chain ? reachOf(model, chain, clips) : null;
   if (chain) {
     // The chain's materials, loaded along with the stage's.
-    Object.assign(files, await loadReferences(chainSpec(model, chain, { materials }), { from: path, readText: loadText, readBytes: loadBytes, warn }));
+    Object.assign(files, await loadReferences(chainSpec(model, chain, { materials: libraries }), { from: path, readText: loadText, readBytes: loadBytes, warn }));
   }
   const posing = { mode: 'recompile', nodes: null, rest: null, copies: 0 };
   function poseBy(mode) {
     if (mode === 'coefficients' && chain) {
       const compile = (stage) => compileScene(stage, { files, path, warn: compileWarn });
-      const grafted = graftedStage(model, chain, compile, { materials, reach });
+      const grafted = graftedStage(model, chain, compile, { materials: materials(), floor: state.floor, reach });
       if (!grafted) {
         warn('the chain did not compile as a plain chain: posing by recompiling');
         mode = 'recompile';
@@ -175,6 +184,27 @@ async function main() {
   });
 
   // -- the panel -------------------------------------------------------------
+
+  // Materials: any the libraries have, by name, to swap in (all of them
+  // read already, textures and all), and those the model names, to swap.
+  // (Not the magenta stand-ins for materials no one defines.)
+  const choices = [...new Set(scene.materials.filter((m) => !m.missing).map((m) => m.name)
+    .filter((n) => typeof n === 'string' && !n.startsWith('@')))].sort();
+  const options = (first) => Object.fromEntries([...first, ...choices].map((n) => [n, n]));
+  /** Show the stage with its materials as now chosen. */
+  function restage() {
+    if (posing.mode === 'coefficients') poseBy('coefficients');
+    else state.dirty = true;
+  }
+  // A row each, made here: uiulator's expanded copies only show, so a
+  // control can't be in one. Each row's select is the panel's paint<k>.
+  const paints = state.broken ? [] : materialNamesOf(model);
+  for (const [k, name] of paints.entries()) {
+    const row = el('paint-row').content.firstElementChild.cloneNode(true);
+    row.querySelector('span').textContent = name;
+    row.querySelector('select').dataset.controls = `paint${k}`;
+    el('paints').append(row);
+  }
 
   const duration = () => (state.clip ? clips[state.clip].duration : 0);
 
@@ -224,8 +254,23 @@ async function main() {
     get poseBy() { return posing.mode; },
     get grafted() { return posing.mode === 'coefficients' ? `${posing.copies} cop${posing.copies === 1 ? 'y' : 'ies'} of ${chain.length} shapes, reach ${reach.height.toFixed(2)} × ${(2 * reach.radius).toFixed(2)}` : ''; },
     set poseBy(mode) { poseBy(mode); },
+    floorOptions: options([]),
+    get floor() { return state.floor; },
+    set floor(v) { if (v in panel.floorOptions) { state.floor = v; restage(); } },
+    paintOptions: options([OWN]),
+    hasPaints: paints.length > 0,
     warnings,
   };
+  for (const [k, name] of paints.entries()) {
+    Object.defineProperty(panel, `paint${k}`, {
+      get: () => state.paint[name] ?? OWN,
+      set: (v) => {
+        if (!(v in panel.paintOptions)) return;       // a select not yet filled in
+        if (v === OWN || v === name) delete state.paint[name]; else state.paint[name] = v;
+        restage();
+      },
+    });
+  }
   const uiulator = globalThis.uiulator;
   if (typeof uiulator !== 'function') {
     throw new Error('uiulator.js is not loaded; include it with a <script> before the page module');
@@ -233,7 +278,7 @@ async function main() {
   // Two parts: what changes only when something is chosen, and what may
   // change every frame - kept apart so that the clip list isn't redrawn
   // every frame, open or not.
-  const chosen = uiulator(panel, [el('sec-model'), el('sec-clip')], { oncontrolchanged: () => live.update() });
+  const chosen = uiulator(panel, [el('sec-model'), el('sec-clip'), el('sec-materials')], { oncontrolchanged: () => live.update() });
   const live = uiulator(panel, [el('sec-play'), el('sec-frame'), el('sec-warnings')]);
   // A <select> is shown before its expanded <option>s exist, so on the very
   // first pass its value has nothing to match. The second pass finds them.
