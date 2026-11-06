@@ -12,7 +12,7 @@ import { readGLTF } from '../gltf.js';
 import { fixture, toGLB } from '../gltf-fixture.mjs';
 import { skinOf, fitToMeshParts } from '../skin.js';
 import { compileScene, loadReferences } from '../antisphere-scene.js';
-import { stageSpec, frameOf, STAGE_FILE, chainOf, chainSpec, chainNodes, chainPrims, reachOf, graftedStage, emptyStage } from './stage.js';
+import { stageSpec, frameOf, STAGE_FILE, chainOf, chainSpec, chainNodes, chainPrims, reachOf, graftedStage, emptyStage, materialNamesOf } from './stage.js';
 import { poseModel } from '../figure.js';
 import { quadricAt as H } from '../quadric.js';
 
@@ -196,4 +196,26 @@ test('grafted into the stage for its reach, the mannequin is right in every pose
     assert.equal(differ, 0, `${clip ?? 'rest'}: points filled wrongly`);
     if (clip?.startsWith('Swim')) assert.ok(below > 10, `${clip}: ${below} points of the mannequin below the floor`);
   }
+});
+
+test('materials chosen: the floor\'s by name, and the model\'s swapped by an alias after its library', async () => {
+  const model = readJSON('parts/quaternius/mannequin.json');
+  assert.deepEqual(materialNamesOf(model), ['figure-joints', 'figure-main']);
+  assert.deepEqual(materialNamesOf({ objects: { a: { sphere: {}, material: '@lib/m.json#/x' } }, root: { use: 'a', material: 'clay' } }), ['clay'],
+                   'names only, not references; a scene\'s root too');
+  const materials = ['@parts/quaternius/mannequin-materials.json', { 'figure-main': 'gold-3' }];
+  const spec = stageSpec(model, { modelRef: '@parts/quaternius/mannequin.json', materials, floor: 'tiles-1' });
+  assert.equal(spec.root.material, 'tiles-1');
+  assert.equal(stageSpec(model, { modelRef: '@parts/quaternius/mannequin.json' }).root.material, 'floor', 'the floor, by default');
+  const { built, warned } = await compile(spec, model, '@parts/quaternius/mannequin.json');
+  assert.deepEqual(warned, []);
+  const used = new Set(built.nodes.slice(2).map((nd) => built.materials[nd.material]?.name));
+  assert.equal(built.materials[built.nodes[1].material].name, 'tiles-1');
+  assert.ok(used.has('gold-3') && used.has('figure-joints') && !used.has('figure-main'), [...used].join(', '));
+  // The grafted stage, posed by coefficients, the same.
+  const chain = chainOf(model);
+  const files = await loadReferences(chainSpec(model, chain, { materials }), { from: STAGE, readText: (p) => readFileSync(p, 'utf8'), readBytes: (p) => readFileSync(p), warn: () => {} });
+  const grafted = graftedStage(model, chain, (s) => compileScene(s, { files, path: STAGE, quiet: true }), { materials, floor: 'tiles-1', reach: reachOf(model, chain, {}) });
+  const names = new Set(grafted.built.nodes.slice(1).map((nd) => grafted.built.materials[nd.material]?.name));
+  assert.ok(names.has('tiles-1') && names.has('gold-3') && !names.has('figure-main') && !names.has('floor'), [...names].join(', '));
 });
