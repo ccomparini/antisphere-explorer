@@ -99,12 +99,10 @@
       </select></div>
       <div data-shows-if="hasPaints">
         <div class="quiet">the model's, swapped for:</div>
-        <div id="paints"></div>
+        <div class="row paint" data-expands="paints"><span data-shows="name"></span><select data-controls="choice">
+          <option data-expands="options" value="@key" data-shows="@key"></option>
+        </select></div>
       </div>
-      <!-- A row for each material the model names, made by anim-viewer.js. -->
-      <template id="paint-row"><div class="row paint"><span></span><select>
-        <option data-expands="paintOptions" value="@key" data-shows="@key"></option>
-      </select></div></template>
     </div>
     <div class="sec" id="sec-play" data-shows-if="hasClip">
       <div class="row"><span></span><button id="play"><span data-shows="playLabel"></span></button>

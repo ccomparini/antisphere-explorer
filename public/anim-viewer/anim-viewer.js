@@ -196,15 +196,19 @@ async function main() {
     if (posing.mode === 'coefficients') poseBy('coefficients');
     else state.dirty = true;
   }
-  // A row each, made here: uiulator's expanded copies only show, so a
-  // control can't be in one. Each row's select is the panel's paint<k>.
-  const paints = state.broken ? [] : materialNamesOf(model);
-  for (const [k, name] of paints.entries()) {
-    const row = el('paint-row').content.firstElementChild.cloneNode(true);
-    row.querySelector('span').textContent = name;
-    row.querySelector('select').dataset.controls = `paint${k}`;
-    el('paints').append(row);
-  }
+  // A row each (anim-viewer.html's data-expands="paints"): its name, and
+  // what it is swapped for.
+  const paintOptions = options([OWN]);
+  const paints = (state.broken ? [] : materialNamesOf(model)).map((name) => ({
+    name,
+    options: paintOptions,
+    get choice() { return state.paint[name] ?? OWN; },
+    set choice(v) {
+      if (!(v in paintOptions)) return;               // a select not yet filled in
+      if (v === OWN || v === name) delete state.paint[name]; else state.paint[name] = v;
+      restage();
+    },
+  }));
 
   const duration = () => (state.clip ? clips[state.clip].duration : 0);
 
@@ -257,20 +261,10 @@ async function main() {
     floorOptions: options([]),
     get floor() { return state.floor; },
     set floor(v) { if (v in panel.floorOptions) { state.floor = v; restage(); } },
-    paintOptions: options([OWN]),
+    paints,
     hasPaints: paints.length > 0,
     warnings,
   };
-  for (const [k, name] of paints.entries()) {
-    Object.defineProperty(panel, `paint${k}`, {
-      get: () => state.paint[name] ?? OWN,
-      set: (v) => {
-        if (!(v in panel.paintOptions)) return;       // a select not yet filled in
-        if (v === OWN || v === name) delete state.paint[name]; else state.paint[name] = v;
-        restage();
-      },
-    });
-  }
   const uiulator = globalThis.uiulator;
   if (typeof uiulator !== 'function') {
     throw new Error('uiulator.js is not loaded; include it with a <script> before the page module');

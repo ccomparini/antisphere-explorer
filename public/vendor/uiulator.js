@@ -137,6 +137,7 @@ var uiulator = function(dataSource, elements, options) {
     const generatedElems = Symbol();
     const noSplatValue   = Symbol();
     const noSplatText    = Symbol();
+    const expandedClone  = Symbol();
 
     // and this is for updaters (or anything else
     // which wants access more directly to the thing
@@ -191,7 +192,9 @@ var uiulator = function(dataSource, elements, options) {
         if(clone.id !== "")
             clone.id = clone.id + "-" + key;
 
-        if(clone.value === '@key') {
+        // the value attribute: a <select>'s value property is its selected
+        // <option>'s, which may be a template's '@key':
+        if(clone.getAttribute?.('value') === '@key') {
             clone.value = key;
             clone[noSplatValue] = true;
         }
@@ -203,7 +206,9 @@ var uiulator = function(dataSource, elements, options) {
         }
 
         for(const kid of clone.childNodes) {
-            rescopeClone(kid, key);
+            // a nested expander's '@key' is its own key, not ours:
+            if(kid.dataset?.expands === undefined)
+                rescopeClone(kid, key);
         }
     }
 
@@ -218,6 +223,9 @@ var uiulator = function(dataSource, elements, options) {
         // OK so here's how we'll do it: the new element gets
         // scoped according to the key passed:
         newElem.dataset.scope = key;
+        // its expander updates it, in the expander's scope; the walk over
+        // its parent's children (in the parent's) must leave it be:
+        newElem[expandedClone] = true;
         elem.parentElement.insertBefore(newElem, elem);
 
         return newElem;
@@ -508,7 +516,8 @@ var uiulator = function(dataSource, elements, options) {
 
         if(elem) {
             for(const kid of elem.childNodes) {
-                updateElements(kid, data);
+                if(!kid[expandedClone])
+                    updateElements(kid, data);
             }
         }
     }
