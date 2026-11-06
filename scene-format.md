@@ -146,6 +146,8 @@ and editing it edits that material.
 | `reflective` | boolean                                       | `false`          | a mirror: no shading of its own; it shows what a camera ray reflected from it sees, times its `albedo` |
 | `texture`  | a reference to a PNG, `"@textures/bricks.png"` | none            | an image to colour it by: each point the image's colour there, times `albedo` (which defaults to white with a texture). Laid on as `projection` says, filtered bilinearly; its colours are sRGB, as a PNG's are, and made light as `albedo` is |
 | `projection` | `"planar"`                                  | `"planar"`       | how the texture is laid on: `"planar"`, by the surface's coordinates in units of `scale` - the image once per `scale` across, repeated. Spherical (geodesic) is to come |
+| `ambient`  | `[r, g, b]`                                     | none             | the ambient light level in its region: a node naming it starts an env, whatever its kind - water, glossy and refracting, lit within (see "Ambient regions") |
+| `transmit` | number, 0 to 1                                  | `0` (a glow region `1`) | how much of the ambient level round its region it lets in (see "Ambient regions") |
 
 The boolean fields are the material's **trace flags**: every single-bit
 `MATERIAL_` constant in `shaders/node.wgsls`, named without `MATERIAL_` and
@@ -193,11 +195,9 @@ face a node carrying the glass, entered on its inside.
 - `"glossy"`: `shininess` (default `32`), `specular` (default `0.6`)
 - `"emissive"`: `emission` (default `1`)
 - `"lambert"`, `"unlit"`: no extra fields
-- `"ambient"`: `transmit` (default `0`). An ambient material never shades a
-  surface, and has no trace flags unless its fields set them. A node naming one starts
-  an ambient region: its `albedo` is the ambient light level for everything
-  in the node's `inside` subtree, plus `transmit` times the level around it
-  (see "Ambient regions" below).
+- `"ambient"`: shorthand for a region of air at a level: as though
+  `{ "ambient": <its albedo> }`, never shading, and with no trace flags
+  unless its fields set them (see "Ambient regions" below).
 - `"glowRegion"`: `transmit` (default `1`), `fill` (default `0`). A region
   like an ambient one - never
   shades, has no trace flags unless its fields set them, and a node naming one starts a
@@ -485,8 +485,9 @@ A node with a shape of its own may carry lights, as the scene does (see
 subtree - and regions within it: a room's lamp lights the room, not the
 hall it opens off, while the hall's lights, and the scene's, light into the
 room. Lights make the node an ambient region (see "Ambient regions"), so
-its `"material"` is an ambient one, for the region's ambient level, or none,
-to keep the level around it; anything else is an error. A light should be
+its `"material"` is one with an `"ambient"` level (water, say, or an
+`"ambient"`-kind one), or a glow region, or none, to keep the level around
+it; anything else is an error. A light should be
 inside its own region; one that isn't is warned about. Lights move with
 the node - placed with `"translate"`, `"rotate"` and `"scale"`, or brought
 in from another file with an object.
@@ -869,10 +870,26 @@ can then fall.
 
 ## Ambient regions
 
-A node whose `"material"` names an `"ambient"`-kind material starts an
-ambient region (an *env*): not a visible substance - an ambient material
-never shades and isn't solid - but a region whose ambient light level, for
-everything in the node's `"inside"` subtree, is that material's albedo.
+A node whose `"material"` has an `"ambient"` level starts an ambient region
+(an *env*): a region whose ambient light level, for everything in the
+node's `"inside"` subtree, is that level. What fills the region decides
+it, so it is the material's - whatever its kind:
+
+```
+"water": { "kind": "glossy", "iorWater": true, "albedo": [0.5, 0.94, 0.9],
+           "ambient": [0.5, 0.94, 0.9], "shininess": 80, "specular": 0.7, "solid": false }
+```
+
+is a glossy surface that refracts, light through it tinted by its `albedo`,
+and inside, a region lit at its level (`scenes/pool.json`). An
+`"ambient"`-kind material is the shorthand for a region of air: its
+`albedo` the level, and, unlike water, never seen or solid.
+
+The region is the node's whole `"inside"`. A body of water made of two
+nodes - a cylinder cut by a slab - has its faces on both, and the env is
+the outer one's (the cylinder's, carrying the water, as a solid's faces
+must): it takes in the air above the water within the cylinder too. A
+single closed shape (a sphere, a spheroid) bounds its region exactly.
 `"outside"` always keeps whatever region was already in effect above it,
 never adopts the node's own — so ambient regions can be nested the same way
 solids can, by descending through `"inside"`. Only a node that names the

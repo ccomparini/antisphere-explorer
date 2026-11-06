@@ -1,0 +1,129 @@
+{
+  "_comment": "A pool of water: glossy, refracting, and an env - inside it, its own ambient level (lib/materials.json's water). The cylinder carries the water, as a solid's faces must, and the slab inside it cuts it: so the env, the cylinder's inside, takes in the air above the water within its radius too - nothing is there. A red ball under the water, a white one in the air.",
+  "materials": [
+    "@lib/materials.json",
+    {
+      "red": {
+        "albedo": [
+          0.8,
+          0.15,
+          0.1
+        ]
+      },
+      "white": {
+        "albedo": [
+          0.85,
+          0.85,
+          0.85
+        ]
+      }
+    }
+  ],
+  "lights": [
+    {
+      "direction": [
+        -0.3,
+        0.4,
+        -1
+      ],
+      "color": [
+        1.4,
+        1.3,
+        1.2
+      ]
+    }
+  ],
+  "camera": {
+    "position": [
+      0.6,
+      -5.2,
+      2.6
+    ],
+    "target": [
+      0.3,
+      0,
+      0.3
+    ]
+  },
+  "root": {
+    "sphere": {
+      "radius": 60,
+      "complement": true
+    },
+    "material": "sky-2",
+    "outside": {
+      "plane": {
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "offset": 0
+      },
+      "material": "sand",
+      "outside": {
+        "cylinder": {
+          "center": [
+            0,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            1
+          ],
+          "radius": 1.6
+        },
+        "material": "water",
+        "inside": {
+          "slab": {
+            "center": [
+              0,
+              0,
+              0.45
+            ],
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "thickness": 0.9
+          },
+          "inside": {
+            "sphere": {
+              "center": [
+                -0.4,
+                0,
+                0.35
+              ],
+              "radius": 0.3
+            },
+            "material": "red",
+            "outside": {
+              "sphere": {
+                "center": [
+                  0,
+                  0,
+                  0
+                ],
+                "radius": 50
+              }
+            }
+          }
+        },
+        "outside": {
+          "sphere": {
+            "center": [
+              1.3,
+              -1.6,
+              0.35
+            ],
+            "radius": 0.35
+          },
+          "material": "white"
+        }
+      }
+    }
+  }
+}

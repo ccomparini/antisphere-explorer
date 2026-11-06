@@ -10,7 +10,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene, envAt, isSolid } from './antisphere-scene.js';
+import { compileScene, envAt, isSolid, packMaterials } from './antisphere-scene.js';
+import { MATERIAL_OPTICAL, MATERIAL_IOR_WATER, KIND_GLOSSY, Material, viewsOf } from './gen/layouts.js';
 import { quadricAt as H } from './quadric.js';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -832,10 +833,56 @@ test('an env\'s ambient level is its own and what its transmit lets in of the le
   assert.deepEqual(level(-20), [0.15, 0.1, 0.1], 'the porch: its own, and half the hall\'s');
   assert.deepEqual(level(0), [0.15, 0.1, 0.1], 'the same porch in a glow, which lets all the hall\'s in');
   assert.deepEqual(level(20), [0.05, 0.05, 0.05], 'a glow that lets a quarter in');
-  assert.deepEqual(built.materials[built.nodes[envChain(built, [0, 0, 0])[1]].material].params, [1, 0.1],
-                   'a glow\'s transmit and fill go to the shader');
+  const glowing = built.materials[built.nodes[envChain(built, [0, 0, 0])[1]].material];
+  assert.deepEqual([glowing.transmit, glowing.params[1]], [1, 0.1], 'a glow\'s transmit and fill go to the shader');
   assert.throws(() => compileScene({ materials: { bad: { kind: 'ambient', transmit: 'all' } }, lights: [],
                                      root: ball(0, 1, { material: 'bad' }) }), /transmit: must be a number/);
+});
+
+test('an "ambient" level makes any material an env: water, glossy and refracting, lit from within', () => {
+  const warned = [];
+  const built = compileScene({
+    materials: {
+      clay: {},
+      hall: { kind: 'ambient', albedo: [0.2, 0.2, 0.2] },
+      water: { kind: 'glossy', iorWater: true, albedo: [0.5, 0.9, 0.9], ambient: [0, 0.1, 0.2], transmit: 0.5, shininess: 80 },
+      odd: { ambient: 'blue' },
+    },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'hall', inside: { union: [
+      ball(-20, 5, { material: 'water', lights: [lamp([-20, 0, 2])], inside: ball(-20, 1, { material: 'clay' }) }),
+      ball(20, 5, { material: 'odd' }),
+    ] } },
+  }, { warn: (where, msg) => warned.push(`${where}: ${msg}`) });
+  const [pool] = envChain(built, [-20, 0, 0]);
+  const m = built.materials[built.nodes[pool].material];
+  assert.equal(m.name, 'water');
+  assert.deepEqual(m.ambient.map((v) => +v.toFixed(6)), [0.1, 0.2, 0.3], 'its own, and half the hall\'s');
+  assert.equal(m.kind, KIND_GLOSSY, 'still glossy');
+  assert.ok((m.flags & MATERIAL_OPTICAL) && (m.flags & MATERIAL_IOR_WATER), 'still seen, still refracting');
+  assert.equal(built.lights.filter((lt) => lt.env === pool).length, 1, 'its own light');
+  // kind ambient is the shorthand: its albedo the level, not seen.
+  const hall = built.materials.find((x) => x.name === 'hall');
+  assert.deepEqual([hall.ownAmbient, hall.flags & MATERIAL_OPTICAL], [[0.2, 0.2, 0.2], 0]);
+  assert.match(warned.join('\n'), /materials\.odd\.ambient: must be a level, \[r, g, b\], got "blue" - none/);
+  assert.deepEqual(envChain(built, [20, 0, 0]).map((e) => built.materials[built.nodes[e].material]?.name ?? 0), ['hall', 0],
+                   'a level that isn\'t one starts no env: the hall\'s, then the scene\'s');
+});
+
+test('transmit: 0 to 1, more or less clamped and warned of; packed beside the pattern, Material staying 64 bytes', () => {
+  const warned = [];
+  const built = compileScene({
+    materials: { porch: { kind: 'ambient', albedo: [0.1, 0.1, 0.1], transmit: 1.5 } }, lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 5 }, material: 'porch' },
+  }, { warn: (where, msg) => warned.push(`${where}: ${msg}`) });
+  assert.match(warned.join('\n'), /materials\.porch\.transmit: 1\.5 is past 0 to 1 - taken as 1/);
+  assert.equal(built.materials.find((m) => m.name === 'porch').transmit, 1);
+  assert.equal(Material.SIZE, 64);
+  const packed = Material.read(viewsOf(packMaterials([{ kind: 0, pattern: 3, params: [0, 0], albedo: [0, 0, 0], scale: 1,
+                                                        patternParams: [0, 0, 0], texture: 2, transmit: 0.5 }])), 0);
+  assert.equal(packed.pattern & 0xffff, 3, 'the pattern, the low half');
+  assert.equal(packed.pattern >>> 16, Math.round(0.5 * 65535), 'transmit, the high half, in 65535ths');
+  assert.equal(packed.texture, 2, 'the texture as it was');
 });
 
 test('a light outside its own region warns', (t) => {

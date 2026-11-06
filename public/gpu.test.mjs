@@ -1612,3 +1612,38 @@ gpuTest('a textured model: its atlas on its faces, placed turned and moved, show
     assert.ok(worst <= 6, `${name}: worst ${worst.toFixed(1)} of 255`);
   }
 });
+
+gpuTest('a stone in water is met there, seen through the water, lit at the water\'s ambient level', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // Water, an env, in a cylinder cut by a slab, on a white floor; in it a
+  // red ball. No lights: the ball is lit by the water's level alone.
+  const spec = (ambient) => ({
+    materials: {
+      water: { kind: 'glossy', iorWater: true, albedo: [0.9, 0.9, 0.9], opacity: 0.1, ambient, solid: false, specular: 0 },
+      red: { albedo: [0.8, 0.1, 0.1] },
+      white: { albedo: [0.9, 0.9, 0.9] },
+    },
+    lights: [],
+    root: {
+      plane: { normal: [0, 0, 1], offset: 0 }, material: 'white',
+      outside: {
+        cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 2 }, material: 'water',
+        inside: {
+          slab: { center: [0, 0, 0.5], axis: [0, 0, 1], thickness: 1 },
+          inside: { sphere: { center: [0, 0, 0.4], radius: 0.3 }, material: 'red',
+                    outside: { sphere: { center: [0, 0, 0], radius: 50 } } },
+        },
+      },
+    },
+  });
+  const c = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+  c.orthoHeight = 1;
+  const bright = (await renderPixels(spec([1, 1, 1]), c)).at(80, 40);
+  const dim = (await renderPixels(spec([0.2, 0.2, 0.2]), c)).at(80, 40);
+  // The ball, not the floor beyond it (a ray that went on through it).
+  assert.ok(bright[0] > 2 * bright[1] && bright[0] > 100, `the red ball, through the water: ${bright}`);
+  // As light: 0.8 x 1 x the water's tint, 0.9^(0.1 x 0.7 units), to the screen.
+  const want = 255 * (0.8 * 0.9 ** 0.07) ** (1 / 2.2);
+  assert.ok(Math.abs(bright[0] - want) <= 3, `at the water's level: ${bright[0]}, not ${want.toFixed(1)}`);
+  assert.ok(dim[0] < bright[0] - 60, `a dimmer level, a dimmer ball: ${dim} against ${bright}`);
+});
