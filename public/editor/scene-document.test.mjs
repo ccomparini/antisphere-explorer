@@ -246,6 +246,44 @@ test('an added material takes a name no material has, the library\'s included', 
   assert.deepEqual(Object.keys(plain.scene.spec.materials), ['clay', 'wax']);
 });
 
+test('a library added goes before the scene\'s own map, its materials there to use; removed, undone', () => {
+  const metal = { 'scenes/lib/metal.json': { steel: { albedo: [0.6, 0.6, 0.65] }, clay: { albedo: [1, 1, 1] } } };
+  const { doc, scene } = withLibrary(['@lib/materials.json', { clay: { albedo: [0.7, 0.5, 0.4] } }]);
+  assert.deepEqual(doc.libraries, ['@lib/materials.json']);
+  assert.ok(doc.addLibrary('@lib/metal.json', metal).ok);
+  assert.deepEqual(scene.spec.materials, ['@lib/materials.json', '@lib/metal.json', { clay: { albedo: [0.7, 0.5, 0.4] } }]);
+  assert.deepEqual(doc.libraries, ['@lib/materials.json', '@lib/metal.json']);
+  assert.deepEqual(doc.materials.steel.albedo, [0.6, 0.6, 0.65], 'its materials there');
+  assert.deepEqual(doc.materials.clay.albedo, [0.7, 0.5, 0.4], 'the scene\'s own still winning');
+  assert.ok(scene.references.files['scenes/lib/metal.json'], 'the scene compiled with its file');
+  assert.match(doc.addLibrary('@lib/metal.json', metal).error, /already one of the scene's libraries/);
+  assert.ok(doc.removeLibrary('@lib/materials.json').ok);
+  assert.deepEqual(scene.spec.materials, ['@lib/metal.json', { clay: { albedo: [0.7, 0.5, 0.4] } }]);
+  assert.equal(doc.materials.brass, undefined);
+  doc.undo();
+  assert.deepEqual(doc.libraries, ['@lib/materials.json', '@lib/metal.json']);
+  doc.undo();
+  assert.deepEqual(doc.libraries, ['@lib/materials.json']);
+  assert.match(doc.removeLibrary('@lib/metal.json').error, /isn't one of the scene's libraries/);
+});
+
+test('a library added to a scene with a map, a lone reference or none; the last removed leaves the map', () => {
+  const metal = { 'scenes/lib/metal.json': { steel: {} } };
+  const plain = make();
+  plain.doc.addLibrary('@lib/metal.json', metal);
+  assert.deepEqual(plain.scene.spec.materials, ['@lib/metal.json', { clay: { albedo: [0.7, 0.5, 0.4] } }]);
+  plain.doc.removeLibrary('@lib/metal.json');
+  assert.deepEqual(plain.scene.spec.materials, { clay: { albedo: [0.7, 0.5, 0.4] } }, 'just the map again');
+  const lone = withLibrary('@lib/materials.json');
+  lone.doc.addLibrary('@lib/metal.json', metal);
+  assert.deepEqual(lone.scene.spec.materials, ['@lib/materials.json', '@lib/metal.json']);
+  const none = make({ ...baseSpec(), materials: undefined, objects: {}, root: { sphere: { center: [0, 0, 0], radius: 1 } } });
+  none.doc.addLibrary('@lib/metal.json', metal);
+  assert.deepEqual(none.scene.spec.materials, ['@lib/metal.json']);
+  none.doc.removeLibrary('@lib/metal.json');
+  assert.equal(none.scene.spec.materials, undefined);
+});
+
 test('load takes the new scene\'s references', () => {
   const { doc } = make();
   assert.equal(doc.materials.brass, undefined);

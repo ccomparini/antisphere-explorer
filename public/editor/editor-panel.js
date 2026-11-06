@@ -219,6 +219,7 @@ function flatten(doc, expanded) {
  * @param {() => object} ctx.getActive       the focused view {renderer, camera, controls, index, name}
  * @param {() => object} ctx.getCameraView   the view whose camera the Camera section edits
  * @param {(name:string) => void} ctx.command   run an editor command
+ * @param {string[]} [ctx.libraries]       materials files to suggest adding, under scenes/
  */
 export function createPanel(root, ctx) {
   const uiulator = globalThis.uiulator;
@@ -646,9 +647,14 @@ export function createPanel(root, ctx) {
     });
   }
 
-  const materialsModel = { materials: [] };
+  // The libraries the scene draws on, each removable, and a path to add
+  // one, the known ones suggested (those not drawn on yet).
+  const materialsModel = { materials: [], libraries: [], libraryPath: '', librarySuggestions: {} };
   const rebuildMaterials = () => {
     materialsModel.materials = Object.keys(doc.materials).map(materialView);
+    materialsModel.libraries = doc.libraries.map((ref) => ({ name: ref.slice(1) }));
+    materialsModel.librarySuggestions = Object.fromEntries((ctx.libraries ?? [])
+      .filter((path) => !doc.libraries.includes(`@${path}`)).map((path) => [path, path]));
   };
 
   // -- structure -----------------------------------------------------------------
@@ -734,6 +740,13 @@ export function createPanel(root, ctx) {
 
       case 'add-light':
         doc.addLight();
+        break;
+      case 'add-library':
+        // Read first, by the page: a command of its own.
+        ctx.command('add-library', materialsModel.libraryPath.trim());
+        break;
+      case 'remove-library':
+        doc.removeLibrary(doc.libraries[index]);
         break;
       case 'remove-light':
         doc.removeLight(index);

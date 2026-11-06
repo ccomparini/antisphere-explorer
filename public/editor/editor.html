@@ -83,6 +83,10 @@
   .row > label { color: #6b7686; }
   .ctl { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .item { border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; margin: 6px 0; }
+  .sub { color: #6b7686; margin: 2px 0 4px; }
+  .row.lib { grid-template-columns: 1fr auto; }
+  .libname { color: var(--bright); word-break: break-all; }
+  .libpath { min-width: 0; }
   .item-head { display: flex; justify-content: space-between; align-items: center;
     gap: 8px; color: var(--bright); margin-bottom: 2px; }
 
@@ -311,6 +315,13 @@
     <details class="sec" id="panel-materials">
       <summary>Materials</summary>
       <div class="sec-body">
+        <div class="sub">libraries <span class="dim">(after them, the scene's own, which win)</span></div>
+        <div class="row lib" data-expands="libraries"><span class="libname" data-shows="name"></span>
+          <button data-action="remove-library" value="@key" title="Stop drawing on this library">remove</button></div>
+        <div class="row lib"><input class="libpath" list="library-suggestions" data-controls="libraryPath"
+            placeholder="lib/materials.json, from the scene" title="A materials file, from the scene's folder, or a URL">
+          <button data-action="add-library">add</button></div>
+        <datalist id="library-suggestions"><option data-expands="librarySuggestions" value="@key"></option></datalist>
         <div class="item" data-expands="materials">
           <div class="item-head">
             <span data-shows="name"></span><span class="dim" data-shows="kind"></span><span class="dim" data-shows="source"></span>
