@@ -41,7 +41,7 @@ import { boundingSpheroidOfPoints } from '../mesh-import.js';
 export const STAGE_FILE = 'anim-viewer-stage.json';
 
 // A light like the sun's, from in front, to the right and above.
-const SUN = { direction: [0.25, -0.4, -0.35], color: [1.2, 1, 0.8] };
+const SUN = { direction: [0.25, 0.4, -0.65], color: [1.2, 1, 0.8] };
 
 /**
  * Where to look at a model from: { focus, distance }. A model with a
