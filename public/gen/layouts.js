@@ -175,14 +175,16 @@ export class Node {
 }
 
 export class Light {
-  static SIZE = 32;
+  static SIZE = 48;
   static ALIGN = 16;
-  static STRIDE = 32;
+  static STRIDE = 48;
   static FIELDS = Object.freeze({
     pos: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
     env: Object.freeze({ offset: 12, type: 'u32' }),
     color: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
     pos_w: Object.freeze({ offset: 28, type: 'f32' }),
+    fill: Object.freeze({ offset: 32, type: 'f32' }),
+    flags: Object.freeze({ offset: 36, type: 'u32' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Light.STRIDE)); }
@@ -207,6 +209,12 @@ export class Light {
     if (values.pos_w !== undefined) {
       f32[w + 7] = values.pos_w;
     }
+    if (values.fill !== undefined) {
+      f32[w + 8] = values.fill;
+    }
+    if (values.flags !== undefined) {
+      u32[w + 9] = values.flags;
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -216,6 +224,8 @@ export class Light {
       env: u32[w + 3],
       color: [f32[w + 4], f32[w + 5], f32[w + 6]],
       pos_w: f32[w + 7],
+      fill: f32[w + 8],
+      flags: u32[w + 9],
     };
   }
 }
@@ -1088,6 +1098,8 @@ export const PROJECTION_ORTHOGRAPHIC = 1;
 export const ABLATE_NONE = 0;
 export const ABLATE_TRACE = 1;
 export const ABLATE_SHADE = 2;
+export const LIGHT_AT_CENTRE = 1;
+export const LIGHT_FADE = 2;
 export const FAR = 1e4;
 export const DEFAULT_INSIDE_BIT = 0x80000000;
 export const ROOT = 1;

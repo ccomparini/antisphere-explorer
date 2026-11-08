@@ -249,14 +249,17 @@ bet that they stay there.
   looks right is the scene author's to decide. A hit's lights are found
   by walking its env chain: the lights are stored in order of env, so each
   env's are a run, found by binary search - a hit pays for the lights on
-  its chain, not the scene's. A glow region (a `"glowRegion"` material) is
-  an env lit from within: its light is at its node's centre, fading to
-  nothing at the node's surface by the node's own implicit function, worked
-  out from the node at every hit, so moving or resizing the node changes
-  it. Ambient light passes between envs by each one's `transmit`: an env's
+  its chain, not the scene's. A glow is one of a node's lights: a point
+  light at its node's centre, fading to nothing at the node's surface by
+  the node's own implicit function, worked out from the node at every hit,
+  so moving or resizing the node changes it (a `"glowRegion"` material is
+  shorthand for one). Whether it has a direction is the line between a
+  light and a region's ambient level: a light shades surfaces by which way
+  they face and casts shadows, so it has a position; an ambient level is
+  the same for every surface at a point, and is the region's. Ambient light passes between envs by each one's `transmit`: an env's
   level is its own plus that fraction of the level around it, baked at
   compile time into a copy of the env node's material; only what varies
-  from point to point - a glow region's `fill`, its glow unshadowed - is
+  from point to point - a light's `fill`, itself unshadowed - is
   added per hit, in the same walk as the lights.
 - **Cheap shadows** (Chris's idea), for very complex scenes or slow GPUs:
   shadows that are less accurate but keep the cues they give. A trace flag,

@@ -1647,3 +1647,41 @@ gpuTest('a stone in water is met there, seen through the water, lit at the water
   assert.ok(Math.abs(bright[0] - want) <= 3, `at the water's level: ${bright[0]}, not ${want.toFixed(1)}`);
   assert.ok(dim[0] < bright[0] - 60, `a dimmer level, a dimmer ball: ${dim} against ${bright}`);
 });
+
+gpuTest('a glow as a node\'s light - at its centre, fading, filling - renders as the glowRegion material it is shorthand for', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A floor seen from above under a glow, with a ball in it casting a shadow
+  // the fill lifts: as a glowRegion material, and as the node's light.
+  const floor = { plane: { normal: [0, 0, 1], offset: 0 }, material: 'white' };
+  const ballIn = { sphere: { center: [1.5, 0, 0.6], radius: 0.4 }, material: 'white', outside: floor };
+  const spec = (asLight) => ({
+    materials: {
+      white: { albedo: [0.8, 0.8, 0.8] },
+      glow: { kind: 'glowRegion', albedo: [3, 2, 1], fill: 0.2 },
+      dark: { kind: 'ambient', albedo: [0, 0, 0] },
+    },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'dark', inside: {
+      sphere: { center: [0, 0, 1], radius: 3 },
+      ...(asLight ? { lights: [{ color: [3, 2, 1], fade: true, fill: 0.2 }] } : { material: 'glow' }),
+      inside: ballIn, outside: floor,
+    } },
+  });
+  const camera = () => {
+    const c = new ASCamera({ position: [0, 0, 10], direction: [0, 0, -1], projection: 'orthographic' });
+    c.orthoHeight = 4;
+    return c;
+  };
+  const material = await renderPixels(spec(false), camera());
+  const light = await renderPixels(spec(true), camera());
+  let differ = 0, lit = 0;
+  for (let row = 0; row < 80; row++) {
+    for (let col = 0; col < 160; col++) {
+      const [a, b] = [material.at(col, row), light.at(col, row)];
+      if (a.some((v, i) => v !== b[i])) differ++;
+      if (a[0] > 40) lit++;
+    }
+  }
+  assert.ok(lit > 1000, `the glow lights the floor: ${lit} pixels`);
+  assert.equal(differ, 0, 'pixel for pixel the same');
+});
