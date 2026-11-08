@@ -203,12 +203,19 @@ Planned). After them come materials the compiler adds:
 
 ### `lights`
 
-Each light is `{ pos, color, pos_w, env }`, homogeneous:
+Each light is `{ pos, color, pos_w, env, fill, flags }`, homogeneous:
 
 - `pos_w` 1, a point light at `pos`, `color` its radiant power (inverse square
   falloff, so values well above 1);
 - `pos_w` 0, a directional light, `pos` the unit direction towards it (the
   opposite of the way its light travels), `color` its irradiance.
+
+A point light's `fill` is the fraction of it added, unshadowed, as ambient
+light, and its `flags` the `LIGHT_` bits: `LIGHT_AT_CENTRE`, at its node's
+centre rather than `pos` (the spec's light left `pos` out; `pos` is then
+unused, and transforms leave it be); `LIGHT_FADE`, fading to nothing at its
+node's surface. A glow is both. A `"glowRegion"` material gives the node
+naming it such a light (`bakeScopes()`).
 
 `env` is the env it lights: 0 for the scene's own, which come first
 (`topLights` of them, in the spec's order); then each node's, under that
@@ -238,7 +245,7 @@ of one struct. These are the packing functions in `antisphere-scene.js`:
 |---|---|---|---|
 | nodes       | `Node`, 64 bytes  | `packNodes(nodes, materials)` | `nodes` |
 | surfaces    | `u32`, 4 bytes    | `packSurfaces(nodes)` | `surfaces` |
-| lights      | `Light`, 32 bytes | `packLights(lights)` | `lights` |
+| lights      | `Light`, 48 bytes | `packLights(lights)` | `lights` |
 | materials   | `Material`, 64 bytes | `packMaterials(materials)` | `materials` |
 | textures    | `TextureInfo`, 16 bytes | `packTextures(textures)` | `textures` |
 | texels      | `u32`, 4 bytes    | `packTextures(textures)` | `texels` |
@@ -362,6 +369,11 @@ one entry of zeros.
 | 12 | `env`   | `u32` |
 | 16 | `color` | `vec3<f32>` |
 | 28 | `pos_w` | `f32` |
+| 32 | `fill`  | `f32` |
+| 36 | `flags` | `u32` |
+
+48 bytes; the 16 more than `pos`, `env`, `color` and `pos_w` cost nothing
+measured (scene.json, maze).
 
 An empty list is packed as one black light, since a storage buffer can't be
 empty.

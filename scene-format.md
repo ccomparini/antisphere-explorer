@@ -198,12 +198,11 @@ face a node carrying the glass, entered on its inside.
 - `"ambient"`: shorthand for a region of air at a level: as though
   `{ "ambient": <its albedo> }`, never shading, and with no trace flags
   unless its fields set them (see "Ambient regions" below).
-- `"glowRegion"`: `transmit` (default `1`), `fill` (default `0`). A region
-  like an ambient one - never
-  shades, has no trace flags unless its fields set them, and a node naming one starts a
-  region - but lit from within rather than at a level: its `albedo` is the
-  light at the node's centre, falling off as a light's does and fading to
-  nothing at the node's surface (see "Glow regions" below).
+- `"glowRegion"`: shorthand for a glow - a node naming it gains a light at
+  its centre, its `albedo`, fading to the node's surface, with `fill`
+  (default `0`) - and a region, never shading, with no trace flags unless
+  its fields set them, letting in `transmit` (default `1`) of the level
+  around it (see "Glow regions" below).
 
 Material `0` (vacuum/no material) is implicit and reserved; you never author
 it directly, but it is what a node resolves to when no material is named
@@ -220,6 +219,11 @@ An array of point lights and directional lights:
 
 A point light is at `pos`, and its `color`'s magnitude is radiant power, not
 a 0–1 color — falloff is inverse square, so values commonly run well above 1.
+Its `"fill"` (default `0`) adds that fraction of it, unshadowed, as ambient
+light too - falling off as it does - a rough stand-in for light off the
+walls round it. A node's point light may leave out `pos`, for its node's
+centre, and may `"fade": true` to nothing at its node's surface: a glow
+(see "Glow regions").
 
 A directional light is infinitely far away, like the sun: its light travels
 along `direction` (`[0, 0, -1]` shines straight down), its shadows are
@@ -911,26 +915,31 @@ same ambient material are still two regions.
 ### Glow regions
 
 ```
-"candlelight": { "kind": "glowRegion", "albedo": [1.2, 0.85, 0.45] }
-{ "sphere": { "center": [0, 0, 0.17], "radius": 2.5 }, "material": "candlelight", "inside": ... }
+{ "sphere": { "center": [0, 0, 0.17], "radius": 2.5 },
+  "lights": [{ "color": [1.2, 0.85, 0.45], "fade": true, "fill": 0.08 }], "inside": ... }
 ```
 
-A node naming a `"glowRegion"` material starts a region lit from within:
-everything in its `"inside"` subtree is lit as if by a light at the node's
-centre, of the material's `albedo` there, falling off with distance as a
-light does, and also by H(P) / H(centre) squared - the node's own implicit
-function, which is 1 at the centre and 0 on its surface (1 - d²/r² for a
-sphere) - so the glow fades smoothly to nothing at the node's surface. The
-renderer works this out from the node at every hit, so changing the node -
-its radius, say, flickering - changes the glow. Its shadows are cast by what
-the region holds, as a region's lights' are.
+A glow is a node's point light at its centre (no `pos`), fading
+(`"fade": true`) to nothing at the node's surface: everything in its
+`"inside"` subtree is lit as if by a light at the node's centre, falling off
+with distance as a light does, and also by H(P) / H(centre) squared - the
+node's own implicit function, which is 1 at the centre and 0 on its surface
+(1 - d²/r² for a sphere) - so the glow fades smoothly to nothing at the
+node's surface. The renderer works this out from the node at every hit, so
+changing the node - its radius, say, flickering - changes the glow. Its
+shadows are cast by what the region holds, as a region's lights' are. Its
+`fill` adds that fraction of it, unshadowed, as ambient light, which lifts
+its shadows near the centre and fades with the glow, to nothing at the
+edge. The node, carrying lights and no material, lets the level around it
+carry on in (as any such region does), so it fades into its surroundings
+with no edge. `fade` and a centre work apart too: a light at a `pos` that
+fades at its node's surface, a centred one that doesn't.
 
-A glow region has no ambient level of its own; by default (`transmit` 1)
-the level around it carries on into it, so it fades into its surroundings
-with no edge. Its `fill` adds that fraction of the glow, unshadowed, as
-ambient light - a rough stand-in for light off the walls, which lifts its
-shadows near the centre and fades with the glow, to nothing at the edge
-(`"fill": 0.08` in `scenes/candle.json`).
+A `"glowRegion"` material is shorthand for this: a node naming
+`"candlelight": { "kind": "glowRegion", "albedo": [1.2, 0.85, 0.45], "fill": 0.08 }`
+gains that light - its `albedo` the color, its `fill` the fill - and is a
+region that, by default (`transmit` 1), lets the level around it in
+(`scenes/candle.json`).
 
 Any shape will do. Its centre is where the quadric turns in each direction
 it curves, and the lit point's own position in any it doesn't: a sphere's

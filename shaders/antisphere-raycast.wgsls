@@ -145,7 +145,16 @@ struct Light {
   color : vec3<f32>,   // a point light's radiant power, so values may exceed 1;
                        // a directional light's irradiance, facing it
   pos_w : f32,         // pos's w: 1 a point light, 0 a directional one
+  // A point light of a node's (env its node), its LIGHT_ flags: at the
+  // node's centre rather than pos; fading to nothing at the node's surface.
+  // A glow is both. And fill: that fraction of it, unshadowed, as ambient
+  // light. (lightAt().)
+  fill  : f32,
+  flags : u32,
 };
+
+const LIGHT_AT_CENTRE : u32 = 1u;
+const LIGHT_FADE      : u32 = 2u;
 
 // How far a ray may go: camera rays, and shadow rays towards a directional
 // light, which has no distance of its own.
@@ -660,7 +669,8 @@ fn firstLightOf(env : u32) -> u32 {
   return low;
 }
 
-// Where a glow region's light is, for a hit at P: its node's centre, as an
+// Where a node's light at its centre (LIGHT_AT_CENTRE) is, for a hit at
+// P: the node's centre, as an
 // offset from the node's anchor - in each direction the quadric curves,
 // where it turns, and in any it does not, P's own. So a sphere's or a
 // spheroid's is its centre, a cone's its apex, a cylinder's the point of
@@ -679,7 +689,7 @@ fn glowCentre(nd : Node, P : vec3<f32>) -> vec3<f32> {
   return along * nd.axis + across;
 }
 
-// How a glow region's light at P is faded: (H(P) / H(centre))^2, or 1
+// How a node's light (LIGHT_FADE) is faded at P: (H(P) / H(at))^2, or 1
 // where the centre (an offset from the anchor) is not inside the node. No
 // inverse square: the caller's.
 fn glowFalloff(nd : Node, P : vec3<f32>, centre : vec3<f32>) -> f32 {
@@ -689,22 +699,28 @@ fn glowFalloff(nd : Node, P : vec3<f32>, centre : vec3<f32>) -> f32 {
   return ratio * ratio;
 }
 
-// A glow region's light at a hit within it: its albedo at the centre
-// (glowCentre()), falling off as a light does, and by glowFalloff(). Its
-// shadow rays start inside it, as a light's in it do. And its fill
-// (params.y): that light again, unshadowed, as ambient light - let in by
-// `through`, the transmit of the envs between. Shading takes albedo times
-// ambient plus diffuse, so the fill goes in with the diffuse.
-fn addGlow(env : u32, through : f32, hit : Hit, shininess : f32, out : ptr<function, Direct>) {
-  let nd = nodes[env];
-  let m = materials[materialIndex(nd.material_id)];
-  let centre = glowCentre(nd, hit.position);
-  let falloff = glowFalloff(nd, hit.position, centre);
-  if (falloff <= 0.0) { return; }
-  let lt = Light(nd.anchor + centre, env, m.albedo * falloff, 1.0);
-  if (m.params.y != 0.0) {
-    let d = lt.pos - hit.position;
-    (*out).diffuse = (*out).diffuse + through * m.params.y * lt.color / (1.0 + dot(d, d));
+// A light as it is at a hit, added to `out`: at its node's centre
+// (glowCentre()) if LIGHT_AT_CENTRE, faded by glowFalloff() if LIGHT_FADE -
+// a glow is both - and its fill: that light again, unshadowed, as ambient
+// light, let in by `through`, the transmit of the envs between (shading
+// takes albedo times ambient plus diffuse, so the fill goes in with the
+// diffuse). Then shaded as any light is (addLight()), its shadow rays
+// starting inside its env.
+fn lightAt(light : Light, through : f32, hit : Hit, shininess : f32, out : ptr<function, Direct>) {
+  var lt = light;
+  if (light.flags != 0u || light.fill != 0.0) {
+    let nd = nodes[light.env];
+    var at = light.pos - nd.anchor;
+    if ((light.flags & LIGHT_AT_CENTRE) != 0u) { at = glowCentre(nd, hit.position); }
+    var falloff = 1.0;
+    if ((light.flags & LIGHT_FADE) != 0u) { falloff = glowFalloff(nd, hit.position, at); }
+    if (falloff <= 0.0) { return; }
+    lt.pos = nd.anchor + at;
+    lt.color = light.color * falloff;
+    if (light.fill != 0.0) {
+      let d = lt.pos - hit.position;
+      (*out).diffuse = (*out).diffuse + through * light.fill * lt.color / (1.0 + dot(d, d));
+    }
   }
   addLight(lt, hit, shininess, out);
 }
@@ -751,10 +767,9 @@ fn addLight(lt : Light, hit : Hit, shininess : f32, out : ptr<function, Direct>)
 }
 
 // Sums direct light over the lights that reach a hit: those of its env and
-// of every env enclosing it, and the glow of each that is a glow region -
-// following env from node to node walks outward, to 0, whose lights
-// reach everything. A glow region's fill comes in here too (addGlow()),
-// let in by the transmit of the envs between. So a room's torch lights
+// of every env enclosing it, following env from node to node outward, to
+// 0, whose lights reach everything. A light's fill comes in here too
+// (lightAt()), let in by the transmit of the envs between. So a room's torch lights
 // the room and not the hall it opens off, and the hall's lamps light into
 // the room; and a hit costs its own env chain's lights, not the scene's.
 // A shininess of zero skips the specular term entirely.
@@ -768,12 +783,10 @@ fn directLighting(hit : Hit, shininess : f32) -> Direct {
   var through = 1.0;
   loop {
     for (var i = firstLightOf(env); i < n && lights[i].env == env; i = i + 1u) {
-      addLight(lights[i], hit, shininess, &out);
+      lightAt(lights[i], through, hit, shininess, &out);
     }
     if (env == 0u) { break; }
-    let m = materials[materialIndex(nodes[env].material_id)];
-    if (m.kind == KIND_GLOW_REGION) { addGlow(env, through, hit, shininess, &out); }
-    through = through * transmitOf(m);
+    through = through * transmitOf(materials[materialIndex(nodes[env].material_id)]);
     env = nodes[env].env;
   }
   return out;

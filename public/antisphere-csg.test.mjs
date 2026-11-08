@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene, envAt, isSolid, packMaterials } from './antisphere-scene.js';
-import { MATERIAL_OPTICAL, MATERIAL_IOR_WATER, KIND_GLOSSY, Material, viewsOf } from './gen/layouts.js';
+import { MATERIAL_OPTICAL, MATERIAL_IOR_WATER, KIND_GLOSSY, Material, viewsOf, LIGHT_AT_CENTRE, LIGHT_FADE } from './gen/layouts.js';
 import { quadricAt as H } from './quadric.js';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -724,7 +724,8 @@ test('a directional light: its direction, unit and towards it, pos_w 0; a point 
   const bad = (light) => () => buildEnvs(ball(0, 4, { lights: [light] }));
   assert.throws(bad({ direction: [0, 0, 0], color: [1, 1, 1] }), /direction must be a direction/);
   assert.throws(bad({ direction: [0, 0, 1], pos: [0, 0, 1], color: [1, 1, 1] }), /one of "pos".*or "direction"/);
-  assert.throws(bad({ color: [1, 1, 1] }), /one of "pos".*or "direction"/);
+  const centred = buildEnvs(ball(0, 4, { lights: [{ color: [1, 1, 1] }] }));
+  assert.equal(centred.lights[centred.topLights].flags, LIGHT_AT_CENTRE, 'a node\'s light with neither: at its centre');
 });
 
 test('a directional light turns with its node, but doesn\'t move or grow', () => {
@@ -883,6 +884,35 @@ test('transmit: 0 to 1, more or less clamped and warned of; packed beside the pa
   assert.equal(packed.pattern & 0xffff, 3, 'the pattern, the low half');
   assert.equal(packed.pattern >>> 16, Math.round(0.5 * 65535), 'transmit, the high half, in 65535ths');
   assert.equal(packed.texture, 2, 'the texture as it was');
+});
+
+test('a glow is a node\'s point light at its centre, fading to its surface, with its fill; kind glowRegion the shorthand', () => {
+  const spec = (inner) => ({
+    materials: { candle: { kind: 'glowRegion', albedo: [1, 0.8, 0.5], fill: 0.1 }, clay: {} },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { use: 'room', translate: [3, 0, 0] } },
+    objects: { room: inner },
+  });
+  const explicit = compileScene(spec(ball(0, 2, { lights: [{ color: [1, 0.8, 0.5], fade: true, fill: 0.1 }, lamp([0, 0, 1])],
+                                                inside: ball(0, 1, { material: 'clay' }) })));
+  const glows = (built) => built.lights.filter((lt) => lt.flags).map(({ color, fill, flags }) => ({ color, fill, flags }));
+  assert.deepEqual(glows(explicit), [{ color: [1, 0.8, 0.5], fill: 0.1, flags: LIGHT_AT_CENTRE | LIGHT_FADE }],
+                   'no pos: at its node\'s centre; fading; its fill');
+  const room = explicit.lights.find((lt) => lt.flags).env;
+  assert.ok(H(explicit.nodes[room].prim, [3, 0, 0]) < 0 && H(explicit.nodes[room].prim, [5.5, 0, 0]) > 0,
+            'its node, the room it lights - moved with it');
+  assert.deepEqual(explicit.lights.find((lt) => !lt.flags).pos, [3, 0, 1], 'a point light beside it moves');
+  const shorthand = compileScene(spec(ball(0, 2, { material: 'candle', inside: ball(0, 1, { material: 'clay' }) })), { quiet: true });
+  assert.deepEqual(glows(shorthand), glows(explicit), 'a glowRegion material gives its node the same light');
+  // A point light with a pos fades and fills too; the scene's needs a pos, and can't fade.
+  const placed = compileScene({ materials: {}, lights: [],
+    root: ball(0, 2, { lights: [{ pos: [0.5, 0, 0], color: [1, 1, 1], fade: true, fill: 0.2 }] }) });
+  assert.deepEqual(placed.lights.map(({ pos, fill, flags }) => ({ pos, fill, flags })), [{ pos: [0.5, 0, 0], fill: 0.2, flags: LIGHT_FADE }]);
+  assert.throws(() => compileScene({ materials: {}, lights: [{ color: [1, 1, 1] }], root: ball(0, 1) }), /needs "pos"/);
+  assert.throws(() => compileScene({ materials: {}, lights: [{ pos: [0, 0, 0], color: [1, 1, 1], fade: true }], root: ball(0, 1) }),
+                /"fade" is a node's light's/);
+  assert.throws(() => compileScene({ materials: {}, lights: [], root: ball(0, 1, { lights: [{ direction: [0, 0, -1], color: [1, 1, 1], fill: 1 }] }) }),
+                /"fade" and "fill" are a point light's/);
 });
 
 test('a light outside its own region warns', (t) => {
