@@ -279,6 +279,12 @@
     "shininess": 160,
     "specular": 1.6
   },
+  "marble-warm": {
+    "kind": "glossy",
+    "texture": "@WarmTaupeMarble.png",
+    "shininess": 30,
+    "specular": 0.05
+  },
   "mirror": {
     "reflective": true,
     "albedo": [ 0.92, 0.94, 0.96 ],
