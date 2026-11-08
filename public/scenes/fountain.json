@@ -1,0 +1,672 @@
+{
+  "_comment": "A plaza fountain, after the one in Viterbo's Piazza San Pellegrino: two round steps, a waisted drum (a hyperboloid) with an overhanging rim, holding water; a cluster of columns standing in it carrying a tazza (a paraboloid shell) of water, a waisted neck (a hyperboloid again), a small cup of water and a finial (a spheroid). Each body of water is a plane carrying the water inside a shape that only divides, set a hair inside the marble round it, so no ray meets that shape and the water's env is the water alone. The waters come last in the group, so they fill round what stands in them.",
+  "materials": [
+    "@lib/materials.json",
+    {
+      "marble": {
+        "kind": "glossy",
+        "texture": "@lib/WarmTaupeMarble.png",
+        "shininess": 30,
+        "specular": 0.05,
+        "scale": 0.8
+      },
+      "plaza": {
+        "texture": "@lib/parkes-inspired-tiles.png",
+        "scale": 5
+      }
+    }
+  ],
+  "lights": [
+    {
+      "direction": [
+        -0.45,
+        0.35,
+        -0.75
+      ],
+      "color": [
+        1.5,
+        1.4,
+        1.25
+      ]
+    }
+  ],
+  "camera": {
+    "position": [
+      1.4,
+      -7.6,
+      3.2
+    ],
+    "target": [
+      0,
+      0,
+      1.5
+    ]
+  },
+  "objects": {
+    "steps": {
+      "group": [
+        {
+          "intersection": [
+            {
+              "cylinder": {
+                "center": [
+                  0,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 3.4
+              },
+              "material": "stone-4"
+            },
+            {
+              "slab": {
+                "center": [
+                  0,
+                  0,
+                  0.075
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "thickness": 0.15
+              }
+            }
+          ]
+        },
+        {
+          "intersection": [
+            {
+              "cylinder": {
+                "center": [
+                  0,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 2.95
+              },
+              "material": "stone-4"
+            },
+            {
+              "slab": {
+                "center": [
+                  0,
+                  0,
+                  0.225
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "thickness": 0.15
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "basin": {
+      "difference": [
+        {
+          "union": [
+            {
+              "intersection": [
+                {
+                  "hyperboloid": {
+                    "center": [
+                      0,
+                      0,
+                      0.62
+                    ],
+                    "axis": [
+                      0,
+                      0,
+                      1
+                    ],
+                    "radius": 2.25,
+                    "semiAxial": 0.9
+                  },
+                  "material": "marble"
+                },
+                {
+                  "slab": {
+                    "center": [
+                      0,
+                      0,
+                      0.62
+                    ],
+                    "axis": [
+                      0,
+                      0,
+                      1
+                    ],
+                    "thickness": 0.64
+                  }
+                }
+              ]
+            },
+            {
+              "intersection": [
+                {
+                  "cylinder": {
+                    "center": [
+                      0,
+                      0,
+                      0
+                    ],
+                    "axis": [
+                      0,
+                      0,
+                      1
+                    ],
+                    "radius": 2.42
+                  },
+                  "material": "marble"
+                },
+                {
+                  "slab": {
+                    "center": [
+                      0,
+                      0,
+                      0.98
+                    ],
+                    "axis": [
+                      0,
+                      0,
+                      1
+                    ],
+                    "thickness": 0.1
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "intersection": [
+            {
+              "cylinder": {
+                "center": [
+                  0,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 2.2
+              }
+            },
+            {
+              "plane": {
+                "normal": [
+                  0,
+                  0,
+                  -1
+                ],
+                "offset": -0.45
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "columns": {
+      "group": [
+        {
+          "intersection": [
+            {
+              "cylinder": {
+                "center": [
+                  0,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 0.2
+              },
+              "material": "marble"
+            },
+            {
+              "slab": {
+                "center": [
+                  0,
+                  0,
+                  1.4
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "thickness": 1.9
+              }
+            }
+          ]
+        },
+        {
+          "intersection": [
+            {
+              "cylinder": {
+                "center": [
+                  0.3,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 0.08
+              },
+              "material": "marble"
+            },
+            {
+              "slab": {
+                "center": [
+                  0,
+                  0,
+                  1.4
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "thickness": 1.9
+              }
+            }
+          ]
+        },
+        {
+          "intersection": [
+            {
+              "cylinder": {
+                "center": [
+                  -0.3,
+                  0,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 0.08
+              },
+              "material": "marble"
+            },
+            {
+              "slab": {
+                "center": [
+                  0,
+                  0,
+                  1.4
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "thickness": 1.9
+              }
+            }
+          ]
+        },
+        {
+          "intersection": [
+            {
+              "cylinder": {
+                "center": [
+                  0,
+                  0.3,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 0.08
+              },
+              "material": "marble"
+            },
+            {
+              "slab": {
+                "center": [
+                  0,
+                  0,
+                  1.4
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "thickness": 1.9
+              }
+            }
+          ]
+        },
+        {
+          "intersection": [
+            {
+              "cylinder": {
+                "center": [
+                  0,
+                  -0.3,
+                  0
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "radius": 0.08
+              },
+              "material": "marble"
+            },
+            {
+              "slab": {
+                "center": [
+                  0,
+                  0,
+                  1.4
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "thickness": 1.9
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "tazza": {
+      "intersection": [
+        {
+          "difference": [
+            {
+              "paraboloid": {
+                "vertex": [
+                  0,
+                  0,
+                  2.3
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "focal": 0.6
+              },
+              "material": "marble"
+            },
+            {
+              "paraboloid": {
+                "vertex": [
+                  0,
+                  0,
+                  2.4
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "focal": 0.6
+              }
+            }
+          ]
+        },
+        {
+          "plane": {
+            "normal": [
+              0,
+              0,
+              1
+            ],
+            "offset": 2.85
+          }
+        }
+      ]
+    },
+    "neck": {
+      "intersection": [
+        {
+          "hyperboloid": {
+            "center": [
+              0,
+              0,
+              3.0
+            ],
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "radius": 0.12,
+            "semiAxial": 0.25
+          },
+          "material": "marble"
+        },
+        {
+          "slab": {
+            "center": [
+              0,
+              0,
+              2.95
+            ],
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "thickness": 1.1
+          }
+        }
+      ]
+    },
+    "cup": {
+      "intersection": [
+        {
+          "difference": [
+            {
+              "paraboloid": {
+                "vertex": [
+                  0,
+                  0,
+                  3.45
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "focal": 0.3
+              },
+              "material": "marble"
+            },
+            {
+              "paraboloid": {
+                "vertex": [
+                  0,
+                  0,
+                  3.52
+                ],
+                "axis": [
+                  0,
+                  0,
+                  1
+                ],
+                "focal": 0.3
+              }
+            }
+          ]
+        },
+        {
+          "plane": {
+            "normal": [
+              0,
+              0,
+              1
+            ],
+            "offset": 3.75
+          }
+        }
+      ]
+    },
+    "finial": {
+      "spheroid": {
+        "center": [
+          0,
+          0,
+          3.95
+        ],
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "height": 0.5,
+        "radius": 0.13
+      },
+      "material": "marble"
+    },
+    "basin-water": {
+      "cylinder": {
+        "center": [
+          0,
+          0,
+          0
+        ],
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "radius": 2.205
+      },
+      "material": null,
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": 0.85
+        },
+        "material": "water"
+      }
+    },
+    "tazza-water": {
+      "paraboloid": {
+        "vertex": [
+          0,
+          0,
+          2.399
+        ],
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "focal": 0.6
+      },
+      "material": null,
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": 2.8
+        },
+        "material": "water"
+      }
+    },
+    "cup-water": {
+      "paraboloid": {
+        "vertex": [
+          0,
+          0,
+          3.519
+        ],
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "focal": 0.3
+      },
+      "material": null,
+      "inside": {
+        "plane": {
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "offset": 3.71
+        },
+        "material": "water"
+      }
+    }
+  },
+  "root": {
+    "sphere": {
+      "radius": 80,
+      "complement": true
+    },
+    "material": "sky-3",
+    "outside": {
+      "plane": {
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "offset": 0
+      },
+      "material": "plaza",
+      "outside": {
+        "group": [
+          "steps",
+          "basin",
+          "columns",
+          "tazza",
+          "neck",
+          "cup",
+          "finial",
+          "basin-water",
+          "tazza-water",
+          "cup-water"
+        ]
+      }
+    }
+  }
+}
