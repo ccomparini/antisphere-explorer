@@ -697,10 +697,12 @@ const movedLights = (lights, move) => lights && lights.map((lt) => {
 function union(t, other, memo = new Map()) {
   if (!t) return other;
   if (memo.has(t)) return memo.get(t);
-  const out = node(t.prim,
-                   t.inside ? union(t.inside, other, memo) : null,
-                   union(t.outside, other, memo),
-                   t.material, t.env, t.prov, t.lights);
+  const out = node(
+    t.prim,
+    t.inside ? union(t.inside, other, memo) : null,
+    union(t.outside, other, memo),
+    t.material, t.env, t.prov, t.lights
+  );
   memo.set(t, out);
   return out;
 }
@@ -732,10 +734,12 @@ function intersect(t, other) {
 function complement(t, memo = new Map()) {
   if (!t) return t;
   if (memo.has(t)) return memo.get(t);
-  const out = node(complementSurface(t.prim),
-                   complement(t.outside, memo),
-                   complement(t.inside, memo),
-                   t.material, t.env, t.prov, t.lights);
+  const out = node(
+    complementSurface(t.prim),
+    complement(t.outside, memo),
+    complement(t.inside, memo),
+    t.material, t.env, t.prov, t.lights
+  );
   memo.set(t, out);
   return out;
 }
