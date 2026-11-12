@@ -456,6 +456,7 @@
   },
   "water": {
     "_comment": "A glossy surface that refracts, light through it tinted by albedo, and inside, an env at its ambient level.",
+    "castsShadow": false,
     "kind": "glossy",
     "iorWater": true,
     "albedo": [ 0.5, 0.94, 0.9 ],
