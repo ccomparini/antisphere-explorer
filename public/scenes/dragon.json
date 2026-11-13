@@ -1,35 +1,33 @@
 {
-   "_comment" : "The Stanford Dragon at full resolution (871,414 triangles), a stress test. It is fetched, not kept in git: node tools/fetch-models.mjs dragon (a couple of minutes).",
-   "lights" : [
-      {
-        "direction": [ 0.25, -0.4, -0.35 ],
-        "color": [ 1.2, 1, 0.8 ]
-      }
-   ],
-   "materials" : [
-      "@lib/materials.json"
-   ],
-   "objects" : {
-      "dragon" : {
-        "material" : "jade",
-        "rotate" : {
-           "axis" : [ 0, 0, 1 ],
-           "degrees" : -23.44
-        },
-        "scale" : 10,
-        "_translate" : [ 0, 0, -0.527 ],
-         "use" : "@parts/fetched/stanford/dragon.json.gz",
-         "_use" : "@parts/fetched/teapot.json"
-      }
-   },
-   "root" : {
-      "material" : "floor",
-      "outside" : {
-         "use" : "dragon"
+  "_comment": "The Stanford Dragon at full resolution (871,414 triangles), a stress test. It is fetched, not kept in git: node tools/fetch-models.mjs dragon (a couple of minutes).",
+  "lights": [
+    {
+      "direction": [ 0.25, -0.4, -0.35 ],
+      "color": [ 1.2, 1, 0.8 ]
+    }
+  ],
+  "materials": [ "@lib/materials.json" ],
+  "objects": {
+    "dragon": {
+      "material": "jade",
+      "rotate": {
+        "axis": [ 0, 0, 1 ],
+        "degrees": -23.44
       },
-      "plane" : {
-         "normal" : [ 0, 0, 1 ],
-         "offset" : 0
-      }
-   }
+      "scale": 10,
+      "_translate": [ 0, 0, -0.527 ],
+      "use": "@parts/fetched/stanford/dragon.json.gz",
+      "_use": "@parts/fetched/teapot.json"
+    }
+  },
+  "root": {
+    "material": "floor",
+    "outside": {
+      "use": "dragon"
+    },
+    "plane": {
+      "normal": [ 0, 0, 1 ],
+      "offset": 0
+    }
+  }
 }

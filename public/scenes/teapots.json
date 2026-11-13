@@ -1,51 +1,49 @@
 {
-   "_comment" : "Three Utah teapots on a floor: jade, and two golds that mirror. The teapot is fetched, not kept in git: node tools/fetch-models.mjs teapot.",
-   "lights" : [
-      {
-        "direction": [ 0.25, -0.4, -0.35 ],
-        "color": [ 1.2, 1, 0.8 ]
-      }
-   ],
+  "_comment": "Three Utah teapots on a floor: jade, and two golds that mirror. The teapot is fetched, not kept in git: node tools/fetch-models.mjs teapot.",
+  "lights": [
+    {
+      "direction": [ 0.25, -0.4, -0.35 ],
+      "color": [ 1.2, 1, 0.8 ]
+    }
+  ],
   "camera": {
     "position": [ 0, -2, 1.75 ],
-    "target":   [ 0, 0, 0.25 ]
-   },
-   "materials" : [
-      "@lib/materials.json"
-   ],
-   "objects" : {
-      "teapot" : {
-        "material" : "jade",
-        "_scale" : 10,
-        "use" : "@parts/fetched/teapot.json"
-      }
-   },
-   "root" : {
-      "material" : "floor",
-      "outside" : {
-         "group": [
-           {
-             "use" : "teapot",
-             "_rotate" : {
-                "axis" : [ 0, 0, 1 ],
-                "degrees" : -23.44
-             }
-           },
-           {
-             "use" : "teapot",
-             "material" : "gold-3",
-             "translate" : [ 0.5, 0, 0 ]
-           },
-           {
-             "use" : "teapot",
-             "material" : "gold-4",
-             "translate" : [ 0, 0.5, 0 ]
-           }
-         ]
-      },
-      "plane" : {
-         "normal" : [ 0, 0, 1 ],
-         "offset" : 0
-      }
-   }
+    "target": [ 0, 0, 0.25 ]
+  },
+  "materials": [ "@lib/materials.json" ],
+  "objects": {
+    "teapot": {
+      "material": "jade",
+      "_scale": 10,
+      "use": "@parts/fetched/teapot.json"
+    }
+  },
+  "root": {
+    "material": "floor",
+    "outside": {
+      "group": [
+        {
+          "use": "teapot",
+          "_rotate": {
+            "axis": [ 0, 0, 1 ],
+            "degrees": -23.44
+          }
+        },
+        {
+          "use": "teapot",
+          "material": "gold-3",
+          "translate": [ 0.5, 0, 0 ]
+        },
+        {
+          "use": "teapot",
+          "material": "gold-4",
+          "translate": [ 0, 0.5, 0 ]
+        }
+      ]
+    },
+    "plane": {
+      "normal": [ 0, 0, 1 ],
+      "offset": 0
+    }
+  }
 }

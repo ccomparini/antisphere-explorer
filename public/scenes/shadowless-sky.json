@@ -61,13 +61,13 @@
     "lens": {
       "sphere": {
         "center": [ 0, 3.6, 0.15 ],
-        "radius": 4.0
+        "radius": 4
       },
       "material": "glass-noshadow",
       "inside": {
         "sphere": {
           "center": [ 0, -3.6, 0.15 ],
-          "radius": 4.0
+          "radius": 4
         }
       }
     },
@@ -119,6 +119,7 @@
     "material": "sky-ornate-carpet",
     "outside": {
       "plane": {
+        
       },
       "material": "tiles-1",
       "outside": {

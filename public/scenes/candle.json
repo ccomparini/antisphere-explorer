@@ -3,34 +3,79 @@
   "materials": [
     "@lib/materials.json",
     {
-      "candlelight": { "kind": "glowRegion", "albedo": [1.2, 0.85, 0.45], "fill": 0.08 }
+      "candlelight": {
+        "kind": "glowRegion",
+        "albedo": [ 1.2, 0.85, 0.45 ],
+        "fill": 0.08
+      }
     }
   ],
-  "lights": [],
-  "camera": { "position": [0, -2.2, 1.1], "direction": [0, 0.89, -0.45], "distance": 2.4 },
+  "lights": [  ],
+  "camera": {
+    "position": [ 0, -2.2, 1.1 ],
+    "direction": [ 0, 0.89, -0.45 ],
+    "distance": 2.4
+  },
   "objects": {
     "candle": {
-      "spheroid": { "center": [0, 0, 0.172], "axis": [0, 0, 1], "height": 0.032, "radius": 0.008 },
+      "spheroid": {
+        "center": [ 0, 0, 0.172 ],
+        "axis": [ 0, 0, 1 ],
+        "height": 0.032,
+        "radius": 0.008
+      },
       "material": "flame",
       "outside": {
-        "sphere": { "center": [0, 0, 0.172], "radius": 2.5 },
+        "sphere": {
+          "center": [ 0, 0, 0.172 ],
+          "radius": 2.5
+        },
         "material": "candlelight",
         "inside": {
           "union": [
             {
               "difference": [
                 {
-                  "cylinder": { "center": [0, 0, 0], "axis": [0, 0, 1], "radius": 0.03 },
+                  "cylinder": {
+                    "center": [ 0, 0, 0 ],
+                    "axis": [ 0, 0, 1 ],
+                    "radius": 0.03
+                  },
                   "material": "wax",
-                  "inside": { "slab": { "center": [0, 0, 0.075], "axis": [0, 0, 1], "thickness": 0.15 }, "material": "wax" }
+                  "inside": {
+                    "slab": {
+                      "center": [ 0, 0, 0.075 ],
+                      "axis": [ 0, 0, 1 ],
+                      "thickness": 0.15
+                    },
+                    "material": "wax"
+                  }
                 },
-                { "paraboloid": { "vertex": [0, 0, 0.14], "axis": [0, 0, 1], "focal": 0.02 }, "material": "wax" }
+                {
+                  "paraboloid": {
+                    "vertex": [ 0, 0, 0.14 ],
+                    "axis": [ 0, 0, 1 ],
+                    "focal": 0.02
+                  },
+                  "material": "wax"
+                }
               ]
             },
             {
-              "cylinder": { "center": [0, 0, 0], "axis": [0, 0, 1], "radius": 0.002 },
+              "cylinder": {
+                "center": [ 0, 0, 0 ],
+                "axis": [ 0, 0, 1 ],
+                "radius": 0.002
+              },
               "material": "wick",
-              "inside": { "slab": { "center": [0, 0, 0.15], "axis": [0, 0, 1], "thickness": 0.02 }, "material": "wick" }
+              "inside": {
+                "slab": {
+                  "center": [ 0, 0, 0.15 ],
+                  "axis": [ 0, 0, 1 ],
+                  "thickness": 0.02
+                },
+                "material": "wick"
+              }
             }
           ]
         }
@@ -38,18 +83,68 @@
     },
     "room": {
       "union": [
-        { "plane": { "normal": [0, 0, 1], "offset": 0 }, "material": "floor-8" },
-        { "slab": { "center": [0, 1.2, 0], "axis": [0, 1, 0], "thickness": 0.2 }, "material": "stone-2",
-          "inside": { "plane": { "normal": [0, 0, 1], "offset": 2.5 }, "material": "stone-2" } },
-        { "slab": { "center": [0.7, -0.2, 0], "axis": [1, 0, 0], "thickness": 0.3 }, "material": "stone-2",
-          "inside": { "slab": { "center": [0, -0.2, 0], "axis": [0, 1, 0], "thickness": 0.3 }, "material": "stone-2",
-            "inside": { "plane": { "normal": [0, 0, 1], "offset": 0.45 }, "material": "stone-2" } } }
+        {
+          "plane": {
+            "normal": [ 0, 0, 1 ],
+            "offset": 0
+          },
+          "material": "floor-8"
+        },
+        {
+          "slab": {
+            "center": [ 0, 1.2, 0 ],
+            "axis": [ 0, 1, 0 ],
+            "thickness": 0.2
+          },
+          "material": "stone-2",
+          "inside": {
+            "plane": {
+              "normal": [ 0, 0, 1 ],
+              "offset": 2.5
+            },
+            "material": "stone-2"
+          }
+        },
+        {
+          "slab": {
+            "center": [ 0.7, -0.2, 0 ],
+            "axis": [ 1, 0, 0 ],
+            "thickness": 0.3
+          },
+          "material": "stone-2",
+          "inside": {
+            "slab": {
+              "center": [ 0, -0.2, 0 ],
+              "axis": [ 0, 1, 0 ],
+              "thickness": 0.3
+            },
+            "material": "stone-2",
+            "inside": {
+              "plane": {
+                "normal": [ 0, 0, 1 ],
+                "offset": 0.45
+              },
+              "material": "stone-2"
+            }
+          }
+        }
       ]
     }
   },
   "root": {
-    "sphere": { "center": [0, 0, 0], "radius": 100 },
+    "sphere": {
+      "center": [ 0, 0, 0 ],
+      "radius": 100
+    },
     "material": "night",
-    "inside": { "group": [ { "use": "candle", "translate": [-0.2, 0, 0] }, "room" ] }
+    "inside": {
+      "group": [
+        {
+          "use": "candle",
+          "translate": [ -0.2, 0, 0 ]
+        },
+        "room"
+      ]
+    }
   }
 }

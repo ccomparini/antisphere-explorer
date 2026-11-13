@@ -1,20 +1,24 @@
 {
-  "camera": { "position": [0, 15.7872988, 6.70564798], "direction": [0, -0.928664636, -0.370920469], "distance": 17 },
+  "camera": {
+    "position": [ 0, 15.7872988, 6.70564798 ],
+    "direction": [ 0, -0.928664636, -0.370920469 ],
+    "distance": 17
+  },
   "materials": "@lib/materials.json",
   "lights": [
     {
-      "pos": [ 0.0, -6.0, 13.5 ],
+      "pos": [ 0, -6, 13.5 ],
       "color": [ 30, 20, 44 ]
     },
     {
-      "pos": [ 0.0, 2.0, 12.5 ],
+      "pos": [ 0, 2, 12.5 ],
       "color": [ 40, 10, 12 ]
     }
   ],
   "objects": {
     "bead": {
       "sphere": {
-        "center": [ 0.0, 0.0, 0.0 ],
+        "center": [ 0, 0, 0 ],
         "radius": 0.56
       },
       "material": "jade-3",
@@ -26,7 +30,7 @@
         "material": "brass-3",
         "inside": {
           "sphere": {
-            "center": [ -0.476, 0.0, 0.168],
+            "center": [ -0.476, 0, 0.168 ],
             "radius": 0.308,
             "complement": true
           },
@@ -45,28 +49,28 @@
         },
         {
           "sphere": {
-            "center": [ 0.0, 0.0, 0.23 ],
+            "center": [ 0, 0, 0.23 ],
             "radius": 0.63
           },
           "material": "stone-5"
         },
         {
           "sphere": {
-            "center": [ 0.0, 0.0, 1.01 ],
+            "center": [ 0, 0, 1.01 ],
             "radius": 0.54
           },
           "material": "brass-3"
         },
         {
           "sphere": {
-            "center": [ 0.0, 0.0, 1.79 ],
+            "center": [ 0, 0, 1.79 ],
             "radius": 0.45
           },
           "material": "stone-5"
         },
         {
           "sphere": {
-            "center": [ 0.0, 0.0, 2.57 ],
+            "center": [ 0, 0, 2.57 ],
             "radius": 0.36
           },
           "material": "core"
@@ -75,17 +79,16 @@
     },
     "contents": {
       "group": [
-        { "use": "tower", "translate":  [ 0.0, 0.0, 0.0 ] }
+        {
+          "use": "tower",
+          "translate": [ 0, 0, 0 ]
+        }
       ]
     },
     "world": {
       "plane": {
-        "normal": [
-          0,
-          0,
-          1
-        ],
-        "offset": 0.0
+        "normal": [ 0, 0, 1 ],
+        "offset": 0
       },
       "material": "floor-6",
       "outside": {
@@ -95,16 +98,13 @@
   },
   "root": {
     "sphere": {
-      "center": [
-        0,
-        0,
-        0
-      ],
+      "center": [ 0, 0, 0 ],
       "radius": 25,
       "complement": true
     },
     "material": "shell",
-    "outside": { "use":  "world" }
+    "outside": {
+      "use": "world"
+    }
   }
 }
-

@@ -30,7 +30,7 @@
     "specular": 0.7
   },
   "blue-shiny": {
-    "albedo": [ 0.0, 0.0, 0.95 ],
+    "albedo": [ 0, 0, 0.95 ],
     "kind": "glossy",
     "reflective": true,
     "shininess": 95,
@@ -207,21 +207,21 @@
   },
   "glass-green": {
     "iorGlass": true,
-    "albedo": [ 0.0, 0.94, 0.0 ],
+    "albedo": [ 0, 0.94, 0 ],
     "kind": "glossy",
     "shininess": 100,
     "specular": 1
   },
   "glass-purple": {
     "iorGlass": true,
-    "albedo": [ 0.29, 0.00, 0.34 ],
+    "albedo": [ 0.29, 0, 0.34 ],
     "kind": "glossy",
     "shininess": 100,
     "specular": 1
   },
   "glass-violet": {
     "iorGlass": true,
-    "albedo": [ 0.89, 0.20, 0.78 ],
+    "albedo": [ 0.89, 0.2, 0.78 ],
     "kind": "glossy",
     "shininess": 100,
     "specular": 1
@@ -469,7 +469,7 @@
     "kind": "ambient",
     "ambient": true,
     "iorWater": true,
-    "albedo": [ 0.0, 0.25, 0.25 ],
+    "albedo": [ 0, 0.25, 0.25 ],
     "solid": false,
     "shininess": 67,
     "specular": 0.5

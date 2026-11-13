@@ -1,12 +1,15 @@
 {
-  "camera": { "position": [6.14786373, 11.9410651, 6.50564798], "direction": [-0.361639043, -0.855356772, -0.370920469], "distance": 17 },
+  "camera": {
+    "position": [ 6.14786373, 11.9410651, 6.50564798 ],
+    "direction": [ -0.361639043, -0.855356772, -0.370920469 ],
+    "distance": 17
+  },
   "materials": "@lib/materials.json",
-  "lights": [
-  ],
+  "lights": [  ],
   "objects": {
     "bead00": {
       "sphere": {
-        "center": [ 0.0, 0.0, 0.0 ],
+        "center": [ 0, 0, 0 ],
         "radius": 0.56
       },
       "material": "jade-3",
@@ -18,7 +21,7 @@
         "material": "brass-3",
         "inside": {
           "sphere": {
-            "center": [ -0.476, 0.0, 0.168],
+            "center": [ -0.476, 0, 0.168 ],
             "radius": 0.308
           },
           "complement": true,
@@ -30,96 +33,60 @@
       "union": [
         {
           "sphere": {
-            "center": [
-              -4.2,
-              2.6,
-              -0.55
-            ],
+            "center": [ -4.2, 2.6, -0.55 ],
             "radius": 0.72
           },
           "material": "brass-3"
         },
         {
           "sphere": {
-            "center": [
-              -4.2,
-              2.6,
-              0.23
-            ],
+            "center": [ -4.2, 2.6, 0.23 ],
             "radius": 0.63
           },
           "material": "stone-5"
         },
         {
           "sphere": {
-            "center": [
-              -4.2,
-              2.6,
-              1.01
-            ],
+            "center": [ -4.2, 2.6, 1.01 ],
             "radius": 0.54
           },
           "material": "brass-3"
         },
         {
           "sphere": {
-            "center": [
-              -4.2,
-              2.6,
-              1.79
-            ],
+            "center": [ -4.2, 2.6, 1.79 ],
             "radius": 0.45
           },
           "material": "stone-5"
         },
         {
           "sphere": {
-            "center": [
-              -4.2,
-              2.6,
-              2.57
-            ],
+            "center": [ -4.2, 2.6, 2.57 ],
             "radius": 0.36
           },
           "material": "core"
         }
       ],
       "bounds": {
-        "center": [
-          -4.2,
-          2.6,
-          0.9
-        ],
+        "center": [ -4.2, 2.6, 0.9 ],
         "radius": 2.4
       }
     },
     "hollow": {
       "sphere": {
-        "center": [
-          3.4,
-          2.6,
-          0.35
-        ],
+        "center": [ 3.4, 2.6, 0.35 ],
         "radius": 1.5
       },
       "material": "jade-3",
       "inside": {
         "sphere": {
-          "center": [
-            3.4,
-            2.6,
-            0.35
-          ],
+          "center": [ 3.4, 2.6, 0.35 ],
           "radius": 1.12
         },
         "paint": "bare",
         "outside": {
           "sphere": {
-            "center": [
-              2.5,
-              1.6,
-              0.9
-            ],
+            "center": [ 2.5, 1.6, 0.9 ],
             "radius": 0.95,
             "complement": true
           },
@@ -131,57 +98,33 @@
       "union": [
         {
           "plane": {
-            "normal": [
-              1,
-              0,
-              0
-            ],
+            "normal": [ 1, 0, 0 ],
             "offset": 0.9
           },
           "inside": {
             "plane": {
-              "normal": [
-                -1,
-                0,
-                0
-              ],
+              "normal": [ -1, 0, 0 ],
               "offset": 0.9
             },
             "inside": {
               "plane": {
-                "normal": [
-                  0,
-                  1,
-                  0
-                ],
+                "normal": [ 0, 1, 0 ],
                 "offset": 3.2
               },
               "inside": {
                 "plane": {
-                  "normal": [
-                    0,
-                    -1,
-                    0
-                  ],
-                  "offset": -2.0
+                  "normal": [ 0, -1, 0 ],
+                  "offset": -2
                 },
                 "inside": {
                   "plane": {
-                    "normal": [
-                      0,
-                      0,
-                      1
-                    ],
+                    "normal": [ 0, 0, 1 ],
                     "offset": -0.35
                   },
                   "inside": {
                     "plane": {
-                      "normal": [
-                        0,
-                        0,
-                        -1
-                      ],
-                      "offset": 1.0
+                      "normal": [ 0, 0, -1 ],
+                      "offset": 1
                     }
                   }
                 }
@@ -192,56 +135,32 @@
         },
         {
           "plane": {
-            "normal": [
-              1,
-              0,
-              0
-            ],
+            "normal": [ 1, 0, 0 ],
             "offset": 0.55
           },
           "inside": {
             "plane": {
-              "normal": [
-                -1,
-                0,
-                0
-              ],
+              "normal": [ -1, 0, 0 ],
               "offset": 0.55
             },
             "inside": {
               "plane": {
-                "normal": [
-                  0,
-                  1,
-                  0
-                ],
+                "normal": [ 0, 1, 0 ],
                 "offset": 2.85
               },
               "inside": {
                 "plane": {
-                  "normal": [
-                    0,
-                    -1,
-                    0
-                  ],
+                  "normal": [ 0, -1, 0 ],
                   "offset": -2.35
                 },
                 "inside": {
                   "plane": {
-                    "normal": [
-                      0,
-                      0,
-                      1
-                    ],
+                    "normal": [ 0, 0, 1 ],
                     "offset": 0.5
                   },
                   "inside": {
                     "plane": {
-                      "normal": [
-                        0,
-                        0,
-                        -1
-                      ],
+                      "normal": [ 0, 0, -1 ],
                       "offset": 0.35
                     }
                   }
@@ -253,80 +172,268 @@
         }
       ],
       "bounds": {
-        "center": [
-          0,
-          2.6,
-          -0.25
-        ],
+        "center": [ 0, 2.6, -0.25 ],
         "radius": 1.35
       }
     },
     "contents": {
       "group": [
-        { "use": "bead00", "translate":  [ -5.425, -11.425, -0.44 ]          },
-        { "use": "bead00", "translate":  [ -3.875, -11.425, -0.44 ]          },
-        { "use": "bead00", "translate":  [ -2.325, -11.425, -0.44 ]          },
-        { "use": "bead00", "translate":  [ -0.775, -11.425, -0.44 ]          },
-        { "use": "bead00", "translate":  [ 0.775, -11.425, -0.44 ]           },
-        { "use": "bead00", "translate":  [ 2.325, -11.425, -0.44 ]           },
-        { "use": "bead00", "translate":  [ 3.875, -11.425, -0.44 ]           },
-        { "use": "bead00", "translate":  [ 5.425, -11.425, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -5.425, -9.875, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -3.875, -9.875, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -2.325, -9.875, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -0.775, -9.875, -0.44 ]           },
-        { "use": "bead00", "translate":  [ 0.775, -9.875, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 2.325, -9.875, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 3.875, -9.875, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 5.425, -9.875, -0.44 ]            },
-        { "use": "bead00", "translate":  [ -5.425, -8.325, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -3.875, -8.325, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -2.325, -8.325, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -0.775, -8.325, -0.44 ]           },
-        { "use": "bead00", "translate":  [ 0.775, -8.325, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 2.325, -8.325, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 3.875, -8.325, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 5.425, -8.325, -0.44 ]            },
-        { "use": "bead00", "translate":  [ -5.425, -6.775, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -3.875, -6.775, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -2.325, -6.775, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -0.775, -6.775, -0.44 ]           },
-        { "use": "bead00", "translate":  [ 0.775, -6.775, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 2.325, -6.775, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 3.875, -6.775, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 5.425, -6.775, -0.44 ]            },
-        { "use": "bead00", "translate":  [ -5.425, -5.225, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -3.875, -5.225, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -2.325, -5.225, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -0.775, -5.225, -0.44 ]           },
-        { "use": "bead00", "translate":  [ 0.775, -5.225, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 2.325, -5.225, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 3.875, -5.225, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 5.425, -5.225, -0.44 ]            },
-        { "use": "bead00", "translate":  [ -5.425, -3.675, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -3.875, -3.675, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -2.325, -3.675, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -0.775, -3.675, -0.44 ]           },
-        { "use": "bead00", "translate":  [ 0.775, -3.675, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 2.325, -3.675, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 3.875, -3.675, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 5.425, -3.675, -0.44 ]            },
-        { "use": "bead00", "translate":  [ -5.425, -2.125, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -3.875, -2.125, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -2.325, -2.125, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -0.775, -2.125, -0.44 ]           },
-        { "use": "bead00", "translate":  [ 0.775, -2.125, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 2.325, -2.125, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 3.875, -2.125, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 5.425, -2.125, -0.44 ]            },
-        { "use": "bead00", "translate":  [ -5.425, -0.575, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -3.875, -0.575, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -2.325, -0.575, -0.44 ]           },
-        { "use": "bead00", "translate":  [ -0.775, -0.575, -0.44 ]           },
-        { "use": "bead00", "translate":  [ 0.775, -0.575, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 2.325, -0.575, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 3.875, -0.575, -0.44 ]            },
-        { "use": "bead00", "translate":  [ 5.425, -0.575, -0.44 ]            },
+        {
+          "use": "bead00",
+          "translate": [ -5.425, -11.425, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -3.875, -11.425, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -2.325, -11.425, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -0.775, -11.425, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 0.775, -11.425, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 2.325, -11.425, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 3.875, -11.425, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 5.425, -11.425, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -5.425, -9.875, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -3.875, -9.875, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -2.325, -9.875, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -0.775, -9.875, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 0.775, -9.875, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 2.325, -9.875, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 3.875, -9.875, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 5.425, -9.875, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -5.425, -8.325, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -3.875, -8.325, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -2.325, -8.325, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -0.775, -8.325, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 0.775, -8.325, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 2.325, -8.325, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 3.875, -8.325, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 5.425, -8.325, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -5.425, -6.775, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -3.875, -6.775, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -2.325, -6.775, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -0.775, -6.775, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 0.775, -6.775, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 2.325, -6.775, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 3.875, -6.775, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 5.425, -6.775, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -5.425, -5.225, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -3.875, -5.225, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -2.325, -5.225, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -0.775, -5.225, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 0.775, -5.225, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 2.325, -5.225, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 3.875, -5.225, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 5.425, -5.225, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -5.425, -3.675, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -3.875, -3.675, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -2.325, -3.675, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -0.775, -3.675, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 0.775, -3.675, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 2.325, -3.675, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 3.875, -3.675, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 5.425, -3.675, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -5.425, -2.125, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -3.875, -2.125, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -2.325, -2.125, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -0.775, -2.125, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 0.775, -2.125, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 2.325, -2.125, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 3.875, -2.125, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 5.425, -2.125, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -5.425, -0.575, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -3.875, -0.575, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -2.325, -0.575, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ -0.775, -0.575, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 0.775, -0.575, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 2.325, -0.575, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 3.875, -0.575, -0.44 ]
+        },
+        {
+          "use": "bead00",
+          "translate": [ 5.425, -0.575, -0.44 ]
+        },
         "tower",
         "hollow",
         "pedestal"
@@ -334,12 +441,8 @@
     },
     "world": {
       "plane": {
-        "normal": [
-          0,
-          0,
-          1
-        ],
-        "offset": -1.0
+        "normal": [ 0, 0, 1 ],
+        "offset": -1
       },
       "material": "floor-6",
       "outside": {
@@ -349,28 +452,20 @@
   },
   "root": {
     "sphere": {
-      "center": [
-        0,
-        0,
-        0
-      ],
+      "center": [ 0, 0, 0 ],
       "radius": 25,
       "complement": true
     },
     "paint": "partition",
     "outside": {
       "sphere": {
-        "center": [
-          -4.2,
-          2.6,
-          0.9
-        ],
+        "center": [ -4.2, 2.6, 0.9 ],
         "radius": 4.2
       },
       "paint": "air_warm",
       "lights": [
         {
-          "pos": [ -4.2, 2.6, 4.0 ],
+          "pos": [ -4.2, 2.6, 4 ],
           "color": [ 18, 12, 6 ]
         }
       ],
@@ -379,11 +474,7 @@
       },
       "outside": {
         "sphere": {
-          "center": [
-            3.4,
-            2.6,
-            0.4
-          ],
+          "center": [ 3.4, 2.6, 0.4 ],
           "radius": 3.6
         },
         "paint": "air_cool",
@@ -398,17 +489,13 @@
         },
         "outside": {
           "sphere": {
-            "center": [
-              0.0,
-              -6.0,
-              0.6
-            ],
+            "center": [ 0, -6, 0.6 ],
             "radius": 5.2
           },
           "paint": "air_smoke",
           "lights": [
             {
-              "pos": [ 0.0, -6.0, 3.0 ],
+              "pos": [ 0, -6, 3 ],
               "color": [ 12, 12, 13 ]
             }
           ],
@@ -417,17 +504,13 @@
           },
           "outside": {
             "sphere": {
-              "center": [
-                -3.0,
-                -9.0,
-                0.2
-              ],
+              "center": [ -3, -9, 0.2 ],
               "radius": 3.4
             },
             "paint": "air_green",
             "lights": [
               {
-                "pos": [ -3.0, -9.0, 2.4 ],
+                "pos": [ -3, -9, 2.4 ],
                 "color": [ 5, 16, 7 ]
               }
             ],
@@ -436,17 +519,13 @@
             },
             "outside": {
               "sphere": {
-                "center": [
-                  4.0,
-                  -9.5,
-                  0.2
-                ],
-                "radius": 3.0
+                "center": [ 4, -9.5, 0.2 ],
+                "radius": 3
               },
               "paint": "air_dim",
               "lights": [
                 {
-                  "pos": [ 4.0, -9.5, 2.2 ],
+                  "pos": [ 4, -9.5, 2.2 ],
                   "color": [ 6, 6, 6.4 ]
                 }
               ],

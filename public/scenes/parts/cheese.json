@@ -24,27 +24,35 @@
       }
     },
     "wedge": {
-      "plane" : {
+      "plane": {
         "normal": [ -1, 0, 0 ]
       },
-        "inside": {
-          "plane" : {
-            "normal": [ 0.866, 0.5, 0 ]
-          }
+      "inside": {
+        "plane": {
+          "normal": [ 0.866, 0.5, 0 ]
         }
+      }
     },
     "cheese-wedge": {
       "intersection": [
-        { "use": "@#/objects/cheese-wheel" },
-        { "use": "@#/objects/wedge" }
+        {
+          "use": "@#/objects/cheese-wheel"
+        },
+        {
+          "use": "@#/objects/wedge"
+        }
       ]
     }
   },
   "root": {
     "cheese-wedge": {
       "intersection": [
-        { "use": "cheese-wheel" },
-        { "use": "wedge" }
+        {
+          "use": "cheese-wheel"
+        },
+        {
+          "use": "wedge"
+        }
       ]
     }
   }

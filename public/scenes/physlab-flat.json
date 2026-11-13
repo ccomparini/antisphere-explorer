@@ -1,15 +1,45 @@
 {
   "materials": "@lib/materials.json",
   "lights": [
-    { "pos": [3000, -4000, 5000], "color": [3.6e7, 3.3e7, 2.9e7] }
+    {
+      "pos": [ 3000, -4000, 5000 ],
+      "color": [ 36000000, 33000000, 29000000 ]
+    }
   ],
-  "gravity": { "down": [0, 0, -1], "strength": 9.81 },
-  "spawn": { "at": [0, 0, 0], "facing": [1, 0, 0] },
+  "gravity": {
+    "down": [ 0, 0, -1 ],
+    "strength": 9.81
+  },
+  "spawn": {
+    "at": [ 0, 0, 0 ],
+    "facing": [ 1, 0, 0 ]
+  },
   "root": {
     "intersection": [
-      { "slab": { "center": [0, 0, -10], "axis": [1, 0, 0], "thickness": 400 }, "material": "rock" },
-      { "slab": { "center": [0, 0, -10], "axis": [0, 1, 0], "thickness": 400 }, "material": "rock" },
-      { "slab": { "center": [0, 0, -10], "axis": [0, 0, 1], "thickness": 20 }, "material": "rock" }
+      {
+        "slab": {
+          "center": [ 0, 0, -10 ],
+          "axis": [ 1, 0, 0 ],
+          "thickness": 400
+        },
+        "material": "rock"
+      },
+      {
+        "slab": {
+          "center": [ 0, 0, -10 ],
+          "axis": [ 0, 1, 0 ],
+          "thickness": 400
+        },
+        "material": "rock"
+      },
+      {
+        "slab": {
+          "center": [ 0, 0, -10 ],
+          "axis": [ 0, 0, 1 ],
+          "thickness": 20
+        },
+        "material": "rock"
+      }
     ]
   }
 }
