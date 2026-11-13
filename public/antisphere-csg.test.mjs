@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene, envAt, isSolid, packMaterials, glowOf } from './antisphere-scene.js';
-import { MATERIAL_OPTICAL, MATERIAL_IOR_WATER, KIND_GLOSSY, Material, viewsOf } from './gen/layouts.js';
+import { MATERIAL_OPTICAL, MATERIAL_IOR_WATER, KIND_GLOSSY, Material, viewsOf, PATTERN_INDUSTRIALCARPET } from './gen/layouts.js';
 import { quadricAt as H } from './quadric.js';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -878,10 +878,10 @@ test('transmit: 0 to 1, more or less clamped and warned of; packed beside the pa
   assert.match(warned.join('\n'), /materials\.porch\.transmit: 1\.5 is past 0 to 1 - taken as 1/);
   assert.equal(built.materials.find((m) => m.name === 'porch').transmit, 1);
   assert.equal(Material.SIZE, 64);
-  const packed = Material.read(viewsOf(packMaterials([{ kind: 0, pattern: 3, params: [0, 0], albedo: [0, 0, 0], scale: 1,
+  const packed = Material.read(viewsOf(packMaterials([{ kind: 0, pattern: PATTERN_INDUSTRIALCARPET, params: [0, 0], albedo: [0, 0, 0], scale: 1,
                                                         patternParams: [0, 0, 0], texture: 2, transmit: 0.5 }])), 0);
-  assert.equal(packed.pattern & 0xffff, 3, 'the pattern, the low half');
-  assert.equal(packed.pattern >>> 16, Math.round(0.5 * 65535), 'transmit, the high half, in 65535ths');
+  assert.equal((packed.pattern & 0xffff0000) >>> 0, PATTERN_INDUSTRIALCARPET, 'the pattern, the high half (the PATTERN_s are shifted there)');
+  assert.equal(packed.pattern & 0xffff, Math.round(0.5 * 65535), 'transmit, the low half, in 65535ths');
   assert.equal(packed.texture, 2, 'the texture as it was');
 });
 

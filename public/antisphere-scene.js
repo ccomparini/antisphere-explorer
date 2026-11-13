@@ -3404,8 +3404,9 @@ export function packMaterials(list) {
     Material.write(views, j, {
       kind: m.kind,
       // Two halves (the shader's patternOf() and transmitOf()): the pattern,
-      // and an env's transmit, 0 to 1 in 65535ths.
-      pattern: (m.pattern | (Math.round((m.transmit ?? 0) * 65535) << 16)) >>> 0,
+      // high (the PATTERN_s are shifted there), and an env's transmit, low,
+      // 0 to 1 in 65535ths.
+      pattern: (m.pattern | Math.round((m.transmit ?? 0) * 65535)) >>> 0,
       params: m.params,
       albedo: m.albedo,
       scale: m.scale,

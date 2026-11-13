@@ -233,13 +233,15 @@ struct Material {
 // cost a textured scene 5%) and an env's transmit is in its first 16 bytes
 // with kind and params, all the walk out through envs reads (anything
 // further in cost a scene with no env at all 7%):
-//   low 16 bits   the pattern (patternOf(): PATTERN_)
-//   high 16 bits  an env's transmit (transmitOf()): how much of the light
-//                 round it it lets in, 0 to 1 in 65535ths - a glow region's
-//                 fill, from envs outside it (directLighting()). Any
-//                 material's, so a glossy, refracting water is an env too.
-fn patternOf(m : Material) -> u32 { return m.pattern & 0xffffu; }
-fn transmitOf(m : Material) -> f32 { return f32(m.pattern >> 16u) / 65535.0; }
+//   low 16 bits   an env's transmit (transmitOf()): how much of the light
+//                 round it it lets in, 0 to 1 in 65535ths - a glow's fill,
+//                 from envs outside it (directLighting()). Any material's,
+//                 so a glossy, refracting water is an env too. Low, so it
+//                 is read with no shift.
+//   high 16 bits  the pattern (patternOf(): the PATTERN_s, which are
+//                 shifted there)
+fn patternOf(m : Material) -> u32 { return m.pattern & 0xffff0000u; }
+fn transmitOf(m : Material) -> f32 { return f32(m.pattern & 0xffffu) / 65535.0; }
 
 const KIND_LAMBERT  : u32 = 0u;
 const KIND_GLOSSY   : u32 = 1u;
@@ -257,10 +259,12 @@ const KIND_AMBIENT  : u32 = 4u;
 // them (a flickering radius) changes the light.
 const KIND_GLOW_REGION : u32 = 5u;
 
-const PATTERN_CHECKER          : u32 = 1u;
-const PATTERN_NOISE            : u32 = 2u;
-const PATTERN_INDUSTRIALCARPET : u32 = 3u;
-const PATTERN_PLANAR_TEXTURE   : u32 = 4u;
+// In the high half of Material.pattern (patternOf()), its low half an env's
+// transmit.
+const PATTERN_CHECKER          : u32 = 0x10000u;
+const PATTERN_NOISE            : u32 = 0x20000u;
+const PATTERN_INDUSTRIALCARPET : u32 = 0x30000u;
+const PATTERN_PLANAR_TEXTURE   : u32 = 0x40000u;
 
 // Debug views. Traversal cost is counted per invocation rather than timed,
 // since timestamps can only be written at pass boundaries.
@@ -1292,4 +1296,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1112}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1116}]
