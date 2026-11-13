@@ -219,11 +219,12 @@ An array of point lights and directional lights:
 
 A point light is at `pos`, and its `color`'s magnitude is radiant power, not
 a 0–1 color — falloff is inverse square, so values commonly run well above 1.
-Its `"fill"` (default `0`) adds that fraction of it, unshadowed, as ambient
+Its `"range"` (default: none) fades it to nothing at that distance, by
+(1 - d²/range²)², so a light scoped to a region can fade out within it and
+leave no edge where the region ends: a glow (see "Glow regions"). Its
+`"fill"` (default `0`) adds that fraction of it, unshadowed, as ambient
 light too - falling off as it does - a rough stand-in for light off the
-walls round it. A node's point light may leave out `pos`, for its node's
-centre, and may `"fade": true` to nothing at its node's surface: a glow
-(see "Glow regions").
+walls round it. Both scale with the node a light is on.
 
 A directional light is infinitely far away, like the sun: its light travels
 along `direction` (`[0, 0, -1]` shines straight down), its shadows are
@@ -916,36 +917,30 @@ same ambient material are still two regions.
 
 ```
 { "sphere": { "center": [0, 0, 0.17], "radius": 2.5 },
-  "lights": [{ "color": [1.2, 0.85, 0.45], "fade": true, "fill": 0.08 }], "inside": ... }
+  "lights": [{ "pos": [0, 0, 0.17], "color": [1.2, 0.85, 0.45], "range": 2.5, "fill": 0.08 }], "inside": ... }
 ```
 
-A glow is a node's point light at its centre (no `pos`), fading
-(`"fade": true`) to nothing at the node's surface: everything in its
-`"inside"` subtree is lit as if by a light at the node's centre, falling off
-with distance as a light does, and also by H(P) / H(centre) squared - the
-node's own implicit function, which is 1 at the centre and 0 on its surface
-(1 - d²/r² for a sphere) - so the glow fades smoothly to nothing at the
-node's surface. The renderer works this out from the node at every hit, so
-changing the node - its radius, say, flickering - changes the glow. Its
-shadows are cast by what the region holds, as a region's lights' are. Its
-`fill` adds that fraction of it, unshadowed, as ambient light, which lifts
-its shadows near the centre and fades with the glow, to nothing at the
-edge. The node, carrying lights and no material, lets the level around it
+A glow is a light scoped to a region and faded out within it: a node's
+point light whose `range` is the node's reach - here, at a sphere's centre,
+its radius. Everything in the node's `"inside"` subtree is lit by it,
+falling off with distance as a light does and by (1 - d²/range²)², so it
+fades smoothly to nothing at the sphere's surface, and nothing outside the
+region is lit by it at all. Its shadows are cast by what the region holds,
+as a region's lights' are. Its `fill` adds that fraction of it, unshadowed,
+as ambient light, which lifts its shadows near the centre and fades with
+it. The node, carrying lights and no material, lets the level around it
 carry on in (as any such region does), so it fades into its surroundings
-with no edge. `fade` and a centre work apart too: a light at a `pos` that
-fades at its node's surface, a centred one that doesn't.
+with no edge.
 
 A `"glowRegion"` material is shorthand for this: a node naming
 `"candlelight": { "kind": "glowRegion", "albedo": [1.2, 0.85, 0.45], "fill": 0.08 }`
-gains that light - its `albedo` the color, its `fill` the fill - and is a
-region that, by default (`transmit` 1), lets the level around it in
-(`scenes/candle.json`).
-
-Any shape will do. Its centre is where the quadric turns in each direction
-it curves, and the lit point's own position in any it doesn't: a sphere's
-or a spheroid's centre, a cylinder's axis (a glowing line), a slab's middle
-plane. A shape whose centre is not inside it - a cone's apex, a complemented
-sphere's - glows as a plain light from there, with no fade.
+gains that light - at the node's centre, its `albedo` the color, its range
+the node's shortest semi-axis (a sphere's radius), so it fades out within
+the node, and its `fill` the fill - and is a region that, by default
+(`transmit` 1), lets the level around it in (`scenes/candle.json`). The
+node needs a centre: a sphere or a spheroid (one whose centre is outside
+it, a complemented sphere, glows from there unfaded). A shape with none -
+a plane, a cylinder, a slab - gets no light, warned of.
 
 A light inside a solid is shadowed by it, so a visible flame should be the
 glow region's parent rather than within it: the region's shadow rays see

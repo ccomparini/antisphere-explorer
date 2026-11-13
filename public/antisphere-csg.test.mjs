@@ -10,8 +10,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene, envAt, isSolid, packMaterials } from './antisphere-scene.js';
-import { MATERIAL_OPTICAL, MATERIAL_IOR_WATER, KIND_GLOSSY, Material, viewsOf, LIGHT_AT_CENTRE, LIGHT_FADE } from './gen/layouts.js';
+import { compileScene, envAt, isSolid, packMaterials, glowOf } from './antisphere-scene.js';
+import { MATERIAL_OPTICAL, MATERIAL_IOR_WATER, KIND_GLOSSY, Material, viewsOf } from './gen/layouts.js';
 import { quadricAt as H } from './quadric.js';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -724,8 +724,7 @@ test('a directional light: its direction, unit and towards it, pos_w 0; a point 
   const bad = (light) => () => buildEnvs(ball(0, 4, { lights: [light] }));
   assert.throws(bad({ direction: [0, 0, 0], color: [1, 1, 1] }), /direction must be a direction/);
   assert.throws(bad({ direction: [0, 0, 1], pos: [0, 0, 1], color: [1, 1, 1] }), /one of "pos".*or "direction"/);
-  const centred = buildEnvs(ball(0, 4, { lights: [{ color: [1, 1, 1] }] }));
-  assert.equal(centred.lights[centred.topLights].flags, LIGHT_AT_CENTRE, 'a node\'s light with neither: at its centre');
+  assert.throws(bad({ color: [1, 1, 1] }), /one of "pos".*or "direction"/);
 });
 
 test('a directional light turns with its node, but doesn\'t move or grow', () => {
@@ -886,33 +885,39 @@ test('transmit: 0 to 1, more or less clamped and warned of; packed beside the pa
   assert.equal(packed.texture, 2, 'the texture as it was');
 });
 
-test('a glow is a node\'s point light at its centre, fading to its surface, with its fill; kind glowRegion the shorthand', () => {
+test('a glow is a point light with a range, scoped to its node; kind glowRegion the shorthand, at its node\'s centre', () => {
+  const warned = [];
   const spec = (inner) => ({
     materials: { candle: { kind: 'glowRegion', albedo: [1, 0.8, 0.5], fill: 0.1 }, clay: {} },
     lights: [],
-    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { use: 'room', translate: [3, 0, 0] } },
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { use: 'room', translate: [3, 0, 0], scale: 2 } },
     objects: { room: inner },
   });
-  const explicit = compileScene(spec(ball(0, 2, { lights: [{ color: [1, 0.8, 0.5], fade: true, fill: 0.1 }, lamp([0, 0, 1])],
+  const ranged = (built) => built.lights.filter((lt) => lt.range).map(({ pos, color, fill, range }) =>
+    ({ pos: pos.map((v) => +v.toFixed(9)), color, fill, range: +range.toFixed(9) }));
+  const explicit = compileScene(spec(ball(0, 2, { lights: [{ pos: [0, 0, 0], color: [1, 0.8, 0.5], range: 2, fill: 0.1 }],
                                                 inside: ball(0, 1, { material: 'clay' }) })));
-  const glows = (built) => built.lights.filter((lt) => lt.flags).map(({ color, fill, flags }) => ({ color, fill, flags }));
-  assert.deepEqual(glows(explicit), [{ color: [1, 0.8, 0.5], fill: 0.1, flags: LIGHT_AT_CENTRE | LIGHT_FADE }],
-                   'no pos: at its node\'s centre; fading; its fill');
-  const room = explicit.lights.find((lt) => lt.flags).env;
-  assert.ok(H(explicit.nodes[room].prim, [3, 0, 0]) < 0 && H(explicit.nodes[room].prim, [5.5, 0, 0]) > 0,
-            'its node, the room it lights - moved with it');
-  assert.deepEqual(explicit.lights.find((lt) => !lt.flags).pos, [3, 0, 1], 'a point light beside it moves');
+  assert.deepEqual(ranged(explicit), [{ pos: [3, 0, 0], color: [1, 0.8, 0.5], fill: 0.1, range: 4 }],
+                   'moved, and its range scaled, with its node');
+  const room = explicit.lights.find((lt) => lt.range).env;
+  assert.ok(H(explicit.nodes[room].prim, [3, 0, 0]) < 0 && H(explicit.nodes[room].prim, [7.5, 0, 0]) > 0, 'scoped to its room');
   const shorthand = compileScene(spec(ball(0, 2, { material: 'candle', inside: ball(0, 1, { material: 'clay' }) })), { quiet: true });
-  assert.deepEqual(glows(shorthand), glows(explicit), 'a glowRegion material gives its node the same light');
-  // A point light with a pos fades and fills too; the scene's needs a pos, and can't fade.
-  const placed = compileScene({ materials: {}, lights: [],
-    root: ball(0, 2, { lights: [{ pos: [0.5, 0, 0], color: [1, 1, 1], fade: true, fill: 0.2 }] }) });
-  assert.deepEqual(placed.lights.map(({ pos, fill, flags }) => ({ pos, fill, flags })), [{ pos: [0.5, 0, 0], fill: 0.2, flags: LIGHT_FADE }]);
-  assert.throws(() => compileScene({ materials: {}, lights: [{ color: [1, 1, 1] }], root: ball(0, 1) }), /needs "pos"/);
-  assert.throws(() => compileScene({ materials: {}, lights: [{ pos: [0, 0, 0], color: [1, 1, 1], fade: true }], root: ball(0, 1) }),
-                /"fade" is a node's light's/);
-  assert.throws(() => compileScene({ materials: {}, lights: [], root: ball(0, 1, { lights: [{ direction: [0, 0, -1], color: [1, 1, 1], fill: 1 }] }) }),
-                /"fade" and "fill" are a point light's/);
+  assert.deepEqual(ranged(shorthand), ranged(explicit), 'a glowRegion material: the light at its node\'s centre, its range its radius');
+  // A spheroid's: its shortest semi-axis, so it fades out within it; a
+  // complemented sphere's centre isn't inside it: no fade; a cylinder has none.
+  const spheroid = compileScene({ materials: {}, lights: [], root: { spheroid: { center: [0, 0, 1], axis: [0, 0, 1], height: 6, radius: 1 } } });
+  const g = glowOf(spheroid.nodes[1].prim);
+  assert.deepEqual([g.pos.map((v) => +v.toFixed(9) + 0), +g.range.toFixed(9)], [[0, 0, 1], 1]);
+  assert.equal(glowOf(compileScene({ materials: {}, lights: [], root: { sphere: { radius: 2, complement: true } } }).nodes[1].prim).range, 0);
+  const lined = compileScene({ materials: { candle: { kind: 'glowRegion', albedo: [1, 1, 1] } }, lights: [],
+    root: { cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 }, material: 'candle' } },
+    { warn: (where, msg) => warned.push(`${where}: ${msg}`) });
+  assert.equal(lined.lights.length, 0);
+  assert.match(warned.join('\n'), /a glowRegion's light is at its node's centre, and this shape has none/);
+  assert.throws(() => compileScene({ materials: {}, lights: [{ pos: [0, 0, 0], color: [1, 1, 1], range: 0 }], root: ball(0, 1) }),
+                /range must be a distance, more than 0/);
+  assert.throws(() => compileScene({ materials: {}, lights: [], root: ball(0, 1, { lights: [{ direction: [0, 0, -1], color: [1, 1, 1], range: 1 }] }) }),
+                /"range" and "fill" are a point light's/);
 });
 
 test('a light outside its own region warns', (t) => {

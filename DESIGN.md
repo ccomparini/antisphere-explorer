@@ -250,10 +250,10 @@ bet that they stay there.
   by walking its env chain: the lights are stored in order of env, so each
   env's are a run, found by binary search - a hit pays for the lights on
   its chain, not the scene's. A glow is one of a node's lights: a point
-  light at its node's centre, fading to nothing at the node's surface by
-  the node's own implicit function, worked out from the node at every hit,
-  so moving or resizing the node changes it (a `"glowRegion"` material is
-  shorthand for one). Whether it has a direction is the line between a
+  light scoped to the node's region, its `range` fading it to nothing
+  within it, so the region leaves no edge (a `"glowRegion"` material is
+  shorthand for one at the node's centre). The node says where a light
+  reaches; the light says how far. Whether it has a direction is the line between a
   light and a region's ambient level: a light shades surfaces by which way
   they face and casts shadows, so it has a position; an ambient level is
   the same for every surface at a point, and is the region's. Ambient light passes between envs by each one's `transmit`: an env's

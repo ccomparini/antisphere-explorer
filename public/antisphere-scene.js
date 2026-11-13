@@ -36,7 +36,7 @@
 
 import {
   Light, Material, Node, TextureInfo,
-  KIND_LAMBERT, KIND_GLOSSY, KIND_EMISSIVE, KIND_UNLIT, KIND_AMBIENT, KIND_GLOW_REGION, LIGHT_AT_CENTRE, LIGHT_FADE,
+  KIND_LAMBERT, KIND_GLOSSY, KIND_EMISSIVE, KIND_UNLIT, KIND_AMBIENT, KIND_GLOW_REGION,
   PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, PATTERN_PLANAR_TEXTURE, MATERIAL_SOLID, MATERIAL_OPTICAL,
   MATERIAL_INDEX, NODE_ENV, NODE_FACE, MATERIAL_CASTS_SHADOW,
 } from './gen/layouts.js';
@@ -660,30 +660,47 @@ function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = nul
  * pos_w 0, pos the unit vector towards it. `fail(message)` reports a
  * problem.
  */
-export function compileLight(lt, fail = (msg) => { throw new Error(msg); }, { ofNode = false } = {}) {
+export function compileLight(lt, fail = (msg) => { throw new Error(msg); }) {
   if (!lt || typeof lt !== 'object') fail('a light is { "pos" or "direction": [x, y, z], "color": [r, g, b] }');
   if (!isVec3(lt.color)) fail('needs a color, [r, g, b]');
-  if (lt.pos !== undefined && lt.direction !== undefined) fail('needs one of "pos" (a point light) or "direction" (a directional light, the way its light travels), not both');
+  if ((lt.pos === undefined) === (lt.direction === undefined)) {
+    fail('needs one of "pos" (a point light) or "direction" (a directional light, the way its light travels)');
+  }
   if (lt.direction !== undefined) {
-    if (lt.fade !== undefined || lt.fill !== undefined) fail('"fade" and "fill" are a point light\'s');
+    if (lt.range !== undefined || lt.fill !== undefined) fail('"range" and "fill" are a point light\'s');
     const length = isVec3(lt.direction) ? Math.hypot(...lt.direction) : 0;
     if (!(length > 0)) fail(`direction must be a direction [x, y, z], got ${JSON.stringify(lt.direction)}`);
-    return { pos: lt.direction.map((v) => -v / length), color: lt.color.slice(), pos_w: 0, fill: 0, flags: 0 };
+    return { pos: lt.direction.map((v) => -v / length), color: lt.color.slice(), pos_w: 0, fill: 0, range: 0 };
   }
-  // A point light: at pos, or - a node's light - at the node's centre. A
-  // node's may fade to nothing at the node's surface (a glow: at its
-  // centre, fading); any may fill: add that much of itself, unshadowed, as
+  // A point light: at pos; fading to nothing at `range` from it, if it has
+  // one (a glow: a light scoped to a region, faded out within it, so the
+  // region has no edge); and filling - that much of itself, unshadowed, as
   // ambient light.
-  if (lt.pos === undefined && !ofNode) fail('needs "pos" (a point light; a node\'s may leave it out, for the node\'s centre) or "direction" (a directional light)');
-  if (lt.pos !== undefined && !isVec3(lt.pos)) fail(`pos must be a point [x, y, z], got ${JSON.stringify(lt.pos)}`);
-  if (lt.fade !== undefined && typeof lt.fade !== 'boolean') fail(`fade must be true or false, got ${JSON.stringify(lt.fade)}`);
-  if (lt.fade && !ofNode) fail('"fade" is a node\'s light\'s: to nothing at its node\'s surface');
-  const fill = lt.fill ?? 0;
+  if (!isVec3(lt.pos)) fail(`pos must be a point [x, y, z], got ${JSON.stringify(lt.pos)}`);
+  const fill = lt.fill ?? 0, range = lt.range ?? 0;
   if (!(typeof fill === 'number' && Number.isFinite(fill) && fill >= 0)) fail(`fill must be a number, 0 or more, got ${JSON.stringify(lt.fill)}`);
-  return {
-    pos: lt.pos?.slice() ?? [0, 0, 0], color: lt.color.slice(), pos_w: 1, fill,
-    flags: (lt.pos === undefined ? LIGHT_AT_CENTRE : 0) | (lt.fade ? LIGHT_FADE : 0),
-  };
+  if (lt.range !== undefined && !(typeof range === 'number' && Number.isFinite(range) && range > 0)) {
+    fail(`range must be a distance, more than 0, got ${JSON.stringify(lt.range)}`);
+  }
+  return { pos: lt.pos.slice(), color: lt.color.slice(), pos_w: 1, fill, range };
+}
+
+/**
+ * Where a glowRegion material's light goes on the node naming it, and how
+ * far it reaches: { pos, range } - the quadric's centre, where its gradient
+ * is nothing, and its shortest semi-axis there, so the light fades out
+ * within the node; range 0 (no fade) for a node whose centre isn't inside
+ * it (a complemented sphere). Null for a shape with no centre (a plane, a
+ * cylinder, a slab, a cone's apex...).
+ */
+export function glowOf(prim) {
+  const { axis, k_par, k_perp, linear } = prim;
+  if (!(k_par > 0 && k_perp > 0) && !(k_par < 0 && k_perp < 0)) return null;
+  const along = dot3(linear, axis);
+  const pos = [0, 1, 2].map((i) => -(along / k_par) * axis[i] - (linear[i] - along * axis[i]) / k_perp);
+  const atCentre = quadricAt(prim, pos);
+  const range = atCentre < 0 ? Math.sqrt(-atCentre / Math.max(Math.abs(k_par), Math.abs(k_perp))) : 0;
+  return { pos, range };
 }
 
 /**
@@ -691,9 +708,13 @@ export function compileLight(lt, fail = (msg) => { throw new Error(msg); }, { of
  * null. A directional light's direction turns as the node does, but doesn't
  * move or grow: move(pos) - move(0), made unit length again.
  */
+// How much `move` (a point to a point: a similarity) scales distances.
+const scaleOf = (move) => {
+  const o = move([0, 0, 0]), x = move([1, 0, 0]);
+  return Math.hypot(x[0] - o[0], x[1] - o[1], x[2] - o[2]);
+};
 const movedLights = (lights, move) => lights && lights.map((lt) => {
-  if (lt.flags & LIGHT_AT_CENTRE) return lt;       // at its node's centre, wherever that is
-  if (lt.pos_w !== 0) return { ...lt, pos: move(lt.pos) };
+  if (lt.pos_w !== 0) return { ...lt, pos: move(lt.pos), ...(lt.range ? { range: lt.range * scaleOf(move) } : {}) };
   const origin = move([0, 0, 0]);
   const turned = move(lt.pos).map((v, i) => v - origin[i]);
   const length = Math.hypot(...turned);
@@ -1001,7 +1022,7 @@ function mapTree(t, f, g) {
 // is one baked copy wherever it is used. One with an env in it is baked
 // per env it is in, since its env nodes record the env round them and its
 // level.
-function bakeScopes(tree, table) {
+function bakeScopes(tree, table, warn = () => {}) {
   const memo = new Map();       // "material:env id" -> (subtree -> baked)
   const envIds = new Map();     // env node -> a number for the memo key
   // An env's ambient level, as it is there: its own, plus its material's
@@ -1085,11 +1106,15 @@ function bakeScopes(tree, table) {
       hereMat = withLevel(hereMat, level);
     }
     // A glowRegion material is shorthand for a glow, its albedo the light at
-    // the node's centre, fading to its surface, with its fill: one of the
-    // node's lights.
-    const glowing = named && table[t.material].kind === KIND_GLOW_REGION
-      ? [{ pos: [0, 0, 0], color: table[t.material].albedo.slice(), pos_w: 1, fill: table[t.material].params[1],
-           flags: LIGHT_AT_CENTRE | LIGHT_FADE }] : [];
+    // the node's centre, fading out within it, with its fill: one of the
+    // node's lights (glowOf()). A shape with no centre has none: warned of.
+    let glowing = [];
+    if (named && table[t.material].kind === KIND_GLOW_REGION) {
+      const glow = glowOf(t.prim);
+      if (glow) glowing = [{ ...glow, color: table[t.material].albedo.slice(), pos_w: 1, fill: table[t.material].params[1] }];
+      else warn(t.prov ? `${t.prov.owner}${t.prov.path ? `/${t.prov.path}` : ''}` : 'a glowRegion node',
+                'a glowRegion\'s light is at its node\'s centre, and this shape has none (a sphere or spheroid has): no light');
+    }
     const lights = glowing.length ? [...(t.lights ?? []), ...glowing] : t.lights;
     const out = node(t.prim, null, null, passes ? NO_MATERIAL : hereMat, startsEnv ? envNode : null, t.prov, lights);
     byScope.set(t, out);
@@ -2475,9 +2500,9 @@ export function compileScene(rawSpec, options = {}) {
   }
 
   // A list of lights, the scene's or a node's (see compileLight()).
-  const lightsOf = (list, path, opts) => {
+  const lightsOf = (list, path) => {
     if (!Array.isArray(list)) at(path, 'needs a list of lights, [{ "pos": [x, y, z], "color": [r, g, b] }]');
-    return list.map((lt, i) => compileLight(lt, (msg) => at(`${path}[${i}]`, msg), opts));
+    return list.map((lt, i) => compileLight(lt, (msg) => at(`${path}[${i}]`, msg)));
   };
   // The scene's own lights: env 0's, which light everything.
   const topLights = lightsOf(spec.lights ?? [], 'lights').map((lt) => ({ ...lt, env: 0 }));
@@ -3227,7 +3252,7 @@ export function compileScene(rawSpec, options = {}) {
 
       // Lights make the node a region (an env): what fills it is its
       // ambient level, if it names one, or the level around it.
-      const lights = def.lights === undefined ? null : lightsOf(def.lights, `${path}.lights`, { ofNode: true });
+      const lights = def.lights === undefined ? null : lightsOf(def.lights, `${path}.lights`);
       if (lights && material !== INHERIT_MATERIAL && !isEnvMaterial(table[material])) {
         at(`${path}.material`, 'a node with lights is a region, lit: name a material with an "ambient" level ' +
                                '(water, say, or kind ambient), a glowRegion, or none, to keep the level around it');
@@ -3332,7 +3357,7 @@ export function compileScene(rawSpec, options = {}) {
   // which trace() starts at: one with nothing inside it anywhere, H = 1.
   const rootTree = tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] })
     ?? node({ axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: 1 }, null, null, NO_MATERIAL);
-  const nodes = flatten(bakeScopes(rootTree, table));
+  const nodes = flatten(bakeScopes(rootTree, table, quietly));
   textureTurns(nodes, table, quietly);
 
   // Every light, with the env it belongs to: the scene's (env 0) first, in
@@ -3344,7 +3369,7 @@ export function compileScene(rawSpec, options = {}) {
   const lightList = [...topLights];
   nodes.forEach((nd, i) => {
     for (const lt of nd.lights ?? []) {
-      if (lt.pos_w === 1 && !(lt.flags & LIGHT_AT_CENTRE) && quadricAt(nd.prim, lt.pos) >= 0) {
+      if (lt.pos_w === 1 && quadricAt(nd.prim, lt.pos) >= 0) {
         const where = nd.prov ? `${nd.prov.owner}${nd.prov.path ? `/${nd.prov.path}` : ''}` : `node ${i}`;
         warn(`${where}.lights`, `the light at [${lt.pos}] is outside its own region, so lights nothing in it`);
       }
@@ -3539,6 +3564,6 @@ export function packNodes(list, materials = null, first = 0) {
 export function packLights(list) {
   const views = Light.allocate(list.length || 1);
   list.forEach((lt, j) => Light.write(views, j, { pos: lt.pos, color: lt.color, env: lt.env ?? 0, pos_w: lt.pos_w ?? 1,
-                                                   fill: lt.fill ?? 0, flags: lt.flags ?? 0 }));
+                                                   fill: lt.fill ?? 0, range: lt.range ?? 0 }));
   return views.f32;
 }

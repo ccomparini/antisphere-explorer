@@ -1648,7 +1648,7 @@ gpuTest('a stone in water is met there, seen through the water, lit at the water
   assert.ok(dim[0] < bright[0] - 60, `a dimmer level, a dimmer ball: ${dim} against ${bright}`);
 });
 
-gpuTest('a glow as a node\'s light - at its centre, fading, filling - renders as the glowRegion material it is shorthand for', async () => {
+gpuTest('a glow as a light - at its node\'s centre, its range the node\'s radius, filling - renders as the glowRegion material it is shorthand for', async () => {
   const { ASCamera } = await import('./as-camera.js');
   // A floor seen from above under a glow, with a ball in it casting a shadow
   // the fill lifts: as a glowRegion material, and as the node's light.
@@ -1663,7 +1663,7 @@ gpuTest('a glow as a node\'s light - at its centre, fading, filling - renders as
     lights: [],
     root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'dark', inside: {
       sphere: { center: [0, 0, 1], radius: 3 },
-      ...(asLight ? { lights: [{ color: [3, 2, 1], fade: true, fill: 0.2 }] } : { material: 'glow' }),
+      ...(asLight ? { lights: [{ pos: [0, 0, 1], color: [3, 2, 1], range: 3, fill: 0.2 }] } : { material: 'glow' }),
       inside: ballIn, outside: floor,
     } },
   });

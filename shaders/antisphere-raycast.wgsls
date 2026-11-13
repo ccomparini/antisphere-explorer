@@ -145,16 +145,13 @@ struct Light {
   color : vec3<f32>,   // a point light's radiant power, so values may exceed 1;
                        // a directional light's irradiance, facing it
   pos_w : f32,         // pos's w: 1 a point light, 0 a directional one
-  // A point light of a node's (env its node), its LIGHT_ flags: at the
-  // node's centre rather than pos; fading to nothing at the node's surface.
-  // A glow is both. And fill: that fraction of it, unshadowed, as ambient
-  // light. (lightAt().)
+  // A point light's: its fill, that fraction of it, unshadowed, as ambient
+  // light; and its range, the distance it fades to nothing at, as
+  // (1 - d^2 / range^2)^2 - 0 for none. A glow is one with both, scoped to
+  // its node's region. (lightAt().)
   fill  : f32,
-  flags : u32,
+  range : f32,
 };
-
-const LIGHT_AT_CENTRE : u32 = 1u;
-const LIGHT_FADE      : u32 = 2u;
 
 // How far a ray may go: camera rays, and shadow rays towards a directional
 // light, which has no distance of its own.
@@ -669,57 +666,27 @@ fn firstLightOf(env : u32) -> u32 {
   return low;
 }
 
-// Where a node's light at its centre (LIGHT_AT_CENTRE) is, for a hit at
-// P: the node's centre, as an
-// offset from the node's anchor - in each direction the quadric curves,
-// where it turns, and in any it does not, P's own. So a sphere's or a
-// spheroid's is its centre, a cone's its apex, a cylinder's the point of
-// its axis nearest P (a glowing line) and a slab's the point of its middle
-// plane nearest P.
-fn glowCentre(nd : Node, P : vec3<f32>) -> vec3<f32> {
-  let R = P - nd.anchor;
-  let c = 0.5 * nd.linear;
-  let kAlong = nd.curvature_perp + nd.curvature_delta;
-  let kAcross = nd.curvature_perp;
-  let most = max(abs(kAlong), abs(kAcross));
-  var along = dot(nd.axis, R);
-  var across = R - along * nd.axis;
-  if (abs(kAlong) > 1e-6 * most) { along = -dot(nd.axis, c) / kAlong; }
-  if (abs(kAcross) > 1e-6 * most) { across = -(c - dot(nd.axis, c) * nd.axis) / kAcross; }
-  return along * nd.axis + across;
-}
-
-// How a node's light (LIGHT_FADE) is faded at P: (H(P) / H(at))^2, or 1
-// where the centre (an offset from the anchor) is not inside the node. No
-// inverse square: the caller's.
-fn glowFalloff(nd : Node, P : vec3<f32>, centre : vec3<f32>) -> f32 {
-  let atCentre = fAbout(nd, centre);
-  if (atCentre >= 0.0) { return 1.0; }
-  let ratio = clamp(fAt(nd, P) / atCentre, 0.0, 1.0);
-  return ratio * ratio;
-}
-
-// A light as it is at a hit, added to `out`: at its node's centre
-// (glowCentre()) if LIGHT_AT_CENTRE, faded by glowFalloff() if LIGHT_FADE -
-// a glow is both - and its fill: that light again, unshadowed, as ambient
-// light, let in by `through`, the transmit of the envs between (shading
-// takes albedo times ambient plus diffuse, so the fill goes in with the
-// diffuse). Then shaded as any light is (addLight()), its shadow rays
-// starting inside its env.
+// A light as it is at a hit, added to `out`: a point light faded by its
+// range, (1 - d^2 / range^2)^2, to nothing at it - so a light scoped to a
+// region has no edge where the region ends - and its fill: that light
+// again, unshadowed, as ambient light, let in by `through`, the transmit of
+// the envs between (shading takes albedo times ambient plus diffuse, so the
+// fill goes in with the diffuse). Then shaded as any light is
+// (addLight()), its shadow rays starting inside its env.
 fn lightAt(light : Light, through : f32, hit : Hit, shininess : f32, out : ptr<function, Direct>) {
   var lt = light;
-  if (light.flags != 0u || light.fill != 0.0) {
-    let nd = nodes[light.env];
-    var at = light.pos - nd.anchor;
-    if ((light.flags & LIGHT_AT_CENTRE) != 0u) { at = glowCentre(nd, hit.position); }
+  if (light.range > 0.0 || light.fill != 0.0) {
+    let d = light.pos - hit.position;
+    let d2 = dot(d, d);
     var falloff = 1.0;
-    if ((light.flags & LIGHT_FADE) != 0u) { falloff = glowFalloff(nd, hit.position, at); }
-    if (falloff <= 0.0) { return; }
-    lt.pos = nd.anchor + at;
+    if (light.range > 0.0) {
+      let w = max(0.0, 1.0 - d2 / (light.range * light.range));
+      falloff = w * w;
+      if (falloff <= 0.0) { return; }
+    }
     lt.color = light.color * falloff;
     if (light.fill != 0.0) {
-      let d = lt.pos - hit.position;
-      (*out).diffuse = (*out).diffuse + through * light.fill * lt.color / (1.0 + dot(d, d));
+      (*out).diffuse = (*out).diffuse + through * light.fill * lt.color / (1.0 + d2);
     }
   }
   addLight(lt, hit, shininess, out);
