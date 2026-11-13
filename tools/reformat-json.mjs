@@ -19,7 +19,10 @@ function main(argv) {
   for (const srcname of argv) {
     try {
       const src = fs.readFileSync(srcname);
-      const formatted = stringifyJSON(JSON.parse(src));
+      var formatted = stringifyJSON(JSON.parse(src));
+      if(!formatted.endsWith("\n")) {
+        formatted += "\n";
+      }
       verifyJSON(src, formatted);
       fs.writeFileSync(srcname, formatted);
     } catch (error) {
