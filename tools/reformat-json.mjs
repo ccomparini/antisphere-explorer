@@ -17,10 +17,14 @@ import { stringifyJSON, verifyJSON } from '../public/fbm-json.js';
 function main(argv) {
   const sources = [ ];
   for (const srcname of argv) {
-    const src = fs.readFileSync(srcname);
-    const formatted = stringifyJSON(JSON.parse(src));
-    verifyJSON(src, formatted);
-    fs.writeFileSync(srcname, formatted);
+    try {
+      const src = fs.readFileSync(srcname);
+      const formatted = stringifyJSON(JSON.parse(src));
+      verifyJSON(src, formatted);
+      fs.writeFileSync(srcname, formatted);
+    } catch (error) {
+      console.error(`Error reformatting ${srcname}: ${error}`);
+    }
   }
 }
 
