@@ -1,0 +1,64 @@
+{
+  "materials": {
+    "clay": {
+      "albedo": [ 0.72, 0.58, 0.32 ],
+      "kind": "glossy",
+      "shininess": 40,
+      "specular": 0.4
+    }
+  },
+  "lights": [
+    {
+      "direction": [ 1.6, -1.9, 2.2 ],
+      "color": [ 16000.000000000007, 15200.000000000007, 13600.000000000005 ]
+    }
+  ],
+  "camera": {
+    "position": [ -25, -100, 4.8 ],
+    "target": [ -1.35, 0, 1.65 ],
+    "minDistance": 0.75,
+    "maxDistance": 500
+  },
+  "objects": {
+    "model": {
+      "plane": {
+        "normal": [ 0, -2.8327694490731175e-16, -1 ],
+        "offset": -2.832769554952236e-15
+      },
+      "inside": {
+        "plane": {
+          "normal": [ 0, -0.8944271909999159, 0.447213595499958 ],
+          "offset": 8.944271909999161
+        },
+        "inside": {
+          "plane": {
+            "normal": [ -0.8944271909999159, 1.2668530342177145e-16, 0.4472135954999579 ],
+            "offset": 8.944271909999161
+          },
+          "inside": {
+            "plane": {
+              "normal": [ 0, 0.8944271909999157, 0.4472135954999578 ],
+              "offset": 8.944271909999157
+            },
+            "inside": {
+              "plane": {
+                "normal": [ 0.8944271909999159, 1.2668530342177145e-16, 0.4472135954999579 ],
+                "offset": 8.94427190999916
+              },
+              "inside": null,
+              "outside": null
+            },
+            "outside": null
+          },
+          "outside": null
+        },
+        "outside": null
+      },
+      "outside": null,
+      "material": "clay"
+    }
+  },
+  "root": {
+    "use": "model"
+  }
+}
