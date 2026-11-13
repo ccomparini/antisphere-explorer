@@ -21,6 +21,12 @@ machine, documentation and maths notation - is in the workspace's own
 - Before a change that could alter rendering, compare against a baseline:
   a pixel hash of a render of `public/scenes/scene.json`, and
   `node tools/bench-render.mjs 1920x1080` for speed.
+- JSON files are formatted as `node tools/reformat-json.mjs <file>` formats
+  them: readable, and its diffs stay readable as a file changes. A file
+  where that doesn't suit - large or deeply nested JSON, where the
+  whitespace adds up (a mesh's tree indents hundreds of levels deep) - may
+  be formatted however makes sense for it; anything under about 100 KB
+  uses the reformat-json format.
 
 ## Commands
 
