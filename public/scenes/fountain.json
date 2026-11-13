@@ -37,13 +37,11 @@
                 "axis": [ 0, 0, 1 ],
                 "radius": 3.4
               },
-              "material": "stone-4"
+              "material": "plaza"
             },
             {
-              "slab": {
-                "center": [ 0, 0, 0.075 ],
-                "axis": [ 0, 0, 1 ],
-                "thickness": 0.15
+              "plane": {
+                "offset": 0.125
               }
             }
           ]
@@ -56,13 +54,11 @@
                 "axis": [ 0, 0, 1 ],
                 "radius": 2.95
               },
-              "material": "stone-4"
+              "material": "plaza"
             },
             {
-              "slab": {
-                "center": [ 0, 0, 0.225 ],
-                "axis": [ 0, 0, 1 ],
-                "thickness": 0.15
+              "plane": {
+                "offset": 0.235
               }
             }
           ]
@@ -85,10 +81,8 @@
                   "material": "marble"
                 },
                 {
-                  "slab": {
-                    "center": [ 0, 0, 0.62 ],
-                    "axis": [ 0, 0, 1 ],
-                    "thickness": 0.64
+                  "plane": {
+                    "offset": 1.26
                   }
                 }
               ]
@@ -329,7 +323,7 @@
       "inside": {
         "plane": {
           "normal": [ 0, 0, 1 ],
-          "offset": 0.85
+          "offset": 1.2
         },
         "material": "water"
       }
