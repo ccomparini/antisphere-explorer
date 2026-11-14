@@ -1,7 +1,7 @@
 # Design: nodes divide space, materials fill it
 
-"Antisphere" is historical: nodes are now general quadrics of revolution
-(see `hyperconic.md`), and the name may change. This is the model the rest
+"Antisphere" is historical: nodes are now quadrics of revolution, plus the
+parabolic cylinder (see `hyperconic.md`), and the name may change. This is the model the rest
 of the code is built on, and the direction it is going.
 
 ## The model
@@ -9,8 +9,8 @@ of the code is built on, and the direction it is going.
 - **One kind of node.** Every node is a quadric that splits space in two:
   its inside, where H(R) < 0, and its outside. Complement negates every
   coefficient but the axis.
-- **Nodes divide space; materials say what is in it.** Solidity, and later
-  opacity and the like, are properties of a material, never of a node.
+- **Nodes divide space; materials say what is in it.** Solidity, opacity
+  and the like are properties of a material, never of a node.
 - **Inside:** a node's material fills its inside, unless nodes within that
   inside say something more specific. An absent inside child means "this
   node's own material".
@@ -97,6 +97,11 @@ acceleration structure to build, keep in step, or traverse.
   follows lit where it lies within it.
 
 ## Moving objects
+
+Movers and animation are where work is going on now. Things move in the
+anim viewer (`public/anim-viewer/`), an application of its own, not yet in
+the main explorer; physics, when we come back to it, builds on movers (see
+Planned, "Physics").
 
 A rigid motion changes only a node's coefficients (its quadric), not the
 tree's structure. So moving an object can mean rewriting its nodes'
@@ -193,67 +198,94 @@ bet that they stay there.
   any of its faces, but `trace()` names the node the cell ends at, so a
   textured hit walks to the face the ray crossed (`surfaceAt()`), as a
   mirror's and glass's do - for its patch, and its normal.
+- **To come:** mip-mapping, or something that does its job - nothing yet
+  filters a texture seen small, so a distant pattern aliases; and a
+  spherical projection alongside the planar one.
+
+## Stop masks: what a ray stops at
+
+Solidity, opacity and the like are bits of a material (its `flags`), and
+the compiler copies them into the high bits of each node's `material_id`
+(`compiled-format.md`, "`material_id`"), so `trace()` reads what a ray does
+in a region without looking the material up. `trace()` takes a mask,
+`stop_flags`, of which bits stop the ray: camera rays stop at
+`MATERIAL_OPTICAL`, shadow rays at `MATERIAL_CASTS_SHADOW`, physics' and
+the walk camera's rays (`castRays()`) at `MATERIAL_SOLID`. So glass is
+seen but walked into, and water is seen but casts no shadow.
+
+## Rays that continue from a hit
+
+A shadow ray starts exactly on the surface the camera ray hit (`trace()`'s
+`fromSurface` in `shaders/antisphere-raycast.wgsls`): every node that is
+that surface - its copies and complements, one id in `surfaces` - takes
+H = 0 at the start, so the crossing where the ray is never counts, the next
+one does (a crater's wall still shades its floor), and which side the ray
+is on goes by its direction: no offset, no tolerance.
+
+Reflection and refraction are the same thing, a new ray from the hit,
+turned back (staying on its side) or going on through (inside). For camera
+rays: mirrors (`reflective`) and glass (`iorGlass`, `iorWater`) - main()'s
+loop round its one trace() call site, MAX_BOUNCES deep, which only traces
+and bends, shading the last hit after it. A ray in glass traces in trace()'s
+extend mode, whose t1 is where the material ends; the surface it leaves by
+is found by walking down to that point (surfaceAt()), since the last node
+it was inside need not be the face (a slab bounded by a sphere inside it).
+What follows the glass comes back from trace() too, so glass into water
+bends by the ratio of their indices (IOR_RATIO, by the two IOR codes) and
+goes on inside; each medium colours the ray by the distance through it.
+Glass or water ending at something seen that is no medium - a stone in a
+pool, a vase's pedestal - is where the ray meets it: it is shaded there,
+seen through the medium (a mirror reflects, the ray staying in).
+
+## Lights, scoped by env
+
+An env node is a scope, and its lights belong to it: a hit is lit only by
+the lights of its env and those enclosing it. A hit's env is found by where
+it is - walking down from the root as the hit lies, the last node starting
+an env (one whose material has an ambient level - water, glossy and
+refracting, or an ambient-kind air - a glow region, or a node carrying
+`"lights"`) that holds it (`envAt()`) - not read from its node, so a
+subtree is the same in every env and compiled once, and one linked into
+several envs is lit by the one each hit is in. An env node's own `env` is
+the one enclosing it, and every light belongs to an env - a node's to its
+own, the scene's to env 0 - so a hit is lit only by the lights on its chain
+outward. An outer env's light - the sky's sun - reaches into a room through
+a window, as a torch inside cannot reach out: a torch lights its own room.
+
+- **Shadows within the scope.** A light's shadow rays start inside its
+  env (trace() takes a starting node, here the env node tagged as its
+  inside), so a light sees only what its env holds, and is shadowed by that alone (a
+  room's subtree, not the scene's). A node's inside subtree is all of its
+  inside region, so this is exact for a ray that stays inside; one that
+  leaves its scope is blocked. How a scope looks right is the scene
+  author's to decide.
+- **Cost by chain.** The lights are stored in order of env, so each env's
+  are a run, found by binary search: a hit pays for the lights on its
+  chain, not the scene's. A maze with many torches tests each hit against
+  its room's few.
+- **Glows.** A glow is one of a node's lights: a point light scoped to the
+  node's region, its `range` fading it to nothing within it, so the region
+  leaves no edge (a `"glowRegion"` material is shorthand for one at the
+  node's centre). The node says where a light reaches; the light says how
+  far.
+- **Lights and ambient levels.** Whether it has a direction is the line
+  between a light and a region's ambient level: a light shades surfaces by
+  which way they face and casts shadows, so it has a position; an ambient
+  level is the same for every surface at a point, and is the region's.
+  Ambient light passes between envs by each one's `transmit`: an env's
+  level is its own plus that fraction of the level around it, baked at
+  compile time into a copy of the env node's material; only what varies
+  from point to point - a light's `fill`, itself unshadowed - is added per
+  hit, in the same walk as the lights.
 
 ## Planned (agreed, not yet built)
 
-- **Material properties as bitfields** (solid, opaque, ...), with `trace()`
-  given a mask of which bits stop the ray. A camera ray and a physics query
-  can then treat glass differently, for example.
-- **Rays that continue from a hit.** A shadow ray already starts exactly on
-  the surface the camera ray hit (`trace()`'s `fromSurface` in
-  `shaders/antisphere-raycast.wgsls`): every node that is that surface -
-  its copies and complements, one id in `surfaces` - takes H = 0 at the
-  start, so the crossing where the ray is never counts, the next one does
-  (a crater's wall still shades its floor), and which side the ray is on
-  goes by its direction: no offset, no tolerance. Reflection, refraction
-  and transparency are the same thing, a new ray from the hit, turned back
-  (staying on its side) or going on through (inside); straight-through
-  transparency can instead resume the same trace past the hit, from the
-  segments on its stack. Several continuations from one hit are a bounded
-  per-pixel queue of weighted rays, run in a loop as trace()'s own stack
-  is. The stop mask above says which materials end each. Built so far,
-  for camera rays: mirrors (`reflective`) and glass (`iorGlass`,
-  `iorWater`) - main()'s loop round its one trace() call site,
-  MAX_BOUNCES deep, which only traces and bends, shading the last hit
-  after it. A ray in glass traces in trace()'s extend mode, whose t1 is
-  where the material ends; the surface it leaves by is found by walking
-  down to that point (surfaceAt()), since the last node it was inside need
-  not be the face (a slab bounded by a sphere inside it). What follows the
-  glass comes back from trace() too, so glass into water bends by the
-  ratio of their indices (IOR_RATIO, by the two IOR codes) and goes on
-  inside; each medium colours the ray by the distance through it.
-- **Lights scoped by env.** An env node is a scope, and its lights belong
-  to it: a hit is lit only by the lights of its env and those enclosing it,
-  each shadow ray traced from that env node rather than the root (a node's
-  inside subtree is all of its inside region, so this is exact for a ray
-  that stays inside). A shadow ray that leaves its scope is blocked - that
-  is the scoping: torches light their own room. A maze with many torches
-  then tests each hit against its room's few. Built so far: a hit's env
-  is found by where it is - walking down from the root as the hit lies, the
-  last node starting an env (an ambient material's region, or a node
-  carrying `"lights"`) that holds it (`envAt()`) - not read from its node,
-  so a subtree is the same in every env and compiled once, and one linked
-  into several envs is lit by the one each hit is in. An env node's own
-  `env` is the one enclosing it, and every light belongs to an env - a
-  node's to its own, the scene's to env 0 - so a hit is lit only by the
-  lights on its chain outward. An
-  outer env's light - the sky's sun - reaches into a room through a
-  window, as a torch inside cannot reach out. A light's shadow rays start
-  inside its env - trace() takes a starting node, here the env node tagged
-  as its inside - so a light sees only what its env holds, and is
-  shadowed by that alone (a room's subtree, not the scene's). How a scope
-  looks right is the scene author's to decide. A hit's lights are found
-  by walking its env chain: the lights are stored in order of env, so each
-  env's are a run, found by binary search - a hit pays for the lights on
-  its chain, not the scene's. A glow region (a `"glowRegion"` material) is
-  an env lit from within: its light is at its node's centre, fading to
-  nothing at the node's surface by the node's own implicit function, worked
-  out from the node at every hit, so moving or resizing the node changes
-  it. Ambient light passes between envs by each one's `transmit`: an env's
-  level is its own plus that fraction of the level around it, baked at
-  compile time into a copy of the env node's material; only what varies
-  from point to point - a glow region's `fill`, its glow unshadowed - is
-  added per hit, in the same walk as the lights.
+- **More from continued rays.** Several continuations from one hit - a
+  surface both reflecting and refracting - as a bounded per-pixel queue of
+  weighted rays, run in a loop as trace()'s own stack is; today a hit
+  continues as one ray. Straight-through transparency could instead resume
+  the same trace past the hit, from the segments on its stack. The stop
+  masks say which materials end each.
 - **Cheap shadows** (Chris's idea), for very complex scenes or slow GPUs:
   shadows that are less accurate but keep the cues they give. A trace flag,
   `MATERIAL_CHEAP_SHADOW` (scene key `cheapShadow`), set on a node near an
@@ -276,13 +308,15 @@ bet that they stay there.
   what some node names - or not reading what nothing needs - would keep the
   table to the scene. A library scoped to what its scenes need stays the
   author's responsibility either way.
-- **Libraries in the scene format** (Chris's idea, not yet designed). A
-  scene's `"library"`: a .json imported whole, what it holds going where
-  it belongs - its `"materials"` into the scene's materials, and in time
-  its objects (parts like `public/scenes/parts/bolt.json`) into the
-  scene's objects - in place of a reference per section
-  (`"materials": ["@lib/materials.json", ...]`). tools/maze.mjs's
-  `--library` is named for it.
+- **Libraries in the scene format** (Chris's idea; to revisit with the
+  other scene-format work). A scene's `"library"`: a .json imported whole,
+  what it holds going where it belongs - its `"materials"` into the
+  scene's materials, and in time its objects (parts like
+  `public/scenes/parts/bolt.json`) into the scene's objects - in place of
+  a reference per section. What is built is a variation: references per
+  section (`"materials": ["@lib/materials.json", ...]`, an object by
+  `"@parts/bolt.json#/objects/bolt"`). tools/maze.mjs's `--library` is named for
+  the idea.
 - **Play on past mistakes** (Chris: "more like a concert than surgery" -
   a player who stops at a wrong note spoils the concert, one who plays on
   may go unnoticed). An authoring slip should be warned of, with a
@@ -295,9 +329,6 @@ bet that they stay there.
   transform ignored, the default taken), and their tests turned from
   "throws" to "warns and falls back". A tool's check (`--no-check`) keeps
   failing on any of them.
-- **Portals.** A "material" on a surface - a doorway's cut - that passes rays
-  into another region, not necessarily connected: light through a doorway,
-  or a magic portal. A continued ray again, into the other region's subtree.
 - **Movers: what is left** (Chris and Claude, from the animation work).
   - **Leaving the reach.** A mover kept within its reach is right; one
     that leaves it (a figure walking across a maze) is grafted again, a
@@ -362,13 +393,18 @@ bet that they stay there.
   full cost: about 85% of the mannequin's 70 s. One big tree (the 871,414
   triangle dragon) never asks for any. To try: the exact, cheap
   `ballClear()` for a plane before a certificate; grafting a mesh member
-  without proofs (more copies, no certificates).
+  without proofs (more copies, no certificates). Chris suspects excess
+  wrapping there too - wrappers where the members don't need them - to
+  measure.
 - **Provenance for compiler-invented nodes.** Today they have none, which
   was enough for picking, since a hit never lands on one. With movers
   grafted rather than grouped, the static scene's dividers and wrappers
   never move; a mover's wrapper (`graftMover()`) has none either, which
   is enough while the reach is fixed. One that moves with its mover would
   need to record what it bounds.
-- **physlab** (`public/physlab/`): world objects, whose geometry becomes
-  the scene, and a camera riding on one of them. It is the testbed for
-  moving objects and the overlap queries.
+- **Physics, on movers.** physlab (`public/physlab/`) - world objects
+  whose geometry becomes the scene, a camera riding on one of them - was a
+  good experiment with moving objects and the overlap queries. When we
+  return to physics it builds on the movers instead: bodies as chains
+  grafted into the static scene, moved by their quadrics, the GPU overlap
+  test saying when they meet.
