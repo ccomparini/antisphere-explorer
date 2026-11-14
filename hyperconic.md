@@ -29,8 +29,9 @@ Generalized out to revolution quadrics: { n (vec3), k_par, k_perp, c (vec3), d }
 - c       -- vec3, position/linear term (free vector, NOT generally parallel to n)
 - d       -- scalar constant term of the quadratic equation
 
-Handles general quadrics.  9 total floats.  k_par and k_perp may be 0
-(both 0 is a plane) or negative.
+Handles the quadrics of revolution, and one family beyond them: the
+parabolic cylinder (see below, and "What the nine numbers can't reach").
+9 total floats.  k_par and k_perp may be 0 (both 0 is a plane) or negative.
 
 ## Common Setup
 
@@ -133,6 +134,61 @@ PARABOLIC CYLINDER (k_par>0, k_perp=0, c_perp!=0): the perpendicular linear term
   Example verified: c=(1,-2,0) (c_perp=(1,0,0)) -> x = (1-(y-2)^2)/2, a parabola
   extruded along z.
 
+### The parabolic cylinder, in full
+
+The one shape here that is not a surface of revolution: a parabola pushed
+straight along a line perpendicular to its plane, rather than spun about its
+own axis. A trough, or a half-pipe, where the paraboloid of revolution is a
+bowl. It curves in one direction only, and is straight in the other: its
+vertex is a line, and its focus a focal line (a solar trough focuses onto a
+pipe, where a dish focuses onto a point).
+
+With k_perp = 0, $\mathbf K = k_\parallel \vec n\vec n^{\mathsf T}$ is zero across
+the whole plane perpendicular to $\vec n$. In the paraboloid's case
+(k_par = 0) only the axis is in K's null space, and only c's axial part can
+survive completing the square; here the null space is a plane, and the part
+of $\vec c$ in it - $\vec c_\perp$ - can't be absorbed into a centre. So three
+directions play three roles:
+
+- $\vec n$, the axis, is the direction the parabola **curves** in. (In the
+  paraboloid, $\vec n$ is the axis of symmetry, the way it opens: the roles
+  swap.)
+- $\vec m = \vec c_\perp/|\vec c_\perp|$ is the direction the trough
+  **opens** towards, sign flipped: inside lies along $-\vec c_\perp$.
+- $\vec e = \vec n\times\vec m$ is the direction it **runs** along, which
+  $H$ ignores: $H(\vec r + t\vec e) = H(\vec r)$.
+
+Written about its vertex line, through $\vec v$, opening along $\vec m$, with
+focal length $f$ (the surface is $x^2 = 4fy$, as the paraboloid's is
+$|\vec r_\perp|^2 = 4fx$):
+
+$$
+\begin{aligned}
+x &= (\vec r - \vec v)\cdot\vec n, \qquad y = (\vec r - \vec v)\cdot\vec m \\
+H(\vec r) &= x^2 - 4fy \\
+k_\parallel &= 1, \qquad k_\perp = 0 \\
+\vec c &= -(\vec n\cdot\vec v)\,\vec n - 2f\,\vec m \\
+d &= (\vec n\cdot\vec v)^2 + 4f\,(\vec m\cdot\vec v)
+\end{aligned}
+$$
+
+which is `about(n, 1, 0, v, -4f m, 0)` in `public/antisphere-scene.js`'s
+terms. **Inside** ($H < 0$, so $y > x^2/4f$) is the region the trough
+cups: where water would stand in it. Going back from the nine numbers:
+$\vec m = -\vec c_\perp/|\vec c_\perp|$, $f = |\vec c_\perp|/(2k_\parallel)$,
+and the vertex line is where $\vec r\cdot\vec n = -c_n/k_\parallel$ and $H = 0$.
+
+The scene gallery's `exhibit-quadric` (`public/scenes/scene-gallery.json`)
+is one: $\vec n = \hat x$, $\vec c = (0, 0, -0.4)$, $d = 0.4$, so
+$H = x^2 - 0.8z + 0.4$ - vertex line $z = 0.5$ along $y$, opening up,
+$f = 0.2$. It has no named primitive; scenes write it as a `"quadric"`
+(`scene-format.md`, Primitives).
+
+Like the cylinder it is a **ruled surface** - every line along $\vec e$
+through a point of it lies in it - so a ray along $\vec e$ starting on it
+stays on it (see the next section). Unlike the cylinder, its rulings run in
+that one direction only.
+
 CYLINDER (k_par=0, k_perp>0, c_n=0): H depends only on R_perp -- a circle of
   radius sqrt(E/k_perp) in the perpendicular plane, swept along the ENTIRE axis
   (infinite right circular cylinder).
@@ -172,7 +228,8 @@ shape-category check (via sign(k_par), sign(k_perp), sign(E)), not just
 Since H(R(t)) is always at most degree-2 in t, a ray meets any of these surfaces
 in AT MOST 2 points (splitting the ray into at most 3 in/out/in intervals) --
 holds for every row in the table.
-EXCEPTION: cylinders, cones, and hyperboloids of ONE sheet are RULED surfaces
+EXCEPTION: cylinders, parabolic cylinders, cones, and hyperboloids of ONE
+sheet are RULED surfaces (planes and slabs trivially so)
 (contain entire embedded straight lines). If a ray aligns exactly with one such
 ruling, A=B=C=0 IDENTICALLY (not "zero roots" -- the whole polynomial vanishes,
 H(R(t))=0 for every t: the entire ray lies exactly on the surface). Ray-
@@ -237,6 +294,25 @@ complemented. The complement on its own is the negation above.
 
 Net result: revolution quadrics need no new transform math at all — every rule already
 derived for the spheroid case works.
+
+## What the nine numbers can't reach
+
+$\mathbf K$'s eigenvalues are always $(k_\parallel, k_\perp, k_\perp)$: two always
+equal. When $\mathbf K$ inverts, $\vec c$ only moves the centre, so the shape
+keeps the circular symmetry the repeated eigenvalue gives it - a quadric of
+revolution. When it doesn't, the part of $\vec c$ in $\mathbf K$'s null space
+survives: along the axis (k_par = 0) that is the paraboloid of revolution,
+still symmetric; across a plane (k_perp = 0) it is the parabolic cylinder,
+the one shape with no axis of revolution.
+
+Out of reach, since each needs three independent eigenvalues or a sign
+pattern such as $(+, -, 0)$: the triaxial ellipsoid; elliptic cylinders,
+cones and paraboloids; the hyperbolic paraboloid (the saddle); the
+hyperbolic cylinder; and a pair of intersecting planes. A full symmetric
+$\mathbf K$ would reach them all, at 6 numbers for the quadratic part instead of
+4, and at the cost of the cheap $\delta = 0$ test for spheres and planes.
+Relatedly, only similarity transforms keep a node in this form
+(`transforms.md`): a non-uniform scale or shear takes it out.
 
 ## Terminology note
 

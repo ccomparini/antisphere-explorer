@@ -110,7 +110,15 @@ near it, $H$ is about the signed distance to it. For example:
 
 so a sphere's inside is its ball, and a plane's inside the half-space behind
 its normal. The other shapes, and what transforms and complement do to the
-coefficients, are in `hyperconic.md`. A complemented node has every
+coefficients, are in `hyperconic.md`.
+
+**What the nine numbers reach.** $\mathbf K = k_\perp \mathbf I + (k_\parallel - k_\perp)\vec n\vec n^{\mathsf T}$
+has eigenvalues $(k_\parallel, k_\perp, k_\perp)$, two always equal, so every
+prim is a quadric of revolution - sphere, spheroid, cylinder, slab, cone,
+paraboloid, hyperboloid - except one family: with $k_\perp = 0$ and a part
+of $\vec c$ perpendicular to $\vec n$, a **parabolic cylinder** (a trough).
+Triaxial ellipsoids, elliptic shapes and saddles are out of reach
+(`hyperconic.md`, "What the nine numbers can't reach"). A complemented node has every
 coefficient but the axis negated.
 
 #### Reading the tree

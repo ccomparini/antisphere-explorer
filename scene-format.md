@@ -343,8 +343,9 @@ forms above it uses; a node with a shape, `"tangentTo"` and
 A node (other than `"use"`/`"group"`/`"union"`) needs exactly one of the
 shapes below. Naming none, or more than one, is an error.
 
-Every one of them is a quadric of revolution: a surface with an axis, a
-curvature along that axis and another around it. Internally a node stores
+Every named one is a quadric of revolution: a surface with an axis, a
+curvature along that axis and another around it. (`"quadric"` reaches one
+shape beyond them, the parabolic cylinder, below.) Internally a node stores
 nine numbers — `n` (unit axis), `k_par`, `k_perp`, `c`, `d` — with the
 implicit function
 
@@ -372,6 +373,29 @@ of the family is what having an axis buys.
 parabolic cylinder, say (`k_par` > 0, `k_perp` = 0, and a `c` with a
 component perpendicular to the axis). All-zero parameters have no surface at
 all and are rejected rather than silently rendering nothing.
+
+A **parabolic cylinder** is a trough: a parabola extruded along a straight
+line, where a paraboloid is a parabola spun into a bowl. `axis` is the
+direction it curves in; it opens along `-c`'s part perpendicular to the
+axis; it runs along the third direction, unchanged. Inside is the region
+the trough cups. With its vertex line through `v`, opening along a unit
+`m` perpendicular to `axis` (`n`), and focal length `f`:
+
+```
+k_par = 1, k_perp = 0
+c = -(n·v) n - 2f m
+d = (n·v)² + 4f (m·v)
+```
+
+The gallery's `exhibit-quadric` is one, opening up from a vertex line at
+`z = 0.5` along `y`, with `f = 0.2`:
+
+```json
+{ "quadric": { "axis": [ 1, 0, 0 ], "k_par": 1, "k_perp": 0,
+               "c": [ 0, 0, -0.4 ], "d": 0.4 } }
+```
+
+`hyperconic.md` ("The parabolic cylinder, in full") derives it.
 
 See `"complement"` under Transforms for turning a shape — or a whole
 subtree — inside out.
