@@ -286,20 +286,6 @@ a window, as a torch inside cannot reach out: a torch lights its own room.
   continues as one ray. Straight-through transparency could instead resume
   the same trace past the hit, from the segments on its stack. The stop
   masks say which materials end each.
-- **Cheap shadows** (Chris's idea), for very complex scenes or slow GPUs:
-  shadows that are less accurate but keep the cues they give. A trace flag,
-  `MATERIAL_CHEAP_SHADOW` (scene key `cheapShadow`), set on a node near an
-  object's root - most naturally its `"wrap"` node, which is otherwise
-  vacuum, so nothing looks different. Shadow rays get one more mask, as
-  `stop_flags` is one: entering a region with that bit is a hit at once,
-  without descending, so the object casts a shadow the shape of its
-  wrapper (a blob for the tori, holes not included). The rule that makes
-  it work: only a region the ray *enters* along its path counts, never one
-  it starts in - a point on the object starts its shadow ray inside its
-  own wrapper, so it still traverses the real geometry, and the object
-  shadows itself exactly; only other things get the cheap blob. Camera
-  rays pass 0. A third value of the camera's `shadows` (off, on, cheap)
-  could switch it as a quality setting, so one scene serves both.
 - **Only the materials a scene uses** (to revisit). Scenes start their
   materials with `"@lib/materials.json"`, and compileScene() packs every
   material it is given, so each scene carries the whole library's entries
