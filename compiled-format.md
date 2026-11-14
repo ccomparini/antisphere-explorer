@@ -99,14 +99,19 @@ $H = 0$ belongs to neither side (`DESIGN.md`, "Why inside is H < 0").
 `quadricAt()` and `gradientAt()` in `public/quadric.js` evaluate $H$ and
 $\nabla H$.
 
-The compiler scales each primitive so that $|\nabla H| = 1$ on its surface:
-near it, $H$ is about the signed distance to it. For example:
+$H$ matters only up to a positive multiple: its sign says inside or out,
+and its zero is the surface. The sphere and plane are scaled so that
+$|\nabla H| = 1$ on the surface, so near it $H$ is about the signed distance
+to it. The other shapes are not: each is as its constructor in
+`public/antisphere-scene.js` writes it (most with $d = -1$ about their
+centre), and $|\nabla H|$ varies over the surface - a cylinder's is $2/r$.
+For example:
 
 | primitive | $k_\parallel$, $k_\perp$ | $\vec c$ | $d$ |
 |---|---|---|---|
 | sphere, centre $\vec q$, radius $r$ | $\frac{1}{2r}$, $\frac{1}{2r}$ | $-\frac{1}{2r}\vec q$ | $\frac{1}{2r}(\vec q\cdot\vec q - r^2)$ |
 | plane, normal $\vec n$, offset $a$ | $0$, $0$ | $\frac{1}{2}\vec n$ | $-a$ |
-| cylinder through the origin, radius $r$ | $0$, $\frac{1}{2r}$ | $\vec 0$ | $-\frac{r}{2}$ |
+| cylinder, axis $\vec n$ through the origin, radius $r$ | $0$, $\frac{1}{r^2}$ | $\vec 0$ | $-1$ |
 
 so a sphere's inside is its ball, and a plane's inside the half-space behind
 its normal. The other shapes, and what transforms and complement do to the
