@@ -205,7 +205,7 @@
         }
       ]
     },
-    "_comment_tank": "A glass tank of water, open at the top. The glass is a box with its inside taken out (a hole, spelled as DESIGN.md says: the cavity complemented, carrying the glass), and the water is unioned in, grafted into the cavity. The water's box reaches to the middle of the glass walls, so its sides lie inside the glass, where no ray crosses them, and no face is two nodes: its one face of its own is the waterline. Air to water, water to glass, glass to air.",
+    "_comment_tank": "A glass tank of water, open at the top. The glass is a box with its inside taken out (a hole, spelled as DESIGN.md says: the cavity complemented, carrying the glass), and the water is unioned in, grafted into the cavity. The water's box reaches to the middle of the glass walls, so its sides lie inside the glass, where no ray crosses them, and no face is two nodes: its one face of its own is the waterline. Air to water, water to glass, glass to air.  There's a marble sphereoid in the water.",
     "tank": {
       "union": [
         {
@@ -266,30 +266,58 @@
           ]
         },
         {
-          "intersection": [
+          "union": [
             {
-              "slab": {
-                "center": [ 0, 0, 0 ],
-                "axis": [ 1, 0, 0 ],
-                "thickness": 1.38
-              },
-              "material": "water"
+              "material": "marble-warm",
+              "intersection": [
+                {
+                  "plane": {
+                    "normal": [ 0.25, 0.25, 0.5 ],
+                    "offset": 1.85
+                  }
+                },
+                {
+                  "plane": {
+                    "normal": [ -0.25, -0.25, -0.5 ],
+                    "offset": -0.15
+                  }
+                },
+                {
+                  "cylinder": {
+                    "center": [ 0, 0, 1.5 ],
+                    "axis": [ 0.25, 0.25, 0.5 ],
+                    "radius": 0.3
+                  }
+                }
+              ]
             },
             {
-              "slab": {
-                "center": [ 0, 0, 0 ],
-                "axis": [ 0, 1, 0 ],
-                "thickness": 1.38
-              },
-              "material": "water"
-            },
-            {
-              "slab": {
-                "center": [ 0, 0, 0.8300000000000001 ],
-                "axis": [ 0, 0, 1 ],
-                "thickness": 1.54
-              },
-              "material": "water"
+              "intersection": [
+                {
+                  "slab": {
+                    "center": [ 0, 0, 0 ],
+                    "axis": [ 1, 0, 0 ],
+                    "thickness": 1.38
+                  },
+                  "material": "water"
+                },
+                {
+                  "slab": {
+                    "center": [ 0, 0, 0 ],
+                    "axis": [ 0, 1, 0 ],
+                    "thickness": 1.38
+                  },
+                  "material": "water"
+                },
+                {
+                  "slab": {
+                    "center": [ 0, 0, 0.8300000000000001 ],
+                    "axis": [ 0, 0, 1 ],
+                    "thickness": 1.54
+                  },
+                  "material": "water"
+                }
+              ]
             }
           ]
         }
