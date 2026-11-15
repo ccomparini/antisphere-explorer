@@ -1049,7 +1049,11 @@ fn envAt(P : vec3<f32>, dir : vec3<f32>, surface : u32, region : u32) -> u32 {
   for (var depth = 0; depth < 64 && node != 0u && node != region; depth = depth + 1) {
     let nd = nodes[node];
     var inside = fAt(nd, P) < 0.0;
-    if (surfaces[node] == surface) { inside = dot(gradAt(nd, P), dir) < 0.0; }
+    if (surfaces[node] == surface) {
+      // this node is the same surface as the hit, so determine insideness
+      // based on the direction vs the normal:
+      inside = dot(gradAt(nd, P), dir) < 0.0;
+    }
     if (inside) {
       if ((nd.material_id & NODE_ENV) != 0u) { env = node; }
       node = nd.inside;
