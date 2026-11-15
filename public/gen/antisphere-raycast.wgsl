@@ -638,12 +638,14 @@ fn trace(
 // question without also rendering a frame: walk mode's ground probe,
 // picking in the editor, collision or other physics later.
 //
-// Each result is the Seg that trace() returns: node is the node whose
+// Each result is the Seg that trace() returns - node is the node whose
 // region the ray entered, or 0 for a miss; t0 how far along the ray and t1
-// where that segment ends, both meaningless for a miss. The host reads
-// these back via a mapAsync a frame or so after submitting, the same
-// latency shape as the profiler's timestamp queries elsewhere, through the
-// RayQuery and Seg classes generated from these declarations.
+// where that segment ends, both meaningless for a miss - and, for a hit,
+// the Hit hitOf() makes of it, as main() does: the point, the surface
+// crossed, the env, the normal. The host reads these back via a mapAsync
+// a frame or so after submitting, the same latency shape as the
+// profiler's timestamp queries elsewhere, through the RayQuery, RayResult,
+// Seg and Hit classes generated from these declarations.
 // ---------------------------------------------------------------------------
 
 struct RayQuery {
@@ -654,15 +656,23 @@ struct RayQuery {
   fromNode  : u32,         // if != 0, the node we're tracing -from-
 };
 
+struct RayResult {
+  seg : Seg,   // as trace() returns it
+  hit : Hit,   // hitOf()'s, for a hit; zeros for a miss
+};
+
 @group(0) @binding(8) var<storage, read> rayQueries : array<RayQuery>;
-@group(0) @binding(9) var<storage, read_write> rayResults : array<Seg>;
+@group(0) @binding(9) var<storage, read_write> rayResults : array<RayResult>;
 
 @compute @workgroup_size(64)
 fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   let i = gid.x;
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
-  rayResults[i] = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT, MATERIAL_SOLID, 0u);
+  var result : RayResult;
+  result.seg = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT, MATERIAL_SOLID, 0u);
+  if (result.seg.node != 0u) { result.hit = hitOf(q.origin, q.direction, result.seg, false); }
+  rayResults[i] = result;
 }
 
 // Surface parameterization from the node's own numbers. A plane gets a
@@ -734,8 +744,8 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
 // ray crossed, so this carries that index rather than copies of either.
 //
 // trace() answers with a Seg, which says only which node was entered and
-// how far along the ray. main() resolves that into a Hit for rays it
-// shades; nothing else needs the rest.
+// how far along the ray. hitOf() resolves that into a Hit: main() for the
+// rays it shades, and traceFrom() for the host's ray queries.
 struct Hit {
   position      : vec3<f32>,  // world coordinates
   normal        : vec3<f32>,  // outward, already faced toward the ray
@@ -1064,6 +1074,45 @@ fn envAt(P : vec3<f32>, dir : vec3<f32>, surface : u32, region : u32) -> u32 {
   return env;
 }
 
+// A ray's Seg from trace(), resolved into a Hit: where it is, the surface
+// crossed, the env, the normal facing the ray. For main()'s rays and for
+// traceFrom()'s alike, so the host sees a hit as the renderer does. In a
+// medium (main()'s extend mode) the hit is where the medium ends, at
+// seg.t1, and what follows it is in seg.t0, as a node.
+fn hitOf(origin : vec3<f32>, dir : vec3<f32>, seg : Seg, inMedium : bool) -> Hit {
+  var hit : Hit;
+  // In glass, where it ends. And there, or wherever the ray goes on - a
+  // mirror, glass - the surface it is on is surfaceAt()'s, not trace()'s
+  // node: that is the region's, which can be another surface at the
+  // same distance (a box-shaped hole's slab, through whose outside the
+  // ray came), and a continuation starting from the wrong surface
+  // (fromSurface) moves that one's roots, not its own.
+  hit.position = origin + select(seg.t0, seg.t1, inMedium) * dir;
+  hit.node = seg.node;
+  // The face the ray crossed, where it matters which: leaving glass, at
+  // a mirror, and on a texture placed face by face (NODE_FACE) - a
+  // mesh's solid cell is entered through any of its faces,
+  // but trace() names the node it ends at, and each face has its own
+  // patch of the texture.
+  if (inMedium || (nodes[seg.node].material_id & (MATERIAL_REFLECTIVE | MATERIAL_IOR | NODE_FACE)) != 0u) {
+    hit.node = surfaceAt(hit.position);
+  }
+  // The env of the region found, from the surface the ray crossed into
+  // it: where it entered (t0), or, in glass, where what follows the glass
+  // begins. Node 0 says whether the scene has any env (packNodes()): if
+  // not, none.
+  hit.env = 0u;
+  if ((nodes[0].material_id & NODE_ENV) != 0u) {
+    hit.env = envAt(hit.position, dir, surfaces[hit.node], select(seg.node, bitcast<u32>(seg.t0), inMedium));
+  }
+  let nd = nodes[hit.node];
+  hit.normal = normalize(gradAt(nd, hit.position));
+  if (dot(hit.normal, dir) > 0.0) { hit.normal = -hit.normal; }   // face the ray
+  hit.toViewer = -dir;
+  hit.surfaceCoords = frame(nd, hit.position) / materials[materialIndex(nd.material_id)].scale;
+  return hit;
+}
+
 // trace()'s extend_flags for a ray in glass: every bit of the material id
 // but the node's NODE_ENV, so the run is one material - glass meeting
 // other glass ends it, and the ray goes on coloured by the next (main()) -
@@ -1183,35 +1232,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     }
     if (seg.node == 0u) { break; }   // a miss: nothing more (black, for now)
 
-    // In glass, where it ends. And there, or wherever the ray goes on - a
-    // mirror, glass - the surface it is on is surfaceAt()'s, not trace()'s
-    // node: that is the region's, which can be another surface at the
-    // same distance (a box-shaped hole's slab, through whose outside the
-    // ray came), and a continuation starting from the wrong surface
-    // (fromSurface) moves that one's roots, not its own.
-    hit.position = origin + select(seg.t0, seg.t1, inMedium) * dir;
-    hit.node = seg.node;
-    // The face the ray crossed, where it matters which: leaving glass, at
-    // a mirror, and on a texture placed face by face (NODE_FACE) - a
-    // mesh's solid cell is entered through any of its faces,
-    // but trace() names the node it ends at, and each face has its own
-    // patch of the texture.
-    if (inMedium || (nodes[seg.node].material_id & (MATERIAL_REFLECTIVE | MATERIAL_IOR | NODE_FACE)) != 0u) {
-      hit.node = surfaceAt(hit.position);
-    }
-    // The env of the region found, from the surface the ray crossed into
-    // it: where it entered (t0), or, in glass, where what follows the glass
-    // begins. Node 0 says whether the scene has any env (packNodes()): if
-    // not, none.
-    hit.env = 0u;
-    if ((nodes[0].material_id & NODE_ENV) != 0u) {
-      hit.env = envAt(hit.position, dir, surfaces[hit.node], select(seg.node, bitcast<u32>(seg.t0), inMedium));
-    }
-    let nd = nodes[hit.node];
-    hit.normal = normalize(gradAt(nd, hit.position));
-    if (dot(hit.normal, dir) > 0.0) { hit.normal = -hit.normal; }   // face the ray
-    hit.toViewer = -dir;
-    hit.surfaceCoords = frame(nd, hit.position) / materials[materialIndex(nd.material_id)].scale;
+    hit = hitOf(origin, dir, seg, inMedium);
     if (bounce == 0u) { N = hit.normal; }
 
     if (inMedium) {
@@ -1239,7 +1260,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       // Neither mirror nor glass, or one with no bounce left: shaded (after
       // the loop) as what it is - a mirror or glass seen past MAX_BOUNCES
       // shows its own material, lit, rather than a black hole in the picture.
-      let id = nd.material_id;
+      let id = nodes[hit.node].material_id;
       if ((id & (MATERIAL_REFLECTIVE | MATERIAL_IOR)) == 0u || bounce == MAX_BOUNCES) { shadeHit = true; break; }
 
       // A mirror, reflected, its albedo the tint on what that ray sees;
@@ -1298,4 +1319,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1114}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1135}]

@@ -8,7 +8,7 @@
 // caller decides what to do about it. Nothing here touches renderer state.
 
 import { readSourceMap, mapLine } from './shader-map.js';
-import { Camera, RayQuery, Seg } from './gen/layouts.js';
+import { Camera, RayQuery, RayResult } from './gen/layouts.js';
 
 /**
  * Adapter, device, and the optional features this renderer can use.
@@ -199,11 +199,11 @@ export function createTraceBuffers(device, maxRays) {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     }),
     resultBuf: device.createBuffer({
-      size: maxRays * Seg.STRIDE,
+      size: maxRays * RayResult.STRIDE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     }),
     readBuf: device.createBuffer({
-      size: maxRays * Seg.STRIDE,
+      size: maxRays * RayResult.STRIDE,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     }),
   };

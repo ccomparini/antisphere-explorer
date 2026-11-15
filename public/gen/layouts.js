@@ -424,6 +424,97 @@ export class Seg {
   }
 }
 
+export class Hit {
+  static SIZE = 64;
+  static ALIGN = 16;
+  static STRIDE = 64;
+  static FIELDS = Object.freeze({
+    position: Object.freeze({ offset: 0, type: 'vec3<f32>' }),
+    normal: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
+    toViewer: Object.freeze({ offset: 32, type: 'vec3<f32>' }),
+    surfaceCoords: Object.freeze({ offset: 48, type: 'vec2<f32>' }),
+    node: Object.freeze({ offset: 56, type: 'u32' }),
+    env: Object.freeze({ offset: 60, type: 'u32' }),
+  });
+
+  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Hit.STRIDE)); }
+  static write(views, index, values) { Hit.writeAt(views, index * Hit.STRIDE, values); }
+  static read(views, index) { return Hit.readAt(views, index * Hit.STRIDE); }
+
+  static writeAt(views, byteOffset, values) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    if (values.position !== undefined) {
+      f32[w] = values.position[0];
+      f32[w + 1] = values.position[1];
+      f32[w + 2] = values.position[2];
+    }
+    if (values.normal !== undefined) {
+      f32[w + 4] = values.normal[0];
+      f32[w + 5] = values.normal[1];
+      f32[w + 6] = values.normal[2];
+    }
+    if (values.toViewer !== undefined) {
+      f32[w + 8] = values.toViewer[0];
+      f32[w + 9] = values.toViewer[1];
+      f32[w + 10] = values.toViewer[2];
+    }
+    if (values.surfaceCoords !== undefined) {
+      f32[w + 12] = values.surfaceCoords[0];
+      f32[w + 13] = values.surfaceCoords[1];
+    }
+    if (values.node !== undefined) {
+      u32[w + 14] = values.node;
+    }
+    if (values.env !== undefined) {
+      u32[w + 15] = values.env;
+    }
+  }
+
+  static readAt(views, byteOffset) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    return {
+      position: [f32[w], f32[w + 1], f32[w + 2]],
+      normal: [f32[w + 4], f32[w + 5], f32[w + 6]],
+      toViewer: [f32[w + 8], f32[w + 9], f32[w + 10]],
+      surfaceCoords: [f32[w + 12], f32[w + 13]],
+      node: u32[w + 14],
+      env: u32[w + 15],
+    };
+  }
+}
+
+export class RayResult {
+  static SIZE = 80;
+  static ALIGN = 16;
+  static STRIDE = 80;
+  static FIELDS = Object.freeze({
+    seg: Object.freeze({ offset: 0, type: 'Seg' }),
+    hit: Object.freeze({ offset: 16, type: 'Hit' }),
+  });
+
+  static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * RayResult.STRIDE)); }
+  static write(views, index, values) { RayResult.writeAt(views, index * RayResult.STRIDE, values); }
+  static read(views, index) { return RayResult.readAt(views, index * RayResult.STRIDE); }
+
+  static writeAt(views, byteOffset, values) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    if (values.seg !== undefined) {
+      Seg.writeAt(views, (w) * 4, values.seg);
+    }
+    if (values.hit !== undefined) {
+      Hit.writeAt(views, (w + 4) * 4, values.hit);
+    }
+  }
+
+  static readAt(views, byteOffset) {
+    const { f32, u32, i32 } = views, w = byteOffset >> 2;
+    return {
+      seg: Seg.readAt(views, (w) * 4),
+      hit: Hit.readAt(views, (w + 4) * 4),
+    };
+  }
+}
+
 export class OverlapQuery {
   static SIZE = 32;
   static ALIGN = 16;
@@ -1025,7 +1116,7 @@ export const BINDINGS = Object.freeze({
   "antisphere-raycast": Object.freeze({
     slots: Object.freeze({"cam":0,"nodes":1,"outTex":2,"lights":3,"materials":4,"textures":5,"texels":6,"surfaces":7,"rayQueries":8,"rayResults":9}),
     entries: Object.freeze({
-      "traceFrom": Object.freeze(["nodes","surfaces","rayQueries","rayResults"]),
+      "traceFrom": Object.freeze(["nodes","materials","surfaces","rayQueries","rayResults"]),
       "main": Object.freeze(["cam","nodes","outTex","lights","materials","textures","texels","surfaces"]),
     }),
   }),

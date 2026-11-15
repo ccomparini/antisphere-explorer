@@ -17,7 +17,7 @@ import { loadText } from './load.js';
 import {
   compileScene, compileLight, packNodes, packSurfaces, packMaterials, packLights, packTextures, readScene,
 } from './antisphere-scene.js';
-import { BINDINGS, Node, RayQuery, Seg, viewsOf } from './gen/layouts.js';
+import { BINDINGS, Node, RayQuery, RayResult, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
 
 const MAX_TRACE_RAYS = 16;
@@ -333,13 +333,17 @@ export class ASScene {
   }
 
   /**
-   * Cast rays on the GPU and read back what each one hit: { node, t0, t1 },
-   * parallel arrays with one entry per ray - the Seg that the shader's
-   * trace() returns for each:
+   * Cast rays on the GPU and read back what each one hit: { node, t0, t1,
+   * hits }, parallel arrays with one entry per ray. The first three are the
+   * Seg that the shader's trace() returns for each:
    *   node   the node whose region the ray entered, or 0 for a miss
    *   t0     how far along the ray it entered
    *   t1     where the segment it was found in ends (not a thickness)
    * node == 0 is the only miss test; t0 and t1 are meaningless for a miss.
+   * hits[i] is that hit resolved as the renderer resolves one (hitOf() in
+   * the shader), or null for a miss: { position, normal, toViewer,
+   * surfaceCoords, node, env } - node the surface crossed (which can differ
+   * from the region's), env the env it is in (0: the scene's).
    *
    * A ray is { origin, direction, tMin?, tMax?, fromNode? }: tMin defaults
    * to 1e-3 and tMax to 1000. fromNode is a node whose surface the ray
@@ -368,7 +372,7 @@ export class ASScene {
   async _cast(rays) {
     const { device, pipelines, _rayQuery: rq } = this.context;
     if (!pipelines || rays.length === 0 || !this.nodeBuf) {
-      return { node: new Uint32Array(0), t0: new Float32Array(0), t1: new Float32Array(0) };
+      return { node: new Uint32Array(0), t0: new Float32Array(0), t1: new Float32Array(0), hits: [] };
     }
     if (rays.length > rq.maxRays) {
       throw new Error(`castRays: ${rays.length} rays, capacity is ${rq.maxRays}`);
@@ -397,7 +401,7 @@ export class ASScene {
       }
     );
 
-    const bytes = rays.length * Seg.STRIDE;
+    const bytes = rays.length * RayResult.STRIDE;
     const enc = device.createCommandEncoder();
     const pass = enc.beginComputePass();
     pass.setPipeline(pipelines.traceFrom);
@@ -411,16 +415,18 @@ export class ASScene {
     const raw = rq.readBuf.getMappedRange(0, bytes).slice(0);
     rq.readBuf.unmap();
 
-    const hits = viewsOf(raw);
+    const views = viewsOf(raw);
     const n = rays.length;
     const node = new Uint32Array(n), t0 = new Float32Array(n), t1 = new Float32Array(n);
+    const hits = new Array(n);
     for (let i = 0; i < n; i++) {
-      const hit = Seg.read(hits, i);
-      node[i] = hit.node;
-      t0[i] = hit.t0;
-      t1[i] = hit.t1;
+      const { seg, hit } = RayResult.read(views, i);
+      node[i] = seg.node;
+      t0[i] = seg.t0;
+      t1[i] = seg.t1;
+      hits[i] = seg.node ? hit : null;
     }
-    return { node, t0, t1 };
+    return { node, t0, t1, hits };
   }
 
   /**
@@ -439,13 +445,14 @@ export class ASScene {
   }
 
   /**
-   * What one ray hits first: { node, t0, t1 }, or null for a miss. The node
-   * indexes this scene's nodes, and provenance[node] says which authored
-   * object it came from; the hit point is origin + t0 * direction.
+   * What one ray hits first: { node, t0, t1, hit }, or null for a miss. The
+   * node indexes this scene's nodes, and provenance[node] says which
+   * authored object it came from; the hit point is origin + t0 * direction.
+   * hit is the hit resolved, as castRays() gives it: its env among the rest.
    */
   async pick(origin, direction, opts = {}) {
-    const { node, t0, t1 } = await this.castRays([{ origin, direction, ...opts }]);
-    return node[0] ? { node: node[0], t0: t0[0], t1: t1[0] } : null;
+    const { node, t0, t1, hits } = await this.castRays([{ origin, direction, ...opts }]);
+    return node[0] ? { node: node[0], t0: t0[0], t1: t1[0], hit: hits[0] } : null;
   }
 
   destroyBuffers() {

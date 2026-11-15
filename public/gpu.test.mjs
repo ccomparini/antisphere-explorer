@@ -19,9 +19,9 @@ import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { writeSTL } from './stl.js';
 import { ASContext } from './as-context.js';
-import { readScene, withReferences } from './antisphere-scene.js';
+import { envAt, readScene, withReferences } from './antisphere-scene.js';
 import { matrixOf, separation } from './overlap.js';
-import { OverlapQuery, OverlapResult, viewsOf } from './gen/layouts.js';
+import { KIND_AMBIENT, OverlapQuery, OverlapResult, viewsOf } from './gen/layouts.js';
 import { sharedStructs } from '../tools/shader-build/layout.js';
 import { emitModule } from '../tools/shader-build/emit-js.js';
 import { buildAll } from '../tools/shader-build/index.js';
@@ -857,6 +857,48 @@ gpuTest('a maze shows each face its own material: tops, doorways and walls', asy
   });
   assert.ok(parts.stone > 20 && parts.oak > 0 && parts.slate > 20, JSON.stringify(parts));
   sc.destroy();
+});
+
+// -- a ray query's hit, resolved as the renderer resolves one --------------------------
+
+gpuTest('castRays() gives each hit resolved: its point, normal, surface and env', async () => {
+  // A ball in a warm ambient region (an env of its own) and a ball outside
+  // it, in the scene's env; everything in a pure division, so a ray past
+  // both hits nothing.
+  const sc = ctx.createScene({
+    materials: { ...MATERIALS, warm: { kind: 'ambient', albedo: [0.4, 0.3, 0.2] } },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { group: [
+      { sphere: { center: [-3, 0, 0], radius: 2 }, material: 'warm',
+        inside: { sphere: { center: [-3, 0, 0], radius: 0.5 }, material: 'clay' } },
+      { sphere: { center: [3, 0, 0], radius: 0.5 }, material: 'clay' },
+    ] } },
+  });
+  try {
+    const direction = [0, 1, 0];
+    const rays = [[-3, -10, 0], [3, -10, 0], [20, -10, 0]].map((origin) => ({ origin, direction }));
+    const { node, t0, hits } = await sc.castRays(rays);
+    assert.equal(hits[2], null, 'a miss has no hit');
+    assert.equal(node[2], 0);
+
+    const warm = sc.nodes.findIndex((n) => n.prim && sc.materials[n.material]?.kind === KIND_AMBIENT);
+    assert.ok(warm > 0, 'the warm region is a node');
+    const built = { nodes: sc.nodes, materials: sc.materials };
+    for (const [i, env] of [[0, warm], [1, 0]]) {
+      const hit = hits[i], { origin } = rays[i];
+      assert.ok(hit, `ray ${i} hits its ball`);
+      const expected = origin.map((o, k) => o + t0[i] * direction[k]);
+      hit.position.forEach((v, k) => assert.ok(Math.abs(v - expected[k]) < 1e-4, `position ${hit.position} vs ${expected}`));
+      assert.ok(Math.abs(hit.position[1] + 0.5) < 1e-4, `on the ball's near side: ${hit.position}`);
+      hit.normal.forEach((v, k) => assert.ok(Math.abs(v - [0, -1, 0][k]) < 1e-4, `facing the ray: ${hit.normal}`));
+      assert.equal(hit.node, node[i], 'the ball\'s own surface');
+      assert.equal(hit.env, env, `ray ${i}'s env`);
+      // As the CPU finds it, a little way into the ball.
+      assert.equal(envAt(built, hit.position.map((v, k) => v + 1e-3 * direction[k])), env, 'as envAt() on the CPU');
+    }
+  } finally {
+    sc.destroy();
+  }
 });
 
 // -- lights scoped by env, as rendered --------------------------------------------------

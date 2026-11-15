@@ -56,7 +56,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="probe">object <b id="probe-object">-</b><br>material <b id="probe-material">-</b></div>
+<div id="probe">object <b id="probe-object">-</b><br>material <b id="probe-material">-</b><br>env <b id="probe-env">-</b></div>
 <div id="crosshair"></div>
 <div id="hud"><b id="stat">starting…</b><br>orbit: drag to look · wheel to zoom<br>free/walk: mouse looks, click to grab it · &uarr;&darr; move<br>M camera mode · C reset camera · S shadows · I what's at the centre<br>R reload · W watch · P profiler · A ablation (⇧ forces full)<br>D debug view · B blit/direct · [ ] render scale<br><span id="note"></span></div>
 <div id="prof"><div id="prof-panel"></div><hr><div id="ladder"></div></div>
@@ -187,7 +187,8 @@ async function main() {
   // What's at the centre
   //
   // Each frame a ray down the middle of the view (the crosshair) asks what it
-  // hits: the object the node came from, and the node's material. The answer
+  // hits: the object the node came from, the node's material, and the env
+  // the hit is in (the node starting it, and its material). The answer
   // is a frame or two behind, and one ray is in flight at a time. Off during
   // an ablation run, so it measures the renderer alone.
   // -----------------------------------------------------------------------
@@ -197,16 +198,22 @@ async function main() {
     if (!probing || probeInFlight || ladder.running) return;
     probeInFlight = true;
     const { eye, forward } = camera.basis();
-    scene.pick(eye, forward).then((hit) => {
-      const prov = hit && scene.provenance?.[hit.node];
-      const where = !hit ? 'nothing'
-        : !prov ? `node ${hit.node} (the compiler's)`
+    // Where a node came from, as the scene names it.
+    const whereOf = (node) => {
+      const prov = scene.provenance?.[node];
+      return !prov ? `node ${node} (the compiler's)`
         : prov.owner === '@root' ? `root${prov.path ? ` / ${prov.path}` : ''}`
         : `${prov.owner}${prov.path ? ` / ${prov.path}` : ''}`;
+    };
+    scene.pick(eye, forward).then((hit) => {
       const material = hit ? scene.materials[scene.nodes[hit.node]?.material] : null;
-      el('probe-object').textContent = where;
+      const env = hit?.hit.env;
+      el('probe-object').textContent = hit ? whereOf(hit.node) : 'nothing';
       el('probe-material').textContent = !hit ? '-'
         : material?.missing ? `${material.name} (not defined: a stand-in)` : material?.name ?? '(none)';
+      el('probe-env').textContent = !hit ? '-'
+        : !env ? "the scene's"
+        : `${scene.materials[scene.nodes[env]?.material]?.name ?? '(no material)'} (${whereOf(env)})`;
     }, () => {}).finally(() => { probeInFlight = false; });
   }
 
