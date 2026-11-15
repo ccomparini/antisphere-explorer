@@ -1033,18 +1033,24 @@ fn surfaceAt(P : vec3<f32>) -> u32 {
 // outside each node by the sign of H(P) - the last node on the way that
 // starts an env (NODE_ENV) and holds P inside, until `region`, the node
 // whose region the ray found (trace()'s found.node), which is where the
-// walk was going. P is to be within that region, not on its edge - a
-// little way into the segment the ray found - so no sign on the way is a
-// toss-up. Found by where the hit is, not by a field of the node: so a
-// subtree linked into several envs - a figure half in water, half out -
-// is lit by the one each part of it is in, with no env baked into its
-// nodes. A handful of nodes, once per shaded hit; trace() keeps none.
-fn envAt(P : vec3<f32>, region : u32) -> u32 {
+// walk was going. P is on `surface`, the one the ray crossed into the
+// region at, where H is only rounding: so at a node that is that surface
+// (one id in `surfaces`, as trace()'s fromSurface) the side goes by `dir`,
+// the ray's way - in, if it goes against H's gradient - with no offset and
+// no tolerance. A different surface through the same point is the one
+// toss-up left, as it is for trace(). Found by where the hit is, not by a
+// field of the node: so a subtree linked into several envs - a figure half
+// in water, half out - is lit by the one each part of it is in, with no
+// env baked into its nodes. A handful of nodes, once per shaded hit;
+// trace() keeps none.
+fn envAt(P : vec3<f32>, dir : vec3<f32>, surface : u32, region : u32) -> u32 {
   var node = ROOT;
   var env = 0u;
   for (var depth = 0; depth < 64 && node != 0u && node != region; depth = depth + 1) {
     let nd = nodes[node];
-    if (fAt(nd, P) < 0.0) {
+    var inside = fAt(nd, P) < 0.0;
+    if (surfaces[node] == surface) { inside = dot(gradAt(nd, P), dir) < 0.0; }
+    if (inside) {
       if ((nd.material_id & NODE_ENV) != 0u) { env = node; }
       node = nd.inside;
     } else {
@@ -1181,14 +1187,6 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     // (fromSurface) moves that one's roots, not its own.
     hit.position = origin + select(seg.t0, seg.t1, inMedium) * dir;
     hit.node = seg.node;
-    // A little way into the region found: where the ray entered it (t0), or,
-    // in glass, where what follows the glass begins.
-    // Node 0 says whether the scene has any env (packNodes()): if not, none.
-    hit.env = 0u;
-    if ((nodes[0].material_id & NODE_ENV) != 0u) {
-      let into = select(seg.t0 + min(1e-3, 0.5 * (seg.t1 - seg.t0)), seg.t1 + 1e-3, inMedium);
-      hit.env = envAt(origin + into * dir, select(seg.node, bitcast<u32>(seg.t0), inMedium));
-    }
     // The face the ray crossed, where it matters which: leaving glass, at
     // a mirror, and on a texture placed face by face (NODE_FACE) - a
     // mesh's solid cell is entered through any of its faces,
@@ -1196,6 +1194,14 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     // patch of the texture.
     if (inMedium || (nodes[seg.node].material_id & (MATERIAL_REFLECTIVE | MATERIAL_IOR | NODE_FACE)) != 0u) {
       hit.node = surfaceAt(hit.position);
+    }
+    // The env of the region found, from the surface the ray crossed into
+    // it: where it entered (t0), or, in glass, where what follows the glass
+    // begins. Node 0 says whether the scene has any env (packNodes()): if
+    // not, none.
+    hit.env = 0u;
+    if ((nodes[0].material_id & NODE_ENV) != 0u) {
+      hit.env = envAt(hit.position, dir, surfaces[hit.node], select(seg.node, bitcast<u32>(seg.t0), inMedium));
     }
     let nd = nodes[hit.node];
     hit.normal = normalize(gradAt(nd, hit.position));
@@ -1288,4 +1294,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1108}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1114}]
