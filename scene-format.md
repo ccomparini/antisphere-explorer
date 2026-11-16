@@ -85,22 +85,27 @@ about +Z from looking along -Y, pitch tilting down. Those are still read.
 ## `gravity`
 
 Which way things fall, for whatever simulates the scene (physlab); the
-renderer and editor ignore it. Either the same everywhere:
+renderer and editor ignore it. Either the same everywhere, the
+acceleration `down` × `strength`:
 
 ```
 "gravity": { "down": [0, 0, -1], "strength": 9.81 }
+"gravity": { "down": [0, 0, -9.81] }
+"gravity": [0, 0, -9.81]
 ```
 
-or towards a point, as on a planet, falling off with the square of the
-distance:
+all three the same: `strength` defaults to 1, so `down` alone is the
+acceleration, its length the strength, and a bare `[x, y, z]` is short for
+`{ "down": [x, y, z] }`. Or towards a point, as on a planet, falling off
+with the square of the distance:
 
 ```
 "gravity": { "center": [0, 0, 0], "strength": 9.81, "radius": 500 }
 ```
 
-where `strength` is the acceleration at `radius` from `center` (so
-`strength * radius^2` is G times the mass). `down` needn't be unit length.
-Absent, gravity is uniform, 9.81 down -Z. "Up" for a simulation's camera is
+where `strength` (needed here) is the acceleration at `radius` from
+`center` (so `strength * radius^2` is G times the mass). Absent, gravity
+is uniform, 9.81 down -Z. "Up" for a simulation's camera is
 the opposite of gravity: against `down`, or away from `center`.
 
 ## `spawn`

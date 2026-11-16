@@ -232,7 +232,8 @@ env.
 - **`camera`** is the spec's `"camera"` unchanged (`ASCamera.setFromSpec()`
   reads it), or `null`.
 - **`gravity`** is always present: `{ kind: 'uniform', down, strength }`
-  (`down` unit; the default is $-\vec z$ at 9.81), or `{ kind: 'central',
+  (`down` unit, `strength` the acceleration - the spec's `strength` times
+  its `down`'s length; the default is $-\vec z$ at 9.81), or `{ kind: 'central',
   center, strength, radius, gm }`, with $gm$ = strength × radius².
 - **`spawn`** is `{ at, facing }`, or `null`.
 - **`overlaps`** lists, per group, the pairs of members its divisions could

@@ -2252,18 +2252,24 @@ export async function withReferences(spec, from, { warn } = {}) {
  *   { kind: 'uniform', down: unit [x, y, z], strength }  - the same everywhere
  *   { kind: 'central', center, strength, radius, gm }     - towards center,
  *     strength at radius, falling off as 1 / r^2 (gm = strength radius^2)
- * Absent, it is uniform, 9.81 down -Z. `at(path, message)` reports a problem.
+ * Uniform gravity is the acceleration down x strength: strength defaults
+ * to 1, so down alone is the acceleration, and a bare [x, y, z] is short
+ * for { down: [x, y, z] }. Absent, it is uniform, 9.81 down -Z. `at(path,
+ * message)` reports a problem.
  */
 export function parseGravity(def, at = (path, msg) => { throw new Error(`${path}: ${msg}`); }) {
   if (def === undefined) return { kind: 'uniform', down: [0, 0, -1], strength: 9.81 };
-  if (def === null || typeof def !== 'object' || Array.isArray(def)) at('gravity', 'must be an object');
-  if (!isPositive(def.strength)) at('gravity.strength', `must be a positive number, got ${JSON.stringify(def.strength)}`);
+  if (Array.isArray(def)) def = { down: def };
+  if (def === null || typeof def !== 'object') at('gravity', 'must be an object, or an acceleration [x, y, z]');
   if ('down' in def === 'center' in def) at('gravity', 'needs one of "down" (uniform) or "center" (central)');
   if ('down' in def) {
+    const strength = def.strength ?? 1;
+    if (!isPositive(strength)) at('gravity.strength', `must be a positive number, got ${JSON.stringify(def.strength)}`);
     const len = isVec3(def.down) ? Math.hypot(...def.down) : 0;
     if (!(len > 0)) at('gravity.down', `must be a direction [x, y, z], got ${JSON.stringify(def.down)}`);
-    return { kind: 'uniform', down: def.down.map((v) => v / len), strength: def.strength };
+    return { kind: 'uniform', down: def.down.map((v) => v / len), strength: strength * len };
   }
+  if (!isPositive(def.strength)) at('gravity.strength', `must be a positive number, got ${JSON.stringify(def.strength)}`);
   if (!isVec3(def.center)) at('gravity.center', `must be a point [x, y, z], got ${JSON.stringify(def.center)}`);
   if (!isPositive(def.radius)) at('gravity.radius', `must be a positive number, got ${JSON.stringify(def.radius)}`);
   return { kind: 'central', center: def.center.slice(), strength: def.strength, radius: def.radius,
