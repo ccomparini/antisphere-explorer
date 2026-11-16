@@ -21,7 +21,7 @@ import { writeSTL } from './stl.js';
 import { ASContext } from './as-context.js';
 import { envAt, readScene, withReferences } from './antisphere-scene.js';
 import { matrixOf, separation } from './overlap.js';
-import { KIND_AMBIENT, OverlapQuery, OverlapResult, viewsOf } from './gen/layouts.js';
+import { KIND_AMBIENT, MATERIAL_OPTICAL, MATERIAL_SOLID, OverlapQuery, OverlapResult, viewsOf } from './gen/layouts.js';
 import { sharedStructs } from '../tools/shader-build/layout.js';
 import { emitModule } from '../tools/shader-build/emit-js.js';
 import { buildAll } from '../tools/shader-build/index.js';
@@ -857,6 +857,42 @@ gpuTest('a maze shows each face its own material: tops, doorways and walls', asy
   });
   assert.ok(parts.stone > 20 && parts.oak > 0 && parts.slate > 20, JSON.stringify(parts));
   sc.destroy();
+});
+
+// -- a ray query stops at what its stopFlags say --------------------------------------
+
+gpuTest('castRays() stops each ray at what its stopFlags say: solid by default', async () => {
+  // Two lanes along +y, each a ball in front of a clay ball: in one a ghost
+  // (seen, not solid), in the other a glass wall no one sees (solid, not
+  // seen). What a ray hits first depends on what it stops at.
+  const sc = ctx.createScene({
+    materials: { ...MATERIALS, ghost: { albedo: [1, 1, 1], solid: false },
+                 unseen: { albedo: [1, 1, 1], optical: false } },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 100 }, material: null, inside: { group: [
+      { sphere: { center: [-3, -2, 0], radius: 0.5 }, material: 'ghost' },
+      { sphere: { center: [-3, 2, 0], radius: 0.5 }, material: 'clay' },
+      { sphere: { center: [3, -2, 0], radius: 0.5 }, material: 'unseen' },
+      { sphere: { center: [3, 2, 0], radius: 0.5 }, material: 'clay' },
+    ] } },
+  });
+  try {
+    const ray = (x, stopFlags) => ({ origin: [x, -10, 0], direction: [0, 1, 0], ...(stopFlags ? { stopFlags } : {}) });
+    const { node, t0 } = await sc.castRays([
+      ray(-3), ray(-3, MATERIAL_SOLID), ray(-3, MATERIAL_OPTICAL),
+      ray(3), ray(3, MATERIAL_SOLID), ray(3, MATERIAL_OPTICAL),
+    ]);
+    const near = 7.5, far = 11.5;               // the front ball's near side, the back one's
+    const expect = [far, far, near, near, near, far];
+    expect.forEach((t, i) => {
+      assert.ok(node[i], `ray ${i} hits something`);
+      assert.ok(Math.abs(t0[i] - t) < 1e-4, `ray ${i}: t0 ${t0[i]}, expected ${t}`);
+    });
+    const name = (i) => sc.materials[sc.nodes[node[i]].material].name;
+    assert.deepEqual([0, 2, 3, 5].map(name), ['clay', 'ghost', 'unseen', 'clay']);
+  } finally {
+    sc.destroy();
+  }
 });
 
 // -- a ray query's hit, resolved as the renderer resolves one --------------------------

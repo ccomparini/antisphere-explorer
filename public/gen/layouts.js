@@ -346,6 +346,7 @@ export class RayQuery {
     direction: Object.freeze({ offset: 16, type: 'vec3<f32>' }),
     tMax: Object.freeze({ offset: 28, type: 'f32' }),
     fromNode: Object.freeze({ offset: 32, type: 'u32' }),
+    stopFlags: Object.freeze({ offset: 36, type: 'u32' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * RayQuery.STRIDE)); }
@@ -373,6 +374,9 @@ export class RayQuery {
     if (values.fromNode !== undefined) {
       u32[w + 8] = values.fromNode;
     }
+    if (values.stopFlags !== undefined) {
+      u32[w + 9] = values.stopFlags;
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -383,6 +387,7 @@ export class RayQuery {
       direction: [f32[w + 4], f32[w + 5], f32[w + 6]],
       tMax: f32[w + 7],
       fromNode: u32[w + 8],
+      stopFlags: u32[w + 9],
     };
   }
 }

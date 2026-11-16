@@ -654,6 +654,7 @@ struct RayQuery {
   direction : vec3<f32>,   // the direction of the ray
   tMax      : f32,         // maximum distance along d to check
   fromNode  : u32,         // if != 0, the node we're tracing -from-
+  stopFlags : u32,         // trace()'s stop_flags: what the ray stops at
 };
 
 struct RayResult {
@@ -674,7 +675,7 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
     q.origin, q.direction,
     q.tMin, q.tMax,
     surfaces[q.fromNode], ROOT,
-    MATERIAL_SOLID, 0u
+    q.stopFlags, 0u
   );
   if (result.seg.node != 0u) {
     result.hit = hitOf(q.origin, q.direction, result.seg, false);
@@ -1066,11 +1067,7 @@ fn envAt(P : vec3<f32>, dir : vec3<f32>, surface : u32, region : u32) -> u32 {
   for (var depth = 0; depth < 64 && node != 0u && node != region; depth = depth + 1) {
     let nd = nodes[node];
     var inside = fAt(nd, P) < 0.0;
-    if (surfaces[node] == surface) {
-      // this node is the same surface as the hit, so determine insideness
-      // based on the direction vs the normal:
-      inside = dot(gradAt(nd, P), dir) < 0.0;
-    }
+    if (surfaces[node] == surface) { inside = dot(gradAt(nd, P), dir) < 0.0; }
     if (inside) {
       if ((nd.material_id & NODE_ENV) != 0u) { env = node; }
       node = nd.inside;
@@ -1326,4 +1323,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1142}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1143}]

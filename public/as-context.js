@@ -17,7 +17,7 @@ import { loadText } from './load.js';
 import {
   compileScene, compileLight, packNodes, packSurfaces, packMaterials, packLights, packTextures, readScene,
 } from './antisphere-scene.js';
-import { BINDINGS, Node, RayQuery, RayResult, viewsOf } from './gen/layouts.js';
+import { BINDINGS, MATERIAL_SOLID, Node, RayQuery, RayResult, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
 
 const MAX_TRACE_RAYS = 16;
@@ -345,12 +345,16 @@ export class ASScene {
    * surfaceCoords, node, env } - node the surface crossed (which can differ
    * from the region's), env the env it is in (0: the scene's).
    *
-   * A ray is { origin, direction, tMin?, tMax?, fromNode? }: tMin defaults
-   * to 1e-3 and tMax to 1000. fromNode is a node whose surface the ray
-   * starts on - a hit's node, for a ray leaving where another hit - which
-   * trace() then never takes the ray to hit at its start, though it may
-   * meet that surface again further on: give it with tMin 0, and no offset
-   * is needed.
+   * A ray is { origin, direction, tMin?, tMax?, fromNode?, stopFlags? }:
+   * tMin defaults to 1e-3 and tMax to 1000. fromNode is a node whose
+   * surface the ray starts on - a hit's node, for a ray leaving where
+   * another hit - which trace() then never takes the ray to hit at its
+   * start, though it may meet that surface again further on: give it with
+   * tMin 0, and no offset is needed. stopFlags is what the ray stops at:
+   * a region whose material has any of these trace flags (trace()'s
+   * stop_flags) - MATERIAL_SOLID, the default, for what is physically
+   * there; MATERIAL_OPTICAL for what a camera ray sees;
+   * MATERIAL_CASTS_SHADOW for what a shadow ray stops at.
    *
    * Uses traceFrom(), a second entry point in the raycast shader that shares
    * trace() with the renderer, so a caller costs more rays in a batch rather
@@ -389,6 +393,7 @@ export class ASScene {
       direction: r.direction,
       tMax: r.tMax ?? 1000,
       fromNode: r.fromNode ?? 0,
+      stopFlags: r.stopFlags ?? MATERIAL_SOLID,
     }));
     device.queue.writeBuffer(rq.rayBuf, 0, queries.buffer);
 

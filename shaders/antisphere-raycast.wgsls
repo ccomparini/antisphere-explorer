@@ -228,7 +228,8 @@ var<storage, read> surfaces : array<u32>;
 // `stop_flags` says what this ray stops at: a region whose material id has
 // any of these trace flags (see Node.material_id): MATERIAL_OPTICAL for a
 // camera ray, MATERIAL_CASTS_SHADOW for a shadow ray, MATERIAL_SOLID for
-// one that wants what is physically there (castRays()).
+// one that wants what is physically there (castRays()'s default; its
+// rays say their own, RayQuery.stopFlags).
 //
 // `extend_flags` is for a ray inside a medium (glass, water): it wants
 // where the medium ends, not where it starts. 0 is no extending; otherwise
@@ -472,6 +473,7 @@ struct RayQuery {
   direction : vec3<f32>,   // the direction of the ray
   tMax      : f32,         // maximum distance along d to check
   fromNode  : u32,         // if != 0, the node we're tracing -from-
+  stopFlags : u32,         // trace()'s stop_flags: what the ray stops at
 };
 
 struct RayResult {
@@ -492,7 +494,7 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
     q.origin, q.direction,
     q.tMin, q.tMax,
     surfaces[q.fromNode], ROOT,
-    MATERIAL_SOLID, 0u
+    q.stopFlags, 0u
   );
   if (result.seg.node != 0u) {
     result.hit = hitOf(q.origin, q.direction, result.seg, false);
