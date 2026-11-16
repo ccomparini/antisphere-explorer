@@ -388,6 +388,13 @@ a window, as a torch inside cannot reach out: a torch lights its own room.
   never move; a mover's wrapper (`graftMover()`) has none either, which
   is enough while the reach is fixed. One that moves with its mover would
   need to record what it bounds.
+- **Colours** (Chris and Claude). A scene's colours are linear numbers,
+  `"#RRGGBB"` as seen, or a hue times an intensity (`colorOf()`). As seen
+  means the engine's gamma, 2.2 - as `texel()` decodes and the output
+  encodes - not the piecewise sRGB curve, which the three could move to
+  together. There is no exposure or tone mapping yet: light past 1 clips.
+- **Rename `KIND_UNLIT`** (`"unlit"`). It shows its albedo whatever the
+  light - self-lit, not dark - and the name says the opposite.
 - **Physics, on movers.** physlab (`public/physlab/`) - world objects
   whose geometry becomes the scene, a camera riding on one of them - was a
   good experiment with moving objects and the overlap queries. When we

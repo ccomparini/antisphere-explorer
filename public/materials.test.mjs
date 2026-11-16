@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileScene } from './antisphere-scene.js';
+import { colorOf, compileScene } from './antisphere-scene.js';
 import { quadricAt } from './quadric.js';
 
 const withFloor = (floor) => ({
@@ -120,4 +120,49 @@ test('an alias of nothing, or round in a circle, or a definition that is no mate
     assert.equal(built.materials[byName[name]].missing, true, `${name}: the magenta stand-in`);
   }
   assert.notEqual(built.materials[byName.clay].missing, true);
+});
+
+// -- colours: [r, g, b], "#RRGGBB" as seen, { hue, intensity } -----------------------
+
+test('colorOf(): a vector as it is, hex as seen ((byte / 255)^2.2), hue times intensity', () => {
+  const grey = (128 / 255) ** 2.2;
+  assert.deepEqual(colorOf('#808080'), [grey, grey, grey]);
+  assert.deepEqual(colorOf('#ffffff'), [1, 1, 1]);
+  assert.deepEqual(colorOf('#FFFFFF'), [1, 1, 1]);
+  assert.deepEqual(colorOf('#000000'), [0, 0, 0]);
+  assert.deepEqual(colorOf('#Ff8000'), colorOf('#fF8000'));
+  const v = [0.2, 0.4, 0.6];
+  assert.deepEqual(colorOf(v), v);
+  assert.notEqual(colorOf(v), v, 'a copy');
+  assert.deepEqual(colorOf({ hue: '#ffffff', intensity: 40 }), [40, 40, 40]);
+  assert.deepEqual(colorOf({ hue: [1, 0.5, 0], intensity: 2 }), [2, 1, 0]);
+  assert.deepEqual(colorOf({ hue: [1, 1, 1] }), [1, 1, 1]);
+  assert.deepEqual(colorOf({ hue: '#ffffff', intensity: 0 }), [0, 0, 0]);
+  for (const bad of ['#12345', '808080', '#GG0000', '#8080808', [1, 2], [1, 2, 'x'], { intensity: 2 },
+                     { hue: '#ffffff', intensity: -1 }, { hue: '#ffffff', glow: 1 },
+                     { hue: { hue: [1, 1, 1] } }, null, 42]) {
+    assert.equal(colorOf(bad), null, JSON.stringify(bad));
+  }
+});
+
+test('materials and lights take a colour in any form; one that is none is refused, named', () => {
+  const built = compileScene({
+    materials: { clay: { albedo: '#808080', albedo2: { hue: [1, 0.5, 0], intensity: 0.5 } } },
+    lights: [{ pos: [0, 0, 5], color: { hue: '#ffffff', intensity: 40 } },
+             { direction: [0, 0, -1], color: '#000000' }],
+    root: { plane: { normal: [0, 0, 1], offset: 0 }, material: 'clay' },
+  });
+  const clay = built.materials.find((m) => m.name === 'clay');
+  assert.deepEqual(clay.albedo, colorOf('#808080'));
+  assert.deepEqual(clay.patternParams, [0.5, 0.25, 0]);
+  assert.deepEqual(built.lights.map((lt) => lt.color), [[40, 40, 40], [0, 0, 0]]);
+
+  for (const [spec, where] of [
+    [{ materials: { clay: { albedo: '808080' } } }, /materials\.clay\.albedo: must be \[r, g, b\], "#RRGGBB"/],
+    [{ materials: { clay: { albedo2: [1, 2] } } }, /materials\.clay\.albedo2: must be/],
+    [{ lights: [{ pos: [0, 0, 1], color: '#fff' }] }, /color must be \[r, g, b\], "#RRGGBB"/],
+  ]) {
+    assert.throws(() => compileScene({ materials: { clay: {} }, lights: [], root: { plane: { normal: [0, 0, 1], offset: 0 }, material: 'clay' }, ...spec }),
+                  where, JSON.stringify(spec));
+  }
 });

@@ -657,18 +657,20 @@ function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = nul
  * problem.
  */
 export function compileLight(lt, fail = (msg) => { throw new Error(msg); }) {
-  if (!lt || typeof lt !== 'object') fail('a light is { "pos" or "direction": [x, y, z], "color": [r, g, b] }');
-  if (!isVec3(lt.color)) fail('needs a color, [r, g, b]');
+  if (!lt || typeof lt !== 'object') fail('a light is { "pos" or "direction": [x, y, z], "color": a colour }');
+  const color = colorOf(lt.color);
+  if (lt.color === undefined) fail(`needs a color: [r, g, b], "#RRGGBB" or { "hue": either, "intensity": n }`);
+  if (!color) fail(`color ${COLOR_FORMS}, got ${JSON.stringify(lt.color)}`);
   if ((lt.pos === undefined) === (lt.direction === undefined)) {
     fail('needs one of "pos" (a point light) or "direction" (a directional light, the way its light travels)');
   }
   if (lt.pos !== undefined) {
     if (!isVec3(lt.pos)) fail(`pos must be a point [x, y, z], got ${JSON.stringify(lt.pos)}`);
-    return { pos: lt.pos.slice(), color: lt.color.slice(), pos_w: 1 };
+    return { pos: lt.pos.slice(), color, pos_w: 1 };
   }
   const length = isVec3(lt.direction) ? Math.hypot(...lt.direction) : 0;
   if (!(length > 0)) fail(`direction must be a direction [x, y, z], got ${JSON.stringify(lt.direction)}`);
-  return { pos: lt.direction.map((v) => -v / length), color: lt.color.slice(), pos_w: 0 };
+  return { pos: lt.direction.map((v) => -v / length), color, pos_w: 0 };
 }
 
 /**
@@ -2211,6 +2213,38 @@ export function sceneForMesh(path, bytes, { warn = console.warn } = {}) {
 const isVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x));
 const isPositive = (x) => typeof x === 'number' && Number.isFinite(x) && x > 0;
 
+// -- colours ---------------------------------------------------------------------------
+
+/**
+ * The gamma a colour as seen is encoded with: texel() in the raycast shader
+ * decodes a PNG's bytes with it, and the output encodes with its inverse,
+ * so "#RRGGBB" decoded with it renders as those bytes.
+ */
+export const DISPLAY_GAMMA = 2.2;
+
+/**
+ * A colour as a scene gives one, as linear [r, g, b] (scene-format.md,
+ * "Colours"), or null if it isn't one:
+ *   [r, g, b]                      linear, as it is
+ *   "#RRGGBB"                      as seen: each byte (byte / 255)^2.2
+ *   { hue, intensity }             hue (either of the above) times
+ *                                  intensity, 1 by default
+ */
+export function colorOf(v) {
+  if (isVec3(v)) return v.slice();
+  if (typeof v === 'string') {
+    const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(v);
+    return hex ? hex.slice(1).map((b) => (parseInt(b, 16) / 255) ** DISPLAY_GAMMA) : null;
+  }
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return null;
+  if (Object.keys(v).some((k) => k !== 'hue' && k !== 'intensity')) return null;
+  const hue = isVec3(v.hue) || typeof v.hue === 'string' ? colorOf(v.hue) : null, intensity = v.intensity ?? 1;
+  if (!hue || !(isPositive(intensity) || intensity === 0)) return null;
+  return hue.map((c) => c * intensity);
+}
+
+const COLOR_FORMS = 'must be [r, g, b], "#RRGGBB" or { "hue": either, "intensity": n }';
+
 /**
  * A scene file as everything that reads one takes it - the page
  * (ASContext.loadScene()), the editor, physlab, the tools: { spec, files,
@@ -2411,14 +2445,20 @@ export function compileScene(rawSpec, options = {}) {
       flags = flags & MATERIAL_OPTICAL ? flags | MATERIAL_CASTS_SHADOW : flags & ~MATERIAL_CASTS_SHADOW;
     }
     const { texture, projection } = textureOf(def, `materials.${name}`);
+    const colors = {};
+    for (const field of ['albedo', 'albedo2']) {
+      if (def[field] === undefined) continue;
+      colors[field] = colorOf(def[field]);
+      if (!colors[field]) at(`materials.${name}.${field}`, `${COLOR_FORMS}, got ${JSON.stringify(def[field])}`);
+    }
     table.push({
       name,                                      // for display (what a ray hit); not packed
       // Textured, its colour is the texel times albedo, white unless given.
-      albedo:  def.albedo  ?? (texture ? [1, 1, 1] : [0.7, 0.7, 0.7]),
+      albedo:  colors.albedo ?? (texture ? [1, 1, 1] : [0.7, 0.7, 0.7]),
       // The pattern's own numbers, as params are the kind's: its second
       // colour (albedo2); textured, where the texture lies instead
       // (textureTurns()): its offset, and its turn.
-      patternParams: texture ? [0, 0, 0] : (def.albedo2 ?? [0.3, 0.3, 0.3]),
+      patternParams: texture ? [0, 0, 0] : (colors.albedo2 ?? [0.3, 0.3, 0.3]),
       scale,
       opacity,
       kind:    kind.id,

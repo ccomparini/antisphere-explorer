@@ -973,6 +973,24 @@ async function renderPixels(spec, camera, W = 160, H = 80, options = {}) {
   return { at, W, H };
 }
 
+gpuTest('a colour as seen: an unlit "#808080" renders as 128, 128, 128', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A wall of it filling the view, nothing else: unlit shows its albedo as
+  // it is, so the output is the hex decoded and encoded again.
+  const spec = {
+    materials: { swatch: { kind: 'unlit', albedo: '#808080' }, rust: { kind: 'unlit', albedo: '#b7410e' } },
+    lights: [],
+    root: { plane: { normal: [0, -1, 0], offset: 0 }, material: 'swatch' },   // y > 0
+  };
+  const camera = new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic' });
+  const grey = await renderPixels(spec, camera, 32, 16);
+  for (const [col, row] of [[2, 2], [16, 8], [29, 13]]) {
+    grey.at(col, row).forEach((c) => assert.ok(Math.abs(c - 128) <= 1, `${grey.at(col, row)} at ${col}, ${row}`));
+  }
+  const rust = await renderPixels({ ...spec, root: { ...spec.root, material: 'rust' } }, camera, 32, 16);
+  rust.at(16, 8).forEach((c, i) => assert.ok(Math.abs(c - [0xb7, 0x41, 0x0e][i]) <= 1, `${rust.at(16, 8)}`));
+});
+
 gpuTest('a region\'s lights light it, and the scene\'s everything; not each other\'s region', async () => {
   const { ASCamera } = await import('./as-camera.js');
   const red = { pos: [-1.5, 0, 0], color: [60, 0, 0] };

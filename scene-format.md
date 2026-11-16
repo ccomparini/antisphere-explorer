@@ -145,8 +145,8 @@ and editing it edits that material.
 | field      | type                                          | default          | meaning |
 |------------|-----------------------------------------------|------------------|---------|
 | `kind`     | `"lambert"` \| `"glossy"` \| `"emissive"` \| `"unlit"` \| `"ambient"` \| `"glowRegion"` | `"lambert"` | shading model, see below |
-| `albedo`   | `[r, g, b]`                                    | `[0.7, 0.7, 0.7]`| base surface color |
-| `albedo2`  | `[r, g, b]`                                    | `[0.3, 0.3, 0.3]`| secondary color, used by the `"checker"` pattern |
+| `albedo`   | a colour (see Colours, below)                  | `[0.7, 0.7, 0.7]`| base surface color |
+| `albedo2`  | a colour                                       | `[0.3, 0.3, 0.3]`| secondary color, used by the `"checker"` pattern |
 | `pattern`  | `"flat"` \| `"checker"`                        | `"flat"`         | how `albedo`/`albedo2` are combined across the surface |
 | `scale`    | number                                          | `1`              | checker pattern tile size: larger is bigger tiles |
 | `solid`    | boolean                                         | `true`           | there physically: the walk camera, physics and picking stop at it |
@@ -221,6 +221,24 @@ Material `0` (vacuum/no material) is implicit and reserved; you never author
 it directly, but it is what a node resolves to when no material is named
 anywhere above it.
 
+### Colours
+
+Wherever a scene gives a colour - a material's `albedo` and `albedo2`, a
+light's `color` - it may be any of:
+
+```
+[0.2, 0.4, 0.6]                          linear, as the renderer adds light
+"#336699"                                as seen: a palette's colour
+{ "hue": "#ffd9a0", "intensity": 40 }    a hue, either of the above, times intensity
+```
+
+Numbers are linear light. A hex colour is the colour as it looks, as a
+PNG's pixels are: each byte becomes (byte / 255)^2.2, so a `"#808080"` that
+shows as it is (an `"unlit"` material) renders as `#808080`, and is about
+0.22, not 0.5. `intensity` (default 1) scales the hue, after any decoding:
+the way to give a light its power, or an ambient or glow region its level,
+with a palette's hue.
+
 ## `lights`
 
 An array of point lights and directional lights:
@@ -232,6 +250,8 @@ An array of point lights and directional lights:
 
 A point light is at `pos`, and its `color`'s magnitude is radiant power, not
 a 0–1 color — falloff is inverse square, so values commonly run well above 1.
+A colour's `intensity` says that directly: `{ "hue": "#ffd9a0", "intensity":
+40 }` (see Colours, under `materials`).
 
 A directional light is infinitely far away, like the sun: its light travels
 along `direction` (`[0, 0, -1]` shines straight down), its shadows are

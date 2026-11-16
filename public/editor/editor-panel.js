@@ -23,7 +23,7 @@ import { DEBUG_VIEWS } from '../as-renderer.js';
 import { CAMERA_MODES } from '../as-camera.js';
 import { ROOT, joinPath } from './scene-document.js';
 import { SHAPES } from './editor-commands.js';
-import { eulerRows, axisAngleOf, materialAlias } from '../antisphere-scene.js';
+import { eulerRows, axisAngleOf, materialAlias, colorOf, DISPLAY_GAMMA } from '../antisphere-scene.js';
 
 /**
  * True for controls that consume ordinary keystrokes. The editor's shortcuts
@@ -41,11 +41,14 @@ export function isTextEntry(elem) {
 // Conversions
 // ---------------------------------------------------------------------------
 
-// Albedo is a 0..1 colour and maps straight onto <input type=color>.
+// Albedo is a 0..1 linear colour; <input type=color> shows it encoded.
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
-const toHex = (rgb) => '#' + rgb.map((c) =>
-  Math.round(clamp01(c) * 255).toString(16).padStart(2, '0')).join('');
-const fromHex = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+// A picker's hex is the colour as seen, as a scene's "#RRGGBB" is
+// (colorOf()): a colour in any of a scene's forms, encoded for the
+// picker, and the picker's back to linear.
+const toHex = (color) => '#' + (colorOf(color) ?? [0, 0, 0]).map((c) =>
+  Math.round(clamp01(c) ** (1 / DISPLAY_GAMMA) * 255).toString(16).padStart(2, '0')).join('');
+const fromHex = colorOf;
 
 // Enough digits to be exact for anything typed, few enough that 0.1 + 0.2
 // doesn't show as 0.30000000000000004.
@@ -570,7 +573,7 @@ export function createPanel(root, ctx) {
   function lightView(i) {
     const light = () => doc.spec.lights[i];
     const split = () => {
-      const c = light().color;
+      const c = colorOf(light().color) ?? [0, 0, 0];
       const peak = Math.max(...c);
       if (peak > 0) hues[i] = c.map((x) => x / peak);
       return { hue: hues[i] ?? [1, 1, 1], intensity: peak };
