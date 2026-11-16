@@ -372,7 +372,11 @@ export class ASScene {
   async _cast(rays) {
     const { device, pipelines, _rayQuery: rq } = this.context;
     if (!pipelines || rays.length === 0 || !this.nodeBuf) {
-      return { node: new Uint32Array(0), t0: new Float32Array(0), t1: new Float32Array(0), hits: [] };
+      return {
+        node: new Uint32Array(0),
+        t0: new Float32Array(0),
+        t1: new Float32Array(0),
+        hits: [] };
     }
     if (rays.length > rq.maxRays) {
       throw new Error(`castRays: ${rays.length} rays, capacity is ${rq.maxRays}`);

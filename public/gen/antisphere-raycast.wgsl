@@ -670,8 +670,15 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
   var result : RayResult;
-  result.seg = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT, MATERIAL_SOLID, 0u);
-  if (result.seg.node != 0u) { result.hit = hitOf(q.origin, q.direction, result.seg, false); }
+  result.seg = trace(
+    q.origin, q.direction,
+    q.tMin, q.tMax,
+    surfaces[q.fromNode], ROOT,
+    MATERIAL_SOLID, 0u
+  );
+  if (result.seg.node != 0u) {
+    result.hit = hitOf(q.origin, q.direction, result.seg, false);
+  }
   rayResults[i] = result;
 }
 
@@ -1319,4 +1326,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1135}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1142}]

@@ -488,8 +488,15 @@ fn traceFrom(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (i >= arrayLength(&rayQueries)) { return; }
   let q = rayQueries[i];
   var result : RayResult;
-  result.seg = trace(q.origin, q.direction, q.tMin, q.tMax, surfaces[q.fromNode], ROOT, MATERIAL_SOLID, 0u);
-  if (result.seg.node != 0u) { result.hit = hitOf(q.origin, q.direction, result.seg, false); }
+  result.seg = trace(
+    q.origin, q.direction,
+    q.tMin, q.tMax,
+    surfaces[q.fromNode], ROOT,
+    MATERIAL_SOLID, 0u
+  );
+  if (result.seg.node != 0u) {
+    result.hit = hitOf(q.origin, q.direction, result.seg, false);
+  }
   rayResults[i] = result;
 }
 
