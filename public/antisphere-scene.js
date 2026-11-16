@@ -2254,20 +2254,23 @@ export async function withReferences(spec, from, { warn } = {}) {
  *     strength at radius, falling off as 1 / r^2 (gm = strength radius^2)
  * Uniform gravity is the acceleration down x strength: strength defaults
  * to 1, so down alone is the acceleration, and a bare [x, y, z] is short
- * for { down: [x, y, z] }. Absent, it is uniform, 9.81 down -Z. `at(path,
- * message)` reports a problem.
+ * for { down: [x, y, z] }. down defaults to -Z, so { strength: 0 } is no
+ * gravity, with up still +Z. Absent, it is uniform, 9.81 down -Z.
+ * `at(path, message)` reports a problem.
  */
 export function parseGravity(def, at = (path, msg) => { throw new Error(`${path}: ${msg}`); }) {
   if (def === undefined) return { kind: 'uniform', down: [0, 0, -1], strength: 9.81 };
   if (Array.isArray(def)) def = { down: def };
   if (def === null || typeof def !== 'object') at('gravity', 'must be an object, or an acceleration [x, y, z]');
-  if ('down' in def === 'center' in def) at('gravity', 'needs one of "down" (uniform) or "center" (central)');
-  if ('down' in def) {
-    const strength = def.strength ?? 1;
-    if (!isPositive(strength)) at('gravity.strength', `must be a positive number, got ${JSON.stringify(def.strength)}`);
-    const len = isVec3(def.down) ? Math.hypot(...def.down) : 0;
+  if ('down' in def && 'center' in def) at('gravity', 'takes one of "down" (uniform) or "center" (central), not both');
+  if (!('center' in def)) {
+    const strength = def.strength ?? 1, down = def.down ?? [0, 0, -1];
+    if (!(isPositive(strength) || strength === 0)) {
+      at('gravity.strength', `must be a number, 0 or more, got ${JSON.stringify(def.strength)}`);
+    }
+    const len = isVec3(down) ? Math.hypot(...down) : 0;
     if (!(len > 0)) at('gravity.down', `must be a direction [x, y, z], got ${JSON.stringify(def.down)}`);
-    return { kind: 'uniform', down: def.down.map((v) => v / len), strength: strength * len };
+    return { kind: 'uniform', down: down.map((v) => v / len), strength: strength * len };
   }
   if (!isPositive(def.strength)) at('gravity.strength', `must be a positive number, got ${JSON.stringify(def.strength)}`);
   if (!isVec3(def.center)) at('gravity.center', `must be a point [x, y, z], got ${JSON.stringify(def.center)}`);

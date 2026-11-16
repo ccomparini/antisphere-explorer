@@ -22,6 +22,13 @@ test('uniform gravity: strength defaults to 1, so down alone is the acceleration
   assert.deepEqual(gravity, { kind: 'uniform', down: [0, 0, -1], strength: 9.81 });
 });
 
+test('uniform gravity: down defaults to -Z, so strength 0 is none, up still +Z', () => {
+  assert.deepEqual(compileScene(scene({ gravity: { strength: 0 } })).gravity,
+                   { kind: 'uniform', down: [0, 0, -1], strength: 0 });
+  assert.deepEqual(compileScene(scene({ gravity: { strength: 1.62 } })).gravity,
+                   { kind: 'uniform', down: [0, 0, -1], strength: 1.62 });
+});
+
 test('gravity as a bare [x, y, z] is the acceleration, as { down: [x, y, z] }', () => {
   const { gravity } = compileScene(scene({ gravity: [0, -1.62, 0] }));
   assert.deepEqual(gravity, { kind: 'uniform', down: [0, -1, 0], strength: 1.62 });
@@ -41,8 +48,7 @@ test('bad gravity is refused, saying where', () => {
     [[0, 0], /gravity\.down/],
     ['down', /gravity: must be an object, or an acceleration/],
     [{ center: [0, 0, 0], radius: 1 }, /gravity\.strength/],
-    [{ down: [0, 0, -1], center: [0, 0, 0], strength: 1, radius: 1 }, /one of "down".*or "center"/],
-    [{ strength: 1 }, /one of "down".*or "center"/],
+    [{ down: [0, 0, -1], center: [0, 0, 0], strength: 1, radius: 1 }, /one of "down".*or "center".*not both/],
     [{ center: [0, 0], strength: 1, radius: 1 }, /gravity\.center/],
     [{ center: [0, 0, 0], strength: 1 }, /gravity\.radius/],
     [{ down: [0, 0, -1], strength: -2 }, /gravity\.strength/],

@@ -96,7 +96,14 @@ acceleration `down` × `strength`:
 
 all three the same: `strength` defaults to 1, so `down` alone is the
 acceleration, its length the strength, and a bare `[x, y, z]` is short for
-`{ "down": [x, y, z] }`. Or towards a point, as on a planet, falling off
+`{ "down": [x, y, z] }`. `down` defaults to `[0, 0, -1]`, so a scene with
+no gravity is
+
+```
+"gravity": { "strength": 0 }
+```
+
+and up is still +Z. Or towards a point, as on a planet, falling off
 with the square of the distance:
 
 ```
