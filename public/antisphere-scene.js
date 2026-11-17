@@ -131,6 +131,27 @@ function paraboloid(vertex, axis, focal) {
   return about(n, 0, 1, vertex, n.map((v) => -4 * focal * v), 0);
 }
 
+// The part of `v` across the unit `e`: what is left of it off e's line.
+function acrossOf(e, v) {
+  const a = dot3(v, e);
+  return v.map((x, i) => x - a * e[i]);
+}
+
+// A trough: a parabola pushed straight along `axis`, as a cylinder's circle
+// is - two parallel lines along it, its vertex line through `vertex` and its
+// focal line through `focus`. It opens from the one towards the other, the
+// focal length the distance between them: x^2 = 4 focal y in its own frame.
+// Any point of either line will do; only where `focus` is across `axis` from
+// `vertex` counts. The quadric's own axis is the way it curves, across both
+// (hyperconic.md, "The parabolic cylinder, in full").
+function parabolicCylinder(vertex, axis, focus) {
+  const e = unitVector(axis);
+  const p = acrossOf(e, focus.map((v, i) => v - vertex[i]));
+  const focal = Math.hypot(p[0], p[1], p[2]);
+  const m = focal > 0 ? p.map((v) => v / focal) : unitVector(acrossOf(e, [0, 0, 1]), [1, 0, 0]);
+  return about(cross3(m, e), 1, 0, vertex, m.map((v) => -4 * focal * v), 0);
+}
+
 // One sheet (a waist of `radius` about the axis) or two (opening away from
 // `centre` along it); semiAxial sets how fast they open.
 function hyperboloid(centre, axis, radius, semiAxial, sheets) {
@@ -293,6 +314,29 @@ export function fromParaboloid(axis, k_par, k_perp, linear, constant) {
     axis: axis.slice(),
     focal,
     inverseOk: open && k_perp > 0 && focal > 0,
+  };
+}
+
+/** parabolicCylinder(vertex, axis, focus) */
+export function fromParabolicCylinder(axis, k_par, k_perp, linear, constant) {
+  const scale = primScale(k_par, k_perp, linear, constant);
+  const along = dot3(linear, axis);
+  const across = linear.map((v, i) => v - along * axis[i]);
+  const pull = Math.hypot(across[0], across[1], across[2]);
+  // Curved along the quadric's axis only, and pulled across it:
+  // k_par x^2 + 2 c.r + d with c's part across, -|c_perp| m, opening it
+  // along m. It runs along the third direction, axis x m.
+  const trough = nearZero(k_perp, scale) && !nearZero(k_par, scale) && !nearZero(pull, scale);
+  const m = pull > 0 ? across.map((v) => -v / pull) : [0, 0, 1];
+  const x0 = nearZero(k_par, scale) ? 0 : -along / k_par;
+  const y0 = pull > 0 && !nearZero(k_par, scale) ? (constant - along * along / k_par) / (2 * pull) : 0;
+  const vertex = axis.map((v, i) => x0 * v + y0 * m[i]);
+  const focal = pull / (2 * Math.abs(k_par || 1));
+  return {
+    vertex,
+    axis: cross3(axis, m),
+    focus: vertex.map((v, i) => v + focal * m[i]),
+    inverseOk: trough && k_par > 0,
   };
 }
 
@@ -2615,6 +2659,22 @@ export function compileScene(rawSpec, options = {}) {
       if (def.focal <= 0) warn(path, 'needs a positive focal length');
       return paraboloid(def.vertex, def.axis, def.focal);
     },
+    parabolicCylinder: (def, path) => {
+      // Running along x, opening up from its vertex, as a paraboloid's
+      // defaults open: its focus a quarter above the vertex line.
+      def.vertex ??= [ 0.0, 0.0, 1.0 ];
+      def.axis   ??= [ 1.0, 0.0, 0.0 ];
+      const e = unitVector(def.axis);
+      const up = unitVector(acrossOf(e, [0, 0, 1]), [1, 0, 0]);
+      def.focus  ??= def.vertex.map((v, i) => v + 0.25 * up[i]);
+
+      const across = acrossOf(e, def.focus.map((v, i) => v - def.vertex[i]));
+      if (!(Math.hypot(...across) > 1e-12 * Math.max(1, Math.hypot(...def.focus)))) {
+        warn(path, 'focus is on the vertex line, so it opens no way: opening it a quarter up instead');
+        def.focus = def.vertex.map((v, i) => v + 0.25 * up[i]);
+      }
+      return parabolicCylinder(def.vertex, def.axis, def.focus);
+    },
     hyperboloid: (def, path) => {
       def.center    ??= [ 0.0, 0.0, 0.0 ];
       def.axis      ??= [ 0.0, 0.0, 1.0 ];
@@ -3444,6 +3504,18 @@ export function anchorOf({ axis: n, k_par, k_perp, linear: c, constant }) {
     // A paraboloid: along its axis to its vertex, where H = 0.
     const s = -quadricAt({ axis: n, k_par, k_perp, linear: c, constant }, a) / (2 * along);
     a = a.map((v, i) => v + s * n[i]);
+  }
+  // A parabolic cylinder: curved along the axis only, and pulled across it
+  // by c's part there, -|c_perp| m - along m to its vertex line, where H = 0,
+  // as a paraboloid's goes along its axis. A slab's c has no part across.
+  if (curvedAlong && !curvedAcross) {
+    const across = c.map((v, i) => v - along * n[i]);
+    const pull = Math.hypot(...across);
+    if (pull > 1e-9 * most * Math.max(1, Math.hypot(...a))) {
+      // Along m, H falls by 2 |c_perp| per unit: so H(a) / 2 |c_perp| along.
+      const s = quadricAt({ axis: n, k_par, k_perp, linear: c, constant }, a) / (2 * pull);
+      a = a.map((v, i) => v - s * across[i] / pull);
+    }
   }
   // Its size: how far its surface is from the centre, as for a sphere
   // (H = k (d^2 - r^2)) - 0 for a cone or a paraboloid, whose surface goes

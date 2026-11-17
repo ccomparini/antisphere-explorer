@@ -276,7 +276,7 @@
         }
       ]
     },
-    "_comment_9": "quadric: a parabolic cylinder, which has no name of its own.",
+    "_comment_9": "quadric: a parabolic cylinder, written as its nine numbers (\"parabolicCylinder\" names it).",
     "_comment_9b": "Curvature along the axis only, and a c with a component off it:",
     "_comment_9c": "H = x^2 - 0.8 z + 0.4, a parabola in x and z extruded along y.",
     "exhibit-quadric": {

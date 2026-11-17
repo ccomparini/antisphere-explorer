@@ -89,6 +89,18 @@ export const SHAPES = {
       capped({ paraboloid: { vertex: [0, 0, -0.6], axis: UP, focal: 0.12 } }, 1.2, material),
   },
 
+  // A trough, running along x: capped in height as the others are, and in
+  // length by a second slab, since it runs on forever along x as well.
+  parabolicCylinder: {
+    label: 'Parabolic cylinder',
+    make: (material) => {
+      const shape = capped({ parabolicCylinder: { vertex: [0, 0, -0.6], axis: [1, 0, 0],
+                                                  focus: [0, 0, -0.48] } }, 1.2, material);
+      shape.inside.inside = { slab: { center: [0, 0, 0], axis: [1, 0, 0], thickness: 1.2 } };
+      return shape;
+    },
+  },
+
   hyperboloid: {
     label: 'Hyperboloid',
     make: (material) =>

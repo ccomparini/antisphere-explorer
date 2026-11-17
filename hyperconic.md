@@ -181,8 +181,14 @@ and the vertex line is where $\vec r\cdot\vec n = -c_n/k_\parallel$ and $H = 0$.
 The scene gallery's `exhibit-quadric` (`public/scenes/scene-gallery.json`)
 is one: $\vec n = \hat x$, $\vec c = (0, 0, -0.4)$, $d = 0.4$, so
 $H = x^2 - 0.8z + 0.4$ - vertex line $z = 0.5$ along $y$, opening up,
-$f = 0.2$. It has no named primitive; scenes write it as a `"quadric"`
-(`scene-format.md`, Primitives).
+$f = 0.2$. Scenes name it `"parabolicCylinder"` (`scene-format.md`, Primitives),
+by two points and the way it runs: `vertex` is $\vec v$, any point of the
+vertex line; `axis` is $\vec e$, as a cylinder's axis is; and `focus` is
+any point of the focal line, $\vec v + f\,\vec m$ give or take a multiple of
+$\vec e$ - so $f\,\vec m$ is the part of `focus` − `vertex` across $\vec e$,
+and nothing need be perpendicular. The quadric's own axis, $\vec n$, is
+$\vec m\times\vec e$. `fromParabolicCylinder()` in
+`public/antisphere-scene.js` reads them back from the nine numbers.
 
 Like the cylinder it is a **ruled surface** - every line along $\vec e$
 through a point of it lies in it - so a ray along $\vec e$ starting on it

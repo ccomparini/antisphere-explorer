@@ -859,6 +859,28 @@ gpuTest('a maze shows each face its own material: tops, doorways and walls', asy
   sc.destroy();
 });
 
+// -- a parabolic cylinder, as traced ------------------------------------------------
+
+gpuTest('a parabolic cylinder is hit where x^2 = 4 focal y says, along its whole length', async () => {
+  // A trough along y, opening up (+z) from a vertex line at z = 0.5 to a
+  // focal line 0.2 above: z = 0.5 + x^2 / 0.8. Rays come up from below into
+  // what it cups.
+  const sc = scene({ parabolicCylinder: { vertex: [0, 0, 0.5], axis: [0, 1, 0], focus: [0, 0, 0.7] },
+                     material: 'clay' });
+  try {
+    const rays = [[0, 0], [0.4, 0], [-0.4, 3], [1, -7], [0.4, 400]].map(([x, y]) =>
+      ({ origin: [x, y, -10], direction: [0, 0, 1] }));
+    const { node, t0 } = await sc.castRays(rays);
+    rays.forEach(({ origin: [x] }, i) => {
+      assert.ok(node[i], `ray ${i} hits`);
+      const expected = 10 + 0.5 + x * x / 0.8;
+      assert.ok(Math.abs(t0[i] - expected) < 1e-4, `ray ${i}: t0 ${t0[i]}, expected ${expected}`);
+    });
+  } finally {
+    sc.destroy();
+  }
+});
+
 // -- a ray query stops at what its stopFlags say --------------------------------------
 
 gpuTest('castRays() stops each ray at what its stopFlags say: solid by default', async () => {

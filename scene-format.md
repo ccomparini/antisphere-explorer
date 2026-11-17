@@ -375,9 +375,10 @@ forms above it uses; a node with a shape, `"tangentTo"` and
 A node (other than `"use"`/`"group"`/`"union"`) needs exactly one of the
 shapes below. Naming none, or more than one, is an error.
 
-Every named one is a quadric of revolution: a surface with an axis, a
-curvature along that axis and another around it. (`"quadric"` reaches one
-shape beyond them, the parabolic cylinder, below.) Internally a node stores
+Every named one but the parabolic cylinder is a quadric of revolution: a
+surface with an axis, a curvature along that axis and another around it.
+The parabolic cylinder, a trough, is the one shape the nine numbers reach
+beyond them. Internally a node stores
 nine numbers — `n` (unit axis), `k_par`, `k_perp`, `c`, `d` — with the
 implicit function
 
@@ -398,6 +399,7 @@ of the family is what having an axis buys.
 | `"slab"` | `center`, `axis`, `thickness` > 0 | the solid between two parallel planes perpendicular to `axis` |
 | `"cone"` | `apex`, `axis`, `slope` > 0 | double cone; `slope` is radius gained per unit along the axis, so `1` is 45° |
 | `"paraboloid"` | `vertex`, `axis`, `focal` > 0 | opens along `+axis`; the surface is \|R⊥\|² = 4·`focal`·x |
+| `"parabolicCylinder"` | `vertex`, `axis`, `focus` | a trough: a parabola pushed straight along `axis`, as a cylinder's circle is. `vertex` is a point of its vertex line and `focus` a point of its focal line, both running along `axis`; it opens from the one towards the other, their distance apart its focal length. Either point may be anywhere along its line. A `focus` on the vertex line is warned of, and opened a quarter up instead |
 | `"hyperboloid"` | `center`, `axis`, `radius` > 0, `semiAxial` > 0, `sheets` (`1` or `2`, default `1`) | one sheet has a waist of `radius` about the axis; two sheets open away from `center` along it |
 | `"quadric"` | `axis`, `k_par`, `k_perp`, `c`, `d` | the nine numbers directly, for anything the named shapes don't cover |
 
@@ -406,12 +408,12 @@ parabolic cylinder, say (`k_par` > 0, `k_perp` = 0, and a `c` with a
 component perpendicular to the axis). All-zero parameters have no surface at
 all and are rejected rather than silently rendering nothing.
 
-A **parabolic cylinder** is a trough: a parabola extruded along a straight
-line, where a paraboloid is a parabola spun into a bowl. `axis` is the
-direction it curves in; it opens along `-c`'s part perpendicular to the
-axis; it runs along the third direction, unchanged. Inside is the region
-the trough cups. With its vertex line through `v`, opening along a unit
-`m` perpendicular to `axis` (`n`), and focal length `f`:
+A parabolic cylinder has a name of its own, `"parabolicCylinder"`, above.
+As a `"quadric"`, `axis` is the direction it curves in, across the named
+one's `axis`, which is the direction it runs; it opens along `-c`'s part
+perpendicular to the quadric's axis. With its vertex line
+through `v`, opening along a unit `m` perpendicular to `axis` (`n`), and
+focal length `f`:
 
 ```
 k_par = 1, k_perp = 0
@@ -420,7 +422,8 @@ d = (n·v)² + 4f (m·v)
 ```
 
 The gallery's `exhibit-quadric` is one, opening up from a vertex line at
-`z = 0.5` along `y`, with `f = 0.2`:
+`z = 0.5` along `y`, with `f = 0.2` - the same surface as
+`{ "parabolicCylinder": { "vertex": [0, 0, 0.5], "axis": [0, 1, 0], "focus": [0, 0, 0.7] } }`:
 
 ```json
 { "quadric": { "axis": [ 1, 0, 0 ], "k_par": 1, "k_perp": 0,
@@ -462,6 +465,8 @@ unbounded ones are worth stating plainly:
   cup is a cone intersected with a half-space, i.e. a plane in its `inside`.
 - **paraboloid**: inside is the cupped region the surface encloses, opening
   along `+axis` from the vertex.
+- **parabolic cylinder**: likewise, the region the trough cups - where water
+  would stand in it - opening from its vertex line towards its focus.
 - **hyperboloid, one sheet**: inside is the region around the axis, inside
   the waist.
 - **hyperboloid, two sheets**: inside is the two cupped regions; the gap

@@ -7,7 +7,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileScene, fromSphere, fromPlane, fromSpheroid, fromCylinder,
-         fromSlab, fromCone, fromParaboloid, fromHyperboloid } from './antisphere-scene.js';
+         fromSlab, fromCone, fromParaboloid, fromParabolicCylinder, fromHyperboloid,
+         anchorOf } from './antisphere-scene.js';
+import { quadricAt } from './quadric.js';
 
 const primOf = (shape, extra = {}) =>
   compileScene({ materials: {}, lights: [], root: { ...shape, ...extra } }).nodes[1].prim;
@@ -197,4 +199,69 @@ test('a quadric written by hand inverts to whatever it really is', () => {
   assert.equal(invert(fromSlab, trough).inverseOk, false, 'c is not along the axis');
   assert.equal(invert(fromParaboloid, trough).inverseOk, false);
   assert.equal(invert(fromCylinder, trough).inverseOk, false);
+});
+
+// -- the parabolic cylinder ------------------------------------------------------
+
+// Its vertex and focus come back as points of its vertex and focal lines,
+// not necessarily the ones given: the same lines, so apart only along them.
+const sameLine = (got, point, axis) => {
+  const d = got.map((v, i) => v - point[i]);
+  const a = d[0] * axis[0] + d[1] * axis[1] + d[2] * axis[2];
+  closeVec(d.map((v, i) => v - a * axis[i]), [0, 0, 0]);
+};
+
+test('parabolic cylinder, plain and moved, turned and scaled', () => {
+  const shape = { parabolicCylinder: { vertex: [1, 2, 0.5], axis: [0, 1, 0], focus: [1, 7, 0.7] } };
+  const got = invert(fromParabolicCylinder, primOf(shape));
+  assert.equal(got.inverseOk, true);
+  closeAxis(got.axis, [0, 1, 0]);
+  sameLine(got.vertex, [1, 2, 0.5], [0, 1, 0]);
+  sameLine(got.focus, [1, 2, 0.7], [0, 1, 0]);
+
+  const moved = invert(fromParabolicCylinder, primOf(shape,
+    { scale: 2, rotate: { axis: [1, 0, 0], degrees: 90 }, translate: [3, 0, 0] }));
+  assert.equal(moved.inverseOk, true);
+  // Scaled by 2 about the origin, then +y onto +z and +z onto -y, then moved.
+  closeAxis(moved.axis, [0, 0, 1]);
+  sameLine(moved.vertex, [5, -1, 4], [0, 0, 1]);
+  sameLine(moved.focus, [5, -1.4, 4], [0, 0, 1]);
+});
+
+test('a parabolic cylinder is the gallery\'s quadric by name; the other inverses say no', () => {
+  const named = primOf({ parabolicCylinder: { vertex: [0, 0, 0.5], axis: [0, 1, 0], focus: [0, 0, 0.7] } });
+  const quadric = primOf({ quadric: { axis: [1, 0, 0], k_par: 1, k_perp: 0, c: [0, 0, -0.4], d: 0.4 } });
+  for (const p of [[0, 0, 0], [0, 3, 0.5], [0.3, -2, 0.6], [1, 1, 0.2], [-0.5, 0, 2]]) {
+    close(quadricAt(named, p), quadricAt(quadric, p));
+  }
+  assert.equal(invert(fromParabolicCylinder, quadric).inverseOk, true);
+  assert.equal(invert(fromParaboloid, named).inverseOk, false);
+  assert.equal(invert(fromSlab, named).inverseOk, false);
+  for (const [shape, what] of [
+    [{ slab: { center: [0, 0, 0], axis: [0, 0, 1], thickness: 1 } }, 'a slab: nothing across'],
+    [{ cylinder: { center: [0, 0, 0], axis: [0, 0, 1], radius: 1 } }, 'a cylinder: curved across'],
+    [{ paraboloid: { vertex: [0, 0, 0], axis: [0, 0, 1], focal: 1 } }, 'a paraboloid: curved across'],
+  ]) assert.equal(invert(fromParabolicCylinder, primOf(shape)).inverseOk, false, what);
+  const ridge = primOf({ parabolicCylinder: { vertex: [0, 0, 0], axis: [1, 0, 0] }, complement: true });
+  assert.equal(invert(fromParabolicCylinder, ridge).inverseOk, false, 'complemented: it caps a ridge');
+});
+
+test('a parabolic cylinder\'s focus may be anywhere along its line; on the vertex line, warned of', () => {
+  const warned = [];
+  const prim = (def) => compileScene({ materials: {}, lights: [], root: { parabolicCylinder: def } },
+                                     { warn: (path, msg) => warned.push(`${path}: ${msg}`) }).nodes[1].prim;
+  const square = prim({ vertex: [0, 0, 0], axis: [1, 0, 0], focus: [0, 0, 0.5] });
+  const askew = prim({ vertex: [0, 0, 0], axis: [1, 0, 0], focus: [7, 0, 0.5] });
+  for (const p of [[0, 0, 0], [0, 1, 1], [3, -1, 0.2]]) close(quadricAt(askew, p), quadricAt(square, p));
+  assert.deepEqual(warned, [], 'a focus along its line is no slip');
+  const flat = prim({ vertex: [0, 0, 0], axis: [0, 1, 0], focus: [0, 9, 0] });
+  assert.ok(warned.some((w) => /focus is on the vertex line/.test(w)), warned.join('\n'));
+  assert.equal(invert(fromParabolicCylinder, flat).inverseOk, true, 'still a trough, opened by default');
+});
+
+test('a parabolic cylinder far out is anchored on its vertex line', () => {
+  const prim = primOf({ parabolicCylinder: { vertex: [3, 500, 0.5], axis: [0, 0, 1], focus: [3, 500.2, 0.5] } });
+  const a = anchorOf(prim);
+  closeVec([a[0], a[1]], [3, 500]);
+  close(quadricAt(prim, a), 0);
 });
