@@ -403,10 +403,9 @@ of the family is what having an axis buys.
 | `"hyperboloid"` | `center`, `axis`, `radius` > 0, `semiAxial` > 0, `sheets` (`1` or `2`, default `1`) | one sheet has a waist of `radius` about the axis; two sheets open away from `center` along it |
 | `"quadric"` | `axis`, `k_par`, `k_perp`, `c`, `d` | the nine numbers directly, for anything the named shapes don't cover |
 
-`"quadric"` is the way to write shapes with no name of their own — a
-parabolic cylinder, say (`k_par` > 0, `k_perp` = 0, and a `c` with a
-component perpendicular to the axis). All-zero parameters have no surface at
-all and are rejected rather than silently rendering nothing.
+`"quadric"` is the way to write shapes with no name of their own.
+All-zero parameters have no surface at all and are rejected rather
+than silently rendering nothing.
 
 A parabolic cylinder has a name of its own, `"parabolicCylinder"`, above.
 As a `"quadric"`, `axis` is the direction it curves in, across the named
