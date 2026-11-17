@@ -393,7 +393,7 @@ of the family is what having an axis buys.
 | shape | fields | notes |
 |-------|--------|-------|
 | `"sphere"` | `center`, `radius` > 0 | |
-| `"plane"` | `normal`, `offset` (default `0`) | signed distance from the origin along `normal`; see below |
+| `"plane"` | `normal`, and `offset` (default `0`) or `point` | `offset` is the signed distance from the origin along `normal`; `point` is instead any point on the plane. See below |
 | `"spheroid"` | `center`, `axis`, `height` > 0, `radius` > 0 | ellipsoid of revolution: `height` end to end along the axis, `radius` around it, as for a cylinder. `height` = 2 × `radius` gives a sphere |
 | `"cylinder"` | `center`, `axis`, `radius` > 0 | infinite right circular cylinder; `center` is any point on the axis |
 | `"slab"` | `center`, `axis`, `thickness` > 0 | the solid between two parallel planes perpendicular to `axis` |
@@ -465,6 +465,17 @@ same plane with `"complement": true` is the second. To build a box, intersect
 half-spaces by nesting each plane in the previous one's `"inside"`, with the
 normals pointing outwards from the solid. A slab needs no nesting: it is a
 primitive in its own right.
+
+Instead of `offset`, a plane can be placed by any point on it, whichever is
+easier to work out:
+
+```
+{ "normal": [0, 0, 1], "point": [4, -7, 2] }   // inside is z < 2, as offset 2
+{ "normal": [1, 1, 0], "point": [3, 0, 5] }    // through [3, 0, 5], facing +x+y
+```
+
+The plane is `normal · R = offset`, so `point` gives `offset = normal ·
+point`. Given both, `point` is used, with a warning.
 
 #### Which side of the others is "inside"
 

@@ -2597,8 +2597,18 @@ export function compileScene(rawSpec, options = {}) {
     },
     plane: (def, path) => {
       if (!def.normal) def.normal = [ 0.0, 0.0, 1.0 ];
-      if (!def.offset) def.offset = 0.0;
       // default normal is up; so default is a sort of "ground" plane
+      // Where it is: through a point of it, or by its offset along the
+      // normal - the plane normal.R = offset, so a point p gives normal.p.
+      if (def.point !== undefined) {
+        if (!isVec3(def.point)) {
+          warn(path, `point must be [x, y, z], got ${JSON.stringify(def.point)}: using the offset instead`);
+        } else {
+          if (def.offset !== undefined) warn(path, 'takes a point or an offset, not both: using the point');
+          return plane(def.normal, dot3(def.normal, def.point));
+        }
+      }
+      if (!def.offset) def.offset = 0.0;
       return plane(def.normal, def.offset);
     },
     spheroid: (def, path) => {

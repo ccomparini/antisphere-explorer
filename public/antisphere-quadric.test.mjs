@@ -79,6 +79,22 @@ test('a plane is n.R - a, with linear as its unit normal', () => {
   for (const z of [-2, 0, 1.5, 4]) near(H(nd, [7, -7, z]), z - 1.5);
 });
 
+test('a plane through a point is the plane at that offset; a point wins over an offset, warned of', () => {
+  for (const normal of [[0, 0, 1], [0, 0, 2], [1, -2, 0.5]]) {
+    const p = [3, -1, 2];
+    const offset = normal[0] * p[0] + normal[1] * p[1] + normal[2] * p[2];
+    assert.deepEqual(packed({ plane: { normal, point: p } }), packed({ plane: { normal, offset } }), JSON.stringify(normal));
+    near(H(packed({ plane: { normal, point: p } }), p), 0);
+  }
+  const warned = [];
+  const prim = (def) => compileScene({ materials: {}, lights: [], root: { plane: def } },
+                                     { warn: (path, msg) => warned.push(msg) }).nodes[1].prim;
+  assert.equal(prim({ normal: [0, 0, 1], point: [0, 0, 2], offset: 7 }).constant, -2, 'the point');
+  assert.ok(warned.some((w) => /a point or an offset, not both/.test(w)), warned.join('\n'));
+  assert.equal(prim({ normal: [0, 0, 1], point: [0, 0], offset: 7 }).constant, -7, 'a bad point: the offset');
+  assert.ok(warned.some((w) => /point must be \[x, y, z\]/.test(w)), warned.join('\n'));
+});
+
 // -- the worked examples from hyperconic.md -------------------------------------
 
 test('slab: H = (y - 1)(y - 3)', () => {
