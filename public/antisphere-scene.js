@@ -3142,7 +3142,14 @@ export function compileScene(rawSpec, options = {}) {
             if (t.inside) inside = graft(t.inside, inAlive, startsEnv(t) ? t : scope);
             else report(owner, m.index);           // a region `owner` claims: the claim stands
           }
-          const outAlive = knock(shape, alive, { prim: t.prim, sign: -1 });
+          let outAlive = knock(shape, alive, { prim: t.prim, sign: -1 });
+          // Clear of both sides, the member can only be on the surface -
+          // all of it, for a quadric that is 0 everywhere - and trace()
+          // takes a point there down the outside, H < 0 failing: so it goes
+          // there. (Insides are open, so each side alone can be clear of a
+          // member that only touches it; both, only of one within the
+          // surface. Dropped, such a member was grafted nowhere.)
+          if (inAlive === null && outAlive === null) outAlive = alive;
           if (outAlive !== null) outside = t.outside ? graft(t.outside, outAlive, scope) : memberIn(scope);
           if (inside === t.inside && outside === t.outside) return t;
           const copy = node(t.prim, inside, outside, t.material, t.env, t.prov, t.lights);
