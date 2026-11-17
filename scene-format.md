@@ -405,9 +405,20 @@ of the family is what having an axis buys.
 
 `"quadric"` is the way to write shapes with no name of their own.
 With no curvature and a `c` of zeros, H is just `d`, the same everywhere,
-and there is no surface. All zeros, or any `d` ≥ 0, is inside nowhere,
-and is taken as given. A negative `d` would be inside everywhere, with no
-surface for a ray starting in it to meet, and is refused.
+and there is no surface. All zeros, or any `d` ≥ 0, is inside nowhere. A
+negative `d` is inside everywhere: an infinite solid, to hollow out with
+what goes in its `"inside"` - a world of caves, say, each cave a
+complemented shape of the same material:
+
+```json
+{ "quadric": { "axis": [0, 0, 1], "k_par": 0, "k_perp": 0, "c": [0, 0, 0], "d": -1 },
+  "material": "rock",
+  "inside": { "sphere": { "center": [0, 0, 0], "radius": 5, "complement": true }, "material": "rock" } }
+```
+
+Its surfaces are what is cut into it. One with nothing in its inside has
+none at all, so a ray only meets it by starting in it - a camera in the
+rock - and sees it as from inside any solid: the hit faces the ray.
 
 A parabolic cylinder has a name of its own, `"parabolicCylinder"`, above.
 As a `"quadric"`, `axis` is the direction it curves in, across the named

@@ -695,8 +695,9 @@ fn frame(nd : Node, P : vec3<f32>) -> vec2<f32> {
   let R = P - nd.anchor;
   // A tangent basis for an axis or a normal, avoiding the degenerate cross.
   var axis = nd.axis;
-  if (nd.curvature_perp == 0.0 && nd.curvature_delta == 0.0) {
-    // A plane: both curvatures zero leaves linear as the unit normal.
+  if (nd.curvature_perp == 0.0 && nd.curvature_delta == 0.0 && dot(nd.linear, nd.linear) > 0.0) {
+    // A plane: both curvatures zero leaves linear as the unit normal. (With
+    // no linear term either, H is the same everywhere: the axis will do.)
     axis = nd.linear;
   }
   var helper = vec3<f32>(0.0, 0.0, 1.0);
@@ -1111,7 +1112,13 @@ fn hitOf(origin : vec3<f32>, dir : vec3<f32>, seg : Seg, inMedium : bool) -> Hit
     hit.env = envAt(hit.position, dir, surfaces[hit.node], select(seg.node, bitcast<u32>(seg.t0), inMedium));
   }
   let nd = nodes[hit.node];
-  hit.normal = normalize(gradAt(nd, hit.position));
+  // A quadric the same everywhere and below 0 (a "quadric" of only d) has
+  // no gradient and no surface: a ray meets it only by starting in it. Its
+  // hit faces the ray, as any normal is made to - as a ray starting inside
+  // any other solid gets.
+  let g = gradAt(nd, hit.position);
+  hit.normal = -dir;
+  if (dot(g, g) > 0.0) { hit.normal = normalize(g); }
   if (dot(hit.normal, dir) > 0.0) { hit.normal = -hit.normal; }   // face the ray
   hit.toViewer = -dir;
   hit.surfaceCoords = frame(nd, hit.position) / materials[materialIndex(nd.material_id)].scale;
@@ -1324,4 +1331,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1144}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1151}]

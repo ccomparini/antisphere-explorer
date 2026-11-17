@@ -878,6 +878,61 @@ gpuTest('an all-zero quadric is nowhere: rays pass it, and meet what is beside i
   }
 });
 
+// -- a quadric below zero everywhere: an infinite solid --------------------------
+
+gpuTest('a world hollowed out of a solid everywhere: its caves\' walls are what is met', async () => {
+  // Rock everywhere (H = -1), and a cave cut in it: a sphere of 5,
+  // complemented - rock outside it, its own outside (the cave) empty.
+  const sc = scene({ quadric: { axis: [0, 0, 1], k_par: 0, k_perp: 0, c: [0, 0, 0], d: -1 }, material: 'clay',
+                     inside: { sphere: { center: [0, 0, 0], radius: 5, complement: true }, material: 'clay' } });
+  try {
+    const rays = [{ origin: [0, 0, 0], direction: [1, 0, 0] },        // from the cave's middle
+                  { origin: [0, 0, 8], direction: [0, 0, 1] }];       // starting in the rock
+    const { node, t0, hits } = await sc.castRays(rays);
+    assert.ok(node[0] && Math.abs(t0[0] - 5) < 1e-4, `the cave's wall at 5: ${t0[0]}`);
+    [0, 1].forEach((i) => {
+      assert.ok(node[i], `ray ${i} meets rock`);
+      [...hits[i].normal, ...hits[i].surfaceCoords].forEach((v) =>
+        assert.ok(Number.isFinite(v), `ray ${i}: ${JSON.stringify(hits[i])}`));
+    });
+    hits[0].normal.forEach((v, k) => assert.ok(Math.abs(v - [-1, 0, 0][k]) < 1e-4, `facing back in: ${hits[0].normal}`));
+  } finally {
+    sc.destroy();
+  }
+});
+
+gpuTest('a bare solid everywhere, nothing cut in it: seen from inside, as any solid is', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // Nothing in its inside, so no surface at all: a camera ray meets it at
+  // once, where it starts, with no gradient - and is given one facing it,
+  // as a ray starting inside any solid is. So it shows as a big sphere of
+  // the same does from inside: its albedo at the ambient level, the light
+  // behind the camera's own face.
+  const solid = (root) => ({ materials: { clay: { albedo: [0.7, 0.5, 0.4] } },
+                             lights: [{ pos: [0, 0, 5], color: [40, 40, 40] }], root });
+  const bare = solid({ quadric: { axis: [0, 0, 1], k_par: 0, k_perp: 0, c: [0, 0, 0], d: -1 }, material: 'clay' });
+  const ball = solid({ sphere: { center: [0, 0, 0], radius: 50 }, material: 'clay' });
+  const camera = new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0] });
+  const expected = [0.7 * 0.13, 0.5 * 0.13, 0.4 * 0.14].map((v) => Math.round(v ** (1 / 2.2) * 255));
+  for (const shadows of [true, false]) {
+    for (const [what, spec] of [['bare', bare], ['in a ball', ball]]) {
+      const img = await renderPixels(spec, camera, 32, 16, {}, { shadows });
+      for (const [col, row] of [[1, 1], [16, 8], [30, 14]]) {
+        img.at(col, row).forEach((c, i) => assert.ok(Math.abs(c - expected[i]) <= 1,
+          `${what}, shadows ${shadows}: ${img.at(col, row)} at ${col}, ${row}, expected ${expected}`));
+      }
+    }
+  }
+  const sc = ctx.createScene(bare);
+  try {
+    const { hits } = await sc.castRays([{ origin: [0, -10, 0], direction: [0, 1, 0] }]);
+    hits[0].normal.forEach((v, k) => assert.ok(Math.abs(v - [0, -1, 0][k]) < 1e-6, `facing the ray: ${hits[0].normal}`));
+    hits[0].surfaceCoords.forEach((v) => assert.ok(Number.isFinite(v), `${hits[0].surfaceCoords}`));
+  } finally {
+    sc.destroy();
+  }
+});
+
 // -- a parabolic cylinder, as traced ------------------------------------------------
 
 gpuTest('a parabolic cylinder is hit where x^2 = 4 focal y says, along its whole length', async () => {
@@ -980,8 +1035,11 @@ gpuTest('castRays() gives each hit resolved: its point, normal, surface and env'
 
 // -- lights scoped by env, as rendered --------------------------------------------------
 
-/** Render `spec` from `camera` onto a W x H stand-in canvas; the pixels, RGBA. `options` are createScene()'s. */
-async function renderPixels(spec, camera, W = 160, H = 80, options = {}) {
+/**
+ * Render `spec` from `camera` onto a W x H stand-in canvas; the pixels, RGBA.
+ * `options` are createScene()'s, `viewOptions` createRenderer()'s.
+ */
+async function renderPixels(spec, camera, W = 160, H = 80, options = {}, viewOptions = {}) {
   await import('./as-renderer.js');                  // registers ASRenderer
   const sc = ctx.createScene(spec, options);
   let config, tex;
@@ -995,7 +1053,7 @@ async function renderPixels(spec, camera, W = 160, H = 80, options = {}) {
   };
   globalThis.window ??= { devicePixelRatio: 1 };
   const view = ctx.createRenderer({ clientWidth: W, clientHeight: H, width: W, height: H,
-                                    getContext: () => surface }, { scene: sc, camera });
+                                    getContext: () => surface }, { scene: sc, camera, ...viewOptions });
   // Rows of a texture copy are padded to 256 bytes.
   const stride = Math.ceil((W * 4) / 256) * 256;
   const buf = ctx.device.createBuffer({ size: stride * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });

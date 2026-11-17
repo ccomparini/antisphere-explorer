@@ -138,16 +138,18 @@ test('cone: Rx^2 + Rz^2 = y^2, apex at the origin', () => {
   for (const y of [0, 2, -3]) { onSurface(nd, [y, y, 0]); onSurface(nd, [0, y, -y]); }
 });
 
-test('a quadric the same everywhere: all zeros, or d >= 0, is inside nowhere; d < 0 is refused', () => {
-  // All zeros is H = 0 - inside nowhere, inside being H < 0 - and so is any
-  // d >= 0 alone. A d < 0 alone would be inside everywhere, with no surface.
-  for (const d of [0, 2]) {
-    const nd = packed({ quadric: { axis: [0, 0, 1], k_par: 0, k_perp: 0, c: [0, 0, 0], d } });
-    for (const p of [[0, 0, 0], [5, -3, 100]]) assert.ok(!(H(nd, p) < 0), `d ${d} at ${p}`);
-  }
-  for (const def of [{ quadric: { axis: [0, 0, 1], k_par: 0, k_perp: 0, c: [0, 0, 0], d: -1 } },
-                     { quadric: { axis: [0, 0, 1], k_par: 0, k_perp: 0, c: [0, 0, 0], d: 2 }, complement: true }]) {
-    assert.throws(() => packed(def), /inside everywhere/, JSON.stringify(def));
+test('a quadric the same everywhere is taken as given: inside nowhere for d >= 0, everywhere below', () => {
+  // No curvature and no c leaves H = d: all zeros, or any d >= 0, is inside
+  // nowhere, inside being H < 0; a d < 0 is inside everywhere - an infinite
+  // solid, to hollow out. A complement turns the one into the other.
+  for (const [def, inside] of [
+    [{ quadric: { axis: [0, 0, 1], k_par: 0, k_perp: 0, c: [0, 0, 0], d: 0 } }, false],
+    [{ quadric: { axis: [0, 0, 1], k_par: 0, k_perp: 0, c: [0, 0, 0], d: 2 } }, false],
+    [{ quadric: { axis: [0, 0, 1], k_par: 0, k_perp: 0, c: [0, 0, 0], d: -1 } }, true],
+    [{ quadric: { axis: [0, 0, 1], k_par: 0, k_perp: 0, c: [0, 0, 0], d: 2 }, complement: true }, true],
+  ]) {
+    const nd = packed(def);
+    for (const p of [[0, 0, 0], [5, -3, 100]]) assert.equal(H(nd, p) < 0, inside, `${JSON.stringify(def)} at ${p}`);
   }
 });
 
