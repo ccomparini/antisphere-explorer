@@ -859,6 +859,25 @@ gpuTest('a maze shows each face its own material: tops, doorways and walls', asy
   sc.destroy();
 });
 
+// -- an all-zero quadric -------------------------------------------------------
+
+gpuTest('an all-zero quadric is nowhere: rays pass it, and meet what is beside it, in either order', async () => {
+  const zero = { quadric: { axis: [0, 0, 1], k_par: 0, k_perp: 0, c: [0, 0, 0], d: 0 }, material: 'clay' };
+  const ball = { sphere: { center: [3, 0, 0], radius: 1 }, material: 'clay' };
+  // First, it once took the ball with it: proved clear of both of the
+  // zero quadric's sides, the ball was grafted nowhere.
+  for (const group of [[zero, ball], [ball, zero]]) {
+    const sc = scene({ group });
+    try {
+      const { node, t0 } = await sc.castRays([[0, 0, -10], [3, 0, -10]].map((origin) => ({ origin, direction: [0, 0, 1] })));
+      assert.equal(node[0], 0, 'the all-zero quadric is nowhere');
+      assert.ok(node[1] && Math.abs(t0[1] - 9) < 1e-4, `the ball beside it, ${group[0] === zero ? 'after' : 'before'} it`);
+    } finally {
+      sc.destroy();
+    }
+  }
+});
+
 // -- a parabolic cylinder, as traced ------------------------------------------------
 
 gpuTest('a parabolic cylinder is hit where x^2 = 4 focal y says, along its whole length', async () => {

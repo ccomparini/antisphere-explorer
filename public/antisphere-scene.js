@@ -2695,9 +2695,6 @@ export function compileScene(rawSpec, options = {}) {
       if (typeof k_par !== 'number' || typeof k_perp !== 'number' || typeof d !== 'number') {
         at(path, 'needs numeric k_par, k_perp and d');
       }
-      if (k_par === 0 && k_perp === 0 && !c.some((v) => v !== 0)) {
-        at(path, 'is zero everywhere, so it has no surface');
-      }
       return quadric(axis, k_par, k_perp, c.slice(), d);
     },
   };
@@ -3405,6 +3402,19 @@ export function compileScene(rawSpec, options = {}) {
     ?? node({ axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: 1 }, null, null, NO_MATERIAL);
   const nodes = flatten(bakeScopes(rootTree, table));
   textureTurns(nodes, table, quietly);
+
+  // No curvature and no linear term leaves H = d, the same everywhere, with
+  // no surface. d >= 0 is inside nowhere, and fine; d < 0 is inside
+  // everywhere, and a ray starting in it would meet it with no face and no
+  // gradient, which trace() has no answer for. Checked here, as compiled,
+  // since a complement turns the one into the other.
+  nodes.forEach((nd, i) => {
+    const { k_par, k_perp, linear, constant } = nd.prim;
+    if (i && k_par === 0 && k_perp === 0 && !linear.some((v) => v !== 0) && constant < 0) {
+      const where = nd.prov ? `${nd.prov.owner}${nd.prov.path ? `/${nd.prov.path}` : ''}` : `node ${i}`;
+      at(where, 'is inside everywhere - the same everywhere, and below 0 - with no surface to meet');
+    }
+  });
 
   // Every light, with the env it belongs to: the scene's (env 0) first, in
   // order, so the editor can replace just those; then each node's, its env

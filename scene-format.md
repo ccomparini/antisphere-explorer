@@ -404,8 +404,10 @@ of the family is what having an axis buys.
 | `"quadric"` | `axis`, `k_par`, `k_perp`, `c`, `d` | the nine numbers directly, for anything the named shapes don't cover |
 
 `"quadric"` is the way to write shapes with no name of their own.
-All-zero parameters have no surface at all and are rejected rather
-than silently rendering nothing.
+With no curvature and a `c` of zeros, H is just `d`, the same everywhere,
+and there is no surface. All zeros, or any `d` ≥ 0, is inside nowhere,
+and is taken as given. A negative `d` would be inside everywhere, with no
+surface for a ray starting in it to meet, and is refused.
 
 A parabolic cylinder has a name of its own, `"parabolicCylinder"`, above.
 As a `"quadric"`, `axis` is the direction it curves in, across the named

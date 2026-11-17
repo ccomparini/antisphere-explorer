@@ -410,7 +410,8 @@ const DEGENERATE : f32 = 1e-12;
 // `stop_flags` says what this ray stops at: a region whose material id has
 // any of these trace flags (see Node.material_id): MATERIAL_OPTICAL for a
 // camera ray, MATERIAL_CASTS_SHADOW for a shadow ray, MATERIAL_SOLID for
-// one that wants what is physically there (castRays()).
+// one that wants what is physically there (castRays()'s default; its
+// rays say their own, RayQuery.stopFlags).
 //
 // `extend_flags` is for a ray inside a medium (glass, water): it wants
 // where the medium ends, not where it starts. 0 is no extending; otherwise
@@ -1323,4 +1324,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1143}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":149},{"path":"shaders/random.wgsls","offset":151,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":182,"lines":1144}]
