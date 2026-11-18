@@ -48,7 +48,7 @@
 // one surface (packSurfaces()), as copies of a node always are, and moving
 // them alike keeps them so.
 
-import { spheroidSide, spheroidPrim, startsEnv } from './antisphere-scene.js';
+import { compileScene, fromSpheroid, isPNG, isSTL, isReference, loadReferences, referencedFiles, spheroidSide, spheroidPrim, startsEnv } from './antisphere-scene.js';
 
 /**
  * The mover `mover` ({ prims, materials, prov? }: each shape's quadric, its
@@ -60,31 +60,102 @@ import { spheroidSide, spheroidPrim, startsEnv } from './antisphere-scene.js';
  * arrays; `built` itself is left alone), each copy's first node (a copy's
  * shapes are consecutive), and, per shape, every node that is a copy of it -
  * all to move together.
+ *
+ * A chain is an object whose nodes each have only an outside, the next
+ * shape: graftObject() of that.
  */
-export function graftMover(built, mover, { reach, budget = 8, wrap = true } = {}) {
-  const nodes = built.nodes.slice();
+export function graftMover(built, mover, options = {}) {
   const count = mover.prims.length;
+  const object = {
+    nodes: [null, ...mover.prims.map((prim, k) => ({
+      prim, material: mover.materials[k], env: 0, inside: 0, outside: k + 1 < count ? k + 2 : 0,
+      prov: mover.prov?.[k] ?? null, lights: null,
+    }))],
+  };
+  const grafted = graftObject(built, object, options);
+  return {
+    built: grafted.built,
+    copies: grafted.copies,
+    nodes: mover.prims.map((_, k) => grafted.copies.map((first) => first + k)),
+  };
+}
+
+/**
+ * A compiled object grafted into `built`, as a mover is: `object` is
+ * compileScene()'s result for the object alone, already where it goes - or
+ * any { nodes, materials?, textures? } as compiled nodes are, node 1 its
+ * root. Without `materials`, its nodes' material indices are already
+ * built's; with them, they are its own table's, merged into built's: an
+ * entry the same as one there (name and all) is that one, others are
+ * added, and textures likewise, by file.
+ *
+ * A copy of it in front of `end` is its nodes copied, every absent outside
+ * handed on to `end` - "the object, and where it isn't, what was there" -
+ * absent insides as they are, its own material. A chain is the case where
+ * each outside is the next shape. Its env nodes keep their env links, into
+ * the copy; its outermost, 0, stay 0 - the scene's. The lights its nodes
+ * carry come with each copy, under that copy's env node. (Lights scoped so
+ * reach no further out than their env: revisit with env lights generally.)
+ *
+ * `prov(p)` gives a copied node's provenance from the object's own (by
+ * default, the object's own).
+ *
+ * Returns { built, copies, size }: the scene with the object in it (new
+ * arrays; `built` is left alone); where each copy starts - a copy is
+ * `size` consecutive nodes, the object's nodes 1.. in order, so its node k
+ * is copies[c] + k - 1; and its size.
+ */
+export function graftObject(built, object, { reach, budget = 8, wrap = true, prov = (p) => p } = {}) {
+  const nodes = built.nodes.slice();
+  const size = object.nodes.length - 1;
   const copies = [];
   const reachPrim = spheroidPrim(reach);
 
-  // A copy of the chain, its last outside handing on to `end`, wrapped in
-  // the reach: the index to put where `end` was. Its nodes start no env,
-  // so record none (env 0).
-  function chain(end) {
-    const env = 0;
+  // The object's materials and textures as built's: an index map.
+  let materials = built.materials, textures = built.textures, materialOf = (i) => i;
+  if (object.materials) {
+    materials = built.materials.slice();
+    textures = (built.textures ?? []).slice();
+    const textureOf = (object.textures ?? []).map((t) => {
+      const at = textures.findIndex((u) => u.file === t.file);
+      if (at >= 0) return at + 1;
+      textures.push(t);
+      return textures.length;
+    });
+    const same = new Map(materials.map((m, i) => [JSON.stringify(m), i]).reverse());
+    const map = object.materials.map((m, i) => {
+      if (i === 0) return 0;                                   // vacuum is vacuum
+      const entry = m.texture ? { ...m, texture: textureOf[m.texture - 1] } : m;
+      const key = JSON.stringify(entry);
+      if (same.has(key)) return same.get(key);
+      materials.push(entry);
+      same.set(key, materials.length - 1);
+      return materials.length - 1;
+    });
+    materialOf = (i) => map[i] ?? i;
+  }
+
+  const lights = built.lights.slice();
+
+  // A copy of the object, its absent outsides handing on to `end`, wrapped
+  // in the reach: the index to put where `end` was.
+  function copy(end) {
     const wrapper = wrap ? nodes.length : -1;
-    if (wrap) nodes.push({ prim: reachPrim, material: 0, env, inside: 0, outside: end, prov: null, lights: null });
-    const first = nodes.length;
-    for (let k = 0; k < count; k++) {
+    if (wrap) nodes.push({ prim: reachPrim, material: 0, env: 0, inside: 0, outside: end, prov: null, lights: null });
+    const base = nodes.length - 1;                             // object node k is base + k
+    for (let k = 1; k <= size; k++) {
+      const o = object.nodes[k];
       nodes.push({
-        prim: mover.prims[k], material: mover.materials[k], env, inside: 0,
-        outside: k + 1 < count ? first + k + 1 : end,
-        prov: mover.prov?.[k] ?? null, lights: null,
+        prim: o.prim, material: materialOf(o.material), env: o.env ? base + o.env : 0,
+        inside: o.inside ? base + o.inside : 0,
+        outside: o.outside ? base + o.outside : end,
+        prov: o.prov ? prov(o.prov) : null, lights: o.lights ?? null,
       });
+      for (const lt of o.lights ?? []) lights.push({ ...lt, env: base + k });
     }
-    copies.push(first);
-    if (!wrap) return first;
-    nodes[wrapper].inside = first;
+    copies.push(base + 1);
+    if (!wrap) return base + 1;
+    nodes[wrapper].inside = base + 1;
     return wrapper;
   }
   // What an absent inside of node i meant, as a node: i again, childless.
@@ -113,12 +184,12 @@ export function graftMover(built, mover, { reach, budget = 8, wrap = true } = {}
     return total;
   }
 
-  // Node i with the mover in it: the index to put where i was.
+  // Node i with the object in it: the index to put where i was.
   const placed = new Map();
   function place(i) {
     if (placed.has(i)) return placed.get(i);
     if (i !== 1 && slotsOf(i) > budget) {
-      const first = chain(i);                         // in front of it, once
+      const first = copy(i);                          // in front of it, once
       placed.set(i, first);
       return first;
     }
@@ -126,15 +197,114 @@ export function graftMover(built, mover, { reach, budget = 8, wrap = true } = {}
     const n = { ...nodes[i] };
     nodes[i] = n;
     const s = sideOf(i);
-    if (s !== 'outside') n.inside = n.inside ? place(n.inside) : chain(filler(i));
-    if (s !== 'inside') n.outside = n.outside ? place(n.outside) : chain(0);
+    if (s !== 'outside') n.inside = n.inside ? place(n.inside) : copy(filler(i));
+    if (s !== 'inside') n.outside = n.outside ? place(n.outside) : copy(0);
     return i;
   }
-  place(1);
+  if (size > 0) place(1);
 
   return {
-    built: { ...built, nodes, provenance: nodes.map((n) => n?.prov ?? null) },
+    built: { ...built, nodes, materials, textures, lights, provenance: nodes.map((n) => n?.prov ?? null) },
     copies,
-    nodes: mover.prims.map((_, k) => copies.map((first) => first + k)),
+    size,
   };
+}
+
+// The files a place needs that `files` hasn't: its object's, and what that
+// references in turn, so far as what is there says.
+function filesWanted(p, files) {
+  const wanted = new Set(), seen = new Set();
+  let todo = isReference(p.ref) ? [...referencedFiles({ use: p.ref }, p.from)] : [];
+  while (todo.length) {
+    const next = [];
+    for (const path of todo) {
+      if (seen.has(path)) continue;
+      seen.add(path);
+      if (!(path in files)) { wanted.add(path); continue; }
+      if (!isPNG(path) && !isSTL(path)) next.push(...referencedFiles(files[path], path));
+    }
+    todo = next;
+  }
+  return wanted;
+}
+
+/**
+ * The scene's "place"s (built.placements, compileScene()'s) grafted in: each
+ * object compiled alone - as a "use" of it with the place's material and
+ * transforms would be, `spec`'s materials and objects naming as they do
+ * there - and wrapped in a spheroid round it, which bounds its copies and,
+ * unless the place gives a "reach", is its reach too. `options` are
+ * compileScene()'s (files, path, warn).
+ *
+ * A place's object is read when it is placed, not with the scene
+ * (referencedFiles() passes it by): one whose files aren't in
+ * options.files yet is left for now, and listed in `pending` -
+ * placeAllLoading() reads them and places it.
+ *
+ * Returns { built, placed, pending }: the scene with every placed object in
+ * it; per place { path, copies, size, rest } - where each copy starts, how
+ * many nodes one is, and its nodes' quadrics as placed (rest[k] is node
+ * k's, from 1) - for movePlacement(); and the places waiting on files. One
+ * that can't be compiled or bounded is warned of and left out.
+ */
+export function placeAll(built, spec, options = {}) {
+  const warn = options.warn ?? ((path, msg) => console.warn(`${path}: ${msg}`));
+  const placed = [], pending = [];
+  for (const p of built.placements ?? []) {
+    if (filesWanted(p, options.files ?? {}).size) { pending.push(p); continue; }
+    // As a use where the place is: its own material and transforms, then
+    // each enclosing node's transforms, innermost first - each a union of
+    // one, moved - within the material it inherits (compileScene()'s
+    // inherit), filling what names none.
+    let root = { use: p.ref };
+    for (const key of ['material', 'paint', 'scale', 'rotate', 'translate']) if (p[key] !== undefined) root[key] = p[key];
+    for (const moves of p.around ?? []) root = { union: [root], ...moves };
+    root = { ...root, wrap: 'spheroid' };
+    let object;
+    try {
+      object = compileScene({ ...spec, root, lights: [] }, {
+        ...options, warn: (path, msg) => warn(`${p.path} (${path})`, msg), rootFrom: p.from,
+        ...(p.inherited !== undefined ? { inherit: p.inherited } : {}),
+      });
+    } catch (e) {
+      warn(p.path, `can't be placed: ${e.message}`);
+      continue;
+    }
+    // Node 1 is the spheroid round it - the wrap - with nothing outside it.
+    const top = object.nodes[1];
+    const round = top && !top.outside
+      ? fromSpheroid(top.prim.axis, top.prim.k_par, top.prim.k_perp, top.prim.linear, top.prim.constant) : null;
+    if (!p.reach && !round?.inverseOk) {
+      warn(p.path, "can't be bounded, so has no reach to be placed in: left out");
+      continue;
+    }
+    const reach = p.reach ?? { center: round.centre, axis: round.axis, height: round.height, radius: round.radius };
+    const grafted = graftObject(built, object, {
+      reach, wrap: false,
+      prov: (own) => ({ owner: p.prov.owner, path: p.prov.path, placed: own }),
+    });
+    built = grafted.built;
+    placed.push({ path: p.path, copies: grafted.copies, size: grafted.size, rest: object.nodes.map((n) => n?.prim ?? null) });
+  }
+  return { built, placed, pending };
+}
+
+/**
+ * placeAll(), reading first what its places need and options.files hasn't
+ * (loadReferences(), with options.readText and readBytes): added to
+ * options.files, which is kept. A file that can't be read is warned of, and
+ * what needed it left out.
+ */
+export async function placeAllLoading(built, spec, options = {}) {
+  const files = options.files ?? {};
+  for (const p of built.placements ?? []) {
+    if (!filesWanted(p, files).size) continue;
+    Object.assign(files, await loadReferences({ use: p.ref }, {
+      from: p.from, readText: options.readText, readBytes: options.readBytes, have: files,
+      ...(options.warn ? { warn: (msg) => options.warn(p.path, msg) } : {}),
+    }));
+  }
+  const out = placeAll(built, spec, { ...options, files });
+  for (const p of out.pending) (options.warn ?? ((path, msg) => console.warn(`${path}: ${msg}`)))(p.path, 'not loaded, so left out');
+  return { ...out, pending: [] };
 }

@@ -103,6 +103,13 @@ anim viewer (`public/anim-viewer/`), an application of its own, not yet in
 the main explorer; physics, when we come back to it, builds on movers (see
 Planned, "Physics").
 
+A scene says a thing moves by `"place"`-ing it (scene-format.md): the
+object is compiled on its own and grafted in at load (`placeAll()`,
+`graftObject()` in `public/movers.js`) as the anim viewer's figures are, a
+mover of any compiled tree rather than only a chain, and moved with
+`ASScene.movePlacement()`. A `"use"` compiles an object in, as part of the
+static scene.
+
 A rigid motion changes only a node's coefficients (its quadric), not the
 tree's structure. So moving an object can mean rewriting its nodes'
 coefficients in place, with no recompile (`ASScene.setNodePrims()`: one
@@ -322,10 +329,19 @@ a window, as a torch inside cannot reach out: a torch lights its own room.
     reach is every clip in place, so it never does. Regrafting, and
     choosing a reach for a moving figure (where it is, and how far it may
     go before the next), are to build.
-  - **Several movers.** Each is grafted on its own; several in one scene
-    is grafting each in turn, a later one into the earlier's copies too.
-    How a scene says a thing moves - a key on a placed object, physlab's
-    world objects - is open.
+  - **Several movers.** Built: each `"place"` is grafted in turn, a later
+    one into the earlier's copies too.
+  - **Straddling and interpenetrating objects** (to revisit, with envs and
+    containment). A placed object whose reach straddles a surface is copied
+    into both sides - the dragon resting on a floor is copied into the
+    floor's solid too, doubling it - though it never goes there. Proving
+    sides from the object's own geometry (as a group's `knock()` does) for
+    one that won't move, a tighter reach, or the link below would each
+    spare it. How objects inside each other, and inside envs, are handled
+    is the same question.
+  - **Copies shared by continuation.** `graftObject()` makes a copy per
+    slot, though slots that continue alike - every slot ending in nothing -
+    could share one by reference: memoise `copy(end)`.
   - **A link instead of copies.** One shared chain linked into every slot,
     no copies, needs a chain that runs out to resume what it replaced.
     Two ways: a link node whose subtree resumes (call-and-return in
@@ -334,6 +350,10 @@ a window, as a torch inside cannot reach out: a torch lights its own room.
     empty, so existing scenes mean what they do, and a solid scope (a
     floor hosting a swimmer) opted into with a flag. Copies are cheap for
     a few movers; this pays for many, or large ones.
+- **Revisit env lights** (Chris). A scoped light reaches no further out
+  than its env: the night maze's lights don't show through its doorways,
+  and a placed object's lights don't reach out of it. One fix for both.
+  Lights that move with an object - a carried torch - belong here too.
 - **Models and animations** (Chris and Claude). Built: a model with a
   skeleton (`tools/import-model.mjs --skeleton`), its bones' rest pose and
   an object per bone in scene coordinates - fitted spheroids, spheroids

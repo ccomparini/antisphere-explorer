@@ -1031,7 +1031,7 @@ function mapTree(t, f, g) {
 // is one baked copy wherever it is used. One with an env in it is baked
 // per env it is in, since its env nodes record the env round them and its
 // level.
-function bakeScopes(tree, table) {
+function bakeScopes(tree, table, scope = NO_MATERIAL) {
   const memo = new Map();       // "material:env id" -> (subtree -> baked)
   const envIds = new Map();     // env node -> a number for the memo key
   // An env's ambient level, as it is there: its own, plus its material's
@@ -1124,7 +1124,7 @@ function bakeScopes(tree, table) {
     out.outside = resolve(t.outside, matScope, envNode);
     return out;
   };
-  return resolve(tree, NO_MATERIAL, null);
+  return resolve(tree, scope, null);
 }
 
 // Node 0 is reserved: "no child at all" - antisphere-raycast.wgsls's
@@ -1625,6 +1625,7 @@ function placementSites(spec, key, check, at) {
   const walk = (def, keys, within, moved) => {
     if (!def || typeof def !== 'object') return;
     if (Array.isArray(def)) { def.forEach((d, i) => walk(d, [...keys, i], within, moved)); return; }
+    if (def.place !== undefined) return;     // placed at runtime: tree() says what it ignores
     if (def[key] !== undefined) {
       const where = keys.join('.');
       if (check(def[key], `${where}.${key}`)) {
@@ -2052,8 +2053,9 @@ function resolveLights(list, from, files, trail, missing) {
 /**
  * Every file a file's content references, anywhere in it - a string
  * starting @, outside notes (keys starting _) - as paths resolved from
- * `from`, the file's own: what loading it needs loaded too. Found once per
- * file read, and kept with its content.
+ * `from`, the file's own: what loading it needs loaded too. Not what a
+ * "place" names: that is read when it is placed, at runtime (placeAll()).
+ * Found once per file read, and kept with its content.
  */
 const referencedCache = new WeakMap();          // content -> Map(from -> Set)
 export function referencedFiles(content, from) {
@@ -2068,7 +2070,7 @@ export function referencedFiles(content, from) {
     } else if (Array.isArray(value)) {
       for (const v of value) walk(v);
     } else if (value !== null && typeof value === 'object') {
-      for (const [k, v] of Object.entries(value)) if (!k.startsWith('_')) walk(v);
+      for (const [k, v] of Object.entries(value)) if (!k.startsWith('_') && k !== 'place') walk(v);
     }
   };
   walk(content);
@@ -2141,7 +2143,7 @@ export function expandReferences(spec, files = {}, { from = '' } = {}) {
  * left out of `files`; compileScene() then warns again and goes on
  * without what referred to it.
  */
-export async function loadReferences(spec, { from = '', readText, readBytes, warn = console.warn } = {}) {
+export async function loadReferences(spec, { from = '', readText, readBytes, warn = console.warn, have = {} } = {}) {
   const files = {};
   const failed = new Set();          // warned of, and left out: compileScene() goes on without them
   const load = async (path) => {
@@ -2170,11 +2172,15 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
   };
   // Breadth first: what the scene references, then what each of those
   // does (referencedFiles(), once per file) - an image or a mesh, none.
+  // What the caller has already (`have`) is not read again, but followed.
+  const follow = (path) => (isPNG(path) || isSTL(path) ? [] : [...referencedFiles(files[path], path)]);
   let wanted = [...referencedFiles(spec, from)];
   while (wanted.length) {
-    const fresh = wanted.filter((path) => !(path in files) && !failed.has(path));
-    wanted = [];
-    await Promise.all(fresh.map(async (path) => {
+    const fresh = [...new Set(wanted)].filter((path) => !(path in files) && !failed.has(path));
+    const next = [];
+    for (const path of fresh.filter((path) => path in have)) { files[path] = have[path]; next.push(...follow(path)); }
+    const reading = fresh.filter((path) => !(path in have));
+    await Promise.all(reading.map(async (path) => {
       try {
         files[path] = await load(path);
       } catch (error) {
@@ -2184,10 +2190,8 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
         failed.add(path);
       }
     }));
-    for (const path of fresh) {
-      if (path in files && !isPNG(path) && !isSTL(path)) wanted.push(...referencedFiles(files[path], path));
-    }
-    wanted = [...new Set(wanted)];
+    for (const path of reading) if (path in files) next.push(...follow(path));
+    wanted = next;
   }
   return files;
 }
@@ -3373,6 +3377,34 @@ export function compileScene(rawSpec, options = {}) {
     }
     if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
 
+    // Placed at runtime, not compiled in: a mover, grafted into the scene
+    // wherever its reach goes (placeAll() in movers.js), so it stands for
+    // nothing here. What it is and how it is placed are kept as given.
+    if (def.place !== undefined) {
+      if (typeof def.place !== 'string') {
+        warn(`${path}.place`, `names an object, as "use" does, not ${JSON.stringify(def.place)}: left out`);
+        return null;
+      }
+      for (const key of ['inside', 'outside', 'drop', 'tangentTo', 'wrap', 'bounds', 'complement', 'lights']) {
+        if (def[key] !== undefined) warn(`${path}.${key}`, 'not taken by a "place", which is placed at runtime: ignored');
+      }
+      const given = (key) => (def[key] !== undefined ? { [key]: def[key] } : {});
+      placements.push({
+        ref: def.place, from: where.from ?? scenePath, path, prov: provOf(where),
+        ...given('material'), ...given('paint'), ...given('scale'), ...given('rotate'), ...given('translate'),
+        ...given('reach'),
+        around: [],                      // its enclosing nodes' transforms, innermost first (below)
+      });
+      return null;
+    }
+    // Places within this subtree, as a use within it would be: moved with
+    // it, and taking the material it fills them with (inherited).
+    const firstPlace = placements.length;
+    const inheritPlaced = (from, name) => {
+      if (typeof name !== 'string') return;
+      for (const p of placements.slice(from)) if (p.material === undefined && p.inherited === undefined) p.inherited = name;
+    };
+
     const material = materialOf(def, path, where);
 
     let out;
@@ -3392,7 +3424,9 @@ export function compileScene(rawSpec, options = {}) {
       // Both children default to null when unspecified - no further
       // subdivision - which the two slots still read differently: see
       // flatten()'s doc comment.
+      const beforeInside = placements.length;
       const insideTree = tree(def.inside, `${path}.inside`, below(where, 'inside'));
+      inheritPlaced(beforeInside, def.material);
       const outsideTree = tree(def.outside, `${path}.outside`, below(where, 'outside'));
 
       // Lights make the node a region (an env): what fills it is its
@@ -3416,6 +3450,9 @@ export function compileScene(rawSpec, options = {}) {
     // the last one named winning even where none was (the first, untouched
     // use of three teapots took the third's gold). Copied, the rest of the
     // tree stays shared.
+    if (def.use !== undefined || def.group !== undefined || Object.keys(COMBINERS).some((op) => def[op] !== undefined)) {
+      inheritPlaced(firstPlace, def.material);
+    }
     if (material !== INHERIT_MATERIAL && out && out.material !== material) {
       out = node(out.prim, out.inside, out.outside, material, out.env, out.prov, out.lights);
     }
@@ -3455,6 +3492,11 @@ export function compileScene(rawSpec, options = {}) {
         at(`${path}.translate`, 'needs a [x, y, z] offset');
       }
       out = translateTree(out, def.translate);
+    }
+    if (def.scale !== undefined || def.rotate !== undefined || def.translate !== undefined) {
+      const moves = {};
+      for (const key of ['scale', 'rotate', 'translate']) if (def[key] !== undefined) moves[key] = def[key];
+      for (const p of placements.slice(firstPlace)) p.around.push(moves);
     }
 
     // "wrap": a bounding node round the subtree, worked out from its extent
@@ -3502,11 +3544,16 @@ export function compileScene(rawSpec, options = {}) {
 
   if (!spec.root) at('root', 'missing');
   const overlaps = [];
+  const placements = [];
   // A root that comes to nothing (an object left out) is still a node 1,
   // which trace() starts at: one with nothing inside it anywhere, H = 1.
   const rootTree = tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [], from: options.rootFrom ?? scenePath })
     ?? node({ axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: 1 }, null, null, NO_MATERIAL);
-  const nodes = flatten(bakeScopes(rootTree, table));
+  // The material the root is within: none, or, compiling a placed object
+  // alone, the one its place inherits (options.inherit, a name), as a use
+  // there would.
+  const rootScope = options.inherit !== undefined ? substrate(options.inherit, 'inherit') : NO_MATERIAL;
+  const nodes = flatten(bakeScopes(rootTree, table, rootScope));
   textureTurns(nodes, table, quietly);
 
   // Every light, with the env it belongs to: the scene's (env 0) first, in
@@ -3541,6 +3588,10 @@ export function compileScene(rawSpec, options = {}) {
     // pruning couldn't rule out (buildGroup): { group: its path, members:
     // [i, j] }, indices into its array, i < j.
     overlaps,
+    // Each "place": the object and how it is placed, as given - { ref,
+    // path, prov, and material, paint, scale, rotate, translate, reach as
+    // given } - for placeAll() to graft in at runtime.
+    placements,
   };
 }
 

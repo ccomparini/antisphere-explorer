@@ -13,9 +13,10 @@
 import {
   requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage, createTraceBuffers,
 } from './gpu-setup.js';
-import { loadText } from './load.js';
+import { loadText, loadBytes } from './load.js';
+import { placeAll, placeAllLoading } from './movers.js';
 import {
-  compileScene, compileLight, packNodes, packSurfaces, packMaterials, packLights, packTextures, readScene,
+  compileScene, compileLight, movePrim, packNodes, packSurfaces, packMaterials, packLights, packTextures, readScene,
 } from './antisphere-scene.js';
 import { BINDINGS, MATERIAL_SOLID, Node, RayQuery, RayResult, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
@@ -121,7 +122,9 @@ export class ASContext {
    */
   async loadScene(url) {
     const { spec, files, path } = await readScene(url);
-    return this.createScene(spec, { files, path });
+    const scene = this.createScene(spec, { files, path });
+    await scene.placing;                 // its placed objects read and in
+    return scene;
   }
 
   createRenderer(canvas, opts) {
@@ -247,9 +250,38 @@ export class ASScene {
   update(spec, options = {}) {
     if (options.files) this.files = options.files;
     if (options.path !== undefined) this.path = options.path;
-    const built = compileScene(spec, { files: this.files, path: this.path,
-                                       ...(options.warn ? { warn: options.warn } : {}) });
-    this.load(built, spec);
+    const compileOptions = { files: this.files, path: this.path, ...(options.warn ? { warn: options.warn } : {}) };
+    const built = compileScene(spec, compileOptions);
+    // Its "place"s, grafted in as movers (placeAll()): each placed object's
+    // copies, to move by movePlacement(). Those whose files are at hand now;
+    // the rest once read - `placing` is done when every one is in.
+    const now = placeAll(built, spec, compileOptions);
+    this.load(now.built, spec);
+    this.placed = now.placed;
+    const generation = this.generation;
+    this.placing = !now.pending.length ? Promise.resolve() : placeAllLoading(built, spec, {
+      ...compileOptions, files: this.files, readText: loadText, readBytes: loadBytes,
+    }).then(({ built: all, placed }) => {
+      if (this.generation !== generation) return;            // updated again since: stale
+      this.load(all, spec);
+      this.placed = placed;
+    });
+  }
+
+  /**
+   * Move the `i`th placed object (this.placed, in the order of the scene's
+   * "place"s) by `motion` ({ rotate, translate }, as movePrim() takes it)
+   * from where it was placed: every copy's nodes, in one write. Within its
+   * reach it is right wherever it goes; past it, not yet (it would need
+   * grafting again).
+   */
+  movePlacement(i, motion) {
+    const p = this.placed?.[i];
+    if (!p) return;
+    const moved = p.rest.map((prim, k) => (k ? movePrim(prim, motion) : null));
+    const entries = [];
+    for (const first of p.copies) for (let k = 1; k <= p.size; k++) entries.push([first + k - 1, moved[k]]);
+    this.setNodePrims(entries);
   }
 
   /**

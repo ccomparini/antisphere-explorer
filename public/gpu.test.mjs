@@ -933,6 +933,88 @@ gpuTest('a bare solid everywhere, nothing cut in it: seen from inside, as any so
   }
 });
 
+// -- "place": objects placed at runtime, as movers --------------------------------
+
+const PLACED = {
+  materials: { clay: { albedo: [0.7, 0.5, 0.4] }, floor: { albedo: [0.3, 0.3, 0.35] } },
+  lights: [{ pos: [2, -4, 6], color: [60, 60, 60] }],
+  objects: { pebble: { sphere: { center: [0, 0, 0], radius: 0.6 }, material: 'clay',
+                       outside: { sphere: { center: [0.8, 0, 0.2], radius: 0.3 }, material: 'clay' } } },
+};
+const withPebble = (how) => ({ ...PLACED, root: { group: [
+  { plane: { normal: [0, 0, 1], offset: 0 }, material: 'floor' },
+  { [how]: 'pebble', translate: [0, 0, 0.7] },
+] } });
+
+gpuTest('a placed object renders as the same object used, and its hits name the place', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  const camera = new ASCamera({ position: [0, -6, 2], target: [0, 0, 0.6] });
+  const used = await renderPixels(withPebble('use'), camera, 96, 64);
+  const placed = await renderPixels(withPebble('place'), camera, 96, 64);
+  let differ = 0;
+  for (let row = 0; row < 64; row++) for (let col = 0; col < 96; col++) {
+    if (placed.at(col, row).some((c, i) => c !== used.at(col, row)[i])) differ++;
+  }
+  assert.equal(differ, 0, `${differ} pixels differ`);
+
+  const sc = ctx.createScene(withPebble('place'));
+  try {
+    assert.equal(sc.placed.length, 1);
+    const { node, t0 } = await sc.castRays([{ origin: [0, -10, 0.7], direction: [0, 1, 0] }]);
+    assert.ok(node[0] && Math.abs(t0[0] - 9.4) < 1e-4, `hit the pebble at 9.4: ${t0[0]}`);
+    assert.deepEqual([sc.provenance[node[0]].owner, sc.provenance[node[0]].path], ['@root', 'group/1']);
+  } finally {
+    sc.destroy();
+  }
+});
+
+gpuTest('movePlacement(): rays meet a placed object where it moved, not where it was', async () => {
+  // Its reach given, room to move in.
+  const spec = withPebble('place');
+  spec.root.group[1].reach = { center: [1, 0, 1], axis: [0, 0, 1], height: 4, radius: 4 };
+  const sc = ctx.createScene(spec);
+  try {
+    const rays = [{ origin: [0, -10, 0.7], direction: [0, 1, 0] }, { origin: [2, -10, 0.7], direction: [0, 1, 0] }];
+    let { node } = await sc.castRays(rays);
+    assert.ok(node[0], 'at first, where it was placed');
+    assert.equal(node[1], 0, 'and not two units along x, above the floor');
+    sc.movePlacement(0, { translate: [2, 0, 0] });
+    ({ node } = await sc.castRays(rays));
+    assert.equal(node[0], 0, 'moved: not where it was');
+    assert.ok(node[1], 'but two units along x');
+  } finally {
+    sc.destroy();
+  }
+});
+
+gpuTest('an object with a lit region, placed twice, is lit in each place', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // A dark ambient bubble carrying its own light, round a white ball: the
+  // only light there is. Placed at x = -3 and x = 3.
+  const spec = {
+    materials: { white: { albedo: [0.8, 0.8, 0.8] }, dark: { kind: 'ambient', albedo: [0, 0, 0] } },
+    lights: [],
+    objects: { lamp: { sphere: { center: [0, 0, 0], radius: 2.5 }, material: 'dark',
+                       lights: [{ pos: [0, -1.5, 0], color: [30, 30, 30] }],
+                       inside: { sphere: { center: [0, 0, 0], radius: 0.5 }, material: 'white' } } },
+    root: { group: [{ place: 'lamp', translate: [-3, 0, 0] }, { place: 'lamp', translate: [3, 0, 0] }] },
+  };
+  const sc = ctx.createScene(spec);
+  try {
+    const envs = sc.lights.map((lt) => lt.env);
+    assert.equal(sc.lights.length, 2, 'one light per placement');
+    assert.deepEqual(envs, [...envs].sort((a, b) => a - b), 'in env order');
+  } finally {
+    sc.destroy();
+  }
+  // Looking along +y, orthographic, 8 either side: column = (x / 8 + 1) / 2 * 160,
+  // so x = -3 is column 50, and 3 is 110.
+  const c = new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic' });
+  c.orthoHeight = 4;
+  const img = await renderPixels(spec, c, 160, 80);
+  for (const col of [50, 110]) assert.ok(img.at(col, 40)[0] > 60, `the ball at column ${col} is lit: ${img.at(col, 40)}`);
+});
+
 // -- a parabolic cylinder, as traced ------------------------------------------------
 
 gpuTest('a parabolic cylinder is hit where x^2 = 4 focal y says, along its whole length', async () => {
@@ -1321,6 +1403,46 @@ gpuTest('a region\'s light sees only the region\'s subtree, even where other geo
 });
 
 // -- loading by URL -------------------------------------------------------------------
+
+gpuTest('loadScene by URL: a placed object read once the scene is, and in it when loadScene() returns', async () => {
+  const files = {
+    '/scenes/s.json': JSON.stringify({
+      materials: { floor: {} }, lights: [{ pos: [0, 0, 5], color: [1, 1, 1] }],
+      root: { group: [{ plane: { normal: [0, 0, 1], offset: 0 }, material: 'floor' },
+                      { place: '@parts/pebble.json', translate: [0, 0, 1] }] },
+    }),
+    '/scenes/parts/pebble.json': JSON.stringify({ sphere: { center: [0, 0, 0], radius: 0.5 }, material: '@stone.json#/stone' }),
+    '/scenes/parts/stone.json': JSON.stringify({ stone: { albedo: [0.4, 0.4, 0.4] } }),
+  };
+  const asked = [];
+  const server = createServer((req, res) => {
+    asked.push(req.url.split('?')[0]);
+    const body = files[req.url.split('?')[0]];
+    res.writeHead(body ? 200 : 404);
+    res.end(body ?? 'not found');
+  });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const { spec, files: read } = await readScene(`${base}/scenes/s.json`);
+    assert.deepEqual(asked, ['/scenes/s.json'], 'reading the scene reads nothing placed');
+    assert.equal(Object.keys(read).length, 0);
+    void spec;
+    asked.length = 0;
+    const sc = await ctx.loadScene(`${base}/scenes/s.json`);
+    try {
+      assert.deepEqual(asked.sort(), ['/scenes/parts/pebble.json', '/scenes/parts/stone.json', '/scenes/s.json']);
+      assert.equal(sc.placed.length, 1, 'placed by the time loadScene() returns');
+      const { node, t0 } = await sc.castRays([{ origin: [0, 0, 5], direction: [0, 0, -1] }]);
+      assert.ok(node[0] && Math.abs(t0[0] - 3.5) < 1e-4, `the pebble, on top at 1.5: ${t0[0]}`);
+      assert.equal(sc.materials[sc.nodes[node[0]].material].name, `${base}/scenes/parts/stone.json#/stone`);
+    } finally {
+      sc.destroy();
+    }
+  } finally {
+    server.close();
+  }
+});
 
 gpuTest('loadScene by URL: a scene referencing what sits beside it, an STL on its own, gzipped', async () => {
   const tetrahedron = [

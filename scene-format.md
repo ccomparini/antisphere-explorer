@@ -590,6 +590,44 @@ transform to drop copies of the same object in different places, at
 different sizes and pointing different ways, without duplicating its
 definition.
 
+### `"place"`
+
+```
+{ "place": "<object name or reference>", "translate": [...], "rotate": {...},
+  "scale": s, "material": "...", "reach": { "center", "axis", "height", "radius" } }
+```
+
+Puts an object in the scene as `"use"` does, but at runtime, as a mover,
+rather than compiled in. A `"use"` is part of the scene's tree: groups
+order and divide round it, `"drop"` and `"tangentTo"` work against it, a
+precompiled scene includes it. A `"place"` stands for nothing where it is;
+when the scene is loaded, the object is compiled on its own - as a
+`"use"` of it there would be: with its `"material"` and transforms, moved
+by every node it is within, filling what names no material with the one
+it is within, naming the scene's materials and objects - and laid over the
+scene: it, and where it isn't, whatever the scene has there.
+
+So a `"place"` doesn't subdivide where it is written, as a `"use"` does. A
+`"use"` in a node's `"inside"` is that inside - where the object isn't,
+its absent outsides leave nothing, so the node is hollow round it. A
+`"place"` there leaves the node's inside as it was, solid, and lies over
+it. In a group, where nothing overlaps, the two come to the same; where
+they overlap, a placed object wins, as an earlier member does.
+So it can be moved without recompiling anything, within its `"reach"`: a
+spheroid it is never to leave, by default the spheroid round it where it
+is placed. Moved past its reach, it isn't yet put right.
+
+Its file is read when it is placed, not with the scene: the scene loads,
+then what it places is read and put in (`ASScene.placing`, which
+`loadScene()` waits for). Its references are from its own file, as any
+file's are.
+
+A `"place"` takes no `"inside"`, `"outside"`, `"drop"`, `"tangentTo"`,
+`"wrap"`, `"bounds"`, `"complement"` or `"lights"`: each is warned of and
+ignored. One whose object can't be read, compiled or bounded is warned of
+and left out. Its own lit regions and lights come with it, lighting it;
+like any scoped light, they don't reach out of it.
+
 ### `"group"`
 
 ```

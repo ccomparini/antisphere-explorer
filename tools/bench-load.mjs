@@ -7,6 +7,8 @@
 //             (images decoded: "images" says how many, and how big, and
 //             how many of them the compiled scene uses)
 //   compile   compileScene(): the spec into nodes, materials, lights, ...
+//   place     placeAllLoading(): each "place"d object's files read, and it
+//             compiled alone and grafted in
 //   pack      packNodes(), packSurfaces(), packLights(), packMaterials(),
 //             packTextures(): the compiled scene as the GPU takes it
 //   upload    ASScene.load() less its packing: the buffers made and
@@ -37,6 +39,8 @@ async function measureOne(scene) {
   const { readScene, compileScene, packNodes, packSurfaces, packLights, packMaterials, packTextures } =
     await import(new URL('antisphere-scene.js', PUBLIC));
   const { readFile } = await import('node:fs/promises');
+  const { placeAllLoading } = await import(new URL('movers.js', PUBLIC));
+  const { loadText, loadBytes } = await import(new URL('load.js', PUBLIC));
   const gpu = await ASContext.create({ load: (name) => readFile(new URL(name, PUBLIC), 'utf8') });
 
   const clock = () => performance.now();
@@ -45,8 +49,12 @@ async function measureOne(scene) {
   const read = clock() - t;
 
   t = clock();
-  const built = compileScene(spec, { files, path, warn: () => {} });
+  const compiled = compileScene(spec, { files, path, warn: () => {} });
   const compile = clock() - t;
+
+  t = clock();
+  const { built } = await placeAllLoading(compiled, spec, { files, path, warn: () => {}, readText: loadText, readBytes: loadBytes });
+  const place = clock() - t;
 
   t = clock();
   packNodes(built.nodes, built.materials);
@@ -69,7 +77,7 @@ async function measureOne(scene) {
   // material library's textures come with it.
   const images = Object.values(files ?? {}).filter((f) => f?.rgba);
   const texelBytes = images.reduce((sum, f) => sum + f.rgba.byteLength, 0);
-  console.log(JSON.stringify({ read, compile, pack, upload: Math.max(0, loaded - pack),
+  console.log(JSON.stringify({ read, compile, place, pack, upload: Math.max(0, loaded - pack),
                                nodes: built.nodes.length, gpuBytes: sc.bytes,
                                images: images.length, texelBytes, used: usedTextures(built) }));
   sc.destroy();
@@ -107,7 +115,7 @@ if (values.one) {
 }
 
 const runs = Math.max(1, +values.runs || 3);
-const rows = [['scene', 'nodes', 'images (used)', 'GPU', 'read', 'compile', 'pack', 'upload', 'total']];
+const rows = [['scene', 'nodes', 'images (used)', 'GPU', 'read', 'compile', 'place', 'pack', 'upload', 'total']];
 for (const scene of positionals) {
   const samples = [];
   for (let i = 0; i < runs; i++) {
@@ -123,10 +131,10 @@ for (const scene of positionals) {
   }
   if (!samples.length) { rows.push([scene, 'failed']); continue; }
   const m = (k) => median(samples.map((s) => s[k]));
-  const total = median(samples.map((s) => s.read + s.compile + s.pack + s.upload));
+  const total = median(samples.map((s) => s.read + s.compile + s.place + s.pack + s.upload));
   const s0 = samples[0];
   rows.push([scene, String(s0.nodes), `${s0.images}, ${mb(s0.texelBytes)} (${s0.used})`, mb(s0.gpuBytes),
-             ms(m('read')), ms(m('compile')), ms(m('pack')), ms(m('upload')), ms(total)]);
+             ms(m('read')), ms(m('compile')), ms(m('place')), ms(m('pack')), ms(m('upload')), ms(total)]);
 }
 process.stderr.write('\r\x1b[K');
 const widths = rows[0].map((_, c) => Math.max(...rows.map((r) => (r[c] ?? '').length)));
