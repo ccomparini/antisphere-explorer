@@ -300,6 +300,7 @@ Where a reference may go:
 | a subtree — `root`, `inside`, `outside`, a member of `group`/`union`/`intersection`/`difference`, `use` | a subtree, or a reference (an `.stl` gives the mesh's tree) |
 | `material` on a node | a name, or a reference to a material |
 | `texture` in a material | a reference to a PNG, found from the file the material is in |
+| any other value - a point, a radius, a whole shape, a transform | the value, or a reference to it: `"center": "@shapes.json#/points/a"`, `"sphere": "@shapes.json#/ball"` |
 
 **What a reference brings is the scene's.** It means what it would where it
 is named, and the names inside it then mean this scene's: a referenced bolt
@@ -324,6 +325,32 @@ Loading happens before compiling, since the compiler reads no files itself.
 `loadReferences()` fetches everything a spec references, and what those
 reference in turn, and `compileScene(spec, { files, path })` takes the
 result.
+
+## `declare`
+
+Names for values, used anywhere a value goes with a `$`:
+
+```
+"declare": { "radius": 0.3, "height": 2.5, "trim": "@lib/metals.json#/gold", "gilt": "$trim" },
+...
+{ "cylinder": { "center": [0, 0, "$height"], "axis": [0, 0, 1], "radius": "$radius" }, "material": "$trim" }
+```
+
+A string that is exactly `"$name"` is the value the scene declares for
+`name` - a number, a point, a whole shape, a material's name, an object's,
+a reference - wherever it is, at any depth, and in what the scene brings
+from other files: as a material name in a referenced object means the
+scene's material, a `"$name"` in one means the scene's declaration. There
+is one value per name for the whole scene; they don't vary (per-use
+values are to come).
+
+A declaration may name another (`"gilt": "$trim"`); one that names itself,
+by any way round, is an error saying how. A declaration that is a reference
+is followed from the scene - where it was written - wherever the name is
+used, so `"$trim"` in `parts/tower.json` is still the scene's
+`lib/metals.json`, not one beside the tower. A name the scene doesn't
+declare is warned of, and what used it left out: a field takes its
+default, a material is the stand-in.
 
 ## `objects`
 

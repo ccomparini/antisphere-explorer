@@ -2063,8 +2063,11 @@ export function referencedFiles(content, from) {
   const byFrom = cacheable ? (referencedCache.get(content) ?? new Map()) : null;
   if (byFrom?.has(from)) return byFrom.get(from);
   const found = new Set();
+  let marked = false;                    // any name or reference: hasNamesOrReferences(), in the same walk
   const walk = (value) => {
+    if (typeof value === 'string' && value.length > 1 && value[0] === '$') marked = true;
     if (isReference(value)) {
+      marked = true;
       const { path } = referenceParts(value, from);
       if (path !== from) found.add(path);
     } else if (Array.isArray(value)) {
@@ -2074,7 +2077,34 @@ export function referencedFiles(content, from) {
     }
   };
   walk(content);
-  if (cacheable) { byFrom.set(from, found); referencedCache.set(content, byFrom); }
+  if (cacheable) {
+    byFrom.set(from, found);
+    referencedCache.set(content, byFrom);
+    // What a place names is passed by above; a name or reference only there
+    // still counts, though nothing resolves it here: so only "none" is sure.
+    if (marked || !markedCache.has(content)) markedCache.set(content, marked || (markedCache.get(content) ?? false));
+  }
+  return found;
+}
+
+/**
+ * Whether a file's content has a name or a reference in it anywhere - a
+ * string starting $ or @, outside notes: if not, nothing in it needs
+ * resolving (compileScene() passes its nodes by). Found once per file read.
+ */
+const markedCache = new WeakMap();
+export function hasNamesOrReferences(content) {
+  if (content === null || typeof content !== 'object') return typeof content === 'string' && /^[$@]/.test(content);
+  if (markedCache.has(content)) return markedCache.get(content);
+  let found = false;
+  const walk = (value) => {
+    if (found) return;
+    if (typeof value === 'string') { if (value.length > 1 && (value[0] === '$' || value[0] === '@')) found = true; }
+    else if (Array.isArray(value)) { for (const v of value) walk(v); }
+    else if (value !== null && typeof value === 'object') { for (const k in value) if (!k.startsWith('_')) walk(value[k]); }
+  };
+  walk(content);
+  markedCache.set(content, found);
   return found;
 }
 
@@ -2435,6 +2465,81 @@ export function compileScene(rawSpec, options = {}) {
   // Every file's content, the scene's own as written, for following a
   // reference where the compiler meets it - from the file that names it.
   const own = { ...(options.files ?? {}), [scenePath]: rawSpec };
+
+  // Names the scene declares ("declare"): "$name" anywhere a value goes is
+  // that value - the same throughout the scene, and in what it brings from
+  // other files, as material names are. A declaration may name another; a
+  // reference in one is followed from the scene, where it was written.
+  const declarations = rawSpec?.declare ?? {};
+  if (declarations === null || typeof declarations !== 'object' || Array.isArray(declarations)) {
+    at('declare', 'is a map of names to values: { "radius": 0.3, "trim": "@lib/metals.json#/gold" }');
+  }
+  const isName = (v) => typeof v === 'string' && v.length > 1 && v.startsWith('$');
+  const bound = new Map();                         // name -> { value, from }, once looked up
+  const looking = [];                              // names being looked up, for a cycle
+  // A "$name" as what it stands for, { value, from } - `from` the file it was
+  // written in - following one naming another; undefined, warned of, if the
+  // scene declares no such name. Not a reference followed: that is for
+  // where it is used to do, keyed or not.
+  function unName(value, from, path) {
+    if (!isName(value)) return { value, from };
+    const name = value.slice(1);
+    if (bound.has(name)) return bound.get(name);
+    if (!Object.prototype.hasOwnProperty.call(declarations, name)) {
+      quietly(path, `"${value}": no such name declared ("declare"): left out`);
+      return undefined;
+    }
+    if (looking.includes(name)) at(`declare.${name}`, `names itself, by way of ${[...looking, name].map((n) => '$' + n).join(' -> ')}`);
+    looking.push(name);
+    const got = unName(declarations[name], scenePath, `declare.${name}`);
+    looking.pop();
+    bound.set(name, got);
+    return got;
+  }
+  // A value with every name and reference in it resolved, at any depth: a
+  // "$name" as above, then whatever that is; a reference followed from the
+  // file naming it, and what it names resolved in turn, from its own file.
+  // The same value back if nothing in it is either; undefined for a name
+  // nothing declares.
+  // `path`, for a warning, is the node or entry the value is in: built
+  // once there, not per field - a mesh's every node passes through here.
+  function resolveValue(value, from, path) {
+    if (typeof value === 'string') {
+      if (isName(value)) {
+        const got = unName(value, from, path);
+        return got === undefined ? undefined : resolveValue(got.value, got.from, path);
+      }
+      if (isReference(value)) {
+        const lost = new Set();
+        let got;
+        try {
+          got = followReference(value, from, own, [], lost, (v, from) => resolveValue(v, from, path));
+        } catch (e) { at(path, e.message); }
+        lostFiles(lost);
+        return got;
+      }
+      return value;
+    }
+    if (value === null || typeof value !== 'object') return value;
+    let out = null;
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) {
+        const v = value[i];
+        if (v === null || (typeof v !== 'object' && typeof v !== 'string')) continue;
+        const got = resolveValue(v, from, path);
+        if (got !== v) { out ??= value.slice(); out[i] = got; }
+      }
+      return out ?? value;
+    }
+    for (const k in value) {
+      const v = value[k];
+      if (v === null || (typeof v !== 'object' && typeof v !== 'string') || k.startsWith('_')) continue;
+      const got = resolveValue(v, from, path);
+      if (got !== v) { out ??= { ...value }; if (got === undefined) delete out[k]; else out[k] = got; }
+    }
+    return out ?? value;
+  }
+
   // A file not loaded is said once, wherever it was wanted.
   const notLoaded = new Set();
   const lostFiles = (paths) => {
@@ -2552,7 +2657,28 @@ export function compileScene(rawSpec, options = {}) {
     });
     matIndex.set(name, table.length - 1);
   }
-  for (const [name, def] of Object.entries(spec.materials || {})) {
+  for (let [name, def] of Object.entries(spec.materials || {})) {
+    // A material by name ("$gold"): what the name stands for, a reference
+    // to one followed from where it was written.
+    if (isName(def)) {
+      const got = unName(def, scenePath, `materials.${name}`);
+      const lost = new Set();
+      def = got === undefined ? undefined : resolveMaterial(got.value, got.from, own, [], lost);
+      lostFiles(lost);
+    }
+    // Its fields, any name or reference in them resolved ("albedo": "$gold")
+    // - but its texture, which names an image, by path, for the table.
+    if (def !== null && typeof def === 'object' && !Array.isArray(def)) {
+      const { texture, ...fields } = def;
+      let image = texture;
+      if (isName(texture)) {
+        const got = unName(texture, scenePath, `materials.${name}.texture`);
+        image = got === undefined ? undefined
+          : isReference(got.value) ? resolvePath(got.from, got.value.slice(1).split('#')[0]) : got.value;
+      }
+      const resolved = resolveValue(fields, scenePath, `materials.${name}`);
+      if (resolved !== fields || image !== texture) def = { ...resolved, ...(image !== undefined ? { texture: image } : {}) };
+    }
     // A reference to a material in a file that wasn't loaded comes to
     // nothing (warned of above): left out, so what uses it gets a stand-in.
     if (def === undefined) continue;
@@ -2580,7 +2706,22 @@ export function compileScene(rawSpec, options = {}) {
     return list.map((lt, i) => compileLight(lt, (msg) => at(`${path}[${i}]`, msg)));
   };
   // The scene's own lights: env 0's, which light everything.
-  const topLights = lightsOf(spec.lights ?? [], 'lights').map((lt) => ({ ...lt, env: 0 }));
+  // A list of lights with its names and references resolved, from `from`:
+  // a "$name" for the list or an item undone first, so an item naming a
+  // list of lights is spliced in as a reference to one is (resolveLights()).
+  function lightsResolved(list, from, path) {
+    if (list === undefined) return undefined;
+    if (isName(list)) { const got = unName(list, from, path); if (!got) return undefined; list = got.value; from = got.from; }
+    if (Array.isArray(list)) {
+      list = list.map((item, i) => (isName(item) ? (unName(item, from, `${path}[${i}]`)?.value) : item))
+                 .filter((item) => item !== undefined);
+    }
+    const lost = new Set();
+    const spliced = resolveLights(list, from, own, [], lost);
+    lostFiles(lost);
+    return resolveValue(spliced, from, path);
+  }
+  const topLights = lightsOf(lightsResolved(spec.lights, scenePath, 'lights') ?? [], 'lights').map((lt) => ({ ...lt, env: 0 }));
 
   // A material the scene doesn't define gets a stand-in, unmissable -
   // flat magenta, solid and seen - which keeps the name it was asked for,
@@ -2615,6 +2756,11 @@ export function compileScene(rawSpec, options = {}) {
   // instead show whatever NO_MATERIAL resolves to - name the desired
   // material directly on that node to fix it.
   function materialOf(def, path, where) {
+    if (isName(def.material)) {
+      const got = unNamed(def.material, where, `${path}.material`);
+      if (got.value === undefined) return INHERIT_MATERIAL;
+      return materialOf({ ...def, material: got.value }, path, got.where);
+    }
     if (def.material === null) return NO_MATERIAL;
     if (isReference(def.material)) return referencedMaterial(def.material, `${path}.material`, where);
     if (def.material !== undefined) return substrate(def.material, `${path}.material`);
@@ -2886,6 +3032,10 @@ export function compileScene(rawSpec, options = {}) {
 
   function operand(d, path, where) {
     if (!d) return null;
+    if (isName(d)) {
+      const got = unNamed(d, where, path);
+      return got.value === undefined ? null : operand(got.value, path, got.where);
+    }
     return typeof d === 'string' ? named(d, path, where) : tree(d, path, where);
   }
 
@@ -3367,20 +3517,56 @@ export function compileScene(rawSpec, options = {}) {
       .reduce(COMBINERS[op]);
   }
 
+  // A node's own fields resolved (resolveValue()), in the file it is in:
+  // all but those whose names and references keep their meanings - a use,
+  // a place, a material, its lights, and its subtrees, which are resolved
+  // where they are read.
+  const KEYED_FIELDS = new Set(['use', 'place', 'material', 'paint', 'lights', 'inside', 'outside', ...SUBTREE_ARRAYS]);
+  function bindNode(def, where, path) {
+    // A file with no name or reference anywhere in it - a mesh, say - has
+    // nothing to resolve in any node of it.
+    const file = own[where.from ?? scenePath];
+    if (file !== undefined && file !== rawSpec && !hasNamesOrReferences(file)) return def;
+    let out = null;
+    for (const k in def) {
+      const v = def[k];
+      if (v === null || (typeof v !== 'object' && typeof v !== 'string') || KEYED_FIELDS.has(k) || k.startsWith('_')) continue;
+      const got = resolveValue(v, where.from ?? scenePath, path);
+      if (got !== v) { out ??= { ...def }; if (got === undefined) delete out[k]; else out[k] = got; }
+    }
+    return out ?? def;
+  }
+  // A "$name" where a keyed thing goes - a subtree, a use, a member, a
+  // material - as what it stands for, and `where` with the file it was
+  // written in, for a reference it is to be followed from.
+  function unNamed(value, where, path) {
+    if (!isName(value)) return { value, where };
+    const got = unName(value, where.from ?? scenePath, path);
+    return got === undefined ? { value: undefined, where } : { value: got.value, where: { ...where, from: got.from } };
+  }
+
   function tree(def, path, where) {
     // Null or absent: no subdivision here.
     if (!def) return null;
+    if (isName(def)) {                            // a subtree by name: what it stands for
+      const got = unNamed(def, where, path);
+      return got.value === undefined ? null : tree(got.value, path, got.where);
+    }
     if (isReference(def)) {                       // a subtree by reference: a use of it
       const t = named(def, path, where);
       if (t === BUILDING) at(path, `object "${def}" refers to itself`);
       return t;
     }
     if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
+    def = bindNode(def, where, path);
 
     // Placed at runtime, not compiled in: a mover, grafted into the scene
     // wherever its reach goes (placeAll() in movers.js), so it stands for
     // nothing here. What it is and how it is placed are kept as given.
     if (def.place !== undefined) {
+      const placed = unNamed(def.place, where, `${path}.place`);
+      if (placed.value === undefined) return null;
+      def = { ...def, place: placed.value };
       if (typeof def.place !== 'string') {
         warn(`${path}.place`, `names an object, as "use" does, not ${JSON.stringify(def.place)}: left out`);
         return null;
@@ -3390,7 +3576,7 @@ export function compileScene(rawSpec, options = {}) {
       }
       const given = (key) => (def[key] !== undefined ? { [key]: def[key] } : {});
       placements.push({
-        ref: def.place, from: where.from ?? scenePath, path, prov: provOf(where),
+        ref: def.place, from: placed.where.from ?? scenePath, path, prov: provOf(where),
         ...given('material'), ...given('paint'), ...given('scale'), ...given('rotate'), ...given('translate'),
         ...given('reach'),
         around: [],                      // its enclosing nodes' transforms, innermost first (below)
@@ -3414,7 +3600,9 @@ export function compileScene(rawSpec, options = {}) {
       at(`${path}.lights`, 'lights go on a node with a shape of its own, which is the region they light');
     }
     if (def.use !== undefined) {
-      out = named(def.use, path, where);
+      const used = unNamed(def.use, where, `${path}.use`);
+      out = used.value === undefined ? null
+        : typeof used.value === 'string' ? named(used.value, path, used.where) : tree(used.value, path, used.where);
       if (out === BUILDING) at(path, `object "${def.use}" refers to itself`);
     } else if (def.group !== undefined) {
       out = buildGroup(def, path, where);
@@ -3432,9 +3620,7 @@ export function compileScene(rawSpec, options = {}) {
       // Lights make the node a region (an env): what fills it is its
       // ambient level, if it names one, or the level around it.
       // A node's lights, any reference among them followed from its file.
-      const lost = new Set();
-      const listed = def.lights === undefined ? undefined : resolveLights(def.lights, where.from ?? scenePath, own, [], lost);
-      lostFiles(lost);
+      const listed = lightsResolved(def.lights, where.from ?? scenePath, `${path}.lights`);
       const lights = listed === undefined ? null : lightsOf(listed, `${path}.lights`);
       if (lights && material !== INHERIT_MATERIAL && !isRegionKind(table[material].kind)) {
         at(`${path}.material`, 'a node with lights is a region, lit, not a substance: name an ' +
@@ -3581,9 +3767,9 @@ export function compileScene(rawSpec, options = {}) {
     textures,                              // the images materials name: { file, width, height, rgba }
     lights: lightList,
     topLights: topLights.length,           // the first this many are the scene's own
-    camera: spec.camera || null,
-    gravity: parseGravity(spec.gravity, (path, msg) => at(path, msg)),
-    spawn: parseSpawn(spec.spawn, (path, msg) => at(path, msg)),
+    camera: resolveValue(spec.camera, scenePath, 'camera') || null,
+    gravity: parseGravity(resolveValue(spec.gravity, scenePath, 'gravity'), (path, msg) => at(path, msg)),
+    spawn: parseSpawn(resolveValue(spec.spawn, scenePath, 'spawn'), (path, msg) => at(path, msg)),
     // For each group, the members that may overlap - whose overlap its
     // pruning couldn't rule out (buildGroup): { group: its path, members:
     // [i, j] }, indices into its array, i < j.

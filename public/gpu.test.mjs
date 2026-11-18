@@ -1015,6 +1015,26 @@ gpuTest('an object with a lit region, placed twice, is lit in each place', async
   for (const col of [50, 110]) assert.ok(img.at(col, 40)[0] > 60, `the ball at column ${col} is lit: ${img.at(col, 40)}`);
 });
 
+// -- "declare": named values, as traced ------------------------------------------
+
+gpuTest('a ball whose radius and material are declared names is hit at that radius, in that material', async () => {
+  const sc = ctx.createScene({
+    declare: { size: 0.75, stuff: 'gilt', shine: [0.9, 0.7, 0.2] },
+    materials: { gilt: { albedo: '$shine' } },
+    lights: [{ pos: [0, 0, 5], color: [1, 1, 1] }],
+    root: { sphere: { center: [0, 0, 0], radius: '$size' }, material: '$stuff' },
+  });
+  try {
+    const { node, t0 } = await sc.castRays([{ origin: [0, -10, 0], direction: [0, 1, 0] }]);
+    assert.ok(node[0] && Math.abs(t0[0] - 9.25) < 1e-4, `hit at 10 - 0.75: ${t0[0]}`);
+    const m = sc.materials[sc.nodes[node[0]].material];
+    assert.equal(m.name, 'gilt');
+    assert.deepEqual(m.albedo, [0.9, 0.7, 0.2]);
+  } finally {
+    sc.destroy();
+  }
+});
+
 // -- a parabolic cylinder, as traced ------------------------------------------------
 
 gpuTest('a parabolic cylinder is hit where x^2 = 4 focal y says, along its whole length', async () => {
