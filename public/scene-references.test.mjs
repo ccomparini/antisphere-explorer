@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { compileScene, expandReferences, loadReferences, isReference, isSolid, packTextures, readScene, withReferences } from './antisphere-scene.js';
+import { compileScene, expandReferences, loadReferences, isReference, isSolid, packTextures, readScene, referencedFiles, withReferences } from './antisphere-scene.js';
 import { TextureInfo, viewsOf } from './gen/layouts.js';
 import { loadText, loadBytes } from './load.js';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -94,9 +94,9 @@ test('every use of one reference shares one set of nodes', () => {
     { use: '@parts/bolt.json#/objects/bolt', translate: [2, 0, 0] },
     { use: '@parts/bolt.json#/objects/bolt', translate: [-2, 0, 0] },
   ] } } }));
-  const { spec } = expandReferences(host(), files(), { from: 'scenes/host.json' });
-  assert.deepEqual(Object.keys(spec.objects).filter((k) => k.includes('bolt.json')).sort(),
-    ['scenes/parts/bolt.json#/objects/bolt', 'scenes/parts/bolt.json#/objects/head', 'scenes/parts/bolt.json#/objects/shaft']);
+  // Each part, named for where it is - by the file naming it, its own "@#/...".
+  const owners = new Set(twice.provenance.filter(Boolean).map((p) => p.owner));
+  for (const part of ['head', 'shaft']) assert.ok(owners.has(`scenes/parts/bolt.json#/objects/${part}`), [...owners].join(', '));
   assert.deepEqual(albedoAt(twice, [-2, 0, 0]), STEEL);
   assert.ok(twice.nodes.length < 2 * one.nodes.length, `${twice.nodes.length} nodes for two, ${one.nodes.length} for one`);
 });
@@ -156,8 +156,8 @@ test('relative to the file that names them, and to a URL', () => {
   const spec = { materials: {}, lights: [], root: { sphere: { center: [0, 0, 0], radius: 9 }, inside: '@parts/ball.json#/objects/ball' } };
   const extra = { 'scenes/parts/ball.json': part, 'scenes/lib/m.json': { iron: { albedo: IRON } } };
   assert.deepEqual(albedoAt(compile(spec, extra), [0, 0, 0]), IRON);
-  const { missing } = expandReferences(spec, {}, { from: 'https://example.com/models/scene.json' });
-  assert.deepEqual([...missing], ['https://example.com/models/parts/ball.json']);
+  assert.deepEqual([...referencedFiles(spec, 'https://example.com/models/scene.json')], ['https://example.com/models/parts/ball.json']);
+  assert.deepEqual([...referencedFiles(part, 'https://example.com/models/parts/ball.json')], ['https://example.com/models/lib/m.json']);
   const urls = { 'https://example.com/models/parts/ball.json': part, 'https://example.com/models/lib/m.json': { iron: { albedo: IRON } } };
   const built = compileScene(spec, { files: urls, path: 'https://example.com/models/scene.json' });
   assert.deepEqual(albedoAt(built, [0, 0, 0]), IRON);
@@ -168,7 +168,7 @@ test('what is missing is warned of and left out; a cycle, and "import", are each
   const built = compileScene(host(), { path: 'scenes/host.json', warn: (path, msg) => warned.push(`${path}: ${msg}`) });
   // Named from the scene's own directory: parts/bolt.json, not scenes/parts/bolt.json.
   assert.match(warned.join('\n'), /(^|\n)parts\/bolt.json: not loaded, so what refers to it is left out \(see loadReferences\(\)\)/);
-  assert.match(warned.join('\n'), /unknown object "@parts\/bolt.json#\/objects\/bolt": left out/);
+  assert.equal(warned.filter((w) => w.includes('not loaded')).length, 1, `said once: ${warned.join('; ')}`);
   assert.ok(built.nodes.length >= 2, 'the scene still compiles, without the bolts');
   // A file that is itself a reference is followed - round, here.
   const loop = { 'scenes/a.json': '@b.json', 'scenes/b.json': '@a.json' };

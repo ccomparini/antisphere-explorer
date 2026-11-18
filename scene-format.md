@@ -301,8 +301,8 @@ Where a reference may go:
 | `material` on a node | a name, or a reference to a material |
 | `texture` in a material | a reference to a PNG, found from the file the material is in |
 
-**What a reference brings is the scene's.** It is copied in where it is
-named, and the names inside it then mean this scene's: a referenced bolt
+**What a reference brings is the scene's.** It means what it would where it
+is named, and the names inside it then mean this scene's: a referenced bolt
 that says `"material": "steel"` is made of whatever this scene calls steel.
 That is what lets a part be re-skinned without editing its file, and a
 library supply the names. A file that means *its own* definition says so

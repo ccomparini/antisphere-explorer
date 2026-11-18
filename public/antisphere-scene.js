@@ -1885,15 +1885,24 @@ function boundOf(t, declared, memo, table) {
 // mean the scene's. A file that means its own says so with a reference,
 // "@#/objects/head". In a map of materials or objects, a key starting _
 // ("_comment") is a note, not an entry: it is dropped, and never brought
-// over from another file. A subtree reference becomes an object of its own,
-// named for where it came from, and the place it was a use of that, so
-// every use of one reference shares one set of nodes; a material
-// reference likewise a material. Everything else is copied in.
+// over from another file. A subtree reference is an object of its own,
+// named for where it came from (its key), and the place it was a use of
+// that, so every use of one reference shares one set of nodes; a material
+// reference likewise a material. Everything else - lights, camera,
+// gravity, spawn, the maps of materials and objects - is copied in.
+//
+// Each file means the same wherever it is used: its references are
+// relative to it, and stay as written. The compiler follows one where it
+// meets it, from the file that names it (compileScene() carries which,
+// as it walks) - so a referenced object nothing compiles, a placed one,
+// say, is never looked into. Only the scene's top level is followed
+// before compiling (expandReferences()).
 //
 // Loading is the caller's business, not the compiler's: compileScene() is
 // synchronous and reads no files, so the files are handed to it in
 // `options.files`, which loadReferences() fetches - everything a scene
-// references, and everything those reference in turn.
+// references, and everything those reference in turn, each file's
+// references found once (referencedFiles()).
 // ---------------------------------------------------------------------------
 
 /** Whether a path is a URL of its own (https://, file://, ...), not relative. */
@@ -1971,134 +1980,151 @@ function pointerInto(doc, pointer, reference) {
 // ("intersect" is the old name for "intersection", still read.)
 const SUBTREE_ARRAYS = ['group', 'union', 'intersection', 'intersect', 'difference'];
 
+// What a reference names, by its parts: the file (a path relative to
+// `from`, the file naming it, or a URL), and a JSON pointer into it -
+// "@#/..." being `from` itself. `key` names what it points at, the same
+// wherever it is named from: a material or object brought by reference is
+// named that.
+function referenceParts(reference, from) {
+  const target = reference.slice(1);
+  const hash = target.indexOf('#');
+  const file = hash < 0 ? target : target.slice(0, hash);
+  const pointer = hash < 0 ? '' : target.slice(hash + 1);
+  const path = file ? resolvePath(from, file) : from;
+  return { path, pointer, key: pointer ? `${path}#${pointer}` : path };
+}
+
 /**
- * A spec with its references replaced by what they name, from `files`
- * (path or URL -> content: parsed JSON, or an STL's tree) - see the
- * comment above. Returns { spec, missing }: `missing`, the files it needed
- * and wasn't given; while there are any, `spec` is incomplete. `from` is
- * the spec's own path, which its relative references are relative to.
- * What has no references is returned as it is, not copied.
+ * What a reference names - { key, path, value }, `path` the file it is in,
+ * which its own references are relative to - or null if that file isn't
+ * in `files` (path -> content). `trail`, the keys being followed through,
+ * catches a reference that names itself.
  */
-export function expandReferences(spec, files = {}, { from = '' } = {}) {
-  const missing = new Set();
-  const own = { ...files, [from]: spec };          // "#/..." in the scene is the scene
-  const objects = new Map();                       // a subtree reference's key -> its subtree
-  const materials = new Map();                     // a material reference's key -> the material
-  const PENDING = Symbol('pending');
+function lookUpReference(reference, from, files, trail = []) {
+  const { path, pointer, key } = referenceParts(reference, from);
+  if (trail.includes(key)) {
+    throw new Error(`reference "${reference}" includes itself, by way of ${[...trail, key].join(' -> ')}`);
+  }
+  if (!(path in files)) return null;
+  if (pointer && isSTL(path)) throw new Error(`reference "${reference}": an STL has no parts to point into`);
+  return { key, path, value: pointerInto(files[path], pointer, reference) };
+}
 
-  // What a reference names: { key, path, value }, or null while its file
-  // is missing. `trail` holds the references being copied in, outermost
-  // first, to catch a file copying itself in.
-  const lookUp = (reference, from, trail) => {
-    const target = reference.slice(1);
-    const hash = target.indexOf('#');
-    const file = hash < 0 ? target : target.slice(0, hash);
-    const pointer = hash < 0 ? '' : target.slice(hash + 1);
-    const path = file ? resolvePath(from, file) : from;
-    const key = pointer ? `${path}#${pointer}` : path;
-    if (trail.includes(key)) {
-      throw new Error(`reference "${reference}" includes itself, by way of ${[...trail, key].join(' -> ')}`);
-    }
-    if (!(path in own)) { missing.add(path); return null; }
-    if (pointer && isSTL(path)) throw new Error(`reference "${reference}": an STL has no parts to point into`);
-    return { key, path, value: pointerInto(own[path], pointer, reference) };
-  };
+// A value that may be a reference, followed - through one naming another,
+// too - to what it names, and given to `expand` with the file it is in:
+// `expand(value, from, trail)`. Undefined, with its file added to
+// `missing`, if a file on the way isn't loaded.
+function followReference(value, from, files, trail, missing, expand) {
+  if (!isReference(value)) return expand(value, from, trail);
+  const found = lookUpReference(value, from, files, trail);
+  if (!found) { missing.add(referenceParts(value, from).path); return undefined; }
+  return followReference(found.value, found.path, files, [...trail, found.key], missing, expand);
+}
 
-  // Each function below takes a value from a file at `from`, and returns
-  // it expanded: the same value if nothing in it is a reference.
-  const changed = (out, def) => Object.keys(out).some((k) => out[k] !== def[k]);
-
-  // A reference copied in: followed - through a file that is itself a
-  // reference, too - to what it names, which `expand` then expands.
-  const inline = (value, from, trail, expand) => {
-    if (!isReference(value)) return expand(value, from, trail);
-    const found = lookUp(value, from, trail);
-    return found ? inline(found.value, found.path, [...trail, found.key], expand) : undefined;
-  };
-
-  // A material, and its texture: a reference to an image, resolved from
-  // where the material is, and missing until it is loaded.
-  const material = (def, from, trail) => inline(def, from, trail, (v, from) => {
+// A material, and its texture: a reference to an image, resolved from the
+// material's own file, to that image's path (missing until it is loaded).
+function resolveMaterial(def, from, files, trail, missing) {
+  return followReference(def, from, files, trail, missing, (v, from) => {
     if (!v || typeof v !== 'object' || !isReference(v.texture)) return v;
     const path = resolvePath(from, v.texture.slice(1).split('#')[0]);
-    if (!(path in own)) missing.add(path);
+    if (!(path in files)) missing.add(path);
     return { ...v, texture: path };
   });
+}
 
-  const subtreeReference = (reference, from, trail) => {
-    const found = lookUp(reference, from, []);
-    if (!found) return reference;
-    if (!objects.has(found.key)) {
-      objects.set(found.key, PENDING);             // a cycle meets it as a use, and the compiler says so
-      objects.set(found.key, subtree(found.value, found.path, trail));
-    }
-    return found.key;
-  };
-
-  const subtree = (def, from, trail) => {
-    if (isReference(def)) return { use: subtreeReference(def, from, trail) };
-    if (def === null || typeof def !== 'object' || Array.isArray(def)) return def;
-    const out = { ...def };
-    if (isReference(def.use)) out.use = subtreeReference(def.use, from, trail);
-    if (isReference(def.material)) {
-      const found = lookUp(def.material, from, []);
-      if (found) {
-        // As a material in "materials" is: its texture found from its file.
-        if (!materials.has(found.key)) materials.set(found.key, material(found.value, found.path, [found.key]));
-        out.material = found.key;
-      }
-    }
-    for (const side of ['inside', 'outside']) {
-      if (def[side] !== undefined) out[side] = subtree(def[side], from, trail);
-    }
-    for (const op of SUBTREE_ARRAYS) {
-      if (Array.isArray(def[op])) {
-        const members = def[op].map((m) => (isReference(m) ? subtreeReference(m, from, trail) : subtree(m, from, trail)));
-        if (members.some((m, i) => m !== def[op][i])) out[op] = members;
-      }
-    }
-    if (def.lights !== undefined) out.lights = lights(def.lights, from, trail);
-    return changed(out, def) ? out : def;
-  };
-
-  // A list of lights; an item that names a list is spliced in, its own
-  // items expanded where it came from.
-  const lights = (list, from, trail) => inline(list, from, trail, (value, from, trail) => {
+// A list of lights; an item that names a list is spliced in, its own
+// items followed from where it came from.
+function resolveLights(list, from, files, trail, missing) {
+  return followReference(list, from, files, trail, missing, (value, from, trail) => {
     if (!Array.isArray(value)) return value;      // the compiler says what is wrong with it
     const out = [];
     let differs = false;
     for (const item of value) {
-      const got = inline(item, from, trail, (v, from, trail) => (Array.isArray(v) ? lights(v, from, trail) : v));
+      const got = followReference(item, from, files, trail, missing,
+        (v, from, trail) => (Array.isArray(v) ? resolveLights(v, from, files, trail, missing) : v));
       if (got !== item) differs = true;
       if (Array.isArray(got)) out.push(...got); else out.push(got);
     }
     return differs ? out : value;
   });
+}
+
+/**
+ * Every file a file's content references, anywhere in it - a string
+ * starting @, outside notes (keys starting _) - as paths resolved from
+ * `from`, the file's own: what loading it needs loaded too. Found once per
+ * file read, and kept with its content.
+ */
+const referencedCache = new WeakMap();          // content -> Map(from -> Set)
+export function referencedFiles(content, from) {
+  const cacheable = content !== null && typeof content === 'object';
+  const byFrom = cacheable ? (referencedCache.get(content) ?? new Map()) : null;
+  if (byFrom?.has(from)) return byFrom.get(from);
+  const found = new Set();
+  const walk = (value) => {
+    if (isReference(value)) {
+      const { path } = referenceParts(value, from);
+      if (path !== from) found.add(path);
+    } else if (Array.isArray(value)) {
+      for (const v of value) walk(v);
+    } else if (value !== null && typeof value === 'object') {
+      for (const [k, v] of Object.entries(value)) if (!k.startsWith('_')) walk(v);
+    }
+  };
+  walk(content);
+  if (cacheable) { byFrom.set(from, found); referencedCache.set(content, byFrom); }
+  return found;
+}
+
+/**
+ * A spec's top level with its references followed, from `files` (path or
+ * URL -> content: parsed JSON, or an STL's tree): the maps and lists the
+ * scene gathers - materials, objects, lights - and camera, gravity, spawn.
+ * Returns { spec, missing, objectFrom }: `missing`, the files those needed
+ * and weren't given; `objectFrom`, for each object, the file its
+ * definition is in, which the references in it are relative to. Subtrees
+ * are left as they are: a reference in one is followed by the compiler
+ * where it meets it (compileScene()), from the file that names it - so a
+ * referenced object nothing compiles is never looked into. `from` is the
+ * spec's own path. What has no references is returned as it is.
+ */
+export function expandReferences(spec, files = {}, { from = '' } = {}) {
+  const missing = new Set();
+  const own = { ...files, [from]: spec };          // "#/..." in the scene is the scene
+  const objectFrom = new Map();
+  const changed = (out, def) => Object.keys(out).some((k) => out[k] !== def[k]);
 
   // A map of materials or objects: or a reference to one, or an array of
-  // those, merged in order.
-  const merged = (value, from, trail, each) => inline(value, from, trail, (value, from, trail) => {
+  // those, merged in order, later entries winning. `each(entry, from,
+  // trail, name)` gives an entry as it is to be.
+  const merged = (value, from, trail, each) => followReference(value, from, own, trail, missing, (value, from, trail) => {
     if (Array.isArray(value)) {
       return Object.assign({}, ...value.map((part) => merged(part, from, trail, each) ?? {}));
     }
     if (value === null || typeof value !== 'object') return value;
     const out = {};
     // A key starting _ is a note ("_comment"), not an entry: dropped.
-    for (const [name, entry] of Object.entries(value)) if (!name.startsWith('_')) out[name] = each(entry, from, trail);
+    for (const [name, entry] of Object.entries(value)) if (!name.startsWith('_')) out[name] = each(entry, from, trail, name);
     return changed(out, value) || Object.keys(out).length !== Object.keys(value).length ? out : value;
   });
 
   const out = { ...spec };
-  if (spec.materials !== undefined) out.materials = merged(spec.materials, from, [], material);
-  if (spec.objects !== undefined) out.objects = merged(spec.objects, from, [], subtree);
-  if (spec.lights !== undefined) out.lights = lights(spec.lights, from, []);
-  for (const key of ['camera', 'gravity', 'spawn']) {
-    if (spec[key] !== undefined) out[key] = inline(spec[key], from, [], (v) => v);
+  if (spec.materials !== undefined) {
+    out.materials = merged(spec.materials, from, [], (entry, from, trail) => resolveMaterial(entry, from, own, trail, missing));
   }
-  if (spec.root !== undefined) out.root = subtree(spec.root, from, []);
-  if (objects.size) out.objects = { ...(out.objects ?? {}), ...Object.fromEntries(objects) };
-  if (materials.size) out.materials = { ...(out.materials ?? {}), ...Object.fromEntries(materials) };
-  return { spec: changed(out, spec) || Object.keys(out).length !== Object.keys(spec).length ? out : spec, missing };
+  if (spec.objects !== undefined) {
+    // An object is its definition where it is written: a reference to one,
+    // a use of it, from that file.
+    out.objects = merged(spec.objects, from, [], (entry, from, trail, name) => {
+      objectFrom.set(name, from);
+      return isReference(entry) ? { use: entry } : entry;
+    });
+  }
+  if (spec.lights !== undefined) out.lights = resolveLights(spec.lights, from, own, [], missing);
+  for (const key of ['camera', 'gravity', 'spawn']) {
+    if (spec[key] !== undefined) out[key] = followReference(spec[key], from, own, [], missing, (v) => v);
+  }
+  return { spec: changed(out, spec) || Object.keys(out).length !== Object.keys(spec).length ? out : spec, missing, objectFrom };
 }
 
 /**
@@ -2142,11 +2168,13 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
       throw new Error(`cannot load "${path}": ${cause.message}`);
     }
   };
-  for (;;) {
-    const { missing } = expandReferences(spec, files, { from });
-    const wanted = [...missing].filter((path) => !failed.has(path));
-    if (!wanted.length) return files;
-    await Promise.all(wanted.map(async (path) => {
+  // Breadth first: what the scene references, then what each of those
+  // does (referencedFiles(), once per file) - an image or a mesh, none.
+  let wanted = [...referencedFiles(spec, from)];
+  while (wanted.length) {
+    const fresh = wanted.filter((path) => !(path in files) && !failed.has(path));
+    wanted = [];
+    await Promise.all(fresh.map(async (path) => {
       try {
         files[path] = await load(path);
       } catch (error) {
@@ -2156,7 +2184,12 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
         failed.add(path);
       }
     }));
+    for (const path of fresh) {
+      if (path in files && !isPNG(path) && !isSTL(path)) wanted.push(...referencedFiles(files[path], path));
+    }
+    wanted = [...new Set(wanted)];
   }
+  return files;
 }
 
 /**
@@ -2377,9 +2410,10 @@ export function compileScene(rawSpec, options = {}) {
   const shown = (path) => (dir ? String(path).split(dir).join('') : path);
   const at = (path, msg) => { throw new Error(`scene compilation: ${file}${shown(path)}: ${shown(msg)}`); };
 
-  // References are replaced by what they name before anything else looks
-  // at the spec, so everything below sees one ordinary scene - some of
-  // whose objects and materials are named for the files they came from.
+  // The scene's top level has its references followed first (its maps of
+  // materials and objects, its lights, camera, gravity, spawn); one in a
+  // subtree is followed where tree() meets it, from the file naming it
+  // (where.from), and named for where it came from.
   if (rawSpec?.import !== undefined) {
     at('import', 'references replace "import": name the file where the object goes - ' +
                  '"use": "@parts/bolt.json#/objects/bolt", "materials": ["@lib/materials.json", { ... }] ' +
@@ -2392,17 +2426,26 @@ export function compileScene(rawSpec, options = {}) {
   // them); options.quiet silences them.
   const told = options.warn ?? ((path, msg) => { if (!options.quiet) console.warn(`warning: ${file}${path}: ${msg}`); });
   const quietly = (path, msg) => told(shown(path), shown(msg));
-  const { spec, missing } = expandReferences(rawSpec, options.files ?? {}, { from: options.path ?? '' });
-  if (missing.size) {
-    quietly([...missing].join(', '), 'not loaded, so what refers to it is left out (see loadReferences())');
-  }
+  const scenePath = options.path ?? '';
+  const { spec, missing, objectFrom } = expandReferences(rawSpec, options.files ?? {}, { from: scenePath });
+  // Every file's content, the scene's own as written, for following a
+  // reference where the compiler meets it - from the file that names it.
+  const own = { ...(options.files ?? {}), [scenePath]: rawSpec };
+  // A file not loaded is said once, wherever it was wanted.
+  const notLoaded = new Set();
+  const lostFiles = (paths) => {
+    const fresh = [...paths].filter((p) => !notLoaded.has(p));
+    fresh.forEach((p) => notLoaded.add(p));
+    if (fresh.length) quietly(fresh.join(', '), 'not loaded, so what refers to it is left out (see loadReferences())');
+  };
+  lostFiles(missing);
   // Drops are worked out first, on a copy (resolveDrops()), and the scene
   // they give compiled as any other: it has none left, and no references.
   if (tangentSites(spec, at).length || dropSites(spec, at).length) {
     // tangentTo first, then drops: what is placed flush can then fall.
-    const compile = (s) => compileScene(s, { quiet: true });
+    const compile = (s) => compileScene(s, { quiet: true, files: options.files, path: options.path });
     const resolved = resolveDrops(resolveTangents(spec, compile, at, quietly), compile, at, quietly);
-    return compileScene(resolved, { ...options, files: {}, path: options.path });
+    return compileScene(resolved, { ...options });
   }
   const warn = quietly;
 
@@ -2442,19 +2485,9 @@ export function compileScene(rawSpec, options = {}) {
                    pattern: 0, scale: 1, kind: 0, params: [0, 0], flags: 0 }];
   const matIndex = new Map();
   const aliases = [];
-  for (const [name, def] of Object.entries(spec.materials || {})) {
-    // A reference to a material in a file that wasn't loaded comes to
-    // nothing (warned of above): left out, so what uses it gets a stand-in.
-    if (def === undefined) continue;
-    if (LEGACY_PAINT_WORDS.includes(name)) at(`materials.${name}`, 'name is reserved');
-    // A name is an alias of that material (materialAlias()), resolved once
-    // every material has its place. Anything else not an object is a slip:
-    // left out, so what uses it gets a stand-in.
-    if (typeof def === 'string') { aliases.push(name); continue; }
-    if (def === null || typeof def !== 'object' || Array.isArray(def)) {
-      quietly(`materials.${name}`, `${JSON.stringify(def)} isn't a material: an object, a reference ("@..."), or another material's name - left out`);
-      continue;
-    }
+  // A material defined, given its place in the table under `name`: the
+  // scene's, or one a node names by reference, keyed for where it is.
+  function addMaterial(name, def) {
     const pattern = PATTERNS[def.pattern ?? 'flat'];
     if (pattern === undefined) at(`materials.${name}`, `unknown pattern "${def.pattern}"`);
     const kind = KINDS[def.kind ?? 'lambert'];
@@ -2515,6 +2548,21 @@ export function compileScene(rawSpec, options = {}) {
     });
     matIndex.set(name, table.length - 1);
   }
+  for (const [name, def] of Object.entries(spec.materials || {})) {
+    // A reference to a material in a file that wasn't loaded comes to
+    // nothing (warned of above): left out, so what uses it gets a stand-in.
+    if (def === undefined) continue;
+    if (LEGACY_PAINT_WORDS.includes(name)) at(`materials.${name}`, 'name is reserved');
+    // A name is an alias of that material (materialAlias()), resolved once
+    // every material has its place. Anything else not an object is a slip:
+    // left out, so what uses it gets a stand-in.
+    if (typeof def === 'string') { aliases.push(name); continue; }
+    if (def === null || typeof def !== 'object' || Array.isArray(def)) {
+      quietly(`materials.${name}`, `${JSON.stringify(def)} isn't a material: an object, a reference ("@..."), or another material's name - left out`);
+      continue;
+    }
+    addMaterial(name, def);
+  }
   // Aliases: the very material they name, sharing its place in the table.
   for (const name of aliases) {
     const { target, error } = materialAlias(spec.materials, name);
@@ -2562,14 +2610,32 @@ export function compileScene(rawSpec, options = {}) {
   // to reveal, so a node that relied on it to show through scope will
   // instead show whatever NO_MATERIAL resolves to - name the desired
   // material directly on that node to fix it.
-  function materialOf(def, path) {
+  function materialOf(def, path, where) {
     if (def.material === null) return NO_MATERIAL;
+    if (isReference(def.material)) return referencedMaterial(def.material, `${path}.material`, where);
     if (def.material !== undefined) return substrate(def.material, `${path}.material`);
     if (def.paint === undefined) return INHERIT_MATERIAL;
     quietly(`${path}.paint`, '"paint" is deprecated - use "material" instead');
     if (def.paint === 'inherit') return INHERIT_MATERIAL;
     if (def.paint === 'partition' || def.paint === 'bare') return NO_MATERIAL;
     return substrate(def.paint, `${path}.paint`);
+  }
+
+  // A material a node names by reference: followed from the file naming
+  // it, added to the table under its key the first time, the same entry
+  // for every node naming it. One whose file wasn't loaded is the
+  // stand-in, as an unknown name is.
+  function referencedMaterial(reference, path, where) {
+    const { key } = referenceParts(reference, where?.from ?? scenePath);
+    if (!matIndex.has(key)) {
+      const lost = new Set();
+      let def;
+      try { def = resolveMaterial(reference, where?.from ?? scenePath, own, [], lost); }
+      catch (e) { at(path, e.message); }
+      lostFiles(lost);
+      if (def !== null && typeof def === 'object' && !Array.isArray(def)) addMaterial(key, def);
+    }
+    return substrate(key, path);
   }
 
   const pivotOf = (def, path) => pivotSpec(def, path, at);
@@ -2745,7 +2811,7 @@ export function compileScene(rawSpec, options = {}) {
   // Where a subtree sits for provenance: its owner, and the literal keys
   // from the owner's body down to it. `below` extends it by more keys.
   const below = (where, ...keys) =>
-    ({ owner: where.owner, segments: [...where.segments, ...keys] });
+    ({ owner: where.owner, segments: [...where.segments, ...keys], from: where.from });
   const provOf = (where) => ({ owner: where.owner, path: where.segments.join('/') });
   const isUseBody = (def) =>
     def !== null && typeof def === 'object' && typeof def.use === 'string';
@@ -2760,42 +2826,63 @@ export function compileScene(rawSpec, options = {}) {
   const boundMemo = new Map();
   const instanceBodies = new Map();   // identical-instance detection
 
-  function named(name, path) {
-    if (built.has(name)) return built.get(name);
-    const def = (spec.objects || {})[name];
+  function named(name, path, where) {
+    // A reference: what it names, from the file naming it, keyed for where
+    // that is - every use of one reference, the same object. A name: the
+    // scene's objects, each from the file its definition is in.
+    let key = name, def, from;
+    if (isReference(name)) {
+      const naming = where?.from ?? scenePath;
+      key = referenceParts(name, naming).key;
+      if (built.has(key)) return built.get(key);
+      let found;
+      try { found = lookUpReference(name, naming, own); }
+      catch (e) { at(path, e.message); }
+      if (!found) {
+        lostFiles([referenceParts(name, naming).path]);
+        built.set(key, null);
+        return null;
+      }
+      def = isReference(found.value) ? { use: found.value } : found.value;
+      from = found.path;
+    } else {
+      if (built.has(name)) return built.get(name);
+      def = (spec.objects || {})[name];
+      from = objectFrom.get(name) ?? scenePath;
+    }
     if (!def) {
       // Nothing there: as an outside, empty; as an inside, the node's own.
       quietly(path, `unknown object "${name}": left out`);
-      built.set(name, null);
+      built.set(key, null);
       return null;
     }
-    built.set(name, BUILDING);                   // cycle guard
-    let t = tree(def, `objects.${name}`, { owner: name, segments: [] });
+    built.set(key, BUILDING);                    // cycle guard
+    let t = tree(def, `objects.${key}`, { owner: key, segments: [], from });
 
     // An instance gets nodes of its own, attributed to it, so a hit can say
     // which instance was struck (see the Provenance comment up top).
 // XXX is this not better set in the actual "use" case?
     if (isUseBody(def) && t) {
-      t = reown(t, def.use, name);
+      t = reown(t, isReference(def.use) ? referenceParts(def.use, from).key : def.use, key);
       // Two instances alike in everything - prototype, every transform,
       // material - are the same geometry in the same place: never what
       // anyone means. Alike only in where they are, they are not: two
       // turned or scaled differently, their union or intersection, say.
-      const key = JSON.stringify(def);
-      const twin = instanceBodies.get(key);
+      const body = JSON.stringify(def);
+      const twin = instanceBodies.get(body);
       if (twin) {
-        quietly(`objects.${name}`, `identical to objects.${twin} (same prototype, placed alike)`);
+        quietly(`objects.${key}`, `identical to objects.${twin} (same prototype, placed alike)`);
       } else {
-        instanceBodies.set(key, name);
+        instanceBodies.set(body, key);
       }
     }
-    built.set(name, t);
+    built.set(key, t);
     return t;
   }
 
   function operand(d, path, where) {
     if (!d) return null;
-    return typeof d === 'string' ? named(d, path) : tree(d, path, where);
+    return typeof d === 'string' ? named(d, path, where) : tree(d, path, where);
   }
 
   // "group" is a union, built so that each member hangs only where it can
@@ -3279,9 +3366,14 @@ export function compileScene(rawSpec, options = {}) {
   function tree(def, path, where) {
     // Null or absent: no subdivision here.
     if (!def) return null;
+    if (isReference(def)) {                       // a subtree by reference: a use of it
+      const t = named(def, path, where);
+      if (t === BUILDING) at(path, `object "${def}" refers to itself`);
+      return t;
+    }
     if (typeof def === 'string') at(path, `expected a subtree, got "${def}"`);
 
-    const material = materialOf(def, path);
+    const material = materialOf(def, path, where);
 
     let out;
     if (def.lights !== undefined &&
@@ -3290,7 +3382,7 @@ export function compileScene(rawSpec, options = {}) {
       at(`${path}.lights`, 'lights go on a node with a shape of its own, which is the region they light');
     }
     if (def.use !== undefined) {
-      out = named(def.use, path);
+      out = named(def.use, path, where);
       if (out === BUILDING) at(path, `object "${def.use}" refers to itself`);
     } else if (def.group !== undefined) {
       out = buildGroup(def, path, where);
@@ -3305,7 +3397,11 @@ export function compileScene(rawSpec, options = {}) {
 
       // Lights make the node a region (an env): what fills it is its
       // ambient level, if it names one, or the level around it.
-      const lights = def.lights === undefined ? null : lightsOf(def.lights, `${path}.lights`);
+      // A node's lights, any reference among them followed from its file.
+      const lost = new Set();
+      const listed = def.lights === undefined ? undefined : resolveLights(def.lights, where.from ?? scenePath, own, [], lost);
+      lostFiles(lost);
+      const lights = listed === undefined ? null : lightsOf(listed, `${path}.lights`);
       if (lights && material !== INHERIT_MATERIAL && !isRegionKind(table[material].kind)) {
         at(`${path}.material`, 'a node with lights is a region, lit, not a substance: name an ' +
                                'ambient or glowRegion material, or none, to keep the level around it');
@@ -3408,7 +3504,7 @@ export function compileScene(rawSpec, options = {}) {
   const overlaps = [];
   // A root that comes to nothing (an object left out) is still a node 1,
   // which trace() starts at: one with nothing inside it anywhere, H = 1.
-  const rootTree = tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [] })
+  const rootTree = tree(spec.root, 'root', { owner: ROOT_OWNER, segments: [], from: options.rootFrom ?? scenePath })
     ?? node({ axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: 1 }, null, null, NO_MATERIAL);
   const nodes = flatten(bakeScopes(rootTree, table));
   textureTurns(nodes, table, quietly);
