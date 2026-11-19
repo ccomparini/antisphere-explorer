@@ -352,6 +352,58 @@ used, so `"$trim"` in `parts/tower.json` is still the scene's
 declare is warned of, and what used it left out: a field takes its
 default, a material is the stand-in.
 
+## `"repeat"`
+
+Copies of something, made where a list is - members of a union or group,
+lights, anything in a list - each with values of its own:
+
+```
+[ { "repeat": { "range": { "num": { "start": 1, "end": 6 } }, "repetend": "$num" } },
+  { "repeat": { "times": 3, "repetend": "beagle" } } ]
+```
+
+is the list `[1, 2, 3, 4, 5, 6, "beagle", "beagle", "beagle"]`. A
+`{ "repeat": ... }` in a list is replaced by `times` copies of its
+`repetend`, in each of which a string that is exactly `"$name"`, for a name
+in its `range`, is that name's value for that copy. Other names are left
+as they are, for the scene's declarations, and a range's name hides a
+declaration of the same name inside the repetend. Each kind of range, for
+copy k counting from 0:
+
+| range | copy k |
+|---|---|
+| a list | its k-th element, round again if there are more copies |
+| `{ "start", "step" }` | start + k × step (`step` 1 by default) |
+| `{ "start", "end" }` | from start to end, both included, evenly: the first copy at `start`, the last at `end` |
+| `{ "start", "end", "step" }` | start + k × step, as many as reach `end` |
+
+Each may be a number, or a vector, element by element. `times`, if not
+given, is the most copies any range says: a list's length, or how many
+steps go from a start to its end (by ones, a number with no step and no
+`times`). `times`, and anything in a range, may be a declared name.
+
+`end` lands the last copy exactly, to meet something else: a spiral stair's
+last step at the next floor's angle. A repeat inside a repetend - rows of
+columns - can use the outer one's names. A repeat not in a list, or one
+that can't say how many, is warned of and makes nothing.
+
+Stairs, five treads each up 0.2 and along 0.3:
+
+```
+{ "union": [{ "repeat": { "times": 5,
+    "range": { "at": { "start": [0, 0, 0], "step": [0.3, 0, 0.2] } },
+    "repetend": { "use": "tread", "translate": "$at" } } }] }
+```
+
+A node turns a thing before moving it (`scale`, `rotate`, `translate`), so
+to swing copies round an axis, put the offset inside and the turn outside:
+
+```
+{ "union": [{ "repeat": { "range": { "a": { "start": 0, "end": 315 } }, "times": 8,
+    "repetend": { "union": [{ "use": "column", "translate": [5, 0, 0] }],
+                  "rotate": { "axis": [0, 0, 1], "degrees": "$a" } } } }] }
+```
+
 ## `objects`
 
 A map of name → subtree definition (see "Subtrees" below). Each entry is

@@ -301,15 +301,14 @@ a window, as a torch inside cannot reach out: a torch lights its own room.
   what some node names - or not reading what nothing needs - would keep the
   table to the scene. A library scoped to what its scenes need stays the
   author's responsibility either way.
-- **Object parameters, then "repeat"** (Chris and Claude). `"declare"` names
-  values for the whole scene; varying an object per use is to come as
-  parameters it declares (`"parameters": { "radius": 0.3 }`) and a use
-  supplies (`"with": { "radius": 0.5 }`), lexical - an object takes only
-  what it says it takes. `"repeat"` then makes copies as a group: a count,
-  or a list to go `over`; a `step` transform taken once more per copy
-  (stairs, a spiral stair, a dais, a ring of columns); each copy a use
-  with its own arguments, its index and its item. Arithmetic over values
-  (`"$i * 0.25"`) maybe after, if lists and steps prove clumsy.
+- **After "repeat"** (Chris and Claude). `"repeat"` (scene-format.md) makes
+  copies by expanding the JSON. A spiral stair done properly wants more:
+  arithmetic over names (a tread's width as 360 / steps; and so no
+  `"times"` needed beside a list of three stones), an ordered list of
+  transforms (`"transform": [ ... ]`, so an offset can come before a turn
+  on one node), and a use setting an object's declarations - its
+  parameters - so one stair can be used with different radii or step
+  counts.
 - **Libraries in the scene format** (Chris's idea; to revisit with the
   other scene-format work). A scene's `"library"`: a .json imported whole,
   what it holds going where it belongs - its `"materials"` into the

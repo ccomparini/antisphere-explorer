@@ -2064,6 +2064,7 @@ export function referencedFiles(content, from) {
   if (byFrom?.has(from)) return byFrom.get(from);
   const found = new Set();
   let marked = false;                    // any name or reference: hasNamesOrReferences(), in the same walk
+  let repeats = false;                   // any "repeat": hasRepeats(), likewise
   const walk = (value) => {
     if (typeof value === 'string' && value.length > 1 && value[0] === '$') marked = true;
     if (isReference(value)) {
@@ -2073,7 +2074,10 @@ export function referencedFiles(content, from) {
     } else if (Array.isArray(value)) {
       for (const v of value) walk(v);
     } else if (value !== null && typeof value === 'object') {
-      for (const [k, v] of Object.entries(value)) if (!k.startsWith('_') && k !== 'place') walk(v);
+      for (const [k, v] of Object.entries(value)) {
+        if (k === 'repeat') repeats = true;
+        if (!k.startsWith('_') && k !== 'place') walk(v);
+      }
     }
   };
   walk(content);
@@ -2083,6 +2087,7 @@ export function referencedFiles(content, from) {
     // What a place names is passed by above; a name or reference only there
     // still counts, though nothing resolves it here: so only "none" is sure.
     if (marked || !markedCache.has(content)) markedCache.set(content, marked || (markedCache.get(content) ?? false));
+    if (repeats || !repeatCache.has(content)) repeatCache.set(content, repeats || (repeatCache.get(content) ?? false));
   }
   return found;
 }
@@ -2101,10 +2106,30 @@ export function hasNamesOrReferences(content) {
     if (found) return;
     if (typeof value === 'string') { if (value.length > 1 && (value[0] === '$' || value[0] === '@')) found = true; }
     else if (Array.isArray(value)) { for (const v of value) walk(v); }
-    else if (value !== null && typeof value === 'object') { for (const k in value) if (!k.startsWith('_')) walk(value[k]); }
+    else if (value !== null && typeof value === 'object' && !ArrayBuffer.isView(value)) { for (const k in value) if (!k.startsWith('_')) walk(value[k]); }
   };
   walk(content);
   markedCache.set(content, found);
+  return found;
+}
+
+/**
+ * Whether a file's content has a "repeat" in it anywhere: if not, there is
+ * nothing to expand (compileScene() passes it by). Found once per file read
+ * - by the scan loading makes (referencedFiles()), or here.
+ */
+const repeatCache = new WeakMap();
+export function hasRepeats(content) {
+  if (content === null || typeof content !== 'object') return false;
+  if (repeatCache.has(content)) return repeatCache.get(content);
+  let found = false;
+  const walk = (value) => {
+    if (found || value === null || typeof value !== 'object' || ArrayBuffer.isView(value)) return;   // not an image's bytes
+    if (Array.isArray(value)) { for (const v of value) walk(v); return; }
+    for (const k in value) { if (k === 'repeat') { found = true; return; } if (!k.startsWith('_')) walk(value[k]); }
+  };
+  walk(content);
+  repeatCache.set(content, found);
   return found;
 }
 
@@ -2461,10 +2486,17 @@ export function compileScene(rawSpec, options = {}) {
   const told = options.warn ?? ((path, msg) => { if (!options.quiet) console.warn(`warning: ${file}${path}: ${msg}`); });
   const quietly = (path, msg) => told(shown(path), shown(msg));
   const scenePath = options.path ?? '';
-  const { spec, missing, objectFrom } = expandReferences(rawSpec, options.files ?? {}, { from: scenePath });
-  // Every file's content, the scene's own as written, for following a
-  // reference where the compiler meets it - from the file that names it.
+  // Every file's content, the scene's own, for following a reference where
+  // the compiler meets it - from the file that names it. Each with its
+  // repeats expanded (below), once declarations are known.
   const own = { ...(options.files ?? {}), [scenePath]: rawSpec };
+  // A file not loaded is said once, wherever it was wanted.
+  const notLoaded = new Set();
+  const lostFiles = (paths) => {
+    const fresh = [...paths].filter((p) => !notLoaded.has(p));
+    fresh.forEach((p) => notLoaded.add(p));
+    if (fresh.length) quietly(fresh.join(', '), 'not loaded, so what refers to it is left out (see loadReferences())');
+  };
 
   // Names the scene declares ("declare"): "$name" anywhere a value goes is
   // that value - the same throughout the scene, and in what it brings from
@@ -2540,13 +2572,144 @@ export function compileScene(rawSpec, options = {}) {
     return out ?? value;
   }
 
-  // A file not loaded is said once, wherever it was wanted.
-  const notLoaded = new Set();
-  const lostFiles = (paths) => {
-    const fresh = [...paths].filter((p) => !notLoaded.has(p));
-    fresh.forEach((p) => notLoaded.add(p));
-    if (fresh.length) quietly(fresh.join(', '), 'not loaded, so what refers to it is left out (see loadReferences())');
-  };
+  // "repeat" (scene-format.md): { "repeat": { times, range, repetend } }, an
+  // element of a list, is that many copies of its repetend, spliced in -
+  // each with the range's "$name"s put in, as they are for this copy. Done
+  // to the JSON itself, before anything else reads it, so what reads it sees
+  // plain JSON; times and range values may be declared names.
+  const isRepeat = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.prototype.hasOwnProperty.call(v, 'repeat');
+  function expandRepeats(value, path) {
+    if (Array.isArray(value)) {
+      let out = null;
+      for (let i = 0; i < value.length; i++) {
+        const v = value[i];
+        if (isRepeat(v)) {
+          out ??= value.slice(0, i);
+          for (const copy of repeatCopies(v, `${path}[${i}]`)) out.push(expandRepeats(copy, `${path}[${i}]`));
+          continue;
+        }
+        const got = v !== null && typeof v === 'object' ? expandRepeats(v, `${path}[${i}]`) : v;
+        if (out) out.push(got);
+        else if (got !== v) { out = value.slice(0, i); out.push(got); }
+      }
+      return out ?? value;
+    }
+    if (value === null || typeof value !== 'object') return value;
+    let out = null;
+    for (const k in value) {
+      const v = value[k];
+      if (v === null || typeof v !== 'object') continue;
+      const where = path ? `${path}.${k}` : k;
+      let got;
+      if (isRepeat(v)) {
+        quietly(where, 'a repeat makes a list, and goes in one: left out');
+        got = undefined;
+      } else {
+        got = expandRepeats(v, where);
+      }
+      if (got !== v) { out ??= { ...value }; if (got === undefined) delete out[k]; else out[k] = got; }
+    }
+    return out ?? value;
+  }
+
+  // A repeat's copies: its repetend with each range name's value put in,
+  // copy by copy. A slip is warned of, and the repeat gives none.
+  function repeatCopies(def, path) {
+    const body = def.repeat;
+    const slip = (msg) => { quietly(`${path}.repeat`, `${msg}: left out`); return []; };
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) return slip('takes { "times", "range", "repetend" }');
+    if (!Object.prototype.hasOwnProperty.call(body, 'repetend')) return slip('needs a "repetend": what to repeat');
+    for (const k of Object.keys(def)) if (k !== 'repeat' && !k.startsWith('_')) quietly(`${path}.${k}`, 'beside a repeat, ignored');
+
+    let times;
+    if (body.times !== undefined) {
+      times = resolveValue(body.times, scenePath, `${path}.repeat.times`);
+      if (!(Number.isInteger(times) && times >= 0)) return slip(`"times" is a whole number, 0 or more, not ${JSON.stringify(times)}`);
+    }
+    // Each range entry, resolved: a list, or { start, step?, end? }.
+    const isNumber = (x) => typeof x === 'number' && Number.isFinite(x);
+    const isVector = (x) => Array.isArray(x) && x.length > 0 && x.every(isNumber);
+    const ranges = [];
+    const range = body.range ?? {};
+    if (range === null || typeof range !== 'object' || Array.isArray(range)) return slip('"range" is a map of names to lists or { start, step | end }');
+    for (const [name, raw] of Object.entries(range)) {
+      if (name.startsWith('_')) continue;
+      const entry = resolveValue(raw, scenePath, `${path}.repeat.range.${name}`);
+      if (Array.isArray(entry)) {
+        if (!entry.length) return slip(`range "${name}" is an empty list`);
+        ranges.push({ name, list: entry, count: entry.length });
+        continue;
+      }
+      if (entry === null || typeof entry !== 'object' || entry.start === undefined) {
+        return slip(`range "${name}" is a list, or { start, step } or { start, end }`);
+      }
+      const { start, step, end } = entry;
+      const shape = isNumber(start) ? 'number' : isVector(start) ? start.length : null;
+      const like = (x) => (shape === 'number' ? isNumber(x) : isVector(x) && x.length === shape);
+      if (shape === null) return slip(`range "${name}": start is a number or a vector, not ${JSON.stringify(start)}`);
+      for (const [key, x] of [['step', step], ['end', end]]) {
+        if (x !== undefined && !like(x)) return slip(`range "${name}": ${key} must be ${shape === 'number' ? 'a number' : `a vector of ${shape}`}, as start is`);
+      }
+      // A count of its own: end and step together; or end alone, a number, by ones.
+      let count;
+      if (end !== undefined && (step !== undefined || times === undefined)) {
+        const by = step ?? (shape === 'number' ? 1 : null);
+        if (by === null) return slip(`range "${name}": from a vector start to its end needs a step, or "times"`);
+        const [s0, e0, b0] = shape === 'number' ? [start, end, by] : (() => {
+          const i = by.findIndex((v) => v !== 0);
+          return i < 0 ? [0, 0, 0] : [start[i], end[i], by[i]];
+        })();
+        if (b0 === 0 || (e0 - s0) / b0 < 0) return slip(`range "${name}": its step never gets from start to end`);
+        count = Math.floor((e0 - s0) / b0 + 1e-9) + 1;
+      }
+      ranges.push({ name, start, step, end, shape, count });
+    }
+    if (times === undefined) {
+      const counts = ranges.map((r) => r.count).filter((c) => c !== undefined);
+      if (!counts.length) return slip('needs "times", or a range that says how many');
+      times = Math.max(...counts);
+    }
+    const add = (a, b, k) => (typeof a === 'number' ? a + k * b : a.map((v, i) => v + k * b[i]));
+    const valueAt = (r, k) => {
+      if (r.list) return r.list[k % r.list.length];
+      let step = r.step;
+      if (step === undefined) {
+        // From start to end, both included, in `times` copies.
+        step = r.end === undefined ? (r.shape === 'number' ? 1 : r.start.map(() => 1))
+          : times <= 1 ? (r.shape === 'number' ? 0 : r.start.map(() => 0))
+          : (r.shape === 'number' ? (r.end - r.start) / (times - 1) : r.end.map((v, i) => (v - r.start[i]) / (times - 1)));
+      }
+      return add(r.start, step, k);
+    };
+    // The repetend with this copy's values put in: every string that is
+    // exactly "$name", for a name in the range; anything else as it is.
+    const put = (value, values) => {
+      if (typeof value === 'string') return value.length > 1 && value[0] === '$' && values.has(value.slice(1)) ? values.get(value.slice(1)) : value;
+      if (Array.isArray(value)) {
+        let out = null;
+        value.forEach((v, i) => { const got = put(v, values); if (got !== v) { out ??= value.slice(); out[i] = got; } });
+        return out ?? value;
+      }
+      if (value === null || typeof value !== 'object') return value;
+      let out = null;
+      for (const k in value) { const got = put(value[k], values); if (got !== value[k]) { out ??= { ...value }; out[k] = got; } }
+      return out ?? value;
+    };
+    const copies = [];
+    for (let k = 0; k < times; k++) copies.push(put(body.repetend, new Map(ranges.map((r) => [r.name, valueAt(r, k)]))));
+    return copies;
+  }
+
+  // The scene's own repeats expanded, then every file's that has any.
+  own[scenePath] = expandRepeats(rawSpec, '');
+  for (const [path, content] of Object.entries(own)) {
+    if (path === scenePath || isPNG(path) || isSTL(path)) continue;             // an image, a mesh: nothing to repeat
+    if (content !== null && typeof content === 'object' && hasRepeats(content)) {
+      own[path] = expandRepeats(content, path);
+    }
+  }
+  const { spec, missing, objectFrom } = expandReferences(own[scenePath], own, { from: scenePath });
+
   lostFiles(missing);
   // Drops are worked out first, on a copy (resolveDrops()), and the scene
   // they give compiled as any other: it has none left, and no references.
@@ -3525,8 +3688,8 @@ export function compileScene(rawSpec, options = {}) {
   function bindNode(def, where, path) {
     // A file with no name or reference anywhere in it - a mesh, say - has
     // nothing to resolve in any node of it.
-    const file = own[where.from ?? scenePath];
-    if (file !== undefined && file !== rawSpec && !hasNamesOrReferences(file)) return def;
+    const from = where.from ?? scenePath;
+    if (from !== scenePath && own[from] !== undefined && !hasNamesOrReferences(own[from])) return def;
     let out = null;
     for (const k in def) {
       const v = def[k];

@@ -1035,6 +1035,24 @@ gpuTest('a ball whose radius and material are declared names is hit at that radi
   }
 });
 
+// -- "repeat": copies of a repetend, as traced -----------------------------------
+
+gpuTest('a row of five balls from a repeat: each is hit, and the gaps between them are not', async () => {
+  const sc = scene({ union: [{ repeat: {
+    range: { x: { start: -4, end: 4 } }, times: 5,
+    repetend: { sphere: { center: ['$x', 0, 0], radius: 0.5 }, material: 'clay' },
+  } }] });
+  try {
+    const xs = [-4, -2, 0, 2, 4], gaps = [-3, -1, 1, 3];
+    const rays = [...xs, ...gaps].map((x) => ({ origin: [x, 0, 5], direction: [0, 0, -1] }));
+    const { node, t0 } = await sc.castRays(rays);
+    xs.forEach((x, i) => assert.ok(node[i] && Math.abs(t0[i] - 4.5) < 1e-4, `the ball at ${x}: ${t0[i]}`));
+    gaps.forEach((x, j) => assert.equal(node[xs.length + j], 0, `nothing at ${x}`));
+  } finally {
+    sc.destroy();
+  }
+});
+
 // -- a parabolic cylinder, as traced ------------------------------------------------
 
 gpuTest('a parabolic cylinder is hit where x^2 = 4 focal y says, along its whole length', async () => {
