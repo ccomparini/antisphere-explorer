@@ -23,6 +23,19 @@
       "color": [ 16, 8, 2 ]
     }
   ],
+  "declare": {
+    "_comment": "The 8 x 8 beads: their spacing, the turn of each one's bite (by row, the golden angle; along a row, a little), and the stones they go round.",
+    "spacing": 1.55,
+    "row-turn": 137.507764,
+    "bead-turn": 20.062079,
+    "stones": [
+      "brass-5",
+      "jade",
+      "rose",
+      "slate-2",
+      "stone-8"
+    ]
+  },
   "objects": {
     "bead": {
       "_comment": "A carved bead at the origin, its bite toward +x: each copy is turned about its vertical axis and moved into place.",
@@ -236,77 +249,29 @@
           "bead00",
           {
             "repeat": {
-              "_comment": "8 x 8 beads, 1.55 apart, a repeat of a repeat: one flat list of 64. Each row's bite turns by the golden angle from the last's, and along a row by 20.062 degrees; materials go round diagonally, each row its own turn of the five.",
+              "_comment": "8 x 8 beads, a repeat of a repeat: one flat list of 64. Bead i of row j is turned by j row-turns and i bead-turns, and its stone goes round diagonally, (i + j - 1) mod 5.",
               "times": 8,
               "range": {
-                "y": {
-                  "start": -11.425,
-                  "step": 1.55
-                },
-                "turn": {
-                  "start": 0,
-                  "step": 137.507764
-                },
-                "row": [
-                  [
-                    "stone-8",
-                    "brass-5",
-                    "jade",
-                    "rose",
-                    "slate-2"
-                  ],
-                  [
-                    "brass-5",
-                    "jade",
-                    "rose",
-                    "slate-2",
-                    "stone-8"
-                  ],
-                  [
-                    "jade",
-                    "rose",
-                    "slate-2",
-                    "stone-8",
-                    "brass-5"
-                  ],
-                  [
-                    "rose",
-                    "slate-2",
-                    "stone-8",
-                    "brass-5",
-                    "jade"
-                  ],
-                  [
-                    "slate-2",
-                    "stone-8",
-                    "brass-5",
-                    "jade",
-                    "rose"
-                  ]
-                ]
+                "j": {
+                  "start": 0
+                }
               },
               "repetend": {
                 "repeat": {
                   "times": 8,
                   "range": {
-                    "at": {
-                      "start": [ -5.425, "$y", -0.44 ],
-                      "step": [ 1.55, 0, 0 ]
-                    },
-                    "angle": {
-                      "start": "$turn",
-                      "step": 20.062079
-                    },
-                    "stone": "$row"
+                    "i": {
+                      "start": 0
+                    }
                   },
                   "repetend": {
                     "use": "bead",
-                    "material": "$stone",
+                    "material": "=$stones[$i + $j - 1]",
                     "rotate": {
                       "axis": [ 0, 0, 1 ],
-                      "degrees": "$angle"
+                      "degrees": "=$j * $row-turn + $i * $bead-turn"
                     },
-                    "translate": "$at"
+                    "translate": "=[-5.425 + $i * $spacing, -11.425 + $j * $spacing, -0.44]"
                   }
                 }
               }
