@@ -43,6 +43,9 @@ machine, documentation and maths notation - is in the workspace's own
                              converted) where missing, not kept in git;
                              --clean deletes them; --archive x.tar.gz packs
                              them, as converted, for another checkout
+    node tools/precompile.mjs <object> [-o out.qssp.gz]
+                             an object compiled once, for scenes to use
+                             without compiling it (compiled-format.md)
 
 Shader sources are `shaders/*.wgsls`; `public/gen/` is generated but
 committed (see the README). The JS never spells out a struct offset: use

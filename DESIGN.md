@@ -403,6 +403,22 @@ a window, as a torch inside cannot reach out: a torch lights its own room.
     52 pieces compile as one group to 148,543 nodes in about 70 s (see
     "Group adds, made cheaper"). They can't chain, not being
     self-contained, so they pose by recompiling.
+- **Precompiled objects: what is left** (Chris and Claude). Built: an
+  object compiled once and written (`.qssp`, compiled-format.md, "A
+  precompiled object"), sealed through the scene's compile: the dragon's
+  scene loads in 3.4 s, against 16.3 s. To come:
+  - **Nodes straight to the GPU.** Of the 3.4 s, making the dragon's 1.8 M
+    node objects in `flatten()` and packing them (`packNodes()`,
+    `packSurfaces()`) is most; written from its arrays into the node
+    buffer, with its surface ids offset rather than found again, they would
+    be a loop each.
+  - **More of them sealed:** one naming its own materials, by the scope
+    each node's material comes from, worked out when it is precompiled;
+    textured faces (the fish), lights, places, materials by reference.
+  - **A plane's axis written as zero.** It is never read - curvature
+    zero, the frame from the linear term - and repeats the normal in bits
+    gzip can't match: the dragon's file would be about 17 MB, not 27.5.
+    A change to every compile (pixel hashes), not just the file's.
 - **Group adds, made cheaper** (to revisit). Adding a member to a group,
   `knock()` in `buildGroup()` asks `overlap.js` to prove it clear of each
   region it passes (`regionsDisjoint()`: `separation()`,

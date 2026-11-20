@@ -288,7 +288,10 @@ loads into a tree of its faces' planes inside a bounding spheroid. It names
 no material - an STL has none - so it is made of whatever material the node
 around it names, as any node that names none is:
 `{ "sphere": ..., "material": "gold", "inside": "@parts/torus.stl" }`.
-Either kind of file, ending `.gz`, is unzipped as it loads.
+A file ending `.qssp` is a precompiled object (`tools/precompile.mjs`;
+compiled-format.md, "A precompiled object"): an object compiled once, used
+as what it was compiled from would be, without compiling it again.
+Any of them, ending `.gz`, is unzipped as it loads.
 
 Where a reference may go:
 
@@ -297,7 +300,7 @@ Where a reference may go:
 | `materials`, `objects` | a map, a reference to one, or an array of those, merged in order — a later entry of the same name wins |
 | each material, each object, `camera`, `gravity`, `spawn` | the object, or a reference |
 | `lights` (the scene's, or a node's) | an array, or a reference to one; an item may be a light, a reference to one, or a reference to an array, spliced in |
-| a subtree — `root`, `inside`, `outside`, a member of `group`/`union`/`intersection`/`difference`, `use` | a subtree, or a reference (an `.stl` gives the mesh's tree) |
+| a subtree — `root`, `inside`, `outside`, a member of `group`/`union`/`intersection`/`difference`, `use` | a subtree, or a reference (an `.stl` gives the mesh's tree; a `.qssp`, the object precompiled) |
 | `material` on a node | a name, or a reference to a material |
 | `texture` in a material | a reference to a PNG, found from the file the material is in |
 | any other value - a point, a radius, a whole shape, a transform | the value, or a reference to it: `"center": "@shapes.json#/points/a"`, `"sphere": "@shapes.json#/ball"` |

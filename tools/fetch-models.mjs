@@ -2,7 +2,8 @@
 // Models with a public source are fetched, not kept in git: this downloads
 // each - pinned (Khronos' sample assets by commit) and checked against its
 // SHA-256 - and, for a scene model, converts it with tools/import-model.mjs,
-// exactly as a person would run it.
+// exactly as a person would run it, and precompiles what is slow to compile
+// (tools/precompile.mjs), likewise.
 //
 //   node tools/fetch-models.mjs                    every model that's missing
 //   node tools/fetch-models.mjs barramundi teapot  these, if missing
@@ -42,6 +43,7 @@ import { tar } from './sources.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const IMPORT_MODEL = fileURLToPath(new URL('./import-model.mjs', import.meta.url));
+const PRECOMPILE = fileURLToPath(new URL('./precompile.mjs', import.meta.url));
 
 // Khronos' glTF-Sample-Assets, at a commit, so what a test reads can't
 // change under it.
@@ -52,8 +54,10 @@ const SOURCES = `${FETCHED}/sources`;
 
 /**
  * Each model: its name, where it is from (and its licence), its files -
- * { url, sha256, to } - and, for a scene model, import-model's arguments
- * and what they write (`outputs`), all paths from the repository's root.
+ * { url, sha256, to } - and, for a scene model, import-model's arguments,
+ * what of what it writes to precompile (`precompile`: { from, to }), and
+ * all it writes (`outputs`, the precompiled too), all paths from the
+ * repository's root.
  */
 export const MODELS = [
   {
@@ -126,7 +130,8 @@ export const MODELS = [
     ],
     import: [`${SOURCES}/dragon_recon.tar.gz#dragon_recon/dragon_vrip.ply`, '--up', 'y', '--float32',
              '-o', `${FETCHED}/stanford/dragon.json.gz`],
-    outputs: [`${FETCHED}/stanford/dragon.json.gz`],
+    precompile: [{ from: `${FETCHED}/stanford/dragon.json.gz`, to: `${FETCHED}/stanford/dragon.qssp.gz` }],
+    outputs: [`${FETCHED}/stanford/dragon.json.gz`, `${FETCHED}/stanford/dragon.qssp.gz`],
   },
 ];
 
@@ -155,14 +160,16 @@ async function download({ url, sha256, to }, root, say) {
   renameSync(`${where}.${process.pid}.part`, where);
 }
 
-// import-model, as a person would run it, from the repository's root.
-function runImport(args, root, say) {
+// A tool - import-model, precompile - as a person would run it, from the
+// repository's root.
+function runTool(script, args, root, say) {
+  const name = path.basename(script, '.mjs');
   return new Promise((done, fail) => {
-    say(`  node tools/import-model.mjs ${args.join(' ')}`);
-    const child = spawn(process.execPath, [IMPORT_MODEL, ...args], { cwd: root });
+    say(`  node tools/${name}.mjs ${args.join(' ')}`);
+    const child = spawn(process.execPath, [script, ...args], { cwd: root });
     let stderr = '';
     child.stderr.on('data', (d) => { stderr += d; });
-    child.on('close', (status) => (status === 0 ? done(stderr) : fail(new Error(`import-model: ${stderr.trim().split('\n').pop()}`))));
+    child.on('close', (status) => (status === 0 ? done(stderr) : fail(new Error(`${name}: ${stderr.trim().split('\n').pop()}`))));
   });
 }
 
@@ -218,7 +225,15 @@ export async function ensureModels(names, { say = () => {}, models = MODELS, roo
       for (const file of model.files) {
         if (!existsSync(path.join(root, file.to))) await download(file, root, say);
       }
-      if (model.import) say((await runImport(model.import, root, say)).trim().split('\n').map((l) => `    ${l}`).join('\n'));
+      const told = (stderr) => say(stderr.trim().split('\n').map((l) => `    ${l}`).join('\n'));
+      const there = (p) => existsSync(path.join(root, p));
+      // Imported unless what that writes is there; then precompiled, each
+      // unless it is: a checkout fetched before precompiling isn't imported again.
+      const precompiled = (model.precompile ?? []).map((p) => p.to);
+      if (model.import && !(model.outputs ?? []).filter((o) => !precompiled.includes(o)).every(there)) {
+        told(await runTool(IMPORT_MODEL, model.import, root, say));
+      }
+      for (const { from, to } of model.precompile ?? []) if (!there(to)) told(await runTool(PRECOMPILE, [from, '-o', to], root, say));
     } catch (error) {
       return `${name} not fetched: ${error.message} (node tools/fetch-models.mjs ${name})`;
     }

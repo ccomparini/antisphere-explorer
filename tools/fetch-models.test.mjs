@@ -6,7 +6,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -15,6 +15,7 @@ import { writeSTL } from '../public/stl.js';
 import { gunzipSync } from 'node:zlib';
 import { archiveModels, cleanModels, ensureModels, isFetched, MODELS } from './fetch-models.mjs';
 import { tar, untar } from './sources.mjs';
+import { decodeQSSP } from '../public/qssp.js';
 
 // A tetrahedron, as an STL, and a file of text.
 const TET = new Uint8Array(writeSTL([[[0, 0, 0], [0, 1, 0], [1, 0, 0]], [[0, 0, 0], [1, 0, 0], [0, 0, 1]],
@@ -36,7 +37,8 @@ const models = [
     files: [{ url: `${base}/note.txt`, to: 'models/changed.txt', sha256: '0'.repeat(64) }] },
   { name: 'gone', about: 'not there', files: [{ url: `${base}/gone.stl`, to: 'models/gone.stl', sha256: '0'.repeat(64) }] },
   { name: 'tet', about: 'a mesh, converted', files: [{ url: `${base}/tet.stl`, to: 'sources/tet.stl', sha256: sum(TET) }],
-    import: ['sources/tet.stl', '--fit', '2', '-o', 'parts/tet.json'], outputs: ['parts/tet.json'] },
+    import: ['sources/tet.stl', '--fit', '2', '-o', 'parts/tet.json'],
+    precompile: [{ from: 'parts/tet.json', to: 'parts/tet.qssp' }], outputs: ['parts/tet.json', 'parts/tet.qssp'] },
 ];
 
 test('fetched where it goes, checked; there already, not fetched again; cleaned, fetched afresh', async () => {
@@ -60,7 +62,7 @@ test('cleaned, every one: their files, what they made, downloads kept as .unveri
   mkdirSync(join(root, 'public/scenes/parts/fetched'), { recursive: true });
   writeFileSync(stray, 'stale');
   const deleted = cleanModels([], { models, root });
-  assert.deepEqual(deleted.sort(), ['models/changed.txt.unverified', 'models/note.txt', 'parts/tet.json',
+  assert.deepEqual(deleted.sort(), ['models/changed.txt.unverified', 'models/note.txt', 'parts/tet.json', 'parts/tet.qssp',
                                     'public/scenes/parts/fetched', 'sources/tet.stl'].sort());
   assert.ok(!existsSync(stray) && !existsSync(join(root, 'parts/tet.json')));
 });
@@ -70,7 +72,7 @@ test('an archive: the models\' downloads and what they were converted to, named 
   for (const name of ['note', 'tet']) assert.equal(await ensureModels([name], { models, root }), null);
   const file = join(root, 'out', 'models.tar.gz');
   const paths = archiveModels(['note', 'tet'], file, { models, root });
-  assert.deepEqual(paths, ['models/note.txt', 'sources/tet.stl', 'parts/tet.json']);
+  assert.deepEqual(paths, ['models/note.txt', 'sources/tet.stl', 'parts/tet.json', 'parts/tet.qssp']);
   const read = untar(new Uint8Array(gunzipSync(readFileSync(file))));
   assert.deepEqual([...read.keys()], paths);
   for (const p of paths) assert.deepEqual([...read.get(p)], [...readFileSync(join(root, p))], p);
@@ -123,13 +125,22 @@ test('a sum not as recorded: an error naming both, the file kept as .unverified 
   assert.match(await ensureModels(['nothing'], { models, root }), /no model "nothing"/);
 });
 
-test('a scene model: fetched, then converted by import-model, as a person would', async () => {
+test('a scene model: fetched, then converted by import-model and precompiled, as a person would', async () => {
   const root = mkdtempSync(join(tmpdir(), 'fetch-models-'));
   assert.ok(!isFetched(models[3], root));
-  assert.equal(await ensureModels(['tet'], { models, root }), null);
+  const said = [];
+  assert.equal(await ensureModels(['tet'], { models, root, say: (line) => said.push(line) }), null);
   assert.ok(isFetched(models[3], root));
   const model = JSON.parse(readFileSync(join(root, 'parts/tet.json'), 'utf8'));
   assert.deepEqual(model._meta.dimensions, [2, 2, 2], '--fit 2');
+  const object = decodeQSSP(new Uint8Array(readFileSync(join(root, 'parts/tet.qssp'))));
+  assert.equal(object.manifest.source, 'tet.json', 'beside its source');
+  // Fetched before precompiling: precompiled, not imported again.
+  rmSync(join(root, 'parts/tet.qssp'));
+  said.length = 0;
+  assert.equal(await ensureModels(['tet'], { models, root, say: (line) => said.push(line) }), null);
+  assert.ok(existsSync(join(root, 'parts/tet.qssp')));
+  assert.ok(said.some((l) => /precompile\.mjs/.test(l)) && !said.some((l) => /import-model\.mjs/.test(l)), said.join('\n'));
 });
 
 test('the manifest: every file pinned and summed; every scene model\'s outputs under parts/fetched', () => {

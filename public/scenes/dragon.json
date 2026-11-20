@@ -1,5 +1,5 @@
 {
-  "_comment": "The Stanford Dragon at full resolution (871,414 triangles), a stress test. It is fetched, not kept in git: node tools/fetch-models.mjs dragon (a couple of minutes).",
+  "_comment": "The Stanford Dragon at full resolution (871,414 triangles), a stress test. It is fetched, not kept in git, and precompiled (dragon.qssp.gz, from dragon.json.gz): node tools/fetch-models.mjs dragon (a couple of minutes).",
   "lights": [
     {
       "direction": [ 0.25, -0.4, -0.35 ],
@@ -16,7 +16,7 @@
       },
       "scale": 10,
       "_translate": [ 0, 0, -0.527 ],
-      "use": "@parts/fetched/stanford/dragon.json.gz",
+      "use": "@parts/fetched/stanford/dragon.qssp.gz",
       "_use": "@parts/fetched/teapot.json"
     }
   },

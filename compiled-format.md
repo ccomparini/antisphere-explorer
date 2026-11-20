@@ -386,6 +386,81 @@ one entry of zeros.
 An empty list is packed as one black light, since a storage buffer can't be
 empty.
 
+## A precompiled object
+
+An object compiled once and written, so a scene using it reads its nodes
+instead of compiling it again: `tools/precompile.mjs` writes one
+(`precompileObject()`, `public/qssp.js`), and a reference to one - a file
+ending `.qssp`, or `.qssp.gz` - is used as its source would be:
+`"use": "@parts/fetched/stanford/dragon.qssp.gz"`. The dragon's scene
+loads in 3.4 s from it, against 16.3 s from its tree.
+
+It holds the object as tree() makes it, before anything that depends on
+where it is used: its own coordinates, not moved; the materials it names,
+by name, for the scene using it to define; and where it names none, that
+it inherits, or passes on the material round it (a wrap), not what that
+is. Envs are worked out where it is used.
+
+### The file
+
+Laid out as glTF's binary form is - a header, a JSON chunk, a binary chunk,
+little-endian:
+
+| bytes | what |
+|---|---|
+| 0  | `"QSSP"` |
+| 4  | `u32` version: 1 |
+| 8  | `u32` the file's length in bytes |
+| 12 | `u32` the JSON chunk's length, then `"JSON"`, then the manifest, padded with spaces to 4 bytes |
+| then | `u32` the binary chunk's length, then `"BIN\0"`, then its arrays, each at a multiple of 4 |
+
+The manifest:
+
+| field | what |
+|---|---|
+| `source` | what it was compiled from, relative to the file |
+| `generator` | `"tools/precompile.mjs"` |
+| `nodes`, `surfaces` | how many of each |
+| `materials` | what a node's material index means: `{ "name": "jade" }`, `{ "inherit": true }`, `{ "pass": true }`, or `null` (vacuum) |
+| `owners` | each node's owner, for its provenance: `""` the object itself, or the name of one it used; `null` for a node the compiler made |
+| `reach` | a spheroid round all it claims, `{ center, axis, height, radius }`: its extent where that can be found, or its root's own spheroid (a mesh's); `null` if neither |
+| `arrays` | where each array is in the binary chunk: `{ offset, length }`, in bytes from its start and in elements |
+
+The arrays:
+
+| array | type | per | what |
+|---|---|---|---|
+| `surfaces` | `f32` | surface, 9 | axis (3), $k_\parallel$, $k_\perp$, $\vec{c}$ (3), $d$ - each surface once, signed as `packSurfaces()` signs it |
+| `nodes` | `i32` | node, 4 | inside and outside, each as the child's index less the node's own (0: none); its surface, the index + 1, negated where the node is that surface turned inside out; its material, an index into `materials` |
+| `owners` | `u32` | node | an index into the manifest's `owners`; left out where there is one owner |
+
+Node 1 is the object's root; there is no node 0. Its numbers are 32-bit, as
+the GPU's are, so they are rounded before the use's transforms rather than
+after: the dragon from its file renders as from its tree but for about
+0.6% of its pixels, where a ray grazing a mesh's facets falls the other way
+- no more speckled. (Stored 64-bit, the two are byte-identical.)
+
+### Used
+
+A precompiled object stays sealed in its arrays while the scene compiles
+(`SealedObject`): what is done to it - turned, scaled, moved, given a material,
+re-owned - is recorded once, not done to each node, and `flatten()` makes
+its nodes, finished. Whatever reaches into it otherwise - a `group`
+grafting into it, a `complement`, CSG - opens it into ordinary nodes, as
+its source would have made them. It stays sealed through `bakeScopes()`
+only when what fills it is the material round it: every node inheriting or
+passing it on, and nothing outside its root - a mesh's tree in its
+spheroid. One naming its own materials is opened there, and is right, only
+not as quick.
+
+Its `reach`, moved with it, is its `"wrap"` (as a `"place"` wraps what it
+places), so its extent isn't searched for. Its provenance is the object
+(or the instance using it), with no path: its nodes are not its source's,
+to be edited.
+
+Not held yet, and refused by the tool: lights, textured faces, places. A
+material it brings by reference is kept by its name alone.
+
 ## An example
 
 ```json

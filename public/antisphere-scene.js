@@ -48,6 +48,7 @@ import { readSTL } from './stl.js';
 import { meshToTree, boundsOf, boundingSpheroidOfPoints } from './mesh-import.js';
 import { loadText, loadBytes } from './load.js';
 import { decodePNG } from './png.js';
+import { QSSPObject, decodeQSSP, surfaceSign } from './qssp.js';
 import { fromAxisAngle, fromColumns, toAxisAngle, rows as quatRows, multiply as quatMultiply } from './quat.js';
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -728,6 +729,103 @@ function node(prim, inside, outside, material = NO_MATERIAL, env = 0, prov = nul
   return { prim, inside, outside, material, env, prov, lights };
 }
 
+// A precompiled object (qssp.js), used: its nodes left in its arrays while
+// the scene compiles, so that what is done to it - turned, scaled, moved,
+// given a material, re-owned, its scope baked - is recorded here, once,
+// not done to each of its nodes. flatten() makes its nodes, finished.
+//
+// It is a node to whatever reads its root - the root's prim, material and
+// outside, read without making the rest - and a pass that knows nothing of
+// it and reads its inside opens it (open()): its nodes made as tree()
+// would have made them, an ordinary subtree from there on.
+//
+// It stays sealed through bakeScopes() only when what fills it is the
+// material round it: every node inheriting, or passing it on, and its root
+// with nothing outside it - a mesh's tree in its spheroid. Then every node
+// is that material, or vacuum where it passes. Otherwise it is opened
+// there, as anything else would be.
+//
+//   object       the QSSPObject
+//   materials    each of the file's materials, as a table index (or
+//                INHERIT_MATERIAL, PASS_MATERIAL)
+//   provs        each of the file's owners, as a provenance
+//   move         { s, R, t }: x -> s R x + t, or null
+//   rootMaterial a material the use put on its root, or undefined
+//   scope        once baked, the material round it
+class SealedObject {
+  constructor(object, { materials, provs, move = null, rootMaterial = undefined, scope = undefined }) {
+    Object.assign(this, { object, materials, provs, move, rootMaterial, scope });
+    const { nodes } = object;
+    this.sealable = nodes[1] === 0 && materials.every((m) => m === INHERIT_MATERIAL || m === PASS_MATERIAL);
+  }
+  with(changes) {
+    const { materials, provs, move, rootMaterial, scope } = this;
+    return new SealedObject(this.object, { materials, provs, move, rootMaterial, scope, ...changes });
+  }
+  /** Node i's prim (1 the root), moved as the object has been. */
+  primOf(i) {
+    const { surfaces, nodes } = this.object;
+    const surface = nodes[4 * (i - 1) + 2];
+    const k = 9 * (Math.abs(surface) - 1);
+    if (k < 0 || k + 9 > surfaces.length) return { axis: [0, 0, 1], k_par: 0, k_perp: 0, linear: [0, 0, 0], constant: 1 };
+    const s = surface < 0 ? -1 : 1;
+    let prim = { axis: [surfaces[k], surfaces[k + 1], surfaces[k + 2]], k_par: s * surfaces[k + 3], k_perp: s * surfaces[k + 4],
+                 linear: [s * surfaces[k + 5], s * surfaces[k + 6], s * surfaces[k + 7]], constant: s * surfaces[k + 8] };
+    if (this.move) prim = translatePrim(rotatePrim(scalePrim(prim, this.move.s), this.move.R), this.move.t);
+    return prim;
+  }
+  /** Node i's material as the file has it (or the root's, as the use gave it). */
+  rawMaterial(i) {
+    if (i === 1 && this.rootMaterial !== undefined) return this.rootMaterial;
+    return this.materials[this.object.nodes[4 * (i - 1) + 3]] ?? INHERIT_MATERIAL;
+  }
+  provOf(i) { return this.provs[this.object.owners ? this.object.owners[i - 1] : 0] ?? null; }
+  // Node i's child, by its stored offset: its index, or 0 for none - or one
+  // leading out of the object (a damaged file).
+  childOf(i, slot) {
+    const d = this.object.nodes[4 * (i - 1) + slot];
+    const j = i + d;
+    return d && j >= 1 && j <= this.object.nodeCount ? j : 0;
+  }
+  get prim() { return (this._prim ??= this.primOf(1)); }
+  get material() { return this.rawMaterial(1); }
+  get env() { return 0; }
+  get prov() { return this.provOf(1); }
+  get lights() { return null; }
+  get inside() { return this.open().inside; }
+  get outside() { return this.object.nodes[1] ? this.open().outside : null; }
+  /** Its nodes, as tree() makes nodes: the root. */
+  open() {
+    if (this.opened) return this.opened;
+    const count = this.object.nodeCount;
+    const out = new Array(count + 1);
+    for (let i = 1; i <= count; i++) out[i] = node(this.primOf(i), null, null, this.rawMaterial(i), 0, this.provOf(i));
+    for (let i = 1; i <= count; i++) {
+      out[i].inside = out[this.childOf(i, 0)] ?? null;
+      out[i].outside = out[this.childOf(i, 1)] ?? null;
+    }
+    return (this.opened = out[1]);
+  }
+  /** Moved by `op` after what has moved it: { s, R, t } composed. */
+  moved({ scale, rotate, translate }) {
+    let { s, R, t } = this.move ?? { s: 1, R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], t: [0, 0, 0] };
+    const turn = (rows, v) => rows.map((row) => dot3(row, v));
+    if (scale) {
+      const { factor: f, pivot: p } = scale;
+      s *= f;
+      t = t.map((v, i) => f * v + (1 - f) * p[i]);
+    }
+    if (rotate) {
+      const { rows: Q, pivot: p } = rotate;
+      const Qp = turn(Q, p), Qt = turn(Q, t);
+      R = Q.map((row) => [0, 1, 2].map((j) => row[0] * R[0][j] + row[1] * R[1][j] + row[2] * R[2][j]));
+      t = Qt.map((v, i) => v + p[i] - Qp[i]);
+    }
+    if (translate) t = t.map((v, i) => v + translate[i]);
+    return this.with({ move: { s, R, t } });
+  }
+}
+
 /**
  * A light as scene.json gives it - { pos, color }, a point light, or
  * { direction, color }, a directional one, its light travelling along
@@ -971,6 +1069,7 @@ function rotateSpecOf(def, path, at) {
 function translateTree(t, offset, memo = new Map()) {
   if (!t) return t;
   if (memo.has(t)) return memo.get(t);
+  if (t instanceof SealedObject) { const out = t.moved({ translate: offset }); memo.set(t, out); return out; }
   const out = node(translatePrim(t.prim, offset),
                    translateTree(t.inside, offset, memo),
                    translateTree(t.outside, offset, memo),
@@ -988,6 +1087,12 @@ function translateTree(t, offset, memo = new Map()) {
 function reown(t, from, to, memo = new Map()) {
   if (!t) return t;
   if (memo.has(t)) return memo.get(t);
+  if (t instanceof SealedObject) {
+    const out = t.provs.some((p) => p?.owner === from)
+      ? t.with({ provs: t.provs.map((p) => (p?.owner === from ? { ...p, owner: to } : p)) }) : t;
+    memo.set(t, out);
+    return out;
+  }
   const inside = reown(t.inside, from, to, memo);
   const outside = reown(t.outside, from, to, memo);
   const mine = t.prov?.owner === from;
@@ -1013,24 +1118,26 @@ function rotateTree(t, rows, pivot) {
     return translatePrim(turned, pivot);
   };
   const turnPoint = (p) => rows.map((row) => dot3(row, p.map((v, i) => v - pivot[i]))).map((v, i) => v + pivot[i]);
-  return mapTree(t, turn, turnPoint);
+  return mapTree(t, turn, turnPoint, { rotate: { rows, pivot } });
 }
 
 function scaleTree(t, factor, pivot) {
   if (!t) return t;
   const back = pivot.map((v) => -v);
   const grow = (prim) => translatePrim(scalePrim(translatePrim(prim, back), factor), pivot);
-  return mapTree(t, grow, (p) => p.map((v, i) => pivot[i] + factor * (v - pivot[i])));
+  return mapTree(t, grow, (p) => p.map((v, i) => pivot[i] + factor * (v - pivot[i])), { scale: { factor, pivot } });
 }
 
 // A copy of a subtree with every primitive changed by f, and every light
 // moved by g (the same transformation, of a point), shared structure kept
-// shared.
-function mapTree(t, f, g) {
+// shared. A precompiled object (SealedObject) is moved by `op`, as SealedObject.moved()
+// takes it, its nodes left as they are.
+function mapTree(t, f, g, op) {
   const memo = new Map();
   const walk = (u) => {
     if (!u) return u;
     if (memo.has(u)) return memo.get(u);
+    if (u instanceof SealedObject) { const out = u.moved(op); memo.set(u, out); return out; }
     const out = node(f(u.prim), walk(u.inside), walk(u.outside), u.material, u.env, u.prov,
                      movedLights(u.lights, g));
     memo.set(u, out);
@@ -1107,6 +1214,7 @@ function bakeScopes(tree, table, scope = NO_MATERIAL) {
   const holdsEnv = new Map();
   const hasEnv = (t) => {
     if (!t) return false;
+    if (t instanceof SealedObject && t.sealable) return startsEnvHere(t);
     if (!holdsEnv.has(t)) {
       holdsEnv.set(t, false);                    // a cycle can't hold one more
       holdsEnv.set(t, startsEnvHere(t) || hasEnv(t.inside) || hasEnv(t.outside));
@@ -1121,6 +1229,7 @@ function bakeScopes(tree, table, scope = NO_MATERIAL) {
   const inheritsOf = new Map();
   const inherits = (t) => {
     if (!t) return false;
+    if (t instanceof SealedObject && t.sealable) return true;
     if (!inheritsOf.has(t)) {
       inheritsOf.set(t, false);
       const lit = t.lights?.length > 0;
@@ -1136,6 +1245,14 @@ function bakeScopes(tree, table, scope = NO_MATERIAL) {
     let byScope = memo.get(key);
     if (!byScope) { byScope = new Map(); memo.set(key, byScope); }
     if (byScope.has(t)) return byScope.get(t);
+    // A precompiled object filled by the material round it: that recorded,
+    // its nodes made by flatten() - unless its root starts an env (a use
+    // naming water, say), which is for the nodes as made to say.
+    if (t instanceof SealedObject && t.sealable && !startsEnvHere(t)) {
+      const out = t.with({ scope: matScope });
+      byScope.set(t, out);
+      return out;
+    }
     const passes = t.material === PASS_MATERIAL;
     const named = t.material !== INHERIT_MATERIAL && !passes;
     const lit = t.lights?.length > 0;
@@ -1181,6 +1298,11 @@ function flatten(tree) {
     if (!t) return 0;
     if (memo.has(t)) return memo.get(t);
     const idx = out.length;
+    if (t instanceof SealedObject && t.scope !== undefined) {
+      memo.set(t, idx);
+      placeSealed(t, out);
+      return idx;
+    }
     out.push(null);
     memo.set(t, idx);
     // An env is an ancestor (bakeScopes()), so it already has its index.
@@ -1192,6 +1314,24 @@ function flatten(tree) {
   };
   walk(tree);
   return out;
+}
+
+// A sealed precompiled object's nodes, finished, put at the end of `out`:
+// its links its own, offset to where it is; every node the material round
+// it - the root's own, if its use gave it one - or vacuum where it passes
+// that on (bakeScopes() as it would have resolved them).
+function placeSealed(t, out) {
+  const base = out.length - 1;
+  const count = t.object.nodeCount;
+  const within = t.rootMaterial ?? t.scope;
+  for (let i = 1; i <= count; i++) {
+    const raw = t.rawMaterial(i);
+    const material = i === 1 && t.rootMaterial !== undefined ? t.rootMaterial
+      : raw === PASS_MATERIAL ? NO_MATERIAL : i === 1 ? t.scope : within;
+    const inside = t.childOf(i, 0), outside = t.childOf(i, 1);
+    out.push({ prim: t.primOf(i), material, env: 0, inside: inside && base + inside, outside: outside && base + outside,
+               prov: t.provOf(i), lights: null });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1958,6 +2098,9 @@ export const isGzip = (path) => /\.gz$/i.test(String(path).split(/[?#]/)[0]);
 /** Whether a path or URL names an STL file, which is read as a mesh. */
 export const isSTL = (path) => /\.stl$/i.test(fileOf(path));
 
+/** Whether a path or URL names a precompiled object (qssp.js), read as its nodes. */
+export const isQSSP = (path) => /\.qssp$/i.test(fileOf(path));
+
 /** Whether a path or URL names a PNG image: a texture, read decoded (png.js). */
 export const isPNG = (path) => /\.png$/i.test(fileOf(path));
 
@@ -2044,6 +2187,7 @@ function lookUpReference(reference, from, files, trail = []) {
   }
   if (!(path in files)) return null;
   if (pointer && isSTL(path)) throw new Error(`reference "${reference}": an STL has no parts to point into`);
+  if (pointer && isQSSP(path)) throw new Error(`reference "${reference}": a precompiled object has no parts to point into`);
   return { key, path, value: pointerInto(files[path], pointer, reference) };
 }
 
@@ -2096,6 +2240,7 @@ function resolveLights(list, from, files, trail, missing) {
  */
 const referencedCache = new WeakMap();          // content -> Map(from -> Set)
 export function referencedFiles(content, from) {
+  if (content instanceof QSSPObject) return new Set();          // a precompiled object references nothing
   const cacheable = content !== null && typeof content === 'object';
   const byFrom = cacheable ? (referencedCache.get(content) ?? new Map()) : null;
   if (byFrom?.has(from)) return byFrom.get(from);
@@ -2311,6 +2456,7 @@ export function evaluateExpression(tree, lookUp) {
  */
 const markedCache = new WeakMap();
 export function hasNamesOrReferences(content) {
+  if (content instanceof QSSPObject) return false;
   if (content === null || typeof content !== 'object') return typeof content === 'string' && /^[$@]/.test(content);
   if (markedCache.has(content)) return markedCache.get(content);
   let found = false;
@@ -2332,6 +2478,7 @@ export function hasNamesOrReferences(content) {
  */
 const repeatCache = new WeakMap();
 export function hasRepeats(content) {
+  if (content instanceof QSSPObject) return false;
   if (content === null || typeof content !== 'object') return false;
   if (repeatCache.has(content)) return repeatCache.get(content);
   let found = false;
@@ -2403,7 +2550,8 @@ export function expandReferences(spec, files = {}, { from = '' } = {}) {
  * `readText` and `readBytes` take a resolved path or URL and return its
  * text, or its bytes (an ArrayBuffer or Uint8Array), however the caller
  * likes: fetch in a browser, readFile in node. A .json is read as text and
- * parsed; an .stl as bytes and converted (meshToTree()); either, ending
+ * parsed; an .stl as bytes and converted (meshToTree()); a .qssp as bytes,
+ * a precompiled object (decodeQSSP()); any of them, ending
  * .gz, as bytes and unzipped first.
  *
  * A file that can't be read, or parsed, is warned of (`warn(message)`) and
@@ -2418,6 +2566,12 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
       if (isPNG(path)) {
         if (!readBytes) throw new Error('a PNG needs loadReferences() given readBytes');
         return await decodePNG(new Uint8Array(await readBytes(path)), { name: path });
+      }
+      if (isQSSP(path)) {
+        if (!readBytes) throw new Error('a precompiled object needs loadReferences() given readBytes');
+        let bytes = new Uint8Array(await readBytes(path));
+        if (isGzip(path)) bytes = await gunzip(bytes);
+        return decodeQSSP(bytes, { name: path });
       }
       if (isSTL(path) || isGzip(path)) {
         if (!readBytes) throw new Error('an STL or a .gz needs loadReferences() given readBytes');
@@ -2438,9 +2592,10 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
     }
   };
   // Breadth first: what the scene references, then what each of those
-  // does (referencedFiles(), once per file) - an image or a mesh, none.
+  // does (referencedFiles(), once per file) - an image, a mesh or a
+  // precompiled object, none.
   // What the caller has already (`have`) is not read again, but followed.
-  const follow = (path) => (isPNG(path) || isSTL(path) ? [] : [...referencedFiles(files[path], path)]);
+  const follow = (path) => (isPNG(path) || isSTL(path) || isQSSP(path) ? [] : [...referencedFiles(files[path], path)]);
   let wanted = [...referencedFiles(spec, from)];
   while (wanted.length) {
     const fresh = [...new Set(wanted)].filter((path) => !(path in files) && !failed.has(path));
@@ -2966,7 +3121,7 @@ export function compileScene(rawSpec, options = {}) {
   // The scene's own repeats expanded, then every file's that has any.
   own[scenePath] = expandRepeats(rawSpec, '');
   for (const [path, content] of Object.entries(own)) {
-    if (path === scenePath || isPNG(path) || isSTL(path)) continue;             // an image, a mesh: nothing to repeat
+    if (path === scenePath || isPNG(path) || isSTL(path) || isQSSP(path)) continue;   // an image, a mesh: nothing to repeat
     if (content !== null && typeof content === 'object' && hasRepeats(content)) {
       own[path] = expandRepeats(content, path);
     }
@@ -3406,6 +3561,32 @@ export function compileScene(rawSpec, options = {}) {
   const declared = new Map();     // subtree -> author-declared bounding ball
   const boundMemo = new Map();
   const instanceBodies = new Map();   // identical-instance detection
+  // A subtree's reach, where it is known without walking it: a spheroid
+  // holding all it claims - a precompiled object's, from its file, carried
+  // through the transforms of what uses it (tree()), for its "wrap".
+  const reachOf = new WeakMap();
+
+  // A precompiled object (qssp.js), used: sealed (SealedObject), its materials
+  // looked up here, by name, as the object's own would have been - or
+  // inherited, or passed on, as they were; its owner the object (`key`),
+  // or the one the file names. Its provenance has no path: its nodes are
+  // not its source's, to be edited.
+  function fromPrecompiled(object, key, path) {
+    const { manifest } = object;
+    if (!object.nodeCount) return null;
+    const materials = (manifest.materials ?? []).map((m, k) => {
+      if (m === null) return NO_MATERIAL;
+      if (m.inherit) return INHERIT_MATERIAL;
+      if (m.pass) return PASS_MATERIAL;
+      if (typeof m.name === 'string') return substrate(m.name, `${path} (${key}, materials.${k})`);
+      quietly(path, `${key}: material ${k} is ${JSON.stringify(m)}, which isn't one: inherited instead`);
+      return INHERIT_MATERIAL;
+    });
+    const provs = (manifest.owners ?? ['']).map((o) => (o === null ? null : { owner: o === '' ? key : o, path: '' }));
+    const out = new SealedObject(object, { materials, provs });
+    if (manifest.reach) reachOf.set(out, manifest.reach);
+    return out;
+  }
 
   function named(name, path, where) {
     // A reference: what it names, from the file naming it, keyed for where
@@ -3423,6 +3604,11 @@ export function compileScene(rawSpec, options = {}) {
         lostFiles([referenceParts(name, naming).path]);
         built.set(key, null);
         return null;
+      }
+      if (found.value instanceof QSSPObject) {
+        const t = fromPrecompiled(found.value, key, path);
+        built.set(key, t);
+        return t;
       }
       def = isReference(found.value) ? { use: found.value } : found.value;
       from = found.path;
@@ -4072,7 +4258,8 @@ export function compileScene(rawSpec, options = {}) {
       inheritPlaced(firstPlace, def.material);
     }
     if (material !== INHERIT_MATERIAL && out && out.material !== material) {
-      out = node(out.prim, out.inside, out.outside, material, out.env, out.prov, out.lights);
+      out = out instanceof SealedObject ? out.with({ rootMaterial: material })
+        : node(out.prim, out.inside, out.outside, material, out.env, out.prov, out.lights);
     }
 
     // "complement" turns the whole subtree inside out: what was interior
@@ -4084,6 +4271,8 @@ export function compileScene(rawSpec, options = {}) {
     // used to do; on a node with children, or on a use, group, union,
     // intersect or difference, it now means what it says.
     if (def.complement) out = complement(out);
+    // Its reach, if known (reachOf), moved as it is below.
+    let reach = def.complement ? null : (reachOf.get(out) ?? null);
 
     // Places a subtree in the world by transforming every primitive in it -
     // see translateTree() and friends. These work on any of the branches
@@ -4098,11 +4287,20 @@ export function compileScene(rawSpec, options = {}) {
     if (def.scale !== undefined) {
       const { factor, pivot } = scaleSpec(def.scale, `${path}.scale`);
       out = scaleTree(out, factor, pivot);
+      if (reach) {
+        reach = { center: reach.center.map((v, i) => pivot[i] + factor * (v - pivot[i])), axis: reach.axis,
+                  height: factor * reach.height, radius: factor * reach.radius };
+      }
     }
 
     if (def.rotate !== undefined) {
       const { rows, pivot } = rotateSpec(def.rotate, `${path}.rotate`);
       out = rotateTree(out, rows, pivot);
+      if (reach) {
+        const turn = (v) => rows.map((row) => dot3(row, v));
+        reach = { ...reach, center: turn(reach.center.map((v, i) => v - pivot[i])).map((v, i) => v + pivot[i]),
+                  axis: turn(reach.axis) };
+      }
     }
 
     if (def.translate !== undefined) {
@@ -4110,6 +4308,7 @@ export function compileScene(rawSpec, options = {}) {
         at(`${path}.translate`, 'needs a [x, y, z] offset');
       }
       out = translateTree(out, def.translate);
+      if (reach) reach = { ...reach, center: reach.center.map((v, i) => v + def.translate[i]) };
     }
     if (def.scale !== undefined || def.rotate !== undefined || def.translate !== undefined) {
       const moves = {};
@@ -4128,8 +4327,12 @@ export function compileScene(rawSpec, options = {}) {
       const already = out && !out.outside && (def.wrap === 'spheroid'
         ? regionBall(out.prim, true) !== null
         : out.prim.k_perp === 0 && out.prim.k_par > 0);
-      const points = already ? null : extentPoints(out);
-      if (!already && !points) {
+      // A precompiled object's reach is known: its points needn't be found.
+      const known = def.wrap === 'spheroid' && reach;
+      const points = already || known ? null : extentPoints(out);
+      if (!already && known) {
+        out = node(primOf({ spheroid: reach }, `${path}.wrap`), out, null, PASS_MATERIAL);
+      } else if (!already && !points) {
         warn(`${path}.wrap`, "can't bound this subtree, so it isn't wrapped");
       } else if (!already && points.length) {
         let shape;
@@ -4156,6 +4359,7 @@ export function compileScene(rawSpec, options = {}) {
       if (!center || !(radius > 0)) at(`${path}.bounds`, 'needs center and positive radius');
       declared.set(out, { c: center, r: radius });
     }
+    if (reach && out) reachOf.set(out, reach);
     return out;
   }
 
@@ -4170,6 +4374,9 @@ export function compileScene(rawSpec, options = {}) {
   // The material the root is within: none, or, compiling a placed object
   // alone, the one its place inherits (options.inherit, a name), as a use
   // there would.
+  // Precompiling an object (precompileObject()): its tree as tree() made
+  // it, before scopes are baked - which depend on where it is used.
+  if (options.objectTree) return { tree: rootTree, materials: table, placements };
   const rootScope = options.inherit !== undefined ? substrate(options.inherit, 'inherit') : NO_MATERIAL;
   const nodes = flatten(bakeScopes(rootTree, table, rootScope));
   textureTurns(nodes, table, quietly);
@@ -4210,6 +4417,102 @@ export function compileScene(rawSpec, options = {}) {
     // path, prov, and material, paint, scale, rotate, translate, reach as
     // given } - for placeAll() to graft in at runtime.
     placements,
+  };
+}
+
+/**
+ * An object precompiled, as encodeQSSP() (qssp.js) writes it: compiled as a
+ * "use" of `reference` (from the file at `path`, given what it references,
+ * `files`) compiles it, before what depends on where it is used - its
+ * materials, which it names and the scene using it defines; the material
+ * round it, which what names none inherits; its envs.
+ *
+ * Its surfaces each once, in 32-bit floats; its nodes in the order
+ * flatten() gives them; its reach, a spheroid round all it claims (its
+ * extent, or its root's own spheroid - a mesh's - where that is too much
+ * to find). What it can't hold yet - lights, textured faces, placed
+ * objects - is an error: there is no scene here to play on in.
+ * `warn(path, msg)` hears the rest; materials it names are not defined
+ * here, and are not warned of.
+ */
+export function precompileObject(reference, { files = {}, path = '', warn } = {}) {
+  const tell = warn ?? ((where, msg) => console.warn(`warning: ${where}: ${msg}`));
+  const { tree, materials: table, placements } = compileScene({ root: { use: reference }, lights: [] }, {
+    files, path, objectTree: true,
+    warn: (where, msg) => { if (!/^unknown material "/.test(msg)) tell(where, msg); },
+  });
+  if (placements.length) throw new Error(`${reference} places objects ("place"), which a precompiled object can't hold yet`);
+  if (!tree || !tree.prim) throw new Error(`${reference} comes to nothing`);
+  const order = [], index = new Map();
+  const visit = (t) => {
+    if (!t || index.has(t)) return;
+    index.set(t, order.length + 1);
+    order.push(t);
+    visit(t.inside);
+    visit(t.outside);
+  };
+  visit(tree);
+
+  const own = referenceParts(reference, path).key;
+  const surfaceIds = new Map(), surfaceNumbers = [];
+  const materialIds = new Map(), materials = [];
+  const ownerIds = new Map(), owners = [];
+  const nodes = new Int32Array(4 * order.length);
+  const ownerOf = new Uint32Array(order.length);
+  const byName = new Set();
+  const idOf = (ids, list, key, entry) => {
+    if (!ids.has(key)) { ids.set(key, list.length); list.push(entry); }
+    return ids.get(key);
+  };
+  order.forEach((t, j) => {
+    const where = t.prov ? `${t.prov.owner}${t.prov.path ? `/${t.prov.path}` : ''}` : `node ${j + 1}`;
+    if (t.lights?.length) throw new Error(`${where}: has lights, which a precompiled object can't hold yet`);
+    if (t.prim.tex) throw new Error(`${where}: has a textured face, which a precompiled object can't hold yet`);
+    const p = t.prim, s = surfaceSign(p);
+    const numbers = [...p.axis, s * p.k_par, s * p.k_perp, ...p.linear.map((v) => s * v), s * p.constant].map((v) => Math.fround(v) + 0);
+    const key = numbers.join();
+    let surface = surfaceIds.get(key);
+    if (surface === undefined) {
+      surface = surfaceIds.size + 1;
+      surfaceIds.set(key, surface);
+      for (const v of numbers) surfaceNumbers.push(v);
+    }
+    const m = t.material;
+    let material;
+    if (m === INHERIT_MATERIAL) material = idOf(materialIds, materials, 'inherit', { inherit: true });
+    else if (m === PASS_MATERIAL) material = idOf(materialIds, materials, 'pass', { pass: true });
+    else if (m === NO_MATERIAL) material = idOf(materialIds, materials, 'vacuum', null);
+    else {
+      const { name, missing } = table[m];
+      // A material it brought with it - by reference - is kept by its name
+      // alone, the scene's to define.
+      if (!missing && !byName.has(name)) { byName.add(name); tell(where, `material "${name}" is kept by its name: the scene using it defines it`); }
+      material = idOf(materialIds, materials, `name:${name}`, { name });
+    }
+    const owner = t.prov?.owner ?? null;
+    ownerOf[j] = idOf(ownerIds, owners, owner, owner === own ? '' : owner);
+    nodes[4 * j] = t.inside ? index.get(t.inside) - (j + 1) : 0;
+    nodes[4 * j + 1] = t.outside ? index.get(t.outside) - (j + 1) : 0;
+    nodes[4 * j + 2] = s * surface;
+    nodes[4 * j + 3] = material;
+  });
+
+  let reach = null;
+  const points = extentPoints(tree);
+  if (points?.length) {
+    const { center, axis, height, radius } = boundingSpheroidOfPoints(points);
+    reach = { center, axis, height, radius };
+  } else if (!tree.outside) {
+    const { axis, k_par, k_perp, linear, constant } = tree.prim;
+    const round = fromSpheroid(axis, k_par, k_perp, linear, constant);
+    if (round.inverseOk) reach = { center: round.centre, axis: round.axis, height: round.height, radius: round.radius };
+  }
+  if (!reach) tell(reference, "can't be bounded, so has no reach: a wrap or a place of it will find its own");
+  return {
+    manifest: { source: reference.slice(1), nodes: order.length, surfaces: surfaceIds.size, materials, owners, reach },
+    surfaces: new Float32Array(surfaceNumbers),
+    nodes,
+    owners: owners.length > 1 ? ownerOf : null,
   };
 }
 
@@ -4314,15 +4617,22 @@ export function anchorOf({ axis: n, k_par, k_perp, linear: c, constant }) {
 export function packSurfaces(list) {
   const ids = new Map();
   const out = new Uint32Array(Math.max(1, list.length));
+  // Keyed by the numbers' bits, as 16-bit characters: the same numbers are
+  // the same key, as their decimal strings were, at a fraction of the cost.
+  const numbers = new Float64Array(9);
+  const bits = new Uint16Array(numbers.buffer);
   list.forEach((nd, j) => {
     if (j === 0 || !nd) return;
     const { axis, k_par, k_perp, linear, constant } = nd.prim;
-    const signed = [k_perp, k_par, constant, ...linear];
-    const first = signed.find((v) => v !== 0) ?? 1;
+    const first = k_perp || k_par || constant || linear[0] || linear[1] || linear[2] || 1;
     const s = first < 0 ? -1 : 1;
-    const key = [...axis, ...signed.map((v) => v * s + 0)].join();     // + 0: no -0
-    if (!ids.has(key)) ids.set(key, ids.size + 1);
-    out[j] = ids.get(key);
+    numbers[0] = axis[0] + 0; numbers[1] = axis[1] + 0; numbers[2] = axis[2] + 0;
+    numbers[3] = k_perp * s + 0; numbers[4] = k_par * s + 0; numbers[5] = constant * s + 0;     // + 0: no -0
+    numbers[6] = linear[0] * s + 0; numbers[7] = linear[1] * s + 0; numbers[8] = linear[2] * s + 0;
+    const key = String.fromCharCode.apply(null, bits);
+    let id = ids.get(key);
+    if (id === undefined) { id = ids.size + 1; ids.set(key, id); }
+    out[j] = id;
   });
   return out;
 }

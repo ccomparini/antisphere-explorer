@@ -48,7 +48,8 @@ for now.
 Models with a public source aren't kept in git: `tools/fetch-models.mjs`
 downloads each - pinned, and checked against its SHA-256 - and converts it
 with `tools/import-model.mjs` into `public/scenes/parts/fetched/`, which
-git ignores. The scenes using them (`barramundi.json`, `teapots.json`,
+git ignores, precompiling what is slow to compile (`tools/precompile.mjs`:
+the dragon). The scenes using them (`barramundi.json`, `teapots.json`,
 `dragon.json`) warn of one that isn't there, saying so.
 
     node tools/fetch-models.mjs                    every model that's missing (the
