@@ -211,9 +211,23 @@ bet that they stay there.
   the library's: they show in tens of milliseconds. To come: reading the
   likeliest seen first; and decoding off the page's thread (a worker, or
   the browser's own decoder) if a large image's decode shows as a stutter.
+- **Spherical, by Chris's geodesic texel mapping.** A sphere's or
+  spheroid's material projected spherically is drawn by direction from its
+  centre, in its frame (turned with the node, and by `textureRotate`), at
+  the vertices of an icosahedron subdivided L times - 10 * 4^L + 2 of them,
+  evenly spread, with no poles or seam (`public/geodesic.js`). A direction
+  is located by descent: the best of 20 faces, then L halvings by
+  great-circle side tests, no trigonometry; the leaf's three corners' colours
+  are mixed. The colours are made at the vertices for now (cells, noise,
+  bands). In its own pipeline variant, so scenes without it pay nothing
+  (an override); where it's used, the globe scene costs 2.7% more than in
+  plain colours.
 - **To come:** mip-mapping, or something that does its job - nothing yet
-  filters a texture seen small, so a distant pattern aliases; and a
-  spherical projection alongside the planar one.
+  filters a texture seen small, so a distant pattern aliases. For the
+  geodesic lattice it is natural: level L - 1's vertices are level L's.
+  And stored spherical textures - texels at the vertices, in a compact
+  format (not PNG face tiles: bulky); a precompiled object's spheres have no
+  frame points yet, so a spherical pattern on one lies in the world's frame.
 
 ## Stop masks: what a ray stops at
 

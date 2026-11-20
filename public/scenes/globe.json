@@ -1,0 +1,95 @@
+{
+  "_comment": "Spherical patterns (projection \"spherical\"): colours made at the vertices of a subdivided icosahedron, mixed where a hit falls among them, by direction from the node's centre in the node's own frame. Left to right: bands of latitude on a ball tilted 30 degrees (its pole turns with it); cells, a colour a vertex, at level 3, so the lattice shows; noise, at level 6; and bands on an oblate spheroid, its pole turned by textureRotate alone.",
+  "materials": [
+    "@lib/materials.json",
+    {
+      "bands": {
+        "projection": "spherical",
+        "pattern": "bands",
+        "level": 6,
+        "scale": 0.26,
+        "albedo": "#d8b46a",
+        "albedo2": "#7a4a2a"
+      },
+      "cells": {
+        "projection": "spherical",
+        "pattern": "cells",
+        "level": 3,
+        "albedo": "#ffffff"
+      },
+      "noise": {
+        "projection": "spherical",
+        "pattern": "noise",
+        "level": 6,
+        "scale": 0.25,
+        "albedo": "#2f6fb0",
+        "albedo2": "#3f8f3a"
+      }
+    }
+  ],
+  "lights": [
+    {
+      "pos": [ -4, -8, 9 ],
+      "color": [ 120, 115, 105 ]
+    },
+    {
+      "direction": [ 0.3, 0.5, -0.8 ],
+      "color": [ 0.25, 0.25, 0.3 ]
+    }
+  ],
+  "camera": {
+    "position": [ 0, -9, 2.6 ],
+    "direction": [ 0, 0.96, -0.27 ],
+    "distance": 9.4
+  },
+  "root": {
+    "group": [
+      {
+        "plane": {
+          "normal": [ 0, 0, 1 ],
+          "offset": -1
+        },
+        "material": "floor"
+      },
+      {
+        "sphere": {
+          "center": [ -3.3, 0, 0 ],
+          "radius": 1
+        },
+        "material": "bands",
+        "rotate": {
+          "axis": [ 1, 0, 0 ],
+          "degrees": 30,
+          "pivot": [ -3.3, 0, 0 ]
+        }
+      },
+      {
+        "sphere": {
+          "center": [ -1.1, 0, 0 ],
+          "radius": 1
+        },
+        "material": "cells"
+      },
+      {
+        "sphere": {
+          "center": [ 1.1, 0, 0 ],
+          "radius": 1
+        },
+        "material": "noise"
+      },
+      {
+        "spheroid": {
+          "center": [ 3.3, 0, -0.35 ],
+          "axis": [ 0, 0, 1 ],
+          "height": 1.3,
+          "radius": 1
+        },
+        "material": "bands",
+        "textureRotate": {
+          "axis": [ 0, 1, 0 ],
+          "degrees": 60
+        }
+      }
+    ]
+  }
+}

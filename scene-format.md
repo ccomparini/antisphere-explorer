@@ -147,8 +147,9 @@ and editing it edits that material.
 | `kind`     | `"lambert"` \| `"glossy"` \| `"emissive"` \| `"unlit"` \| `"ambient"` \| `"glowRegion"` | `"lambert"` | shading model, see below |
 | `albedo`   | a colour (see Colours, below)                  | `[0.7, 0.7, 0.7]`| base surface color |
 | `albedo2`  | a colour                                       | `[0.3, 0.3, 0.3]`| secondary color, used by the `"checker"` pattern |
-| `pattern`  | `"flat"` \| `"checker"`                        | `"flat"`         | how `albedo`/`albedo2` are combined across the surface |
-| `scale`    | number                                          | `1`              | checker pattern tile size: larger is bigger tiles |
+| `pattern`  | `"flat"` \| `"checker"` \| `"noise"`; projected spherically, `"cells"` \| `"noise"` \| `"bands"` | `"flat"`; spherically, `"cells"` | how `albedo`/`albedo2` are combined across the surface (spherical patterns: below) |
+| `scale`    | number                                          | `1`              | checker pattern tile size: larger is bigger tiles; a spherical pattern's feature size, in radians across the ball |
+| `level`    | whole number, 0 to 10                           | `5`              | a spherical pattern's geodesic level: its colours are made at 10 × 4^level + 2 points over the ball |
 | `solid`    | boolean                                         | `true`           | there physically: the walk camera, physics and picking stop at it |
 | `optical`  | boolean                                         | `true`           | meets light: camera rays stop at it (`false`: invisible) |
 | `castsShadow` | boolean                                      | as `optical`     | shadow rays stop at it: it shadows what is behind it from a light. `false` on a seen material: no shadow (a backdrop); `true` on an unseen one: a shadow, and nothing seen (a stand-in) |
@@ -157,7 +158,24 @@ and editing it edits that material.
 | `opacity`  | number ≥ 0                                      | `1`              | glass and water: how fast light through it takes on its `albedo` - after `d` units, `albedo`^(`d` × `opacity`). `0` is clear; see below for values |
 | `reflective` | boolean                                       | `false`          | a mirror: no shading of its own; it shows what a camera ray reflected from it sees, times its `albedo` |
 | `texture`  | a reference to a PNG, `"@textures/bricks.png"` | none            | an image to colour it by: each point the image's colour there, times `albedo` (which defaults to white with a texture). Laid on as `projection` says, filtered bilinearly; its colours are sRGB, as a PNG's are, and made light as `albedo` is. Read when a scene showing it is, not with the scene: until it comes, the material shows its `albedo` |
-| `projection` | `"planar"`                                  | `"planar"`       | how the texture is laid on: `"planar"`, by the surface's coordinates in units of `scale` - the image once per `scale` across, repeated. Spherical (geodesic) is to come |
+| `projection` | `"planar"` \| `"spherical"`                | `"planar"`       | how the pattern or texture is laid on: `"planar"`, by the surface's coordinates in units of `scale` - the image once per `scale` across, repeated; `"spherical"`, by direction from the centre of a sphere or spheroid (below). A spherical texture is to come: one named is warned of and left out |
+
+**Spherical patterns.** Projected spherically, a material is drawn by
+direction from its node's centre - a sphere's or a spheroid's; any other
+shape is warned of and drawn in its `albedo` - in the node's own frame:
+its pole +z and longitude 0 along +x as written, turned as the node is
+turned, and by `"textureRotate"`. Its colours are made at the vertices of
+an icosahedron subdivided `level` times, with no poles or seams, and mixed
+where a point falls among them (Chris's geodesic texel mapping,
+`public/geodesic.js`), so a finer level is a sharper pattern:
+
+| pattern | colours |
+|---|---|
+| `"cells"` | a colour of its own at each vertex, times `albedo` |
+| `"noise"` | `albedo` to `albedo2`, by noise of feature size `scale` |
+| `"bands"` | bands of latitude `scale` wide, `albedo` and `albedo2` by turns |
+
+`scenes/globe.json` shows each.
 
 The boolean fields are the material's **trace flags**: every single-bit
 `MATERIAL_` constant in `shaders/node.wgsls`, named without `MATERIAL_` and
@@ -664,6 +682,19 @@ is followed only approximately, and warned of.) On other shapes it applies
 as written. It is how an imported model's textures are laid on its faces:
 each face's patch of one image, at its offset and turn. An offset that
 isn't two or three numbers is warned of and ignored.
+
+### `"textureRotate"`
+
+```
+{ "sphere": { "center": [0, 0, 2], "radius": 1 }, "material": "bands", "textureRotate": { "axis": [1, 0, 0], "degrees": 30 } }
+```
+
+Turns a spherical pattern on its node, about the node's centre: what
+`"rotate"` takes, an axis and an angle or Euler angles, without a pivot.
+It turns the pattern alone, before the node's own transforms, which turn
+the pattern with the node; so `"rotate"` and an opposite `"textureRotate"`
+turn the ball and leave its pattern where it was. On a node that is no
+sphere or spheroid it is warned of and ignored.
 
 ### `"lights"`
 

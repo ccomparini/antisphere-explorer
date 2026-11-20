@@ -188,13 +188,15 @@ Index 0 is vacuum. Each entry:
 | `params`  | `[x, y]`, the kind's own: glossy `[shininess, specular]`, emissive `[emission, 0]`, ambient `[transmit, 0]`, glow region `[transmit, fill]` |
 | `albedo`  | `[r, g, b]`; for an ambient material its level, for a glow region the light at its centre |
 | `patternParams` | the pattern's own numbers, as `params` are the kind's: its second colour (the scene's `albedo2`); for a textured material, where its texture lies instead: `[du, dv, sin turn]`, added to its surface coordinates after turning them by `turn` (whose cosine is never negative: a half turn is a negative `scale`) - 0 unless a node's `textureOffset` places it, on a copy (below) |
-| `pattern` | `PATTERN_` flat 0, `CHECKER` 1, `NOISE` 2, `INDUSTRIALCARPET` 3 |
-| `scale`   | the pattern's tile size |
+| `pattern` | `PATTERN_` flat 0, `CHECKER` 1, `NOISE` 2, `INDUSTRIALCARPET` 3, `PLANAR_TEXTURE` 4; spherical, `SPHERE_CELLS` 5, `SPHERE_NOISE` 6, `SPHERE_BANDS` 7 |
+| `scale`   | the pattern's tile size; a spherical pattern's feature size |
+| `level`   | a spherical pattern's geodesic level; 0 otherwise |
+| `frame`   | on a spherical pattern's copies (below): the node's frame, a unit quaternion `[x, y, z, w]` turning it into the world's; `[0, 0, 0, 1]` otherwise |
 | `opacity` | for glass and water: after distance $s$ through it, light is filtered by $\mathrm{albedo}^{s\cdot\mathrm{opacity}}$ |
 | `flags`   | the trace flags, the `MATERIAL_` bits below; 0 for an ambient or glow region unless the spec sets some |
 | `ambient` | on the compiler's copies only (below): the env's ambient level |
 | `texture` | its image, an index into `textures` from 1; 0 for none |
-| `projection` | how the image is laid on: 0, planar, the one so far |
+| `projection` | how it is laid on: 0 planar, 1 spherical (a spherical one's `pattern` says so for the shader) |
 
 Every material in the spec is in the table, used or not (`DESIGN.md`,
 Planned). After them come materials the compiler adds:
@@ -205,6 +207,12 @@ Planned). After them come materials the compiler adds:
 - **a texture placed.** A node with a `textureOffset` gets a copy of its
   textured material with `patternParams` and `scale` placing the texture where
   the node's placing took it (`textureTurns()`), one copy per placement.
+- **a spherical pattern framed.** A node with a spherical material gets a
+  copy of it with `frame` set to the turn from its frame as written - its
+  pole +z, longitude 0 +x, turned by its `textureRotate` - to where its
+  transforms took it (`sphericalFrames()`, from three points the transforms
+  move), one copy per frame. One with no centre (no sphere or spheroid)
+  gets a copy drawn flat.
 - **a pass-through region.** A node carrying lights but naming no material
   gets an ambient material of level 0 and `transmit` 1, so lighting a region
   leaves its ambient level alone.
@@ -345,9 +353,17 @@ Planned, "Rays that continue from a hit").
 | 44 | `opacity` | `f32`       | `opacity`, default 1 |
 | 48 | `ambient` | `vec3<f32>` | `ambient`, default 0 |
 | 60 | `texture` | `u32`       | `texture`, default 0 |
+| 64 | `level`   | `u32`       | `level`, default 0 |
+| 80 | `frame`   | `vec4<f32>` | `frame`, default `[0, 0, 0, 1]` |
 
-`flags` and `name` aren't here: the flags travel in each node's
-`material_id`. Nor is `projection`, while planar is the only one.
+96 bytes. `flags` and `name` aren't here: the flags travel in each node's
+`material_id`. Nor is `projection`: a spherical material's `pattern` says it.
+
+The spherical patterns are compiled into the shader only for scenes that
+have one: `SPHERICAL_PATTERNS`, a WGSL override, is false in the pipelines
+every scene draws with, and true in a variant made the first time a scene
+with a spherical material is drawn (`ASContext.pipelinesFor()`). Compiled in
+for every scene, they cost each 6-12%.
 
 ### `textures` and `texels`
 
