@@ -38,6 +38,7 @@ import {
   Light, Material, Node, TextureInfo,
   KIND_LAMBERT, KIND_GLOSSY, KIND_EMISSIVE, KIND_UNLIT, KIND_AMBIENT, KIND_GLOW_REGION,
   PATTERN_CHECKER, PATTERN_NOISE, PATTERN_INDUSTRIALCARPET, PATTERN_PLANAR_TEXTURE, MATERIAL_SOLID, MATERIAL_OPTICAL,
+  PATTERN_SPHERE_CELLS, PATTERN_SPHERE_NOISE, PATTERN_SPHERE_BANDS,
   MATERIAL_INDEX, NODE_ENV, NODE_FACE, MATERIAL_CASTS_SHADOW,
 } from './gen/layouts.js';
 import * as layouts from './gen/layouts.js';
@@ -389,9 +390,11 @@ function complementSurface(prim) {
 // frame it was written in, and gives the node a copy of its material that
 // turns, scales and slides its texture to match.
 
-// A transformed prim, carrying `from`'s texture points moved by `move`.
+// A transformed prim, carrying `from`'s texture points moved by `move` -
+// a plane's (`tex`), and a sphere's or spheroid's frame (`globe`).
 function withTexture(prim, from, move) {
   if (from.tex) prim.tex = { ...from.tex, points: from.tex.points?.map(move) ?? null };
+  if (from.globe) prim.globe = from.globe.map(move);
   return prim;
 }
 
@@ -642,7 +645,16 @@ export function packTextures(textures) {
 // How a material's texture is laid on its surfaces (scene-format.md):
 // planar, by its surface coordinates in units of its scale, the image
 // repeated. The one so far; spherical (geodesic) is to come.
-const PROJECTIONS = Object.freeze({ planar: 0 });
+const PROJECTIONS = Object.freeze({ planar: 0, spherical: 1 });
+
+// The spherical patterns (projection "spherical"): colours at a geodesic
+// lattice's vertices (geodesic.js), mixed where a hit falls among them.
+const SPHERE_PATTERNS = Object.freeze({
+  cells: PATTERN_SPHERE_CELLS,
+  noise: PATTERN_SPHERE_NOISE,
+  bands: PATTERN_SPHERE_BANDS,
+});
+const MAX_LEVEL = 10;
 
 /**
  * What a material named `name` in `materials` (a scene's, merged) is an
@@ -1332,6 +1344,65 @@ function placeSealed(t, out) {
     out.push({ prim: t.primOf(i), material, env: 0, inside: inside && base + inside, outside: outside && base + outside,
                prov: t.provOf(i), lights: null });
   }
+}
+
+/**
+ * Give each node whose material is a spherical pattern a copy of it in the
+ * node's frame (Material.frame): the turn from the frame its globe points
+ * were written in (+z the pole, +x longitude 0) to where they are now, as a
+ * unit quaternion [x, y, z, w]. Copies are shared by nodes framed alike. A
+ * node with no centre to project from - no sphere or spheroid - is warned
+ * of and drawn in its material's albedo; one with no points (a precompiled
+ * object's) keeps the world's frame.
+ */
+function sphericalFrames(nodes, table, warn) {
+  const copies = new Map();
+  let centreless = 0;
+  for (const nd of nodes) {
+    const m = table[nd.material];
+    if (!m || m.pattern < PATTERN_SPHERE_CELLS || m.pattern > PATTERN_SPHERE_BANDS) continue;
+    const { k_par, k_perp } = nd.prim;
+    let key, copy;
+    if (!(k_par && k_perp && Math.sign(k_par) === Math.sign(k_perp))) {
+      centreless++;
+      key = `${nd.material} flat`;
+      copy = () => ({ ...m, pattern: 0 });
+    } else {
+      const frame = nd.prim.globe ? frameQuaternion(nd.prim.globe) : [0, 0, 0, 1];
+      key = `${nd.material} ${frame.join()}`;
+      copy = () => ({ ...m, frame });
+    }
+    if (!copies.has(key)) { table.push(copy()); copies.set(key, table.length - 1); }
+    nd.material = copies.get(key);
+  }
+  if (centreless) warn('materials', `${centreless} node(s) with a spherical pattern have no centre to project from - not a sphere or spheroid: drawn in its albedo`);
+}
+
+// The turn taking +z to a globe's pole and +x to its longitude 0 (made
+// square to the pole), as a unit quaternion [x, y, z, w].
+function frameQuaternion([c, p, q]) {
+  const z = unitVector(p.map((v, i) => v - c[i]));
+  const along = q.map((v, i) => v - c[i]);
+  const x = unitVector(acrossOf(z, along), unitVector(acrossOf(z, Math.abs(z[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0])));
+  const y = cross3(z, x);
+  // The matrix whose columns are x, y, z, as a quaternion.
+  const [m00, m01, m02, m10, m11, m12, m20, m21, m22] = [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
+  const tr = m00 + m11 + m22;
+  let w, a, b, d;
+  if (tr > 0) {
+    const s = 2 * Math.sqrt(tr + 1);
+    w = s / 4; a = (m21 - m12) / s; b = (m02 - m20) / s; d = (m10 - m01) / s;
+  } else if (m00 > m11 && m00 > m22) {
+    const s = 2 * Math.sqrt(1 + m00 - m11 - m22);
+    w = (m21 - m12) / s; a = s / 4; b = (m01 + m10) / s; d = (m02 + m20) / s;
+  } else if (m11 > m22) {
+    const s = 2 * Math.sqrt(1 + m11 - m00 - m22);
+    w = (m02 - m20) / s; a = (m01 + m10) / s; b = s / 4; d = (m12 + m21) / s;
+  } else {
+    const s = 2 * Math.sqrt(1 + m22 - m00 - m11);
+    w = (m10 - m01) / s; a = (m02 + m20) / s; b = (m12 + m21) / s; d = s / 4;
+  }
+  return [a, b, d, w];
 }
 
 // ---------------------------------------------------------------------------
@@ -3183,8 +3254,32 @@ export function compileScene(rawSpec, options = {}) {
   // A material defined, given its place in the table under `name`: the
   // scene's, or one a node names by reference, keyed for where it is.
   function addMaterial(name, def) {
-    const pattern = PATTERNS[def.pattern ?? 'flat'];
+    // Projected spherically, its pattern is one of the spherical ones, at
+    // a geodesic level; one that isn't - or a texture, not drawn so yet -
+    // is warned of, and it is drawn in its albedo.
+    const spherical = def.projection === 'spherical';
+    let pattern = spherical ? SPHERE_PATTERNS[def.pattern ?? 'cells'] : PATTERNS[def.pattern ?? 'flat'];
+    if (spherical && pattern === undefined) {
+      quietly(`materials.${name}.pattern`, `projected spherically, the patterns are ${Object.keys(SPHERE_PATTERNS).join(', ')}, not ${JSON.stringify(def.pattern)}: its albedo`);
+      pattern = 0;
+    }
+    if (pattern === undefined && SPHERE_PATTERNS[def.pattern] !== undefined) {
+      quietly(`materials.${name}.pattern`, `"${def.pattern}" is a spherical pattern: give it "projection": "spherical" - its albedo till then`);
+      pattern = 0;
+    }
     if (pattern === undefined) at(`materials.${name}`, `unknown pattern "${def.pattern}"`);
+    let level = 0;
+    if (spherical) {
+      level = def.level ?? 5;
+      if (!(Number.isInteger(level) && level >= 0 && level <= MAX_LEVEL)) {
+        quietly(`materials.${name}.level`, `is a whole number, 0 to ${MAX_LEVEL}, not ${JSON.stringify(def.level)}: 5`);
+        level = 5;
+      }
+      if (def.texture !== undefined) {
+        quietly(`materials.${name}.texture`, 'a spherical texture is not drawn yet, only the spherical patterns: left out');
+        def = { ...def, texture: undefined };
+      }
+    }
     const kind = KINDS[def.kind ?? 'lambert'];
     if (!kind) {
       at(`materials.${name}`, `unknown kind "${def.kind}". Known kinds: ` +
@@ -3237,6 +3332,7 @@ export function compileScene(rawSpec, options = {}) {
       params:  kind.params(def),
       // A texture is drawn as a pattern is, in place of one.
       pattern: texture ? PATTERN_PLANAR_TEXTURE : pattern,
+      level,                                     // a spherical pattern's geodesic level
       flags:   flags >>> 0,
       texture,                                   // index into textures, from 1; 0 for none
       projection,
@@ -3528,6 +3624,21 @@ export function compileScene(rawSpec, options = {}) {
     if (def[shape].complement) {
       // "complement" specified within the shape complements just the shape
       prim = complementSurface(prim);
+    }
+    // A sphere's or spheroid's frame, for a spherical pattern on it (scene-
+    // format.md, "projection"): its centre, its pole and longitude 0 - +z
+    // and +x, turned by "textureRotate" - as points every transform moves.
+    if (shape === 'sphere' || shape === 'spheroid') {
+      const c = def[shape].center ?? [0, 0, 0];
+      let pole = [0, 0, 1], zero = [1, 0, 0];
+      if (def.textureRotate !== undefined) {
+        const { rows } = rotateSpec(def.textureRotate, `${path}.textureRotate`);
+        const turn = (v) => rows.map((row) => dot3(row, v));
+        pole = turn(pole); zero = turn(zero);
+      }
+      prim.globe = [c.slice(), c.map((v, i) => v + pole[i]), c.map((v, i) => v + zero[i])];
+    } else if (def.textureRotate !== undefined) {
+      quietly(`${path}.textureRotate`, 'turns a spherical pattern, on a sphere or spheroid: this is neither - ignored');
     }
     if (def.textureOffset !== undefined) {
       const o = def.textureOffset;
@@ -4380,6 +4491,7 @@ export function compileScene(rawSpec, options = {}) {
   const rootScope = options.inherit !== undefined ? substrate(options.inherit, 'inherit') : NO_MATERIAL;
   const nodes = flatten(bakeScopes(rootTree, table, rootScope));
   textureTurns(nodes, table, quietly);
+  sphericalFrames(nodes, table, quietly);
 
   // Every light, with the env it belongs to: the scene's (env 0) first, in
   // order, so the editor can replace just those; then each node's, its env
@@ -4532,6 +4644,8 @@ export function packMaterials(list) {
       opacity: m.opacity ?? 1,
       ambient: m.ambient ?? [0, 0, 0],
       texture: m.texture ?? 0,
+      level: m.level ?? 0,
+      frame: m.frame ?? [0, 0, 0, 1],
     });
   });
   return views.buffer;

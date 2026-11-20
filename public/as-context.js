@@ -11,7 +11,7 @@
 // buffer per frame.
 
 import {
-  requestGPU, chooseCanvasFormat, buildPipelines, uploadStorage, createTraceBuffers,
+  requestGPU, chooseCanvasFormat, buildPipelines, sphericalPipelines, uploadStorage, createTraceBuffers,
 } from './gpu-setup.js';
 import { loadText, loadBytes } from './load.js';
 import { placeAll, placeAllLoading } from './movers.js';
@@ -19,7 +19,7 @@ import {
   compileScene, compileLight, movePrim, packNodes, packSurfaces, packMaterials, packLights, packTextures, readScene,
   readTextures,
 } from './antisphere-scene.js';
-import { BINDINGS, MATERIAL_SOLID, Node, RayQuery, RayResult, viewsOf } from './gen/layouts.js';
+import { BINDINGS, MATERIAL_SOLID, Node, PATTERN_SPHERE_CELLS, RayQuery, RayResult, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
 
 const MAX_TRACE_RAYS = 16;
@@ -98,6 +98,18 @@ export class ASContext {
     this._live = sources;
     this.generation++;
     return null;
+  }
+
+  /**
+   * The compute pipelines `scene` draws with, { compute, computeDirect }:
+   * the ones built, or - a scene with spherical patterns - their variant
+   * that draws them, made the first time one is wanted (and again after a
+   * rebuild).
+   */
+  pipelinesFor(scene) {
+    const p = this.pipelines;
+    if (!p || !scene?.sphericalPatterns) return p;
+    return (p.spherical ??= sphericalPipelines(this.device, p));
   }
 
   /**
@@ -305,6 +317,9 @@ export class ASScene {
     // is null for nodes the compiler invented. See antisphere-scene.js.
     this.provenance = built.provenance;
     this.materials = built.materials;
+    // Whether any material is a spherical pattern: drawn by the pipelines
+    // that draw them (ASContext.pipelinesFor()).
+    this.sphericalPatterns = built.materials.some((m) => m.pattern >= PATTERN_SPHERE_CELLS);
     this.lights = built.lights;
     this.topLights = built.topLights;   // the first this many are the scene's own (env 0)
     this.camera = built.camera ?? null;

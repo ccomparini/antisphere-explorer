@@ -221,9 +221,9 @@ export class Light {
 }
 
 export class Material {
-  static SIZE = 64;
+  static SIZE = 96;
   static ALIGN = 16;
-  static STRIDE = 64;
+  static STRIDE = 96;
   static FIELDS = Object.freeze({
     kind: Object.freeze({ offset: 0, type: 'u32' }),
     pattern: Object.freeze({ offset: 4, type: 'u32' }),
@@ -234,6 +234,8 @@ export class Material {
     opacity: Object.freeze({ offset: 44, type: 'f32' }),
     ambient: Object.freeze({ offset: 48, type: 'vec3<f32>' }),
     texture: Object.freeze({ offset: 60, type: 'u32' }),
+    level: Object.freeze({ offset: 64, type: 'u32' }),
+    frame: Object.freeze({ offset: 80, type: 'vec4<f32>' }),
   });
 
   static allocate(count = 1) { return viewsOf(new ArrayBuffer(count * Material.STRIDE)); }
@@ -276,6 +278,15 @@ export class Material {
     if (values.texture !== undefined) {
       u32[w + 15] = values.texture;
     }
+    if (values.level !== undefined) {
+      u32[w + 16] = values.level;
+    }
+    if (values.frame !== undefined) {
+      f32[w + 20] = values.frame[0];
+      f32[w + 21] = values.frame[1];
+      f32[w + 22] = values.frame[2];
+      f32[w + 23] = values.frame[3];
+    }
   }
 
   static readAt(views, byteOffset) {
@@ -290,6 +301,8 @@ export class Material {
       opacity: f32[w + 11],
       ambient: [f32[w + 12], f32[w + 13], f32[w + 14]],
       texture: u32[w + 15],
+      level: u32[w + 16],
+      frame: [f32[w + 20], f32[w + 21], f32[w + 22], f32[w + 23]],
     };
   }
 }
@@ -1172,6 +1185,9 @@ export const PATTERN_CHECKER = 1;
 export const PATTERN_NOISE = 2;
 export const PATTERN_INDUSTRIALCARPET = 3;
 export const PATTERN_PLANAR_TEXTURE = 4;
+export const PATTERN_SPHERE_CELLS = 5;
+export const PATTERN_SPHERE_NOISE = 6;
+export const PATTERN_SPHERE_BANDS = 7;
 export const DEBUG_OFF = 0;
 export const DEBUG_VISITS = 1;
 export const DEBUG_SHADOW = 2;
@@ -1189,6 +1205,8 @@ export const DEFAULT_INSIDE_BIT = 0x80000000;
 export const ROOT = 1;
 export const TRACE_STACK_SIZE = 32;
 export const DEGENERATE = 1e-12;
+export const ICO_A = 0.5257311121191336;
+export const ICO_B = 0.8506508083520399;
 export const MAX_BOUNCES = 12;
 export const JACOBI_SWEEPS = 5;
 export const OVERLAP_STEPS = 24;

@@ -226,7 +226,8 @@ fn noise2d(x: f32, y: f32) -> f32 {
 
 
 // Ordered so the two scalars and the vec2 fill the 16 bytes ahead of the
-// first vec3, which has to start on a 16-byte boundary anyway: 64 bytes.
+// first vec3, which has to start on a 16-byte boundary anyway; 96 bytes,
+// the spherical patterns' level and frame after the rest.
 // As params are the kind's, pattern_params are the pattern's: the second
 // colour a checker, noise or carpet mixes towards (a scene's "albedo2"),
 // and for a texture, where it lies (textureTurns() in antisphere-scene.js:
@@ -249,8 +250,14 @@ struct Material {
   ambient : vec3<f32>,
   // Its texture, an index into textures (from 1; 0 for none), laid on
   // planar: the image over the surface coordinates (frame()), once per
-  // scale, repeated. (Planar is the one projection so far.)
+  // scale, repeated.
   texture : u32,
+  // A spherical pattern's (PATTERN_SPHERE_): its geodesic level, and the
+  // frame it lies in, a unit quaternion turning its frame into the world's
+  // - the node's, worked out where the node is placed (sphericalFrames()
+  // in antisphere-scene.js), one copy of the material per frame.
+  level   : u32,
+  frame   : vec4<f32>,
 };
 
 const KIND_LAMBERT  : u32 = 0u;
@@ -273,6 +280,18 @@ const PATTERN_CHECKER          : u32 = 1u;
 const PATTERN_NOISE            : u32 = 2u;
 const PATTERN_INDUSTRIALCARPET : u32 = 3u;
 const PATTERN_PLANAR_TEXTURE   : u32 = 4u;
+// Spherical patterns: colours made at the vertices of a subdivided
+// icosahedron (geodesic.js), mixed where a hit falls among them - by
+// direction from the node's centre, in the material's frame.
+const PATTERN_SPHERE_CELLS     : u32 = 5u;   // a colour of its own at each vertex
+const PATTERN_SPHERE_NOISE     : u32 = 6u;   // albedo to pattern_params, by noise
+const PATTERN_SPHERE_BANDS     : u32 = 7u;   // bands of latitude, scale wide
+
+// Whether this pipeline draws the spherical patterns: false in the one
+// scenes without them use, so the code is compiled out of it - compiled
+// in, it cost every scene 6-12%, used or not (gpu-setup.js makes the
+// other, for scenes that have them).
+override SPHERICAL_PATTERNS : bool = false;
 
 // Debug views. Traversal cost is counted per invocation rather than timed,
 // since timestamps can only be written at pass boundaries.
@@ -829,9 +848,140 @@ fn planarTexture(info : TextureInfo, uv : vec2<f32>) -> vec3<f32> {
              mix(texel(info, x0, y1), texel(info, x1, y1), f.x), f.y);
 }
 
+// The icosahedron of the spherical patterns, geodesic.js's: its 12
+// vertices, unit length, and its 20 faces, corners A, B, C.
+const ICO_A = 0.5257311121191336;
+const ICO_B = 0.8506508083520399;
+const ICO_VERTS = array<vec3<f32>, 12>(
+  vec3<f32>(-ICO_A, ICO_B, 0.0), vec3<f32>(ICO_A, ICO_B, 0.0), vec3<f32>(-ICO_A, -ICO_B, 0.0), vec3<f32>(ICO_A, -ICO_B, 0.0),
+  vec3<f32>(0.0, -ICO_A, ICO_B), vec3<f32>(0.0, ICO_A, ICO_B), vec3<f32>(0.0, -ICO_A, -ICO_B), vec3<f32>(0.0, ICO_A, -ICO_B),
+  vec3<f32>(ICO_B, 0.0, -ICO_A), vec3<f32>(ICO_B, 0.0, ICO_A), vec3<f32>(-ICO_B, 0.0, -ICO_A), vec3<f32>(-ICO_B, 0.0, ICO_A),
+);
+const ICO_FACES = array<vec3<u32>, 20>(
+  vec3<u32>(0u, 11u, 5u), vec3<u32>(0u, 5u, 1u), vec3<u32>(0u, 1u, 7u), vec3<u32>(0u, 7u, 10u), vec3<u32>(0u, 10u, 11u),
+  vec3<u32>(1u, 5u, 9u), vec3<u32>(5u, 11u, 4u), vec3<u32>(11u, 10u, 2u), vec3<u32>(10u, 7u, 6u), vec3<u32>(7u, 1u, 8u),
+  vec3<u32>(3u, 9u, 4u), vec3<u32>(3u, 4u, 2u), vec3<u32>(3u, 2u, 6u), vec3<u32>(3u, 6u, 8u), vec3<u32>(3u, 8u, 9u),
+  vec3<u32>(4u, 9u, 5u), vec3<u32>(2u, 4u, 11u), vec3<u32>(6u, 2u, 10u), vec3<u32>(8u, 6u, 7u), vec3<u32>(9u, 8u, 1u),
+);
+
+// How far inside the spherical triangle a, b, c direction d is: the least
+// of its three side tests (positive inside).
+fn insideTriangle(d : vec3<f32>, a : vec3<f32>, b : vec3<f32>, c : vec3<f32>) -> f32 {
+  return min(min(dot(d, cross(a, b)), dot(d, cross(b, c))), dot(d, cross(c, a)));
+}
+
+// Where direction d falls among the vertices at `level` (geodesic.js's
+// locate(), step for step): the leaf's three corners, and their weights.
+struct Geodesic { a : vec3<f32>, b : vec3<f32>, c : vec3<f32>, w : vec3<f32>, };
+
+fn geodesicLocate(d : vec3<f32>, level : u32) -> Geodesic {
+  var face = 0u;
+  var best = -1e30;
+  for (var f = 0u; f < 20u; f = f + 1u) {
+    let v = ICO_FACES[f];
+    let s = insideTriangle(d, ICO_VERTS[v.x], ICO_VERTS[v.y], ICO_VERTS[v.z]);
+    if (s > best) { best = s; face = f; }
+  }
+  let corners = ICO_FACES[face];
+  var A = ICO_VERTS[corners.x];
+  var B = ICO_VERTS[corners.y];
+  var C = ICO_VERTS[corners.z];
+  for (var k = 0u; k < level; k = k + 1u) {
+    let mAB = normalize((A + B) * 0.5);
+    let mBC = normalize((B + C) * 0.5);
+    let mCA = normalize((C + A) * 0.5);
+    let s0 = insideTriangle(d, A, mAB, mCA);
+    let s1 = insideTriangle(d, B, mBC, mAB);
+    let s2 = insideTriangle(d, C, mCA, mBC);
+    let s3 = insideTriangle(d, mAB, mBC, mCA);
+    if (s0 >= s1 && s0 >= s2 && s0 >= s3) { B = mAB; C = mCA; }
+    else if (s1 >= s2 && s1 >= s3) { A = B; B = mBC; C = mAB; }
+    else if (s2 >= s3) { A = C; B = mCA; C = mBC; }
+    else { A = mAB; B = mBC; C = mCA; }
+  }
+  // Barycentrics of d on the leaf's chord triangle.
+  let n = cross(B - A, C - A);
+  let p = d * (dot(n, A) / dot(n, d));
+  let v0 = B - A;
+  let v1 = C - A;
+  let v2 = p - A;
+  let d00 = dot(v0, v0);
+  let d01 = dot(v0, v1);
+  let d11 = dot(v1, v1);
+  let d20 = dot(v2, v0);
+  let d21 = dot(v2, v1);
+  let den = d00 * d11 - d01 * d01;
+  var v = max(0.0, (d11 * d20 - d01 * d21) / den);
+  var w = max(0.0, (d00 * d21 - d01 * d20) / den);
+  let sum = v + w;
+  if (sum > 1.0) { v = v / sum; w = w / sum; }
+  return Geodesic(A, B, C, vec3<f32>(1.0 - v - w, v, w));
+}
+
+// A vertex's own number: its direction, rounded to 1/32768, hashed. A
+// vertex two faces share is worked out alike from either, so is the same.
+fn vertexHash(v : vec3<f32>) -> u32 {
+  let q = vec3<u32>(round((v + 1.0) * 32767.0));
+  return wangHash(q.x ^ wangHash(q.y ^ wangHash(q.z)));
+}
+
+// Value noise in 3D: hashed lattice values, mixed smoothly between.
+fn noise3d(p : vec3<f32>) -> f32 {
+  let i = floor(p);
+  let f = p - i;
+  let u = f * f * (3.0 - 2.0 * f);
+  let base = vec3<i32>(i);
+  var corner : array<f32, 8>;
+  for (var k = 0u; k < 8u; k = k + 1u) {
+    let o = vec3<i32>(i32(k & 1u), i32((k >> 1u) & 1u), i32((k >> 2u) & 1u));
+    let c = bitcast<vec3<u32>>(base + o);
+    corner[k] = randFloat(c.x ^ wangHash(c.y ^ wangHash(c.z)));
+  }
+  let x0 = mix(mix(corner[0], corner[1], u.x), mix(corner[2], corner[3], u.x), u.y);
+  let x1 = mix(mix(corner[4], corner[5], u.x), mix(corner[6], corner[7], u.x), u.y);
+  return mix(x0, x1, u.z);
+}
+
+// A spherical pattern's colour at a vertex, v its direction in the
+// material's frame.
+fn sphereTexel(m : Material, v : vec3<f32>) -> vec3<f32> {
+  switch m.pattern {
+    case PATTERN_SPHERE_CELLS: {
+      let h = vertexHash(v);
+      let c = vec3<f32>(f32(h & 255u), f32((h >> 8u) & 255u), f32((h >> 16u) & 255u)) / 255.0;
+      return m.albedo * c;
+    }
+    case PATTERN_SPHERE_NOISE: {
+      return mix(m.albedo, m.pattern_params, noise3d(v / m.scale));
+    }
+    default: {                                   // PATTERN_SPHERE_BANDS
+      let band = floor(asin(clamp(v.z, -1.0, 1.0)) / m.scale);
+      return select(m.albedo, m.pattern_params, (i32(band) & 1) != 0);
+    }
+  }
+}
+
+// A vector turned by the inverse of unit quaternion q: from the world into
+// the frame q turns into it.
+fn unturn(q : vec4<f32>, v : vec3<f32>) -> vec3<f32> {
+  let u = -q.xyz;
+  return v + 2.0 * cross(u, cross(u, v) + q.w * v);
+}
+
+// A spherical pattern at a hit: its direction from its node's centre, in
+// the material's frame, located among the vertices at its level, and the
+// three vertices' colours mixed.
+fn sphereAlbedo(hit : Hit, m : Material) -> vec3<f32> {
+  let nd = nodes[hit.node];
+  let d = unturn(m.frame, normalize(hit.position - nd.anchor - glowCentre(nd, hit.position)));
+  let g = geodesicLocate(d, m.level);
+  return sphereTexel(m, g.a) * g.w.x + sphereTexel(m, g.b) * g.w.y + sphereTexel(m, g.c) * g.w.z;
+}
+
 // A hit's colour: its material's albedo, varied by its pattern - or, a
 // texture being drawn as one, times its texture.
 fn albedoAt(hit : Hit, m : Material) -> vec3<f32> {
+  if (SPHERICAL_PATTERNS && m.pattern >= PATTERN_SPHERE_CELLS) { return sphereAlbedo(hit, m); }
   var ck = 0.0;
   switch m.pattern {
     case PATTERN_CHECKER: {
@@ -1356,4 +1506,4 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(outCol, 1.0));
 }
 
-// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":173},{"path":"shaders/random.wgsls","offset":175,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":206,"lines":1152}]
+// sourcemap: [{"path":"shaders/node.wgsls","offset":2,"lines":173},{"path":"shaders/random.wgsls","offset":175,"lines":31},{"path":"shaders/antisphere-raycast.wgsls","offset":206,"lines":1302}]

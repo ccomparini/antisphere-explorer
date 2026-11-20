@@ -428,7 +428,7 @@ test('a texture on a material a node names by reference: found from the material
 test('a texture missing, not a reference, or an unknown projection: warned of, and the material plays on, its albedo', async () => {
   const base = onDisk({
     's.json': JSON.stringify({
-      materials: { gone: { texture: '@nowhere.png' }, plain: { texture: 'four.png' }, round: { projection: 'spherical' } },
+      materials: { gone: { texture: '@nowhere.png' }, plain: { texture: 'four.png' }, round: { projection: 'cubic' } },
       lights: [],
       root: { sphere: { center: [0, 0, 0], radius: 5 }, material: 'gone', inside: { sphere: { center: [0, 0, 0], radius: 2 }, material: 'plain',
         inside: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'round' } } },
@@ -438,7 +438,7 @@ test('a texture missing, not a reference, or an unknown projection: warned of, a
   const read = await readScene(`${base}s.json`, { warn: (msg) => loading.push(msg) });
   assert.deepEqual(loading, [], 'images are not read with the scene');
   const built = compileScene(read.spec, { ...read, warn: (where, msg) => compiling.push(`${where}: ${msg}`) });
-  assert.ok(compiling.some((w) => /materials\.round\.projection: "spherical" isn't a projection there is yet/.test(w)), compiling.join('\n'));
+  assert.ok(compiling.some((w) => /materials\.round\.projection: "cubic" isn't a projection there is yet/.test(w)), compiling.join('\n'));
   // Read as shown: what can't be is said then, and stays a placeholder.
   await readTextures(built, read.files, { readBytes: loadBytes, warn: (msg) => reading.push(msg) });
   assert.match(reading.join('\n'), /cannot load ".*nowhere\.png".*shown untextured/);

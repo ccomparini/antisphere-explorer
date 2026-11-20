@@ -149,7 +149,23 @@ export async function buildPipelines(device, format, sources) {
     return { error: 'pipeline validation failed' };
   }
 
-  return { pipelines: { compute, computeDirect, blit, traceFrom } };
+  return { pipelines: { compute, computeDirect, blit, traceFrom, modules: { computeMod, directMod } } };
+}
+
+/**
+ * The compute pipelines for a scene with spherical patterns: `pipelines`'
+ * own two, with the shader's SPHERICAL_PATTERNS on. The pipelines built
+ * above have it off, so the code that draws them is compiled out of every
+ * scene that doesn't (it cost them 6-12%). { compute, computeDirect }.
+ */
+export function sphericalPipelines(device, pipelines) {
+  const { computeMod, directMod } = pipelines.modules;
+  const make = (module) => device.createComputePipeline({
+    layout: 'auto',
+    compute: { module, entryPoint: 'main', constants: { SPHERICAL_PATTERNS: 1 } },
+  });
+  const compute = make(computeMod);
+  return { compute, computeDirect: directMod === computeMod ? compute : make(directMod) };
 }
 
 /** A STORAGE | COPY_DST buffer holding `data`. */

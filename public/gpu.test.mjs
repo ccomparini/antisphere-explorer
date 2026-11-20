@@ -2040,3 +2040,70 @@ gpuTest('a textured model: its atlas on its faces, placed turned and moved, show
     assert.ok(worst <= 6, `${name}: worst ${worst.toFixed(1)} of 255`);
   }
 });
+
+gpuTest('spherical bands: each latitude its band, from the pole the node turns to; turned back by textureRotate', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  // An unlit unit ball, bands of latitude half a radian wide, red and blue
+  // by turns, seen square on from -y: the point at a pixel is known, so
+  // its latitude, so its band. Rows near a band's edge are passed by: the
+  // lattice's vertices, a degree apart at level 6, blur it.
+  const W = 64, H = 64, half = 1.25, scale = 0.5;
+  const spec = (node) => ({
+    materials: { globe: { kind: 'unlit', projection: 'spherical', pattern: 'bands', level: 6, scale,
+                          albedo: '#ff0000', albedo2: '#0000ff' } },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'globe', ...node },
+  });
+  const camera = new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic', orthoHeight: half });
+  const pointAt = (col, row) => {
+    const x = ((col + 0.5) / W * 2 - 1) * half, z = (1 - (row + 0.5) / H * 2) * half;
+    const r2 = x * x + z * z;
+    return r2 < 0.9 ? [x, -Math.sqrt(1 - r2), z] : null;
+  };
+  // Red or blue, as the band at latitude `lat` is; null near an edge.
+  const expect = (lat) => {
+    const t = lat / scale;
+    if (Math.abs(t - Math.round(t)) < 0.08) return null;
+    return (Math.floor(t) & 1) ? 'blue' : 'red';
+  };
+  const colourAt = (img, col, row) => { const [r, , b] = img.at(col, row); return r > 200 && b < 40 ? 'red' : b > 200 && r < 40 ? 'blue' : `${img.at(col, row)}`; };
+  const check = async (what, node, pole) => {
+    const img = await renderPixels(spec(node), camera, W, H);
+    let checked = 0;
+    for (let row = 0; row < H; row += 3) for (let col = 0; col < W; col += 3) {
+      const p = pointAt(col, row);
+      if (!p) continue;
+      const want = expect(Math.asin(p[0] * pole[0] + p[1] * pole[1] + p[2] * pole[2]));
+      if (!want) continue;
+      assert.equal(colourAt(img, col, row), want, `${what}: pixel ${col}, ${row}`);
+      checked++;
+    }
+    assert.ok(checked > 100, `${what}: ${checked} pixels`);
+  };
+  const quarter = { axis: [1, 0, 0], degrees: 90 };
+  await check('as written, the pole +z', {}, [0, 0, 1]);
+  // A quarter turn about x takes the pole to -y: towards the camera, the
+  // bands rings round the middle of the view.
+  await check('turned with the node', { rotate: quarter }, [0, -1, 0]);
+  await check('turned by textureRotate', { textureRotate: quarter }, [0, -1, 0]);
+  await check('turned, and turned back by textureRotate', { rotate: quarter, textureRotate: { axis: [1, 0, 0], degrees: -90 } }, [0, 0, 1]);
+});
+
+gpuTest('spherical cells and noise: drawn, a colour of their own across the ball; a scene without them, as before', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  const camera = new ASCamera({ position: [0, -10, 0], direction: [0, 1, 0], projection: 'orthographic', orthoHeight: 1.25 });
+  const spec = (pattern) => ({
+    materials: { globe: { kind: 'unlit', projection: 'spherical', pattern, level: 3, scale: 0.3, albedo: '#ffffff', albedo2: '#000000' } },
+    lights: [],
+    root: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'globe' },
+  });
+  for (const pattern of ['cells', 'noise']) {
+    const img = await renderPixels(spec(pattern), camera, 48, 48);
+    const seen = new Set();
+    for (let row = 12; row < 36; row += 2) for (let col = 12; col < 36; col += 2) seen.add(`${img.at(col, row)}`);
+    assert.ok(seen.size > 20, `${pattern}: ${seen.size} colours`);
+  }
+  // A scene with none draws with the pipeline built first, still.
+  const plain = await renderPixels({ ...spec('cells'), materials: { globe: { kind: 'unlit', albedo: '#808080' } } }, camera, 48, 48);
+  plain.at(24, 24).forEach((c) => assert.ok(Math.abs(c - 128) <= 1, `${plain.at(24, 24)}`));
+});

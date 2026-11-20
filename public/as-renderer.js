@@ -150,7 +150,7 @@ export class ASRenderer {
     if (this._pipeGen === this.context.generation &&
         this._sceneGen === this.scene.generation) return;
 
-    this.computeBG = this._computeBindGroup(pipelines.compute, this.tex.createView());
+    this.computeBG = this._computeBindGroup(this.context.pipelinesFor(this.scene).compute, this.tex.createView());
     this.blitBG = bindGroup(
       device, pipelines.blit,
       BINDINGS.blit, [
@@ -168,7 +168,7 @@ export class ASRenderer {
   // The swap chain hands back a different texture every frame, so the direct
   // path cannot cache its bind group.
   _directBindGroup(view) {
-    return this._computeBindGroup(this.context.pipelines.computeDirect, view);
+    return this._computeBindGroup(this.context.pipelinesFor(this.scene).computeDirect, view);
   }
 
   // main() in antisphere-raycast.wgsls, drawing into `view`.
@@ -237,13 +237,14 @@ export class ASRenderer {
     this.writeCamera(opts.camera);
 
     const { pipelines } = this.context;
+    const scenePipelines = this.context.pipelinesFor(this.scene);
     const computeTiming = opts.computeTimestamps ?? undefined;
 
     if (this.directOut) {
       const view = this.ctx.getCurrentTexture().createView();
       const pass = enc.beginComputePass(
         computeTiming ? { timestampWrites: computeTiming } : {});
-      pass.setPipeline(pipelines.computeDirect);
+      pass.setPipeline(scenePipelines.computeDirect);
       pass.setBindGroup(0, this._directBindGroup(view));
       pass.dispatchWorkgroups(Math.ceil(this.width / 8), Math.ceil(this.height / 8));
       pass.end();
@@ -252,7 +253,7 @@ export class ASRenderer {
 
     const pass = enc.beginComputePass(
       computeTiming ? { timestampWrites: computeTiming } : {});
-    pass.setPipeline(pipelines.compute);
+    pass.setPipeline(scenePipelines.compute);
     pass.setBindGroup(0, this.computeBG);
     pass.dispatchWorkgroups(Math.ceil(this.renderWidth / 8),
                             Math.ceil(this.renderHeight / 8));
