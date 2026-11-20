@@ -352,6 +352,28 @@ used, so `"$trim"` in `parts/tower.json` is still the scene's
 declare is warned of, and what used it left out: a field takes its
 default, a material is the stand-in.
 
+## Expressions
+
+A string starting `=` is worked out, wherever a value goes:
+
+```
+"step": "=360 / $steps"
+"translate": "=[0, 0, $k * $step-height]"
+"material": "=$stones[($i + $j + 4) % 5]"
+"center": "=[3 * cos($a), 3 * sin($a), 0]"
+```
+
+| | |
+|---|---|
+| values | numbers; vectors `[a, b, c]`, element by element, a number standing for every element (`[1, 2] * 2` is `[2, 4]`); lists, indexed `x[k]` round and round (`[a, b, c][4]` is `b`); strings in quotes |
+| names | `$name`, a declaration (`"declare"`), or in a repeat's repetend one of its range's names. A name joins words with `-` (`$step-height`), so leave spaces round a minus: `$a - 1` |
+| operators | `+ - * /`, `%` (never negative: `-1 % 5` is 4), unary `-`, parentheses |
+| functions | `sin cos tan asin acos atan2 sqrt abs min max floor round`; `pi`. **Angles in degrees**, as `"rotate"` takes them |
+
+An expression that can't be worked out - a name nothing declares, vectors
+of different lengths, `1 / 0` - is warned of, saying what and where, and
+its field left out: it takes its default, as an undeclared name does.
+
 ## `"repeat"`
 
 Copies of something, made where a list is - members of a union or group,

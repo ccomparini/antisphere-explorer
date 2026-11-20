@@ -2066,7 +2066,7 @@ export function referencedFiles(content, from) {
   let marked = false;                    // any name or reference: hasNamesOrReferences(), in the same walk
   let repeats = false;                   // any "repeat": hasRepeats(), likewise
   const walk = (value) => {
-    if (typeof value === 'string' && value.length > 1 && value[0] === '$') marked = true;
+    if (typeof value === 'string' && value.length > 1 && (value[0] === '$' || value[0] === '=')) marked = true;
     if (isReference(value)) {
       marked = true;
       const { path } = referenceParts(value, from);
@@ -2092,6 +2092,181 @@ export function referencedFiles(content, from) {
   return found;
 }
 
+// ---------------------------------------------------------------------------
+// Expressions (scene-format.md): a string starting = is one - "=360 / $steps",
+// "=$stones[($i + $j + 4) % 5]", "=[0, 0, $k * $rise]". Parsed here, by hand
+// (never eval: a scene loaded by URL must not run code), to a tree that
+// evaluateExpression() walks. Numbers; vectors, element by element, a number
+// standing for every element; lists, indexed round and round; strings, which
+// only indexing a list or a literal gives. Angles in degrees, as "rotate".
+// ---------------------------------------------------------------------------
+
+/** Whether a value is an expression: a string starting =. */
+export const isExpression = (v) => typeof v === 'string' && v.length > 1 && v[0] === '=';
+
+// A $name: letters, digits, _, and - joining words ("$step-height"), so
+// "$a-1" is $a minus 1. Shared with repeat's substitution into expressions.
+export const EXPRESSION_NAME = /\$([A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z_][A-Za-z0-9_]*)*)/y;
+
+const expressionCache = new Map();
+/**
+ * An expression's tree: { num }, { str }, { name }, { vec: [..] }, { neg },
+ * { op, a, b }, { index: of, at }, { call, args }. `text` is without its
+ * "=". Throws a message naming the column.
+ */
+export function parseExpression(text) {
+  if (expressionCache.has(text)) return expressionCache.get(text);
+  let i = 0;
+  const fail = (msg) => { throw new Error(`${msg}, at column ${i + 1}`); };
+  const space = () => { while (i < text.length && /\s/.test(text[i])) i++; };
+  const eat = (c) => { space(); if (text[i] === c) { i++; return true; } return false; };
+  const expect = (c) => { if (!eat(c)) fail(`expected "${c}"`); };
+  function primary() {
+    space();
+    const c = text[i];
+    if (c === undefined) fail('expected a value');
+    if (c === '(') { i++; const e = sum(); expect(')'); return e; }
+    if (c === '[') {
+      i++;
+      const vec = [];
+      if (!eat(']')) { do vec.push(sum()); while (eat(',')); expect(']'); }
+      return { vec };
+    }
+    if (c === '"' || c === "'") {
+      let j = i + 1, str = '';
+      while (j < text.length && text[j] !== c) { if (text[j] === '\\') j++; str += text[j++]; }
+      if (j >= text.length) fail('a string that never ends');
+      i = j + 1;
+      return { str };
+    }
+    if (c === '$') {
+      EXPRESSION_NAME.lastIndex = i;
+      const m = EXPRESSION_NAME.exec(text);
+      if (!m) fail('a $ with no name after it');
+      i = EXPRESSION_NAME.lastIndex;
+      return { name: m[1] };
+    }
+    const num = /^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/.exec(text.slice(i));
+    if (num) { i += num[0].length; return { num: Number(num[0]) }; }
+    const word = /^[A-Za-z_][A-Za-z0-9_]*/.exec(text.slice(i));
+    if (word) {
+      i += word[0].length;
+      if (eat('(')) {
+        const args = [];
+        if (!eat(')')) { do args.push(sum()); while (eat(',')); expect(')'); }
+        return { call: word[0], args };
+      }
+      if (word[0] === 'pi') return { num: Math.PI };
+      fail(`"${word[0]}" isn't a value: a name needs a $, and a function its ( )`);
+    }
+    fail(`unexpected "${c}"`);
+  }
+  function postfix() {
+    let e = primary();
+    while (eat('[')) { const at = sum(); expect(']'); e = { index: e, at }; }
+    return e;
+  }
+  function unary() {
+    if (eat('-')) return { neg: unary() };
+    if (eat('+')) return unary();
+    return postfix();
+  }
+  function product() {
+    let e = unary();
+    for (;;) {
+      space();
+      const op = text[i];
+      if (op !== '*' && op !== '/' && op !== '%') return e;
+      i++;
+      e = { op, a: e, b: unary() };
+    }
+  }
+  function sum() {
+    let e = product();
+    for (;;) {
+      space();
+      const op = text[i];
+      if (op !== '+' && op !== '-') return e;
+      i++;
+      e = { op, a: e, b: product() };
+    }
+  }
+  const tree = sum();
+  space();
+  if (i < text.length) fail(`unexpected "${text[i]}"`);
+  expressionCache.set(text, tree);
+  return tree;
+}
+
+const DEGREES = Math.PI / 180;
+const EXPRESSION_FUNCTIONS = {
+  sin: (x) => Math.sin(x * DEGREES), cos: (x) => Math.cos(x * DEGREES), tan: (x) => Math.tan(x * DEGREES),
+  asin: (x) => Math.asin(x) / DEGREES, acos: (x) => Math.acos(x) / DEGREES,
+  atan2: (y, x) => Math.atan2(y, x) / DEGREES,
+  sqrt: Math.sqrt, abs: Math.abs, floor: Math.floor, round: Math.round,
+  min: Math.min, max: Math.max,
+};
+
+/**
+ * An expression's tree, worked out: `lookUp(name)` gives a $name's value
+ * (or undefined, if there is none). Throws a message saying what failed.
+ */
+export function evaluateExpression(tree, lookUp) {
+  const isNum = (x) => typeof x === 'number';
+  const isVec = (x) => Array.isArray(x) && x.every(isNum);
+  const show = (x) => JSON.stringify(x);
+  // Element by element: two vectors of one length, or a vector and a number.
+  const each = (a, b, f, what) => {
+    if (isNum(a) && isNum(b)) return f(a, b);
+    if (isVec(a) && isNum(b)) return a.map((v) => f(v, b));
+    if (isNum(a) && isVec(b)) return b.map((v) => f(a, v));
+    if (isVec(a) && isVec(b)) {
+      if (a.length !== b.length) throw new Error(`${what} of vectors of ${a.length} and ${b.length}`);
+      return a.map((v, k) => f(v, b[k]));
+    }
+    throw new Error(`${what} of ${show(a)} and ${show(b)}: numbers or vectors only`);
+  };
+  const OPS = {
+    '+': (x, y) => x + y, '-': (x, y) => x - y, '*': (x, y) => x * y, '/': (x, y) => x / y,
+    '%': (x, y) => ((x % y) + y) % y,                // never negative: -1 % 5 is 4
+  };
+  const NAMES = { '+': 'a sum', '-': 'a difference', '*': 'a product', '/': 'a quotient', '%': 'a remainder' };
+  const walk = (e) => {
+    if ('num' in e) return e.num;
+    if ('str' in e) return e.str;
+    if ('name' in e) {
+      const v = lookUp(e.name);
+      if (v === undefined) throw new Error(`"$${e.name}": no such name declared`);
+      return v;
+    }
+    if ('vec' in e) return e.vec.map(walk);
+    if ('neg' in e) {
+      const v = walk(e.neg);
+      if (isNum(v)) return -v;
+      if (isVec(v)) return v.map((x) => -x);
+      throw new Error(`minus ${show(v)}: a number or a vector only`);
+    }
+    if ('op' in e) return each(walk(e.a), walk(e.b), OPS[e.op], NAMES[e.op]);
+    if ('index' in e) {
+      const list = walk(e.index), at = walk(e.at);
+      if (!Array.isArray(list) || !list.length) throw new Error(`${show(list)} indexed: only a list can be`);
+      if (!Number.isInteger(at)) throw new Error(`index ${show(at)}: a whole number only`);
+      return list[((at % list.length) + list.length) % list.length];
+    }
+    if ('call' in e) {
+      const f = EXPRESSION_FUNCTIONS[e.call];
+      if (!f) throw new Error(`"${e.call}" isn't a function there is (${Object.keys(EXPRESSION_FUNCTIONS).join(', ')})`);
+      const args = e.args.map(walk);
+      // One vector argument: the function element by element.
+      if (args.length === 1 && isVec(args[0])) return args[0].map((v) => f(v));
+      if (!args.every(isNum)) throw new Error(`${e.call}(${args.map(show).join(', ')}): numbers only`);
+      return f(...args);
+    }
+    throw new Error('an expression the parser made but nothing knows');
+  };
+  return walk(tree);
+}
+
 /**
  * Whether a file's content has a name or a reference in it anywhere - a
  * string starting $ or @, outside notes: if not, nothing in it needs
@@ -2104,7 +2279,7 @@ export function hasNamesOrReferences(content) {
   let found = false;
   const walk = (value) => {
     if (found) return;
-    if (typeof value === 'string') { if (value.length > 1 && (value[0] === '$' || value[0] === '@')) found = true; }
+    if (typeof value === 'string') { if (value.length > 1 && (value[0] === '$' || value[0] === '@' || value[0] === '=')) found = true; }
     else if (Array.isArray(value)) { for (const v of value) walk(v); }
     else if (value !== null && typeof value === 'object' && !ArrayBuffer.isView(value)) { for (const k in value) if (!k.startsWith('_')) walk(value[k]); }
   };
@@ -2535,8 +2710,44 @@ export function compileScene(rawSpec, options = {}) {
   // nothing declares.
   // `path`, for a warning, is the node or entry the value is in: built
   // once there, not per field - a mesh's every node passes through here.
+  // An expression's value (isExpression()), its $names the declarations' -
+  // resolved, a reference followed - not itself resolved further: a keyed
+  // field may want the name it gives. Undefined, warned of, if it fails.
+  const working = [];                              // names being worked out in expressions, for a cycle
+  function expressionValue(value, from, path) {
+    const lookUp = (name) => {
+      if (!Object.prototype.hasOwnProperty.call(declarations, name)) return undefined;
+      if (working.includes(name)) throw new Error(`names itself, by way of ${[...working, name].map((n) => '$' + n).join(' -> ')}`);
+      working.push(name);
+      try {
+        const got = unName('$' + name, from, path);
+        const v = got === undefined ? undefined : resolveValue(got.value, got.from, path);
+        // Declared, but not to be worked out: said already, where it failed.
+        if (v === undefined) throw new Error(`"$${name}" has no value (see above)`);
+        return v;
+      } finally { working.pop(); }
+    };
+    let result;
+    try {
+      result = evaluateExpression(parseExpression(value.slice(1)), lookUp);
+    } catch (e) {
+      quietly(path, `"${value}": ${e.message}: left out`);
+      return undefined;
+    }
+    const finite = (x) => typeof x !== 'number' || Number.isFinite(x);
+    if (!finite(result) || (Array.isArray(result) && !result.every(finite))) {
+      quietly(path, `"${value}" comes to ${JSON.stringify(result)}, not a number: left out`);
+      return undefined;
+    }
+    return result;
+  }
+
   function resolveValue(value, from, path) {
     if (typeof value === 'string') {
+      if (isExpression(value)) {
+        const got = expressionValue(value, from, path);
+        return got === undefined || isExpression(got) ? got : resolveValue(got, from, path);
+      }
       if (isName(value)) {
         const got = unName(value, from, path);
         return got === undefined ? undefined : resolveValue(got.value, got.from, path);
@@ -2691,6 +2902,12 @@ export function compileScene(rawSpec, options = {}) {
     // The repetend with this copy's values put in: every string that is
     // exactly "$name", for a name in the range; anything else as it is.
     const put = (value, values) => {
+      if (isExpression(value)) {
+        // In an expression, each of the range's names written as its value.
+        const names = new RegExp(EXPRESSION_NAME.source, 'g');
+        const out = value.replace(names, (whole, name) => (values.has(name) ? JSON.stringify(values.get(name)) : whole));
+        return out;
+      }
       if (typeof value === 'string') return value.length > 1 && value[0] === '$' && values.has(value.slice(1)) ? values.get(value.slice(1)) : value;
       if (Array.isArray(value)) {
         let out = null;
@@ -2926,7 +3143,7 @@ export function compileScene(rawSpec, options = {}) {
   // instead show whatever NO_MATERIAL resolves to - name the desired
   // material directly on that node to fix it.
   function materialOf(def, path, where) {
-    if (isName(def.material)) {
+    if (isName(def.material) || isExpression(def.material)) {
       const got = unNamed(def.material, where, `${path}.material`);
       if (got.value === undefined) return INHERIT_MATERIAL;
       return materialOf({ ...def, material: got.value }, path, got.where);
@@ -3202,7 +3419,7 @@ export function compileScene(rawSpec, options = {}) {
 
   function operand(d, path, where) {
     if (!d) return null;
-    if (isName(d)) {
+    if (isName(d) || isExpression(d)) {
       const got = unNamed(d, where, path);
       return got.value === undefined ? null : operand(got.value, path, got.where);
     }
@@ -3710,6 +3927,7 @@ export function compileScene(rawSpec, options = {}) {
   // material - as what it stands for, and `where` with the file it was
   // written in, for a reference it is to be followed from.
   function unNamed(value, where, path) {
+    if (isExpression(value)) return { value: expressionValue(value, where.from ?? scenePath, path), where };
     if (!isName(value)) return { value, where };
     const got = unName(value, where.from ?? scenePath, path);
     return got === undefined ? { value: undefined, where } : { value: got.value, where: { ...where, from: got.from } };
@@ -3718,7 +3936,7 @@ export function compileScene(rawSpec, options = {}) {
   function tree(def, path, where) {
     // Null or absent: no subdivision here.
     if (!def) return null;
-    if (isName(def)) {                            // a subtree by name: what it stands for
+    if (isName(def) || isExpression(def)) {       // a subtree by name or expression: what it stands for
       const got = unNamed(def, where, path);
       return got.value === undefined ? null : tree(got.value, path, got.where);
     }

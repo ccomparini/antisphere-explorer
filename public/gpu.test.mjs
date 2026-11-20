@@ -1053,6 +1053,24 @@ gpuTest('a row of five balls from a repeat: each is hit, and the gaps between th
   }
 });
 
+// -- expressions, as traced -------------------------------------------------------
+
+gpuTest('a ring of six balls placed by an expression: each is hit, and between them nothing', async () => {
+  const sc = scene({ union: [{ repeat: {
+    times: 6, range: { a: { start: 0, step: 60 } },
+    repetend: { sphere: { center: '=[3 * cos($a), 3 * sin($a), 0]', radius: 0.5 }, material: 'clay' },
+  } }] });
+  try {
+    const at = (deg) => [3 * Math.cos(deg * Math.PI / 180), 3 * Math.sin(deg * Math.PI / 180), 5];
+    const rays = [0, 60, 120, 180, 240, 300, 30, 90, 210].map((deg) => ({ origin: at(deg), direction: [0, 0, -1] }));
+    const { node, t0 } = await sc.castRays(rays);
+    for (let k = 0; k < 6; k++) assert.ok(node[k] && Math.abs(t0[k] - 4.5) < 1e-4, `ball ${k}: ${t0[k]}`);
+    for (let k = 6; k < 9; k++) assert.equal(node[k], 0, `between balls (ray ${k})`);
+  } finally {
+    sc.destroy();
+  }
+});
+
 // -- a parabolic cylinder, as traced ------------------------------------------------
 
 gpuTest('a parabolic cylinder is hit where x^2 = 4 focal y says, along its whole length', async () => {
