@@ -2585,7 +2585,14 @@ export function compileScene(rawSpec, options = {}) {
         const v = value[i];
         if (isRepeat(v)) {
           out ??= value.slice(0, i);
-          for (const copy of repeatCopies(v, `${path}[${i}]`)) out.push(expandRepeats(copy, `${path}[${i}]`));
+          // Its copies spliced in - and a copy that is itself a repeat (a
+          // repeat of a repeat: a grid) is its own copies, in the same list.
+          const splice = (r, where) => {
+            for (const copy of repeatCopies(r, where)) {
+              if (isRepeat(copy)) splice(copy, where); else out.push(expandRepeats(copy, where));
+            }
+          };
+          splice(v, `${path}[${i}]`);
           continue;
         }
         const got = v !== null && typeof v === 'object' ? expandRepeats(v, `${path}[${i}]`) : v;

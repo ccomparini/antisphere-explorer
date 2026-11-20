@@ -383,8 +383,12 @@ steps go from a start to its end (by ones, a number with no step and no
 `times`). `times`, and anything in a range, may be a declared name.
 
 `end` lands the last copy exactly, to meet something else: a spiral stair's
-last step at the next floor's angle. A repeat inside a repetend - rows of
-columns - can use the outer one's names. A repeat not in a list, or one
+last step at the next floor's angle. A repeat inside a repetend can use the
+outer one's names, and a repetend that is itself a repeat makes its copies
+straight into the same list - a grid as one flat list, row by row, which
+for a group's members is what partitions well (the default scene's 8 x 8
+beads are one; wrapped in a group per row, the same beads compile to five
+times the nodes). A repeat not in a list, or one
 that can't say how many, is warned of and makes nothing.
 
 Stairs, five treads each up 0.2 and along 0.3:

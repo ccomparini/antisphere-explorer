@@ -63,6 +63,12 @@ test('names: a scene declaration left for later, unless the range shadows it; a 
   ] } } }]), [{ cells: [[0, 0], [0, 1], [0, 2]] }, { cells: [[1, 0], [1, 1], [1, 2]] }]);
 });
 
+test('a repeat whose repetend is a repeat is one flat list: a grid, row by row', () => {
+  assert.deepEqual(expand([{ repeat: { range: { row: [0, 1] }, repetend:
+    { repeat: { range: { col: [0, 1, 2] }, repetend: ['$row', '$col'] } } } }]),
+  [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]]);
+});
+
 test('slips are warned of, and the repeat gives nothing', () => {
   for (const [list, said] of [
     [[{ repeat: { range: { x: { start: 1 } }, repetend: '$x' } }], /needs "times"/],
