@@ -89,6 +89,9 @@ async function render(options) {
   try {
     const { spec, files, path: from } = await readScene(sceneURL(options.scene));
     const scene = gpu.createScene(spec, { files, path: from });
+    // All of it: what it places, and the images it shows, read.
+    await scene.placing;
+    await scene.texturing;
 
     const { width, height } = options;
     let format = null, texture = null;

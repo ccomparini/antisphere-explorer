@@ -64,6 +64,8 @@ const gpu = await ASContext.create({ load });
 // As the page reads one (readScene()), references and all.
 const read = await readScene(sceneURL(sceneFile));
 const scene = gpu.createScene(read.spec, { files: read.files, path: read.path });
+await scene.placing;                     // all of it, placed and textured, before timing
+await scene.texturing;
 const { device } = gpu;
 
 /** A canvas as far as ASRenderer can tell: its current texture is just a texture. */

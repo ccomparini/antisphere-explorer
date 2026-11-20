@@ -584,6 +584,42 @@ export function envAt(built, P) {
   return env;
 }
 
+/** An image's place in the table before it is read: one white texel. */
+export const placeholderTexture = (file) => ({ file, width: 1, height: 1, rgba: new Uint8Array([255, 255, 255, 255]), pending: true });
+
+/** The textures some node's material shows, by their numbers in built.textures (from 1). */
+export function texturesInUse(built) {
+  const used = new Set();
+  for (const nd of built.nodes) {
+    const texture = built.materials[nd.material]?.texture;
+    if (texture) used.add(texture);
+  }
+  return [...used].sort((a, b) => a - b);
+}
+
+/**
+ * The images a compiled scene shows and hasn't read (placeholders in
+ * built.textures), read and decoded - all at once, each put in its place
+ * as it comes (`onImage(k)`, k its number from 1), and kept in `files` for
+ * the next compile. `readBytes(path)` reads one. One that can't be read is
+ * warned of (`warn(message)`), and stays a placeholder: its material
+ * shows its albedo. Done when every one is in, or given up on.
+ */
+export async function readTextures(built, files, { readBytes, warn = console.warn, onImage = () => {} } = {}) {
+  await Promise.all(texturesInUse(built).map(async (k) => {
+    const t = built.textures[k - 1];
+    if (!t?.pending) return;
+    try {
+      const image = files[t.file] ?? await decodePNG(new Uint8Array(await readBytes(t.file)), { name: t.file });
+      files[t.file] = image;
+      built.textures[k - 1] = { file: t.file, width: image.width, height: image.height, rgba: image.rgba };
+      onImage(k);
+    } catch (cause) {
+      warn(`cannot load "${t.file}": ${cause.message}: shown untextured`);
+    }
+  }));
+}
+
 /**
  * The textures as the GPU takes them: { infos, texels } - each texture's
  * place among the texels and its size (TextureInfo), indexed from 1 as
@@ -2028,7 +2064,8 @@ function resolveMaterial(def, from, files, trail, missing) {
   return followReference(def, from, files, trail, missing, (v, from) => {
     if (!v || typeof v !== 'object' || !isReference(v.texture)) return v;
     const path = resolvePath(from, v.texture.slice(1).split('#')[0]);
-    if (!(path in files)) missing.add(path);
+    // An image is read as a scene shows it (readTextures()): not missing.
+    if (!(path in files) && !isPNG(path)) missing.add(path);
     return { ...v, texture: path };
   });
 }
@@ -2409,7 +2446,9 @@ export async function loadReferences(spec, { from = '', readText, readBytes, war
     const fresh = [...new Set(wanted)].filter((path) => !(path in files) && !failed.has(path));
     const next = [];
     for (const path of fresh.filter((path) => path in have)) { files[path] = have[path]; next.push(...follow(path)); }
-    const reading = fresh.filter((path) => !(path in have));
+    // An image is read when a scene that shows it is (readTextures()), not
+    // here: found, and left.
+    const reading = fresh.filter((path) => !(path in have) && !isPNG(path));
     await Promise.all(reading.map(async (path) => {
       try {
         files[path] = await load(path);
@@ -2966,12 +3005,17 @@ export function compileScene(rawSpec, options = {}) {
     const none = { texture: 0, projection };
     if (def.texture === undefined) return none;
     const image = typeof def.texture === 'string' ? options.files?.[def.texture] : undefined;
-    if (!image?.rgba) {
+    // An image not read yet - they are read as a scene shows them
+    // (readTextures()) - is a placeholder till then: white, so the material
+    // shows its albedo.
+    const pending = !image && typeof def.texture === 'string' && isPNG(def.texture);
+    if (!image?.rgba && !pending) {
       quietly(`${path}.texture`, `No such image: ${JSON.stringify(def.texture)}`);
       return none;
     }
     if (!textureIndex.has(def.texture)) {
-      textures.push({ file: def.texture, width: image.width, height: image.height, rgba: image.rgba });
+      textures.push(pending ? placeholderTexture(def.texture)
+                            : { file: def.texture, width: image.width, height: image.height, rgba: image.rgba });
       textureIndex.set(def.texture, textures.length);
     }
     return { texture: textureIndex.get(def.texture), projection };

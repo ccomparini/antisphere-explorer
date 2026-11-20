@@ -17,6 +17,7 @@ import { loadText, loadBytes } from './load.js';
 import { placeAll, placeAllLoading } from './movers.js';
 import {
   compileScene, compileLight, movePrim, packNodes, packSurfaces, packMaterials, packLights, packTextures, readScene,
+  readTextures,
 } from './antisphere-scene.js';
 import { BINDINGS, MATERIAL_SOLID, Node, RayQuery, RayResult, viewsOf } from './gen/layouts.js';
 import { bindGroup } from './bind-group.js';
@@ -44,6 +45,9 @@ export class ASContext {
     const { adapter, device, canTimestamp, canBgraStorage } = await requestGPU();
     const ctx = new ASContext(adapter, device, { canTimestamp, canBgraStorage });
     ctx._sources = { urls, load: opts.load ?? loadText };
+    // Whether loadScene() waits for a scene's textures, or shows it at once
+    // and lets them come in as they are read (scene.texturing).
+    ctx.waitForTextures = opts.waitForTextures ?? false;
 
     const err = await ctx._build(await ctx._loadSources());
     if (err) throw new Error(`${err}. See the console for details.`);
@@ -120,10 +124,11 @@ export class ASContext {
    * (readScene() in antisphere-scene.js, which needs no GPU: this is that,
    * then a GPU scene of it).
    */
-  async loadScene(url) {
+  async loadScene(url, { waitForTextures = this.waitForTextures } = {}) {
     const { spec, files, path } = await readScene(url);
     const scene = this.createScene(spec, { files, path });
     await scene.placing;                 // its placed objects read and in
+    if (waitForTextures) await scene.texturing;
     return scene;
   }
 
@@ -249,6 +254,7 @@ export class ASScene {
    */
   update(spec, options = {}) {
     if (options.files) this.files = options.files;
+    if (options.warn) this.warn = options.warn;
     if (options.path !== undefined) this.path = options.path;
     const compileOptions = { files: this.files, path: this.path, ...(options.warn ? { warn: options.warn } : {}) };
     const built = compileScene(spec, compileOptions);
@@ -322,6 +328,32 @@ export class ASScene {
     this.matBuf = uploadStorage(device, matData);
     this.bytes = nodeData.byteLength + infos.byteLength + texels.byteLength + this.surfaces.byteLength + lightData.byteLength + matData.byteLength;
     this.generation++;
+
+    // The images it shows and hasn't read, read now, each put in as it
+    // comes; till then its material shows its albedo. `texturing` is done
+    // when they are all in. A load since makes what is still coming stale.
+    const loading = this._loading = (this._loading ?? 0) + 1;
+    this.texturing = readTextures(built, this.files, {
+      readBytes: loadBytes,
+      ...(this.warn ? { warn: (msg) => this.warn('textures', msg) } : {}),
+      onImage: () => { if (loading === this._loading) this.uploadTextures(); },
+    });
+  }
+
+  /**
+   * Repack the textures (this.textures, as images have come in) and replace
+   * their two buffers: a new bind group, so renderers rebuild (generation).
+   */
+  uploadTextures() {
+    const { device } = this.context;
+    const { infos, texels } = packTextures(this.textures);
+    const old = [this.textureBuf, this.texelBuf];
+    this.bytes += infos.byteLength + texels.byteLength - old.reduce((n, b) => n + (b?.size ?? 0), 0);
+    this.textureBuf = uploadStorage(device, infos);
+    this.texelBuf = uploadStorage(device, texels);
+    this.generation++;
+    // Destroyed once nothing in flight can be using them.
+    device.queue.onSubmittedWorkDone().then(() => old.forEach((b) => b?.destroy()));
   }
 
   /**

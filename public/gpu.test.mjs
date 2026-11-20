@@ -1857,6 +1857,61 @@ gpuTest('castsShadow: a material seen may cast no shadow, and one unseen may cas
 
 // -- textures --------------------------------------------------------------------------
 
+gpuTest('textures are read as a scene is shown: its albedo first, the image put in when it comes', async () => {
+  const { ASCamera } = await import('./as-camera.js');
+  const { encodePNG } = await import('./png.js');
+  // One red texel; the floor's albedo half grey; white ambient light only.
+  const red = await encodePNG(new Uint8Array([255, 0, 0, 255]), 1, 1);
+  const files = {
+    '/scenes/s.json': JSON.stringify({
+      materials: { tiles: { texture: '@red.png', albedo: [0.5, 0.5, 0.5] }, white: { kind: 'ambient', albedo: [1, 1, 1] } },
+      lights: [],
+      camera: { position: [0, 0, 5], direction: [0, 0, -1] },
+      root: { sphere: { center: [0, 0, 0], radius: 100 }, material: 'white', inside: {
+        plane: { normal: [0, 0, 1], offset: 0 }, material: 'tiles' } },
+    }),
+    '/scenes/red.png': Buffer.from(red),
+  };
+  const asked = [];
+  const server = createServer((req, res) => {
+    asked.push(req.url);
+    const body = files[req.url];
+    res.writeHead(body ? 200 : 404);
+    res.end(body ?? 'not found');
+  });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const sc = await ctx.loadScene(`${base}/scenes/s.json`);          // not waiting for its textures
+    try {
+      assert.ok(sc.textures[0].pending, 'shown before its image is in');
+      const first = sc.generation;
+      await sc.texturing;
+      assert.ok(!sc.textures[0].pending, 'then the image, put in');
+      assert.ok(sc.generation > first, 'buffers replaced: renderers rebuild');
+      assert.ok(asked.includes('/scenes/red.png'));
+    } finally {
+      sc.destroy();
+    }
+    // Before it comes - or if it never does - the material is its albedo:
+    // half grey, in white light, on screen 186 (0.5 encoded).
+    const spec = JSON.parse(files['/scenes/s.json']);
+    const camera = new ASCamera({ position: [0, 0, 5], direction: [0, 0, -1], projection: 'orthographic' });
+    const said = [];
+    const grey = await renderPixels(spec, camera, 8, 8, { files: {}, path: '/nowhere/s.json', warn: (where, msg) => said.push(msg) });
+    grey.at(4, 4).forEach((c) => assert.ok(Math.abs(c - 186) <= 1, `the albedo, untextured: ${grey.at(4, 4)}`));
+    // Waiting, as a tool does: the image is in when loadScene() returns.
+    const waited = await ctx.loadScene(`${base}/scenes/s.json`, { waitForTextures: true });
+    try {
+      assert.ok(!waited.textures[0].pending);
+    } finally {
+      waited.destroy();
+    }
+  } finally {
+    server.close();
+  }
+});
+
 gpuTest('a planar texture: the image on the floor, once per scale, repeated; tinted by albedo', async () => {
   const { ASCamera } = await import('./as-camera.js');
   // A 2x2 image, as decodePNG() gives one: red, green / blue, white.

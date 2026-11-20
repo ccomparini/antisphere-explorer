@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { compileScene, expandReferences, loadReferences, isReference, isSolid, packTextures, readScene, referencedFiles, withReferences } from './antisphere-scene.js';
+import { compileScene, expandReferences, loadReferences, isReference, isSolid, packTextures, readScene, readTextures, referencedFiles, withReferences } from './antisphere-scene.js';
 import { TextureInfo, viewsOf } from './gen/layouts.js';
 import { loadText, loadBytes } from './load.js';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -371,7 +371,7 @@ test('a whole file used as a subtree, where its root was meant: the error says t
 
 // -- textures: a material's image, by reference --------------------------------------
 
-test('a texture: a reference to a PNG, read decoded, one table entry however many name it, from a library too', async () => {
+test('a texture: a reference to a PNG, read when shown, one table entry however many name it, from a library too', async () => {
   const { encodePNG } = await import('./png.js');
   // A 2x2 image: red, green / blue, white.
   const four = await encodePNG(new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255]), 2, 2);
@@ -386,12 +386,19 @@ test('a texture: a reference to a PNG, read decoded, one table entry however man
     'scenes/textures/four.png': four,
   });
   const read = await readScene(`${base}scenes/s.json`);
-  const image = read.files[`${base}scenes/textures/four.png`];
-  assert.deepEqual([image.width, image.height], [2, 2], 'loaded, decoded');
-  assert.deepEqual([...image.rgba.subarray(0, 4)], [255, 0, 0, 255]);
+  assert.ok(!(`${base}scenes/textures/four.png` in read.files), 'not read with the scene');
   const built = compileScene(read.spec, read);
   assert.equal(built.textures.length, 1, 'three materials, one image: one entry');
   assert.equal(built.textures[0].file, `${base}scenes/textures/four.png`);
+  assert.ok(built.textures[0].pending, 'a placeholder, till it is read');
+  assert.deepEqual([...built.textures[0].rgba], [255, 255, 255, 255], 'white: the material shows its albedo');
+  const came = [];
+  await readTextures(built, read.files, { readBytes: loadBytes, onImage: (k) => came.push(k) });
+  assert.deepEqual(came, [1], 'read, being shown');
+  const image = built.textures[0];
+  assert.deepEqual([image.width, image.height, image.pending], [2, 2, undefined], 'read, decoded');
+  assert.deepEqual([...image.rgba.subarray(0, 4)], [255, 0, 0, 255]);
+  assert.equal(read.files[`${base}scenes/textures/four.png`].rgba, image.rgba, 'kept for the next compile');
   const byName = Object.fromEntries(built.materials.filter((m) => m.name).map((m) => [m.name, m]));
   for (const name of ['tiles', 'tinted', 'wall']) assert.equal(byName[name].texture, 1, `${name}: the image`);
   assert.deepEqual(byName.tiles.albedo, [1, 1, 1], 'textured, albedo white unless given');
@@ -418,7 +425,7 @@ test('a texture on a material a node names by reference: found from the material
   assert.ok(built.materials.some((m) => m.texture === 1), 'and the material textured');
 });
 
-test('a texture missing, not a reference, or an unknown projection: warned of, and the material plays on', async () => {
+test('a texture missing, not a reference, or an unknown projection: warned of, and the material plays on, its albedo', async () => {
   const base = onDisk({
     's.json': JSON.stringify({
       materials: { gone: { texture: '@nowhere.png' }, plain: { texture: 'four.png' }, round: { projection: 'spherical' } },
@@ -427,15 +434,16 @@ test('a texture missing, not a reference, or an unknown projection: warned of, a
         inside: { sphere: { center: [0, 0, 0], radius: 1 }, material: 'round' } } },
     }),
   });
-  const loading = [], compiling = [];
+  const loading = [], compiling = [], reading = [];
   const read = await readScene(`${base}s.json`, { warn: (msg) => loading.push(msg) });
-  assert.match(loading.join('\n'), /nowhere\.png.*no such file.*left out/);
+  assert.deepEqual(loading, [], 'images are not read with the scene');
   const built = compileScene(read.spec, { ...read, warn: (where, msg) => compiling.push(`${where}: ${msg}`) });
-  assert.equal(built.textures.length, 0);
-  assert.ok(compiling.some((w) => /materials\.gone\.texture: No such image: "nowhere\.png"/.test(w)), compiling.join('\n'));
-  assert.ok(compiling.some((w) => /materials\.plain\.texture: No such image: "four\.png"/.test(w)), compiling.join('\n'));
   assert.ok(compiling.some((w) => /materials\.round\.projection: "spherical" isn't a projection there is yet/.test(w)), compiling.join('\n'));
-  assert.ok(built.materials.filter((m) => m.name).every((m) => m.texture === 0), 'all untextured');
+  // Read as shown: what can't be is said then, and stays a placeholder.
+  await readTextures(built, read.files, { readBytes: loadBytes, warn: (msg) => reading.push(msg) });
+  assert.match(reading.join('\n'), /cannot load ".*nowhere\.png".*shown untextured/);
+  assert.match(reading.join('\n'), /cannot load "four\.png".*shown untextured/);
+  assert.ok(built.textures.every((t) => t.pending), 'each still its placeholder: the material shows its albedo');
 });
 
 test('packTextures(): each texture\'s place among the texels and its size, from 1; with none, stand-ins', () => {

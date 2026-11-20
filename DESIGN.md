@@ -205,6 +205,12 @@ bet that they stay there.
   any of its faces, but `trace()` names the node the cell ends at, so a
   textured hit walks to the face the ray crossed (`surfaceAt()`), as a
   mirror's and glass's do - for its patch, and its normal.
+- **Read as shown.** A scene loads and compiles without its images; it is
+  shown at once, each material its albedo, and the images its nodes use are
+  read and put in as they come (`readTextures()`). Most scenes need none of
+  the library's: they show in tens of milliseconds. To come: reading the
+  likeliest seen first; and decoding off the page's thread (a worker, or
+  the browser's own decoder) if a large image's decode shows as a stutter.
 - **To come:** mip-mapping, or something that does its job - nothing yet
   filters a texture seen small, so a distant pattern aliases; and a
   spherical projection alongside the planar one.

@@ -156,7 +156,7 @@ and editing it edits that material.
 | `iorWater` | boolean                                         | `false`          | the same, index 1.333 (both `iorGlass` and `iorWater`: 2.42, diamond) |
 | `opacity`  | number ≥ 0                                      | `1`              | glass and water: how fast light through it takes on its `albedo` - after `d` units, `albedo`^(`d` × `opacity`). `0` is clear; see below for values |
 | `reflective` | boolean                                       | `false`          | a mirror: no shading of its own; it shows what a camera ray reflected from it sees, times its `albedo` |
-| `texture`  | a reference to a PNG, `"@textures/bricks.png"` | none            | an image to colour it by: each point the image's colour there, times `albedo` (which defaults to white with a texture). Laid on as `projection` says, filtered bilinearly; its colours are sRGB, as a PNG's are, and made light as `albedo` is |
+| `texture`  | a reference to a PNG, `"@textures/bricks.png"` | none            | an image to colour it by: each point the image's colour there, times `albedo` (which defaults to white with a texture). Laid on as `projection` says, filtered bilinearly; its colours are sRGB, as a PNG's are, and made light as `albedo` is. Read when a scene showing it is, not with the scene: until it comes, the material shows its `albedo` |
 | `projection` | `"planar"`                                  | `"planar"`       | how the texture is laid on: `"planar"`, by the surface's coordinates in units of `scale` - the image once per `scale` across, repeated. Spherical (geodesic) is to come |
 
 The boolean fields are the material's **trace flags**: every single-bit

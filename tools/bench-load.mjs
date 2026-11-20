@@ -3,9 +3,9 @@
 //
 //   node tools/bench-load.mjs [-n runs] scene ...
 //
-//   read      readScene(): the file and everything it references, as read
-//             (images decoded: "images" says how many, and how big, and
-//             how many of them the compiled scene uses)
+//   read      readScene(): the file and everything it references, as read -
+//             but images, read as the scene is shown ("textures"; "images"
+//             says how many were, and how big, and how many it uses)
 //   compile   compileScene(): the spec into nodes, materials, lights, ...
 //   place     placeAllLoading(): each "place"d object's files read, and it
 //             compiled alone and grafted in
@@ -13,6 +13,9 @@
 //             packTextures(): the compiled scene as the GPU takes it
 //   upload    ASScene.load() less its packing: the buffers made and
 //             written, waited for until the GPU has them
+//   shown     all of the above: the scene on screen, its textures still
+//             to come (their materials showing their albedo)
+//   textures  the images it shows, read and put in after that
 //
 // Each run is a process of its own, as a page load is, cold; the table
 // gives each stage's median. Precompiling a scene is meant to take the
@@ -73,11 +76,18 @@ async function measureOne(scene) {
   await gpu.device.queue.onSubmittedWorkDone();
   const loaded = clock() - t;
 
+  // The images it shows, read and put in after it is first shown.
+  t = clock();
+  await sc.texturing;
+  await gpu.device.queue.onSubmittedWorkDone();
+  const textures = clock() - t;
+
   // The images read, decoded - whether the scene uses them or not: a
   // material library's textures come with it.
-  const images = Object.values(files ?? {}).filter((f) => f?.rgba);
-  const texelBytes = images.reduce((sum, f) => sum + f.rgba.byteLength, 0);
-  console.log(JSON.stringify({ read, compile, place, pack, upload: Math.max(0, loaded - pack),
+  // The images read and decoded: those it shows, read after it is shown.
+  const images = (built.textures ?? []).filter((t) => !t.pending && t.rgba);
+  const texelBytes = images.reduce((sum, t) => sum + t.rgba.byteLength, 0);
+  console.log(JSON.stringify({ read, compile, place, pack, upload: Math.max(0, loaded - pack), textures,
                                nodes: built.nodes.length, gpuBytes: sc.bytes,
                                images: images.length, texelBytes, used: usedTextures(built) }));
   sc.destroy();
@@ -115,7 +125,7 @@ if (values.one) {
 }
 
 const runs = Math.max(1, +values.runs || 3);
-const rows = [['scene', 'nodes', 'images (used)', 'GPU', 'read', 'compile', 'place', 'pack', 'upload', 'total']];
+const rows = [['scene', 'nodes', 'images (used)', 'GPU', 'read', 'compile', 'place', 'pack', 'upload', 'shown', 'textures', 'total']];
 for (const scene of positionals) {
   const samples = [];
   for (let i = 0; i < runs; i++) {
@@ -131,10 +141,11 @@ for (const scene of positionals) {
   }
   if (!samples.length) { rows.push([scene, 'failed']); continue; }
   const m = (k) => median(samples.map((s) => s[k]));
-  const total = median(samples.map((s) => s.read + s.compile + s.place + s.pack + s.upload));
+  const shown = median(samples.map((s) => s.read + s.compile + s.place + s.pack + s.upload));
+  const total = median(samples.map((s) => s.read + s.compile + s.place + s.pack + s.upload + s.textures));
   const s0 = samples[0];
   rows.push([scene, String(s0.nodes), `${s0.images}, ${mb(s0.texelBytes)} (${s0.used})`, mb(s0.gpuBytes),
-             ms(m('read')), ms(m('compile')), ms(m('place')), ms(m('pack')), ms(m('upload')), ms(total)]);
+             ms(m('read')), ms(m('compile')), ms(m('place')), ms(m('pack')), ms(m('upload')), ms(shown), ms(m('textures')), ms(total)]);
 }
 process.stderr.write('\r\x1b[K');
 const widths = rows[0].map((_, c) => Math.max(...rows.map((r) => (r[c] ?? '').length)));

@@ -351,6 +351,15 @@ Planned, "Rays that continue from a hit").
 
 ### `textures` and `texels`
 
+Images are read as a scene is shown, not as it is loaded or compiled:
+`compileScene()` gives one not read yet a placeholder in `textures` - one
+white texel, `pending: true` - so its material shows its albedo.
+`ASScene` reads those its nodes' materials show (`texturesInUse()`,
+`readTextures()`), puts each in as it comes, and repacks the two buffers
+below, a new bind group (`generation`); `scene.texturing` is done when all
+are in. `loadScene()` doesn't wait for it unless asked (`waitForTextures`,
+on the call or the context); the tools and tests that render do.
+
 A `TextureInfo` per texture, entry 0 a stand-in, as materials index them:
 
 | offset | field | type |
