@@ -288,9 +288,12 @@ async function main(argv) {
   }
   const names = named.length ? named : MODELS.map((m) => m.name);
   const missing = names.filter((n) => !isFetched(modelNamed(n, MODELS)));
+  const failures = [ ];
   if (missing.length) {
     const failed = await ensureModels(missing, { say: (...s) => console.error(...s) });
-    if (failed) throw new Error(failed);
+    if (failed) {
+      failures.push(failed);
+    }
     console.error(`fetched: ${missing.join(', ')}`);
   } else if (archive === null) {
     console.error(`all there: ${names.join(', ')} (--list; --clean, then fetch, for afresh)`);
@@ -299,6 +302,10 @@ async function main(argv) {
     const paths = archiveModels(named, archive);
     console.error(`archived ${names.join(', ')} - ${paths.length} files, ${(statSync(archive).size / 1e6).toFixed(1)} MB - to ${archive};`
                   + ' in another checkout\'s root: tar xzf it');
+  }
+
+  if (failures) {
+    throw new Error(failures.join("\n"));
   }
 }
 
