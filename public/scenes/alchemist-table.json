@@ -1,0 +1,187 @@
+{
+  "declare": {
+    "table_radius": 1,
+    "table_height": 0.75,
+    "table_top_thickness": 0.05,
+    "table_leg_height": "=$table_height - $table_top_thickness",
+    "table_leg_length": "=$table_radius * 1.32",
+    "table_leg_thickness": 0.12,
+    "table_foot_thickness": 0.05
+  },
+  "materials": [
+    "@lib/materials.json",
+    {
+      "wood": {
+        "albedo": [ 0.55, 0.38, 0.22 ],
+        "texture": "@parts/fwood.png"
+      }
+    },
+    {
+      "glass-noshadow": {
+        "iorGlass": true,
+        "albedo": [ 0.82, 0.94, 0.9 ],
+        "kind": "glossy",
+        "shininess": 120,
+        "specular": 1,
+        "castsShadow": false
+      }
+    }
+  ],
+  "lights": [
+    {
+      "direction": [ -15, -7.9, -8.2 ],
+      "color": [ 1.5, 1.2, 0.8 ]
+    }
+  ],
+  "camera": {
+    "position": [ 0, 8, 4.8 ],
+    "target": [ 0, 0, "$table_height" ],
+    "minDistance": 0.5,
+    "maxDistance": 23
+  },
+  "objects": {
+    "table": {
+      "_comment": [ "round table, one leg, 4 feet" ],
+      "material": "wood",
+      "intersection": [
+        {
+          "cylinder": {
+            "radius": "$table_radius"
+          }
+        },
+        {
+          "union": [
+            {
+              "intersection": [
+                {
+                  "plane": {
+                    "offset": "$table_height"
+                  }
+                },
+                {
+                  "plane": {
+                    "offset": "$table_leg_height",
+                    "complement": true
+                  }
+                }
+              ]
+            },
+            {
+              "slab": {
+                "thickness": "$table_leg_height",
+                "center": [ 0, 0, "=$table_leg_height / 2" ]
+              },
+              "inside": {
+                "cylinder": {
+                  "radius": "$table_leg_thickness"
+                }
+              }
+            },
+            {
+              "union": [
+                {
+                  "repeat": {
+                    "range": {
+                      "foot_angle": [ 0, 90 ]
+                    },
+                    "repetend": {
+                      "rotate": { "degrees": [ 0, 0, "$foot_angle" ] },
+                      "intersection": [
+                        {
+                          "spheroid": {
+                            "_comment": "isn't axis supposed to be the height direction?",
+                            "axis": [ 1, 0, 0 ], 
+                            "radius": "=$table_foot_thickness * 3",
+                            "height": "$table_leg_length"
+                          },
+                          "inside": {
+                            "spheroid": {
+                              "complement": true,
+                              "axis": [ 1, 0, 0 ], 
+                              "center": [ 0, 0, "=-$table_foot_thickness" ],
+                              "radius": "=$table_foot_thickness * 2.8",
+                              "height": "=$table_leg_length * 0.8"
+                            }
+                          }
+                        },
+                        {
+                          "slab": {
+                            "axis": [ 0, 1, 0 ],
+                            "thickness": "$table_foot_thickness"
+                          }
+                        },
+                        {
+                          "plane": {
+                            "complement": true
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "ring": {
+      "use": "@parts/gold-ring.json",
+      "scale": 0.02
+    },
+    "lens": {
+      "sphere": {
+        "center": [ 0, 3.6, 0.15 ],
+        "radius": 4
+      },
+      "material": "glass-noshadow",
+      "inside": {
+        "sphere": {
+          "center": [ 0, -3.6, 0.15 ],
+          "radius": 4
+        }
+      }
+    },
+    "cheese": {
+      "use": "@parts/cheese.json#/objects/cheese-wedge",
+      "material": "@parts/cheese.json#/materials/blue-cheese"
+    }
+  },
+  "root": {
+    "material": "sky-ornate-carpet",
+    "sphere": {
+      "complement": true,
+      "radius": 50
+    },
+    "outside": {
+      "material": "tiles-1",
+      "plane": {
+        
+      },
+      "outside": {
+        "group": [
+          {
+            "use": "table"
+          },
+          {
+            "place": "ring",
+            "translate": [ 1.6, -0.2, 0 ]
+          },
+          {
+            "use": "cheese",
+            "translate": [ 2.3, 0, 0 ]
+          },
+          {
+            "use": "lens",
+            "translate": [ 1.7, 3.8, 4.1 ],
+            "scale": 0.25,
+            "rotate": {
+              "axis": [ 0, 1, 1 ],
+              "degrees": -65
+            }
+          }
+        ]
+      }
+    }
+  }
+}
